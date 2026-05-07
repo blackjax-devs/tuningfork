@@ -1,0 +1,33 @@
+# Build artifacts
+_build
+__pycache__/
+*.pyc
+*.egg-info/
+*_version.py
+.pytest_cache/
+
+# venv / uv
+.venv/
+uv.lock
+
+# Notebook artifacts (we never commit .ipynb — only MyST .md)
+*.ipynb
+.ipynb_checkpoints/
+
+# Benchmark outputs (large; keep only canonical snapshots)
+results/runs/
+results/cache/
+
+# Tier-A reference draws are large — gitignore by default; commit a small
+# canonical subset by force-add when finalizing a release.
+bjx_bench/reference/draws/*.npz
+bjx_bench/reference/draws/*.npy
+
+# OS / editor
+.DS_Store
+*.bak
+.vscode/
+.idea/
+
+# Local-only Claude scratchpads
+CLAUDE.md.local

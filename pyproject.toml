@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bjx-bench"
+authors = [{name = "The Blackjax team"}]
+description = "Benchmark library for BlackJAX MCMC/VI/SMC algorithms — calibrated, gradient-counted comparisons across a curated 14-model suite."
+requires-python = ">=3.11"
+dependencies = [
+    "jax",
+    "jaxlib",
+    "numpy",
+    "pandas",
+]
+dynamic = ["version"]
+
+# The `bench` group is the canonical install for running benchmarks.
+# Mirrors sampling-book's `book` group so model implementations port cleanly,
+# plus optuna (Tier-B BO) and posteriordb (Tier-A cross-check, per resolved decision).
+[dependency-groups]
+bench = [
+    "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@main",
+    "aeppl",
+    "aesara",
+    "arviz",
+    "datasets",
+    "diffeqzoo",
+    "fastprogress",
+    "flax",
+    "ipython",
+    "jupyter-cache",
+    "jupyter-book>=2",
+    "jupytext",
+    "matplotlib",
+    "numpy",
+    "numpyro",
+    "optax",
+    "pandas",
+    "probdiffeq",
+    "scikit-learn",
+    "seaborn",
+    "tfp-nightly[jax]",
+    # bjx-bench-specific additions
+    "optuna",                   # Tier-B Bayesian optimization over hyperparameters
+    "posteriordb",              # Tier-A cross-check against Stan reference draws (#3, #6, #10)
+    "pytest",
+    "pytest-cov",
+    "pre-commit",
+]
+
+[project.urls]
+homepage = "https://github.com/blackjax-devs/bjx-bench"
+
+[project.license]
+text = "Apache License 2.0"
+files = ["LICENSE"]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.scripts]
+bjx-bench = "bjx_bench.cli:main"
+
+[tool.setuptools]
+platforms = ["Linux", "Mac OS-X", "Unix"]
+
+[tool.setuptools.packages.find]
+include = ["bjx_bench*"]
+exclude = ["tests", "tests.*", "notebooks", "notebooks.*", "results", "results.*"]
+
+[tool.setuptools_scm]
+write_to = "bjx_bench/_version.py"
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+filterwarnings = ["error"]
