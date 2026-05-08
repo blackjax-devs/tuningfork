@@ -311,6 +311,148 @@ def _cmd_warmup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_leaderboard(args: argparse.Namespace) -> int:
+    """Handle the ``leaderboard`` subcommand.
+
+    Scans bjx_bench/inference/recipes/starter/<model>/*.json, loads recipes,
+    filters by effort (if specified), and renders a markdown table (default)
+    or JSON list.
+    """
+    import json
+    from pathlib import Path
+
+    from bjx_bench.inference.recipes._base import Recipe
+    from bjx_bench.model import MODELS
+
+    # ------------------------------------------------------------------ #
+    # 1. Validate model                                                  #
+    # ------------------------------------------------------------------ #
+    if args.model not in MODELS:
+        known = ", ".join(sorted(MODELS.keys()))
+        print(
+            f"error: unknown model {args.model!r}. Known models: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # ------------------------------------------------------------------ #
+    # 2. Glob recipes from disk                                          #
+    # ------------------------------------------------------------------ #
+    recipe_dir = (
+        Path(__file__).parent / "inference" / "recipes" / "starter" / args.model
+    )
+    recipes: list[Recipe] = []
+    if not recipe_dir.exists():
+        # Model directory doesn't exist; no recipes
+        pass
+    else:
+        recipe_files = sorted(recipe_dir.glob("*.json"))
+        for recipe_file in recipe_files:
+            try:
+                recipe = Recipe.load(recipe_file)
+                recipes.append(recipe)
+            except Exception as e:
+                print(
+                    f"warning: failed to load {recipe_file}: {e}",
+                    file=sys.stderr,
+                )
+
+    # ------------------------------------------------------------------ #
+    # 3. Filter by effort if specified                                   #
+    # ------------------------------------------------------------------ #
+    if args.effort:
+        recipes = [r for r in recipes if r.effort.value == args.effort]
+
+    # ------------------------------------------------------------------ #
+    # 4. Sort: effort (LOW → MEDIUM → HIGH), then headline_metric desc  #
+    #    within HIGH (null sorts to the end), then alphabetically        #
+    # ------------------------------------------------------------------ #
+    def sort_key(recipe):
+        effort_order = {"low": 0, "medium": 1, "high": 2}
+        effort_val = effort_order.get(recipe.effort.value, 999)
+
+        # For sorting within HIGH: by headline_metric descending (nulls last),
+        # then by algorithm name alphabetically
+        if recipe.effort.value == "high" and recipe.headline_metric is not None:
+            headline_sort = (-recipe.headline_metric, recipe.base_method_name)
+        else:
+            headline_sort = (float("inf"), recipe.base_method_name)
+
+        return (effort_val, headline_sort)
+
+    recipes.sort(key=sort_key)
+
+    # ------------------------------------------------------------------ #
+    # 5. Render output                                                   #
+    # ------------------------------------------------------------------ #
+    if args.format == "json":
+        output = [
+            {
+                "model_name": recipe.model_name,
+                "base_method_name": recipe.base_method_name,
+                "warmup_name": recipe.warmup_name,
+                "effort": recipe.effort.value,
+                "headline_metric": recipe.headline_metric,
+                "default_works": (
+                    recipe.difficulty["default_works"] if recipe.difficulty else None
+                ),
+                "n_trials_to_threshold": (
+                    recipe.difficulty["n_trials_to_threshold"]
+                    if recipe.difficulty
+                    else None
+                ),
+            }
+            for recipe in recipes
+        ]
+        print(json.dumps(output, indent=2))
+    else:
+        # markdown format (default)
+        print()
+        print(f"Leaderboard for {args.model}:")
+        print()
+
+        if not recipes:
+            print("No recipes found.")
+            return 0
+
+        # Render markdown table
+        print(
+            "| effort | algorithm | warmup       | headline   | default_works | n_to_thresh |"
+        )
+        print(
+            "|--------|-----------|--------------|------------|---------------|-------------|"
+        )
+
+        for recipe in recipes:
+            effort = recipe.effort.value
+            algorithm = recipe.base_method_name
+            warmup = recipe.warmup_name
+
+            # headline_metric: null for LOW/MEDIUM, show as "n/a"
+            if recipe.headline_metric is None:
+                headline_str = "n/a"
+            else:
+                headline_str = f"{recipe.headline_metric:.4g}"
+
+            # default_works and n_to_thresh: only for HIGH
+            if recipe.difficulty is not None:
+                default_works_str = str(recipe.difficulty.get("default_works", "n/a"))
+                n_to_thresh_str = str(
+                    recipe.difficulty.get("n_trials_to_threshold", "n/a")
+                )
+            else:
+                default_works_str = "n/a"
+                n_to_thresh_str = "n/a"
+
+            print(
+                f"| {effort:<6} | {algorithm:<9} | {warmup:<12} | {headline_str:<10} | {default_works_str:<13} | {n_to_thresh_str:<11} |"
+            )
+
+        print()
+
+    return 0
+
+
 def _cmd_tune(args: argparse.Namespace) -> int:
     """Handle the ``tune`` subcommand.
 
@@ -556,6 +698,28 @@ def main() -> int:
         help="If set, write JSON-serialized TuningResult to this path",
     )
 
+    # ---- leaderboard subcommand ----
+    p_leaderboard = sub.add_parser(
+        "leaderboard",
+        help="Render a leaderboard table of recipes for a model",
+    )
+    p_leaderboard.add_argument(
+        "model",
+        help="Model name, e.g. mvn_10, neals_funnel",
+    )
+    p_leaderboard.add_argument(
+        "--effort",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Filter by effort level (default: show all)",
+    )
+    p_leaderboard.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Output format: markdown (default) or json",
+    )
+
     args = parser.parse_args()
     if args.cmd == "tier-a":
         return _cmd_tier_a(args)
@@ -563,6 +727,8 @@ def main() -> int:
         return _cmd_warmup(args)
     if args.cmd == "tune":
         return _cmd_tune(args)
+    if args.cmd == "leaderboard":
+        return _cmd_leaderboard(args)
 
     # Should not be reachable (subparsers required=True)
     parser.print_help()
