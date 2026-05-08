@@ -4,32 +4,32 @@
   "warmup_name": "stan_window",
   "effort": "high",
   "base_method_params": {
-    "step_size": 0.05430111227851115,
-    "num_integration_steps": 43
+    "step_size": 0.07224039682627457,
+    "num_integration_steps": 55
   },
   "warmup_params": {},
-  "headline_metric": 0.004081036197021604,
+  "headline_metric": 0.005739898653700948,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 20,
-    "wall_seconds_estimate": 29.77510572798201,
+    "wall_seconds_estimate": 24.405260110012023,
     "n_seeds": 2
   },
   "difficulty": {
-    "default_score": 0.0006829449557699263,
-    "best_score": 0.004081036197021604,
-    "threshold_score": 0.002040518098510802,
+    "default_score": 0.0015446458710357547,
+    "best_score": 0.005739898653700948,
+    "threshold_score": 0.002869949326850474,
     "default_works": false,
-    "n_trials_to_threshold": 6,
-    "n_trials_to_best": 12,
-    "wall_seconds_to_threshold": 15.557879492989741,
-    "wall_seconds_to_best": 29.77510572798201
+    "n_trials_to_threshold": 9,
+    "n_trials_to_best": 9,
+    "wall_seconds_to_threshold": 24.405260110012023,
+    "wall_seconds_to_best": 24.405260110012023
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune ill_cond_50 hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.05430111227851115, 'num_integration_steps': 43}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0041.\nTotal calibration time: ~0 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune ill_cond_50 hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.07224039682627457, 'num_integration_steps': 55}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0057.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
   "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-08T12:24:46Z"
+  "timestamp_utc": "2026-05-08T12:44:51Z"
 }

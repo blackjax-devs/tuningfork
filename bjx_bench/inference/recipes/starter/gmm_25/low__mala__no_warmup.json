@@ -1,5 +1,5 @@
 {
-  "model_name": "neals_funnel",
+  "model_name": "gmm_25",
   "base_method_name": "mala",
   "warmup_name": "no_warmup",
   "effort": "low",

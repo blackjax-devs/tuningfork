@@ -1,5 +1,5 @@
 {
-  "model_name": "ill_cond_50",
+  "model_name": "gmm_25",
   "base_method_name": "rwm",
   "warmup_name": "no_warmup",
   "effort": "low",

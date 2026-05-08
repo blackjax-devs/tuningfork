@@ -14,6 +14,7 @@ from bjx_bench.model.gaussians.ill_cond_50 import ENTRY as _ill_cond_50
 from bjx_bench.model.gaussians.mvn_10 import ENTRY as _mvn_10
 from bjx_bench.model.hierarchical.eight_schools import ENTRY as _eight_schools_ncp
 from bjx_bench.model.pathological.banana import ENTRY as _banana
+from bjx_bench.model.pathological.gmm_25 import ENTRY as _gmm_25
 from bjx_bench.model.pathological.neals_funnel import ENTRY as _neals_funnel
 
 __all__ = ["MODELS", "Posterior", "ReferenceMethod", "build_logdensity_fn"]
@@ -26,5 +27,6 @@ MODELS: dict[str, Posterior] = {
         _neals_funnel,
         _eight_schools_ncp,
         _banana,
+        _gmm_25,
     ]
 }

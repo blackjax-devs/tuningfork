@@ -48,12 +48,14 @@ from bjx_bench.model import MODELS
 # Starter models: Phase 2.5 seed set + Phase 4 models as they land.
 # P4.1 adds ill_cond_50 (Block A: 50-D ill-conditioned Gaussian, κ≈1000).
 # P4.2 adds banana (Block A: 2-D banana/Rosenbrock-style, curved manifold).
+# P4.3 adds gmm_25 (Block A: 2-D 25-mode Gaussian mixture on a 5x5 grid).
 STARTER_MODEL_NAMES = [
     "mvn_10",
     "ill_cond_50",
     "neals_funnel",
     "eight_schools_ncp",
     "banana",
+    "gmm_25",
 ]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
