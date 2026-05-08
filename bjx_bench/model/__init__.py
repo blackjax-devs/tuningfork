@@ -18,6 +18,7 @@ from bjx_bench.model.glm.logistic_synthetic import ENTRY as _logistic_synthetic
 from bjx_bench.model.hierarchical.eight_schools import ENTRY as _eight_schools_ncp
 from bjx_bench.model.hierarchical.irt_2pl import ENTRY as _irt_2pl
 from bjx_bench.model.hierarchical.radon import ENTRY as _radon
+from bjx_bench.model.latent_gaussian.stoch_vol import ENTRY as _stoch_vol
 from bjx_bench.model.pathological.banana import ENTRY as _banana
 from bjx_bench.model.pathological.gmm_25 import ENTRY as _gmm_25
 from bjx_bench.model.pathological.neals_funnel import ENTRY as _neals_funnel
@@ -38,5 +39,6 @@ MODELS: dict[str, Posterior] = {
         _horseshoe,
         _radon,
         _irt_2pl,
+        _stoch_vol,
     ]
 }
