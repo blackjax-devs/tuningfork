@@ -53,6 +53,7 @@ from bjx_bench.model import MODELS
 # P4.5 adds german_credit (Block B: 26-D logistic regression on real UCI German Credit data).
 # P4.6 adds horseshoe (Block B: 204-D Finnish horseshoe sparse linear regression, NCP).
 # P4.7 adds radon (Block C: 391-D NCP hierarchical, posteriordb radon_all).
+# P4.8 adds irt_2pl (Block C: 144-D NCP IRT 2PL, J=100 I=20, no posteriordb xcheck).
 STARTER_MODEL_NAMES = [
     "mvn_10",
     "ill_cond_50",
@@ -64,6 +65,7 @@ STARTER_MODEL_NAMES = [
     "german_credit",
     "horseshoe",
     "radon",
+    "irt_2pl",
 ]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)

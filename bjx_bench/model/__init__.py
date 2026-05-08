@@ -16,6 +16,7 @@ from bjx_bench.model.glm.german_credit import ENTRY as _german_credit
 from bjx_bench.model.glm.horseshoe import ENTRY as _horseshoe
 from bjx_bench.model.glm.logistic_synthetic import ENTRY as _logistic_synthetic
 from bjx_bench.model.hierarchical.eight_schools import ENTRY as _eight_schools_ncp
+from bjx_bench.model.hierarchical.irt_2pl import ENTRY as _irt_2pl
 from bjx_bench.model.hierarchical.radon import ENTRY as _radon
 from bjx_bench.model.pathological.banana import ENTRY as _banana
 from bjx_bench.model.pathological.gmm_25 import ENTRY as _gmm_25
@@ -36,5 +37,6 @@ MODELS: dict[str, Posterior] = {
         _german_credit,
         _horseshoe,
         _radon,
+        _irt_2pl,
     ]
 }
