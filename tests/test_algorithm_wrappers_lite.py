@@ -102,10 +102,16 @@ class TestAlgorithmRegistryLite:
     def test_rwm_target_acceptance(self) -> None:
         assert ALGORITHMS["rwm"].target_acceptance_rate == pytest.approx(0.234)
 
-    def test_all_five_algorithms_present(self) -> None:
-        """Sanity check: ALGORITHMS has exactly hmc, nuts, mala, barker, rwm."""
-        expected = {"hmc", "nuts", "mala", "barker", "rwm"}
-        assert set(ALGORITHMS.keys()) == expected
+    def test_all_five_t23_algorithms_present(self) -> None:
+        """Sanity check: T2.3 algorithms (hmc, nuts, mala, barker, rwm) are present.
+
+        T2.4 adds mclmc (tested in test_algorithm_wrappers_mclmc.py).
+        This test checks inclusion only so future subtasks can extend ALGORITHMS.
+        """
+        required = {"hmc", "nuts", "mala", "barker", "rwm"}
+        assert required.issubset(
+            set(ALGORITHMS.keys())
+        ), f"Missing T2.3 algorithms: {required - set(ALGORITHMS.keys())}"
 
 
 # ===========================================================================
