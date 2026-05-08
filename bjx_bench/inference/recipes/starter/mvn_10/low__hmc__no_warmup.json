@@ -1,0 +1,25 @@
+{
+  "model_name": "mvn_10",
+  "base_method_name": "hmc",
+  "warmup_name": "no_warmup",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 0.03162277660168379,
+    "num_integration_steps": 64
+  },
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (zero calibration). To use:\n  ```python\n  kernel = blackjax.hmc(logdensity_fn, **{'step_size': 0.03162277660168379, 'num_integration_steps': 64})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: not measured (zero-calibration recipe).\nWhen to use: one-off analysis, exploratory work, prototyping. No warmup required \u2014 these are the geometric-mean defaults from the search space.",
+  "notes": "",
+  "tuning_seed": 0,
+  "bjx_bench_version": "0.1.dev0+d20260507",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T07:18:33Z"
+}
