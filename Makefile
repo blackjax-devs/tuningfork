@@ -21,3 +21,6 @@ tier-a:
 tune:
 	@echo "usage: make tune MODEL=<name> ALGO=<name>"
 	@echo "(Phase 2 will implement: bjx-bench tune $(MODEL) $(ALGO))"
+
+claude-perms-audit:
+	uv run python tools/claude_perms_audit.py
