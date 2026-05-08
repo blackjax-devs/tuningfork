@@ -3,7 +3,7 @@
 Covers:
 - ``default_value_for_space``: one test per kind (loguniform, uniform, int,
   categorical) plus bad-kind ValueError.
-- ``default_params_for``: round-trip on the HMC entry from ALGORITHMS.
+- ``default_params_for``: round-trip on the HMC entry from BASE_METHODS.
 - ``optuna_distribution_for_space``: kind-level type and attribute checks;
   Optuna enqueue_trial round-trip smoke.
 - ``optuna_distributions_for``: on HMC entry, both keys present with correct
@@ -42,8 +42,6 @@ import optuna
 import optuna.distributions as D
 import pytest
 
-from bjx_bench.algorithms import ALGORITHMS
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
 from bjx_bench.calibration.tier_b import (
     TuningDifficulty,
     TuningResult,
@@ -52,12 +50,14 @@ from bjx_bench.calibration.tier_b import (
     optuna_distribution_for_space,
     optuna_distributions_for,
 )
+from bjx_bench.inference.base_method import BASE_METHODS
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
-HMC_ENTRY: AlgorithmEntry = ALGORITHMS["hmc"]
+HMC_ENTRY: BaseMethod = BASE_METHODS["hmc"]
 
 # HMC default_hp_space:
 #   HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0)
@@ -191,7 +191,7 @@ class TestDefaultParamsFor:
 
     def test_multi_space_entry(self) -> None:
         """Custom entry with 3 spaces produces a dict with 3 keys."""
-        entry = AlgorithmEntry(
+        entry = BaseMethod(
             name="custom",
             family="mcmc",
             factory=lambda fn, **kw: None,
@@ -457,7 +457,7 @@ class TestTuningResultConstruction:
             },
         )
         result = TuningResult(
-            algorithm_name="hmc",
+            base_method_name="hmc",
             posterior_name="mvn_10",
             best_params={"step_size": 0.03},
             best_score=0.10,
@@ -466,7 +466,7 @@ class TestTuningResultConstruction:
             history=history,
             difficulty=self._make_difficulty(),
         )
-        assert result.algorithm_name == "hmc"
+        assert result.base_method_name == "hmc"
         assert result.posterior_name == "mvn_10"
         assert result.best_score == pytest.approx(0.10)
         assert result.n_trials_completed == 1
@@ -477,7 +477,7 @@ class TestTuningResultConstruction:
         """history field must be a tuple (not a list)."""
         history: tuple[dict, ...] = tuple()
         result = TuningResult(
-            algorithm_name="mala",
+            base_method_name="mala",
             posterior_name="funnel",
             best_params={},
             best_score=0.0,
@@ -493,7 +493,7 @@ class TestTuningResultConstruction:
     def test_frozen(self) -> None:
         """TuningResult is frozen — mutation raises FrozenInstanceError."""
         result = TuningResult(
-            algorithm_name="hmc",
+            base_method_name="hmc",
             posterior_name="mvn_10",
             best_params={},
             best_score=0.0,
@@ -515,7 +515,7 @@ class TestTuningResultConstruction:
             "wall_seconds": 2.1,
         }
         result = TuningResult(
-            algorithm_name="hmc",
+            base_method_name="hmc",
             posterior_name="mvn_10",
             best_params=rec["params"],  # type: ignore[arg-type]
             best_score=rec["score"],  # type: ignore[arg-type]

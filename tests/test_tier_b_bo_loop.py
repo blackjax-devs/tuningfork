@@ -26,13 +26,13 @@ import math
 import jax
 import pytest
 
-from bjx_bench.algorithms import ALGORITHMS
 from bjx_bench.calibration.tier_b import (
     TuningDifficulty,
     TuningResult,
     default_params_for,
     tune_algorithm,
 )
+from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.model import MODELS
 
 # ---------------------------------------------------------------------------
@@ -46,10 +46,10 @@ _N_SEEDS = 1
 _N_CHAINS = 1
 
 _MVN_ENTRY = MODELS["mvn_10"]
-_NUTS_ENTRY = ALGORITHMS["nuts"]
-_HMC_ENTRY = ALGORITHMS["hmc"]
-_MALA_ENTRY = ALGORITHMS["mala"]
-_MCLMC_ENTRY = ALGORITHMS["mclmc"]
+_NUTS_ENTRY = BASE_METHODS["nuts"]
+_HMC_ENTRY = BASE_METHODS["hmc"]
+_MALA_ENTRY = BASE_METHODS["mala"]
+_MCLMC_ENTRY = BASE_METHODS["mclmc"]
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +84,9 @@ def _run_nuts_mvn(
 class TestNutsMvnSmoke:
     """Smoke test: NUTS on MVN-10 with 3 Optuna trials."""
 
-    def test_result_algorithm_name(self) -> None:
+    def test_result_base_method_name(self) -> None:
         result = _run_nuts_mvn(jax.random.key(0))
-        assert result.algorithm_name == "nuts"
+        assert result.base_method_name == "nuts"
 
     def test_result_posterior_name(self) -> None:
         result = _run_nuts_mvn(jax.random.key(1))
@@ -158,9 +158,9 @@ class TestHmcMvnSmoke:
             rng_key=jax.random.key(seed),
         )
 
-    def test_algorithm_name(self) -> None:
+    def test_base_method_name(self) -> None:
         result = self._run(10)
-        assert result.algorithm_name == "hmc"
+        assert result.base_method_name == "hmc"
 
     def test_best_params_has_step_size(self) -> None:
         """HMC best_params must contain step_size."""
@@ -315,7 +315,7 @@ class TestMalaDispatchWired:
             rng_key=jax.random.key(0),
         )
         assert isinstance(result, TuningResult)
-        assert result.algorithm_name == "mala"
+        assert result.base_method_name == "mala"
 
 
 # ---------------------------------------------------------------------------
@@ -344,4 +344,4 @@ class TestMclmcDispatchWired:
             rng_key=jax.random.key(0),
         )
         assert isinstance(result, TuningResult)
-        assert result.algorithm_name == "mclmc"
+        assert result.base_method_name == "mclmc"

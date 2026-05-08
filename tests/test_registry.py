@@ -116,3 +116,22 @@ class TestEightSchoolsNCP:
         assert "mu" in init_pos
         assert "tau" in init_pos
         assert "theta_raw" in init_pos
+
+
+def test_inference_namespace_imports():
+    """Phase 2.5 restructure smoke: model and inference layers
+    import cleanly and expose the expected dicts.
+
+    Pinned in commit 2 of PLAN_bjx_bench_restructure.md. If this
+    fails, the restructure has broken a public namespace.
+    """
+    from bjx_bench.inference.base_method import BASE_METHODS
+    from bjx_bench.inference.warmup import WARMUPS, Warmup
+    from bjx_bench.model import MODELS
+
+    assert isinstance(MODELS, dict)
+    assert len(MODELS) >= 3  # mvn_10, neals_funnel, eight_schools_ncp
+    assert isinstance(BASE_METHODS, dict)
+    assert len(BASE_METHODS) == 6  # hmc, nuts, mala, barker, rwm, mclmc
+    assert isinstance(WARMUPS, dict)  # empty stub for Phase 2.5
+    assert Warmup is not None

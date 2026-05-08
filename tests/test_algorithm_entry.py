@@ -1,8 +1,8 @@
-"""Tests for AlgorithmEntry and HyperparamSpace dataclasses.
+"""Tests for BaseMethod and HyperparamSpace dataclasses.
 
 Covers:
 - Construction with defaults and full fields.
-- __post_init__ validator failures for AlgorithmEntry (empty name, bad
+- __post_init__ validator failures for BaseMethod (empty name, bad
   family, empty default_hp_space).
 - __post_init__ validator failures for HyperparamSpace (bad kind,
   missing low/high for numeric kinds, missing choices for categorical).
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
 # ---------------------------------------------------------------------------
 # Minimal helpers for constructing valid instances.
@@ -23,8 +23,8 @@ from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
 _MINIMAL_HP = (HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),)
 
 
-def _make_entry(**overrides: object) -> AlgorithmEntry:
-    """Return a valid AlgorithmEntry, applying any overrides."""
+def _make_entry(**overrides: object) -> BaseMethod:
+    """Return a valid BaseMethod, applying any overrides."""
     defaults: dict[str, object] = dict(
         name="test_algo",
         family="mcmc",
@@ -33,7 +33,7 @@ def _make_entry(**overrides: object) -> AlgorithmEntry:
         default_hp_space=_MINIMAL_HP,
     )
     defaults.update(overrides)
-    return AlgorithmEntry(**defaults)  # type: ignore[arg-type]
+    return BaseMethod(**defaults)  # type: ignore[arg-type]
 
 
 # ===========================================================================
@@ -97,11 +97,11 @@ class TestHyperparamSpaceValidation:
 
 
 # ===========================================================================
-# AlgorithmEntry tests
+# BaseMethod tests
 # ===========================================================================
 
 
-class TestAlgorithmEntryConstruction:
+class TestBaseMethodConstruction:
     def test_minimal_construction(self) -> None:
         entry = _make_entry()
         assert entry.name == "test_algo"
@@ -150,7 +150,7 @@ class TestAlgorithmEntryConstruction:
         assert len(entry.default_hp_space) == 3
 
 
-class TestAlgorithmEntryValidation:
+class TestBaseMethodValidation:
     def test_empty_name_raises(self) -> None:
         with pytest.raises(ValueError, match="'name' must be a non-empty string"):
             _make_entry(name="")
@@ -164,7 +164,7 @@ class TestAlgorithmEntryValidation:
             _make_entry(default_hp_space=())
 
 
-class TestAlgorithmEntrySmoke:
+class TestBaseMethodSmoke:
     def test_grad_count_callable(self) -> None:
         """Trivial smoke: grad_count_per_step must be callable and return a value."""
 

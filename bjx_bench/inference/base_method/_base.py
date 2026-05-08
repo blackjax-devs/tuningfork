@@ -1,7 +1,7 @@
 """Base types for the bjx-bench algorithm registry.
 
 Every sampling algorithm exposed to the benchmark is described by a single
-``AlgorithmEntry`` frozen dataclass.  Whether the sampler is a gradient-free
+``BaseMethod`` frozen dataclass.  Whether the sampler is a gradient-free
 random-walk (RWM, 0 grads/step) or a sophisticated HMC variant with a full
 leapfrog integrator, the runner, Optuna tuning loop, and CLI always see the
 same surface — no subclassing.
@@ -35,7 +35,7 @@ from typing import Any, Literal
 
 from jax import Array
 
-__all__ = ["HyperparamSpace", "AlgorithmEntry"]
+__all__ = ["HyperparamSpace", "BaseMethod"]
 
 # Valid kinds — duplicated as a frozenset for the __post_init__ guard so we
 # get a single source of truth (the type annotation covers static checking;
@@ -101,7 +101,7 @@ class HyperparamSpace:
 
 
 @dataclass(frozen=True)
-class AlgorithmEntry:
+class BaseMethod:
     """Registry entry for a single sampling algorithm.
 
     Every algorithm in the zoo — from gradient-free RWM to MCLMC with a
@@ -149,7 +149,7 @@ class AlgorithmEntry:
 
     Notes
     -----
-    Why no inheritance / ``MCMCEntry(AlgorithmEntry)`` subclass: registry
+    Why no inheritance / ``MCMCEntry(BaseMethod)`` subclass: registry
     consumers (runner, BO loop, CLI) must not branch on type.  All
     algorithm-specific logic (grad cost, HP space) is carried as
     callable/data fields, not subclass overrides.
@@ -182,14 +182,14 @@ class AlgorithmEntry:
 
     def __post_init__(self) -> None:
         if not self.name:
-            raise ValueError("AlgorithmEntry: 'name' must be a non-empty string")
+            raise ValueError("BaseMethod: 'name' must be a non-empty string")
         if self.family not in self._VALID_FAMILIES:
             raise ValueError(
-                f"AlgorithmEntry '{self.name}': family must be one of "
+                f"BaseMethod '{self.name}': family must be one of "
                 f"{sorted(self._VALID_FAMILIES)}, got '{self.family}'"
             )
         if not self.default_hp_space:
             raise ValueError(
-                f"AlgorithmEntry '{self.name}': 'default_hp_space' must contain "
+                f"BaseMethod '{self.name}': 'default_hp_space' must contain "
                 f"at least one HyperparamSpace entry"
             )

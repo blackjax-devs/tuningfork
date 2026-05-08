@@ -1,7 +1,7 @@
 """Tests for the NUTS and HMC algorithm wrappers (T2.2).
 
 Covers:
-- Both entries are registered in ALGORITHMS under their expected names.
+- Both entries are registered in BASE_METHODS under their expected names.
 - factory is callable and returns a SamplingAlgorithm-shaped object
   (has .init and .step attributes).
 - .init(position) returns a state with finite logdensity.
@@ -19,8 +19,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.algorithms import ALGORITHMS
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
+from bjx_bench.inference.base_method import BASE_METHODS
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
 # ---------------------------------------------------------------------------
 # Shared test fixtures
@@ -47,34 +47,34 @@ def _make_hmc_params() -> dict:
 
 class TestAlgorithmRegistry:
     def test_nuts_registered(self) -> None:
-        assert "nuts" in ALGORITHMS, "ALGORITHMS must contain 'nuts'"
+        assert "nuts" in BASE_METHODS, "BASE_METHODS must contain 'nuts'"
 
     def test_hmc_registered(self) -> None:
-        assert "hmc" in ALGORITHMS, "ALGORITHMS must contain 'hmc'"
+        assert "hmc" in BASE_METHODS, "BASE_METHODS must contain 'hmc'"
 
     def test_nuts_is_algorithm_entry(self) -> None:
-        assert isinstance(ALGORITHMS["nuts"], AlgorithmEntry)
+        assert isinstance(BASE_METHODS["nuts"], BaseMethod)
 
     def test_hmc_is_algorithm_entry(self) -> None:
-        assert isinstance(ALGORITHMS["hmc"], AlgorithmEntry)
+        assert isinstance(BASE_METHODS["hmc"], BaseMethod)
 
     def test_nuts_family(self) -> None:
-        assert ALGORITHMS["nuts"].family == "mcmc"
+        assert BASE_METHODS["nuts"].family == "mcmc"
 
     def test_hmc_family(self) -> None:
-        assert ALGORITHMS["hmc"].family == "mcmc"
+        assert BASE_METHODS["hmc"].family == "mcmc"
 
     def test_nuts_needs_mass_matrix(self) -> None:
-        assert ALGORITHMS["nuts"].needs_mass_matrix is True
+        assert BASE_METHODS["nuts"].needs_mass_matrix is True
 
     def test_hmc_needs_mass_matrix(self) -> None:
-        assert ALGORITHMS["hmc"].needs_mass_matrix is True
+        assert BASE_METHODS["hmc"].needs_mass_matrix is True
 
     def test_nuts_target_acceptance(self) -> None:
-        assert ALGORITHMS["nuts"].target_acceptance_rate == pytest.approx(0.80)
+        assert BASE_METHODS["nuts"].target_acceptance_rate == pytest.approx(0.80)
 
     def test_hmc_target_acceptance(self) -> None:
-        assert ALGORITHMS["hmc"].target_acceptance_rate == pytest.approx(0.65)
+        assert BASE_METHODS["hmc"].target_acceptance_rate == pytest.approx(0.65)
 
 
 # ===========================================================================
@@ -85,17 +85,17 @@ class TestAlgorithmRegistry:
 class TestHyperparamSpaceSanity:
     @pytest.mark.parametrize("name", ["nuts", "hmc"])
     def test_default_hp_space_non_empty(self, name: str) -> None:
-        entry = ALGORITHMS[name]
+        entry = BASE_METHODS[name]
         assert len(entry.default_hp_space) >= 1
 
     @pytest.mark.parametrize("name", ["nuts", "hmc"])
     def test_all_hp_are_hyperparam_space(self, name: str) -> None:
-        for hp in ALGORITHMS[name].default_hp_space:
+        for hp in BASE_METHODS[name].default_hp_space:
             assert isinstance(hp, HyperparamSpace)
 
     @pytest.mark.parametrize("name", ["nuts", "hmc"])
     def test_hp_bounds_consistent(self, name: str) -> None:
-        for hp in ALGORITHMS[name].default_hp_space:
+        for hp in BASE_METHODS[name].default_hp_space:
             if hp.kind in ("loguniform", "uniform", "int"):
                 assert hp.low is not None
                 assert hp.high is not None
@@ -104,22 +104,22 @@ class TestHyperparamSpaceSanity:
                 assert hp.choices is not None and len(hp.choices) > 0
 
     def test_nuts_has_step_size_hp(self) -> None:
-        names = [hp.name for hp in ALGORITHMS["nuts"].default_hp_space]
+        names = [hp.name for hp in BASE_METHODS["nuts"].default_hp_space]
         assert "step_size" in names
 
     def test_hmc_has_step_size_and_num_steps(self) -> None:
-        names = [hp.name for hp in ALGORITHMS["hmc"].default_hp_space]
+        names = [hp.name for hp in BASE_METHODS["hmc"].default_hp_space]
         assert "step_size" in names
         assert "num_integration_steps" in names
 
     def test_nuts_has_no_mass_matrix_hp(self) -> None:
         """inverse_mass_matrix must NOT appear in the NUTS BO search space."""
-        names = [hp.name for hp in ALGORITHMS["nuts"].default_hp_space]
+        names = [hp.name for hp in BASE_METHODS["nuts"].default_hp_space]
         assert "inverse_mass_matrix" not in names
 
     def test_hmc_has_no_mass_matrix_hp(self) -> None:
         """inverse_mass_matrix must NOT appear in the HMC BO search space."""
-        names = [hp.name for hp in ALGORITHMS["hmc"].default_hp_space]
+        names = [hp.name for hp in BASE_METHODS["hmc"].default_hp_space]
         assert "inverse_mass_matrix" not in names
 
 
@@ -130,24 +130,24 @@ class TestHyperparamSpaceSanity:
 
 class TestNutsFactory:
     def test_factory_callable(self) -> None:
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         assert callable(entry.factory)
 
     def test_factory_returns_sampling_algorithm(self) -> None:
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         assert hasattr(kernel, "init"), "kernel must have .init"
         assert hasattr(kernel, "step"), "kernel must have .step"
 
     def test_init_returns_finite_logdensity(self) -> None:
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         state = kernel.init(_POSITION)
         assert jnp.isfinite(state.logdensity)
 
     def test_step_returns_new_state_and_info(self) -> None:
         key = jax.random.key(1)
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         state = kernel.init(_POSITION)
         new_state, info = kernel.step(key, state)
@@ -155,7 +155,7 @@ class TestNutsFactory:
 
     def test_step_info_has_num_integration_steps(self) -> None:
         key = jax.random.key(2)
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         state = kernel.init(_POSITION)
         _, info = kernel.step(key, state)
@@ -164,7 +164,7 @@ class TestNutsFactory:
 
     def test_grad_count_non_negative(self) -> None:
         key = jax.random.key(3)
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         state = kernel.init(_POSITION)
         _, info = kernel.step(key, state)
@@ -173,7 +173,7 @@ class TestNutsFactory:
 
     def test_grad_count_matches_info(self) -> None:
         key = jax.random.key(4)
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         state = kernel.init(_POSITION)
         _, info = kernel.step(key, state)
@@ -183,24 +183,24 @@ class TestNutsFactory:
 
 class TestHmcFactory:
     def test_factory_callable(self) -> None:
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         assert callable(entry.factory)
 
     def test_factory_returns_sampling_algorithm(self) -> None:
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         assert hasattr(kernel, "init"), "kernel must have .init"
         assert hasattr(kernel, "step"), "kernel must have .step"
 
     def test_init_returns_finite_logdensity(self) -> None:
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         state = kernel.init(_POSITION)
         assert jnp.isfinite(state.logdensity)
 
     def test_step_returns_new_state_and_info(self) -> None:
         key = jax.random.key(5)
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         state = kernel.init(_POSITION)
         new_state, info = kernel.step(key, state)
@@ -208,7 +208,7 @@ class TestHmcFactory:
 
     def test_step_info_has_num_integration_steps(self) -> None:
         key = jax.random.key(6)
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         state = kernel.init(_POSITION)
         _, info = kernel.step(key, state)
@@ -217,7 +217,7 @@ class TestHmcFactory:
 
     def test_grad_count_non_negative(self) -> None:
         key = jax.random.key(7)
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         state = kernel.init(_POSITION)
         _, info = kernel.step(key, state)
@@ -226,7 +226,7 @@ class TestHmcFactory:
 
     def test_grad_count_equals_num_integration_steps(self) -> None:
         key = jax.random.key(8)
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         state = kernel.init(_POSITION)
         _, info = kernel.step(key, state)
@@ -240,7 +240,7 @@ class TestHmcFactory:
 
 
 class TestEndToEndChain:
-    def _run_chain(self, entry: AlgorithmEntry, params: dict, n_steps: int = 5) -> None:
+    def _run_chain(self, entry: BaseMethod, params: dict, n_steps: int = 5) -> None:
         """Run n_steps of a chain and assert all states have finite logdensity."""
         key = jax.random.key(42)
         kernel = entry.factory(_LOGDENSITY_FN, **params)
@@ -256,15 +256,15 @@ class TestEndToEndChain:
         assert total_grads > 0, "Expected at least one gradient evaluation"
 
     def test_nuts_5_step_chain(self) -> None:
-        self._run_chain(ALGORITHMS["nuts"], _make_nuts_params())
+        self._run_chain(BASE_METHODS["nuts"], _make_nuts_params())
 
     def test_hmc_5_step_chain(self) -> None:
-        self._run_chain(ALGORITHMS["hmc"], _make_hmc_params())
+        self._run_chain(BASE_METHODS["hmc"], _make_hmc_params())
 
     def test_nuts_position_changes(self) -> None:
         """At least one step of NUTS should move the position."""
         key = jax.random.key(99)
-        entry = ALGORITHMS["nuts"]
+        entry = BASE_METHODS["nuts"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_nuts_params())
         state = kernel.init(_POSITION)
         any_moved = False
@@ -280,7 +280,7 @@ class TestEndToEndChain:
     def test_hmc_position_changes(self) -> None:
         """At least one step of HMC should move the position."""
         key = jax.random.key(100)
-        entry = ALGORITHMS["hmc"]
+        entry = BASE_METHODS["hmc"]
         kernel = entry.factory(_LOGDENSITY_FN, **_make_hmc_params())
         state = kernel.init(_POSITION)
         any_moved = False
@@ -333,7 +333,7 @@ class TestOptunaRoundTrip:
         import optuna
         from optuna.distributions import FloatDistribution
 
-        hp = ALGORITHMS["nuts"].default_hp_space[0]  # step_size, loguniform
+        hp = BASE_METHODS["nuts"].default_hp_space[0]  # step_size, loguniform
         assert hp.kind == "loguniform"
         dist = FloatDistribution(hp.low, hp.high, log=True)
         study = optuna.create_study()
@@ -347,7 +347,7 @@ class TestOptunaRoundTrip:
         from optuna.distributions import IntDistribution
 
         # num_integration_steps is the second HP of HMC
-        hp = ALGORITHMS["hmc"].default_hp_space[1]  # num_integration_steps, int
+        hp = BASE_METHODS["hmc"].default_hp_space[1]  # num_integration_steps, int
         assert hp.kind == "int"
         dist = IntDistribution(hp.low, hp.high)
         study = optuna.create_study()

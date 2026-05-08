@@ -190,7 +190,7 @@ def _cmd_tune(args: argparse.Namespace) -> int:
     """
     import json
 
-    from bjx_bench.algorithms import ALGORITHMS
+    from bjx_bench.inference.base_method import BASE_METHODS
     from bjx_bench.model import MODELS
 
     # ------------------------------------------------------------------ #
@@ -204,8 +204,8 @@ def _cmd_tune(args: argparse.Namespace) -> int:
         )
         return 2
 
-    if args.algo not in ALGORITHMS:
-        known = ", ".join(sorted(ALGORITHMS.keys()))
+    if args.algo not in BASE_METHODS:
+        known = ", ".join(sorted(BASE_METHODS.keys()))
         print(
             f"error: unknown algorithm {args.algo!r}. Known algorithms: {known}",
             file=sys.stderr,
@@ -213,7 +213,7 @@ def _cmd_tune(args: argparse.Namespace) -> int:
         return 2
 
     posterior_entry = MODELS[args.model]
-    algorithm_entry = ALGORITHMS[args.algo]
+    algorithm_entry = BASE_METHODS[args.algo]
 
     # ------------------------------------------------------------------ #
     # 2. Banner                                                           #
