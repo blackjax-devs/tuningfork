@@ -182,6 +182,135 @@ def _serialize_tuning_result(result: object) -> dict:
     return _coerce_for_json(raw)  # type: ignore[return-value]
 
 
+def _cmd_warmup(args: argparse.Namespace) -> int:
+    """Handle the ``warmup`` subcommand.
+
+    Validates model/algo/warmup names, runs warmup-only via
+    Recipe.from_warmup_only, prints a summary table, and optionally saves
+    the recipe JSON to ``--save PATH``.
+    """
+    import json
+
+    from bjx_bench.inference.base_method import BASE_METHODS
+    from bjx_bench.inference.warmup import WARMUPS
+    from bjx_bench.model import MODELS
+
+    # ------------------------------------------------------------------ #
+    # 1. Validate model, algo, and warmup                                #
+    # ------------------------------------------------------------------ #
+    if args.model not in MODELS:
+        known = ", ".join(sorted(MODELS.keys()))
+        print(
+            f"error: unknown model {args.model!r}. Known models: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.algo not in BASE_METHODS:
+        known = ", ".join(sorted(BASE_METHODS.keys()))
+        print(
+            f"error: unknown algorithm {args.algo!r}. Known algorithms: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.warmup not in WARMUPS:
+        known = ", ".join(sorted(WARMUPS.keys()))
+        print(
+            f"error: unknown warmup {args.warmup!r}. Known warmups: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    posterior_entry = MODELS[args.model]
+    algorithm_entry = BASE_METHODS[args.algo]
+    warmup_entry = WARMUPS[args.warmup]
+
+    # Validate warmup-algo compatibility.
+    if not warmup_entry.is_compatible(algorithm_entry.name):
+        print(
+            f"error: warmup {args.warmup!r} is not compatible with "
+            f"algorithm {args.algo!r}. "
+            f"Warmup {args.warmup!r} supports: {warmup_entry.compatible_methods}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # ------------------------------------------------------------------ #
+    # 2. Banner                                                           #
+    # ------------------------------------------------------------------ #
+    print()
+    print(
+        f"bjx-bench warmup  model={args.model}  algo={args.algo}  "
+        f"warmup={args.warmup}  n_warmup={args.n_warmup}  seed={args.seed}"
+    )
+    print()
+
+    # ------------------------------------------------------------------ #
+    # 3. Run warmup-only recipe generation                               #
+    # ------------------------------------------------------------------ #
+    import jax
+
+    from bjx_bench.inference.recipes._base import Recipe
+
+    rng_key = jax.random.key(args.seed)
+    t0 = time.monotonic()
+    recipe = Recipe.from_warmup_only(
+        posterior_entry,
+        algorithm_entry,
+        warmup_entry,
+        n_warmup=args.n_warmup,
+        rng_key=rng_key,
+    )
+    wall_total = time.monotonic() - t0
+
+    # ------------------------------------------------------------------ #
+    # 4. Print summary table                                              #
+    # ------------------------------------------------------------------ #
+    col_w = 26
+    print(f"warmup {args.model} {args.algo}")
+    print(f"  {'effort:':<{col_w}} {recipe.effort.value}")
+    print(f"  {'warmup_name:':<{col_w}} {recipe.warmup_name}")
+    print(f"  {'n_warmup:':<{col_w}} {args.n_warmup}")
+    print(f"  {'wall_seconds_estimate:':<{col_w}} {wall_total:.2f}")
+    # Display key adapted parameters
+    if "step_size" in recipe.base_method_params:
+        print(
+            f"  {'adapted_step_size:':<{col_w}} "
+            f"{recipe.base_method_params['step_size']:.6g}"
+        )
+    if "inverse_mass_matrix" in recipe.base_method_params:
+        imm = recipe.base_method_params["inverse_mass_matrix"]
+        if isinstance(imm, (int, float)):
+            imm_shape = "scalar"
+        elif isinstance(imm, (list, tuple)):
+            imm_shape = f"vector[{len(imm)}]"
+        else:
+            imm_shape = str(type(imm).__name__)
+        print(f"  {'inverse_mass_matrix:':<{col_w}} {imm_shape}")
+    print(
+        f"  {'base_method_params keys:':<{col_w}} {', '.join(sorted(recipe.base_method_params.keys()))}"
+    )
+    print()
+
+    # ------------------------------------------------------------------ #
+    # 5. Optionally save JSON                                             #
+    # ------------------------------------------------------------------ #
+    if args.save:
+        from pathlib import Path
+
+        save_path = Path(args.save)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        d = recipe.__dict__.copy()
+        # Convert effort Enum to string value
+        d["effort"] = recipe.effort.value
+        with save_path.open("w") as fh:
+            json.dump(d, fh, indent=2, default=str)
+        print(f"Recipe saved to {save_path}")
+
+    return 0
+
+
 def _cmd_tune(args: argparse.Namespace) -> int:
     """Handle the ``tune`` subcommand.
 
@@ -322,6 +451,44 @@ def main() -> int:
         help="Force regeneration even if cache is valid",
     )
 
+    # ---- warmup subcommand ----
+    p_warmup = sub.add_parser(
+        "warmup",
+        help="Run warmup-only and output a MEDIUM-effort recipe",
+    )
+    p_warmup.add_argument(
+        "model",
+        help="Model name, e.g. mvn_10, neals_funnel",
+    )
+    p_warmup.add_argument(
+        "algo",
+        help="Algorithm name, e.g. nuts, hmc, mala, barker, rwm, mclmc",
+    )
+    p_warmup.add_argument(
+        "--warmup",
+        default="stan_window",
+        help="Warmup strategy: stan_window, mclmc_tuning, no_warmup (default: stan_window)",
+    )
+    p_warmup.add_argument(
+        "--n-warmup",
+        type=int,
+        default=1000,
+        dest="n_warmup",
+        help="Number of warmup steps (default: 1000)",
+    )
+    p_warmup.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="RNG seed (default: 0)",
+    )
+    p_warmup.add_argument(
+        "--save",
+        default=None,
+        metavar="PATH",
+        help="If set, write JSON recipe to this path",
+    )
+
     # ---- tune subcommand ----
     p_tune = sub.add_parser(
         "tune",
@@ -392,6 +559,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.cmd == "tier-a":
         return _cmd_tier_a(args)
+    if args.cmd == "warmup":
+        return _cmd_warmup(args)
     if args.cmd == "tune":
         return _cmd_tune(args)
 
