@@ -1,6 +1,7 @@
 """One-shot script to emit canonical starter recipes for all efforts and algorithms.
 
 Subtask P3.3 (Phase 3): generate 12 LOW + 6 MEDIUM starter recipes.
+Subtask P3.4 (Phase 3): generate 6 HIGH starter recipes via Tier-B BO.
 
 **LOW recipes** (zero-cost; uses no_warmup):
   - 3 starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
@@ -14,6 +15,13 @@ Subtask P3.3 (Phase 3): generate 12 LOW + 6 MEDIUM starter recipes.
   - Calls ``Recipe.from_warmup_only`` for each pair.
   - Total: 18 LOW + 6 MEDIUM = 24 starter recipes on disk.
 
+**HIGH recipes** (Tier-B BO; uses stan_window):
+  - 3 starter models × 2 algorithms (nuts, hmc)
+  - Runs tune_algorithm at n_trials=20, n_seeds=2, n_chains=2, n_samples=400,
+    n_warmup=500; records BO-tuned config + TuningDifficulty profile.
+  - Calls ``Recipe.from_tuning_result`` for each pair.
+  - Total: 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes on disk.
+
 Usage
 -----
     cd bjx-bench
@@ -22,11 +30,12 @@ Usage
 The script is idempotent: re-running overwrites existing files with fresh
 provenance timestamps.
 
-Compute: ~3–5 min total (6 MEDIUM warmups dominate; each ~30–60s on CPU).
+Compute: ~3–5 min total for LOW+MEDIUM; ~18–30 min for HIGH (n_trials=20).
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax
@@ -143,11 +152,90 @@ def emit_medium_recipes(seed: int = 0, n_warmup: int = 1000) -> list[Path]:
     return generated
 
 
+def emit_high_recipes(seed: int = 0, n_trials: int = 20) -> list[Path]:
+    """Emit HIGH recipes via Tier-B BO for stan_window-compatible algorithms.
+
+    Runs ``tune_algorithm`` at ``n_trials=20`` (starter default per
+    PLAN_bjx_bench_phase3.md; production recipes use 50).  Converts each
+    ``TuningResult`` to a HIGH ``Recipe`` via ``Recipe.from_tuning_result``.
+
+    Compatibility is limited to ``nuts`` and ``hmc`` for Phase 3 scope
+    (the other 4 algorithms get LOW recipes only; their HIGH recipes land
+    in Phase 4 alongside the new models).
+
+    Parameters
+    ----------
+    seed
+        Base random seed; ``jax.random.fold_in`` derives per-recipe keys
+        deterministically from ``(model_name, method_name, "high")``.
+    n_trials
+        Total Optuna trials per study (including the injected default trial
+        0).  Default is 20 for starter recipes; production uses 50.
+
+    Returns
+    -------
+    List of Path objects pointing to written JSON files.
+    """
+    from bjx_bench.calibration.tier_b import tune_algorithm
+
+    stan_window = WARMUPS["stan_window"]
+    generated: list[Path] = []
+
+    for model_name in STARTER_MODEL_NAMES:
+        posterior = MODELS[model_name]
+        for method_name in MEDIUM_METHOD_NAMES:
+            base_method = BASE_METHODS[method_name]
+
+            if not stan_window.is_compatible(method_name):
+                print(f"  SKIP  {model_name}/{method_name}: stan_window incompatible")
+                continue
+
+            # Derive a deterministic per-recipe key via fold_in.
+            # hash() can produce values outside uint32; mask to 32 bits.
+            hash_val = hash((model_name, method_name, "high")) & 0xFFFFFFFF
+            key = jax.random.fold_in(jax.random.key(seed), hash_val)
+
+            print(f"  tuning {model_name} + {method_name} " f"(n_trials={n_trials})...")
+            t0 = time.perf_counter()
+            result = tune_algorithm(
+                posterior,
+                base_method,
+                n_trials=n_trials,
+                n_seeds=2,
+                n_chains=2,
+                n_samples=400,
+                n_warmup=500,
+                rng_key=key,
+                sampler="tpe",
+                warmup_name="stan_window",
+            )
+            elapsed = time.perf_counter() - t0
+
+            recipe = Recipe.from_tuning_result(
+                result,
+                posterior=posterior,
+                base_method=base_method,
+                warmup=stan_window,
+                bjx_bench_version=_bjx_bench_version,
+            )
+            path = recipe.save(_STARTER_ROOT)
+            generated.append(path)
+            print(
+                f"    done in {elapsed:.1f}s; "
+                f"best_score={result.best_score:.4f}; "
+                f"default_works={result.difficulty.default_works}"
+            )
+
+    return generated
+
+
 def main() -> None:
-    """Generate and save all LOW + MEDIUM starter recipes.
+    """Generate and save all LOW + MEDIUM + HIGH starter recipes.
 
     Subtask P3.3: emit 18 LOW + 6 MEDIUM = 24 total starter recipes.
-    Expected compute: ~3–5 min total.
+    Subtask P3.4: emit 6 HIGH recipes via Tier-B BO (n_trials=20).
+    Total: 30 starter recipes on disk.
+    Expected compute: ~3–5 min for LOW+MEDIUM; ~18–30 min for HIGH.
     """
     print("Generating LOW-effort recipes (6 algorithms, 3 models)...")
     low = emit_low_recipes()
@@ -155,9 +243,16 @@ def main() -> None:
     print("\nGenerating MEDIUM-effort recipes (stan_window warmup; nuts, hmc only)...")
     medium = emit_medium_recipes()
 
-    total = len(low) + len(medium)
     print(
-        f"\n✓ Emitted {len(low)} LOW + {len(medium)} MEDIUM = {total} starter recipes."
+        "\nGenerating HIGH-effort recipes "
+        "(Tier-B BO, n_trials=20; nuts, hmc only)..."
+    )
+    high = emit_high_recipes()
+
+    total = len(low) + len(medium) + len(high)
+    print(
+        f"\n✓ Emitted {len(low)} LOW + {len(medium)} MEDIUM + {len(high)} HIGH"
+        f" = {total} starter recipes."
     )
 
 

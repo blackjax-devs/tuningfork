@@ -647,3 +647,77 @@ def test_medium_recipe_exists_and_has_warmup_data(
     assert isinstance(imm, list)  # JSON deserialization gives list
     assert len(imm) > 0
     assert recipe.headline_metric is None  # MEDIUM doesn't measure post-warmup ESS
+
+
+# ---------------------------------------------------------------------------
+# Tests P3.4: 6 HIGH recipes exist and have correct schema
+# ---------------------------------------------------------------------------
+
+_HIGH_COMBOS = [
+    (model, method)
+    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
+    for method in ("hmc", "nuts")
+]
+
+_EXPECTED_DIFFICULTY_KEYS = (
+    "default_score",
+    "best_score",
+    "threshold_score",
+    "default_works",
+    "n_trials_to_threshold",
+    "n_trials_to_best",
+    "wall_seconds_to_threshold",
+    "wall_seconds_to_best",
+)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("model_name,method_name", _HIGH_COMBOS)
+def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -> None:
+    """P3.4: each (starter_model, {hmc,nuts}) has a HIGH recipe via Tier-B BO
+    at n_trials=20 with a valid headline_metric and TuningDifficulty profile."""
+    path = _STARTER_ROOT / model_name / f"high__{method_name}__stan_window.json"
+    assert (
+        path.exists()
+    ), f"Missing HIGH recipe for {model_name} + {method_name}: {path}"
+
+    recipe = Recipe.load(path)
+
+    # Identity and effort checks
+    assert recipe.effort == Effort.HIGH
+    assert recipe.warmup_name == "stan_window"
+    assert recipe.model_name == model_name
+    assert recipe.base_method_name == method_name
+
+    # headline_metric must be a real, positive float (all starter models
+    # are well-conditioned; divergence here would be a real failure).
+    assert recipe.headline_metric is not None
+    assert isinstance(recipe.headline_metric, float)
+    assert math.isfinite(recipe.headline_metric)
+    assert recipe.headline_metric > 0, (
+        f"headline_metric={recipe.headline_metric} for {model_name}+{method_name}; "
+        "expected > 0 for these well-conditioned starter models."
+    )
+
+    # calibration_budget shape
+    assert recipe.calibration_budget["trials"] == 20
+    assert "n_seeds" in recipe.calibration_budget
+
+    # difficulty is a dict with all expected keys
+    assert recipe.difficulty is not None
+    assert isinstance(recipe.difficulty, dict)
+    for key in _EXPECTED_DIFFICULTY_KEYS:
+        assert key in recipe.difficulty, (
+            f"Missing difficulty key {key!r} in HIGH recipe "
+            f"{model_name}+{method_name}"
+        )
+
+    # Spot-check difficulty numeric types
+    assert isinstance(recipe.difficulty["default_score"], float)
+    assert isinstance(recipe.difficulty["best_score"], float)
+    assert isinstance(recipe.difficulty["default_works"], bool)
+    assert isinstance(recipe.difficulty["n_trials_to_threshold"], int)
+
+    # Instructions non-empty prose
+    assert isinstance(recipe.instructions, str)
+    assert len(recipe.instructions) > 10
