@@ -593,3 +593,57 @@ def test_render_instructions_medium_and_high_real() -> None:
     assert len(prose_h) > 20
     # HIGH template shows the number of trials
     assert str(tuning_result.n_trials_completed) in prose_h
+
+
+# ---------------------------------------------------------------------------
+# Tests 9-10: P3.3 wider LOW coverage + MEDIUM smoke
+# ---------------------------------------------------------------------------
+
+_LOW_OTHER_ALGOS = [
+    (model, method)
+    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
+    for method in ("mala", "barker", "rwm", "mclmc")
+]
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("model_name,method_name", _LOW_OTHER_ALGOS)
+def test_low_recipe_exists_for_other_algos(model_name: str, method_name: str) -> None:
+    """P3.3: every (starter_model, base_method) pair has a LOW recipe on disk."""
+    path = _STARTER_ROOT / model_name / f"low__{method_name}__no_warmup.json"
+    assert path.exists(), f"Missing LOW recipe for {model_name} + {method_name}"
+    recipe = Recipe.load(path)
+    assert recipe.effort == Effort.LOW
+    assert recipe.warmup_name == "no_warmup"
+    assert recipe.model_name == model_name
+    assert recipe.base_method_name == method_name
+
+
+_MEDIUM_COMBOS = [
+    (model, method)
+    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
+    for method in ("hmc", "nuts")
+]
+
+
+@pytest.mark.parametrize("model_name,method_name", _MEDIUM_COMBOS)
+def test_medium_recipe_exists_and_has_warmup_data(
+    model_name: str, method_name: str
+) -> None:
+    """P3.3: each (starter_model, {hmc,nuts}) has a MEDIUM recipe via stan_window
+    with non-empty warmup-adapted params and positive wall-clock."""
+    path = _STARTER_ROOT / model_name / f"medium__{method_name}__stan_window.json"
+    assert path.exists(), f"Missing MEDIUM recipe for {model_name} + {method_name}"
+    recipe = Recipe.load(path)
+    assert recipe.effort == Effort.MEDIUM
+    assert recipe.warmup_name == "stan_window"
+    assert recipe.calibration_budget["n_warmup"] == 1000
+    assert recipe.calibration_budget["wall_seconds_estimate"] > 0
+    # The warmup-adapted base_method_params must contain step_size AND
+    # inverse_mass_matrix (a non-trivial adaptation, not just defaults).
+    assert "step_size" in recipe.base_method_params
+    assert "inverse_mass_matrix" in recipe.base_method_params
+    imm = recipe.base_method_params["inverse_mass_matrix"]
+    assert isinstance(imm, list)  # JSON deserialization gives list
+    assert len(imm) > 0
+    assert recipe.headline_metric is None  # MEDIUM doesn't measure post-warmup ESS
