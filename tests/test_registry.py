@@ -13,20 +13,20 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.registry import REGISTRY, ReferenceMethod, build_logdensity_fn
+from bjx_bench.model import MODELS, ReferenceMethod, build_logdensity_fn
 
 
 @pytest.mark.parametrize("name", ["mvn_10", "neals_funnel", "eight_schools_ncp"])
 def test_all_starter_models_registered(name: str) -> None:
-    """All three Phase-1 models must appear in REGISTRY."""
-    assert name in REGISTRY, f"{name!r} not found in REGISTRY"
+    """All three Phase-1 models must appear in MODELS."""
+    assert name in MODELS, f"{name!r} not found in MODELS"
 
 
 class TestMvn10:
     """Tests specific to the 10-D isotropic Gaussian entry."""
 
     def setup_method(self) -> None:
-        self.entry = REGISTRY["mvn_10"]
+        self.entry = MODELS["mvn_10"]
         self.key = jax.random.key(0)
 
     def test_dim(self) -> None:
@@ -55,7 +55,7 @@ class TestNealsFunnel:
     """Tests specific to the 10-D Neal's funnel entry."""
 
     def setup_method(self) -> None:
-        self.entry = REGISTRY["neals_funnel"]
+        self.entry = MODELS["neals_funnel"]
         self.key = jax.random.key(1)
 
     def test_dim(self) -> None:
@@ -86,7 +86,7 @@ class TestEightSchoolsNCP:
     """Tests specific to the 8-Schools NCP entry."""
 
     def setup_method(self) -> None:
-        self.entry = REGISTRY["eight_schools_ncp"]
+        self.entry = MODELS["eight_schools_ncp"]
         self.key = jax.random.key(2)
 
     def test_dim(self) -> None:
@@ -116,3 +116,22 @@ class TestEightSchoolsNCP:
         assert "mu" in init_pos
         assert "tau" in init_pos
         assert "theta_raw" in init_pos
+
+
+def test_inference_namespace_imports():
+    """Phase 2.5 restructure smoke: model and inference layers
+    import cleanly and expose the expected dicts.
+
+    Pinned in commit 2 of PLAN_bjx_bench_restructure.md. If this
+    fails, the restructure has broken a public namespace.
+    """
+    from bjx_bench.inference.base_method import BASE_METHODS
+    from bjx_bench.inference.warmup import WARMUPS, Warmup
+    from bjx_bench.model import MODELS
+
+    assert isinstance(MODELS, dict)
+    assert len(MODELS) >= 3  # mvn_10, neals_funnel, eight_schools_ncp
+    assert isinstance(BASE_METHODS, dict)
+    assert len(BASE_METHODS) == 6  # hmc, nuts, mala, barker, rwm, mclmc
+    assert isinstance(WARMUPS, dict)  # empty stub for Phase 2.5
+    assert Warmup is not None

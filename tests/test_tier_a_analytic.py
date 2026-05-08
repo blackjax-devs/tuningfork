@@ -16,11 +16,11 @@ import pytest
 
 from bjx_bench.calibration._summary import Summaries
 from bjx_bench.calibration.tier_a_analytic import certify_reference_analytic
-from bjx_bench.registry import REGISTRY
+from bjx_bench.model import MODELS
 
-MVN_ENTRY = REGISTRY["mvn_10"]
-FUNNEL_ENTRY = REGISTRY["neals_funnel"]
-NUTS_ENTRY = REGISTRY["eight_schools_ncp"]
+MVN_ENTRY = MODELS["mvn_10"]
+FUNNEL_ENTRY = MODELS["neals_funnel"]
+NUTS_ENTRY = MODELS["eight_schools_ncp"]
 
 N = 50_000  # large enough for tight 4-sigma bounds
 

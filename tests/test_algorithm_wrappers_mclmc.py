@@ -1,7 +1,7 @@
 """Tests for the MCLMC algorithm wrapper (T2.4).
 
 Covers:
-1. Registry: ALGORITHMS["mclmc"] is ENTRY; entry fields match spec.
+1. Registry: BASE_METHODS["mclmc"] is ENTRY; entry fields match spec.
 2. HyperparamSpace sanity: 2 HPs (step_size, L), both loguniform with
    positive bounds.
 3. Factory smoke: 10-D MVN, init + 5 step() calls, all states finite.
@@ -22,9 +22,9 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from bjx_bench.algorithms import ALGORITHMS
-from bjx_bench.algorithms._base import HyperparamSpace
-from bjx_bench.algorithms.mclmc import ENTRY
+from bjx_bench.inference.base_method import BASE_METHODS
+from bjx_bench.inference.base_method._base import HyperparamSpace
+from bjx_bench.inference.base_method.mclmc import ENTRY
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -44,10 +44,10 @@ _STEP_SIZE = 0.1
 
 class TestMclmcRegistry:
     def test_mclmc_registered(self) -> None:
-        assert "mclmc" in ALGORITHMS, "ALGORITHMS must contain 'mclmc'"
+        assert "mclmc" in BASE_METHODS, "BASE_METHODS must contain 'mclmc'"
 
     def test_entry_identity(self) -> None:
-        assert ALGORITHMS["mclmc"] is ENTRY
+        assert BASE_METHODS["mclmc"] is ENTRY
 
     def test_entry_name(self) -> None:
         assert ENTRY.name == "mclmc"
@@ -65,8 +65,8 @@ class TestMclmcRegistry:
     def test_algorithms_has_six_entries(self) -> None:
         expected = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}
         assert (
-            set(ALGORITHMS.keys()) == expected
-        ), f"Expected exactly {expected}, got {set(ALGORITHMS.keys())}"
+            set(BASE_METHODS.keys()) == expected
+        ), f"Expected exactly {expected}, got {set(BASE_METHODS.keys())}"
 
 
 # ===========================================================================

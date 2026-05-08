@@ -21,11 +21,11 @@ from __future__ import annotations
 import blackjax
 import jax.numpy as jnp
 
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
 __all__ = ["ENTRY"]
 
-ENTRY = AlgorithmEntry(
+ENTRY = BaseMethod(
     name="barker",
     family="mcmc",
     factory=blackjax.barker,  # called as factory(logdensity_fn, step_size=..., inverse_mass_matrix=...)

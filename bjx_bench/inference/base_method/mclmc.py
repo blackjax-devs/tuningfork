@@ -15,7 +15,7 @@ Requires pytree_size(position) >= 2 (enforced by blackjax upstream).
 
 Adaptation: BlackJAX provides blackjax.mclmc_find_L_and_step_size as a
 dedicated warmup routine. Tier-B (T2.6) will dispatch to it based on
-AlgorithmEntry.name. T2.4 only declares the entry.
+BaseMethod.name. T2.4 only declares the entry.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ from __future__ import annotations
 import blackjax
 import jax.numpy as jnp
 
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
 __all__ = ["ENTRY"]
 
-ENTRY = AlgorithmEntry(
+ENTRY = BaseMethod(
     name="mclmc",
     family="mcmc",
     factory=blackjax.mclmc,  # signature: (logdensity_fn, L, step_size, ...)

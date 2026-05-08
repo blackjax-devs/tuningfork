@@ -22,9 +22,9 @@ from bjx_bench.calibration.tier_a import (
     CertificationResult,
     certify_reference_nuts,
 )
-from bjx_bench.registry import REGISTRY
+from bjx_bench.model import MODELS
 
-ENTRY = REGISTRY["eight_schools_ncp"]
+ENTRY = MODELS["eight_schools_ncp"]
 
 # Fixed seed used for the NUTS test; see module docstring for selection rationale.
 NUTS_SEED = 42
@@ -123,7 +123,7 @@ class TestCertifyNutsInterface:
 
     def test_raises_for_analytic_entry(self) -> None:
         key = jax.random.key(99)
-        analytic_entry = REGISTRY["mvn_10"]
+        analytic_entry = MODELS["mvn_10"]
         with pytest.raises(ValueError, match="analytic path"):
             certify_reference_nuts(analytic_entry, key)
 

@@ -142,7 +142,7 @@ class TestTuneCLI:
 
         # Top-level schema keys required by the spec
         required_keys = {
-            "algorithm_name",
+            "base_method_name",
             "posterior_name",
             "best_params",
             "best_score",
@@ -157,7 +157,7 @@ class TestTuneCLI:
         ), f"Missing top-level keys in saved JSON: {missing}\nKeys present: {set(data.keys())}"
 
         # Basic type checks
-        assert isinstance(data["algorithm_name"], str)
+        assert isinstance(data["base_method_name"], str)
         assert isinstance(data["posterior_name"], str)
         assert isinstance(data["best_params"], dict)
         assert isinstance(data["best_score"], (int, float))

@@ -2,7 +2,7 @@
 
 This is the load-bearing primitive for ``bjx_bench.metrics.headline``
 (T2.5).  It converts a per-step grad-count callable (carried on each
-``AlgorithmEntry``) into a scalar total across an entire chain.
+``BaseMethod``) into a scalar total across an entire chain.
 
 BlackJAX ``run_inference_algorithm`` produces a ``(states, infos,
 extra)`` tuple where ``infos`` is a NamedTuple-of-Arrays: each *field*

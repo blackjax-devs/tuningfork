@@ -16,14 +16,14 @@ from collections.abc import Callable
 import jax
 from numpyro.infer.util import initialize_model
 
-from bjx_bench.registry._base import PosteriorEntry
+from bjx_bench.model._base import Posterior
 
 __all__ = ["build_logdensity_fn"]
 
 
 def build_logdensity_fn(
     rng_key: jax.Array,
-    entry: PosteriorEntry,
+    entry: Posterior,
 ) -> tuple[
     dict[str, jax.Array],
     Callable[[dict], float],

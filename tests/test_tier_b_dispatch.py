@@ -19,13 +19,13 @@ from unittest.mock import patch
 import jax
 import pytest
 
-from bjx_bench.algorithms import ALGORITHMS
 from bjx_bench.calibration.tier_b import (
     TuningResult,
     default_params_for,
     tune_algorithm,
 )
-from bjx_bench.registry import REGISTRY
+from bjx_bench.inference.base_method import BASE_METHODS
+from bjx_bench.model import MODELS
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -37,11 +37,11 @@ _N_TRIALS = 3
 _N_SEEDS = 1
 _N_CHAINS = 1
 
-_MVN_ENTRY = REGISTRY["mvn_10"]
-_NUTS_ENTRY = ALGORITHMS["nuts"]
-_MALA_ENTRY = ALGORITHMS["mala"]
-_RWM_ENTRY = ALGORITHMS["rwm"]
-_MCLMC_ENTRY = ALGORITHMS["mclmc"]
+_MVN_ENTRY = MODELS["mvn_10"]
+_NUTS_ENTRY = BASE_METHODS["nuts"]
+_MALA_ENTRY = BASE_METHODS["mala"]
+_RWM_ENTRY = BASE_METHODS["rwm"]
+_MCLMC_ENTRY = BASE_METHODS["mclmc"]
 
 
 # ---------------------------------------------------------------------------
@@ -66,9 +66,9 @@ class TestMalaMvnSmoke:
             **kwargs,
         )
 
-    def test_algorithm_name(self) -> None:
+    def test_base_method_name(self) -> None:
         result = self._run(40)
-        assert result.algorithm_name == "mala"
+        assert result.base_method_name == "mala"
 
     def test_n_trials_completed(self) -> None:
         result = self._run(41)
@@ -117,9 +117,9 @@ class TestRwmMvnSmoke:
             sampler="tpe",
         )
 
-    def test_algorithm_name(self) -> None:
+    def test_base_method_name(self) -> None:
         result = self._run(50)
-        assert result.algorithm_name == "rwm"
+        assert result.base_method_name == "rwm"
 
     def test_n_trials_completed(self) -> None:
         result = self._run(51)
@@ -163,9 +163,9 @@ class TestMclmcMvnSmoke:
             sampler="tpe",
         )
 
-    def test_algorithm_name(self) -> None:
+    def test_base_method_name(self) -> None:
         result = self._run(60)
-        assert result.algorithm_name == "mclmc"
+        assert result.base_method_name == "mclmc"
 
     def test_n_trials_completed(self) -> None:
         result = self._run(61)
@@ -224,9 +224,9 @@ class TestNutsRandomSamplerSmoke:
             sampler="random",
         )
 
-    def test_algorithm_name(self) -> None:
+    def test_base_method_name(self) -> None:
         result = self._run(70)
-        assert result.algorithm_name == "nuts"
+        assert result.base_method_name == "nuts"
 
     def test_n_trials_completed(self) -> None:
         result = self._run(71)

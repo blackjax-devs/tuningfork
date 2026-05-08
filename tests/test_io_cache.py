@@ -18,6 +18,7 @@ import jax
 import numpy as np
 import pytest
 
+from bjx_bench.model import MODELS
 from bjx_bench.reference._io import (
     _atomic_write_json,
     _atomic_write_npz,
@@ -27,9 +28,8 @@ from bjx_bench.reference._io import (
     get_reference_draws,
     get_reference_summaries,
 )
-from bjx_bench.registry import REGISTRY
 
-MVN_ENTRY = REGISTRY["mvn_10"]
+MVN_ENTRY = MODELS["mvn_10"]
 N_SMALL = 50  # small n for fast tests
 
 
@@ -205,7 +205,7 @@ class TestSummariesAndAdaptation:
             get_adaptation_params(MVN_ENTRY, cache_dir=tmp_path)
 
     def test_get_adaptation_params_raises_missing_cache(self, tmp_path: Path) -> None:
-        eight_schools = REGISTRY["eight_schools_ncp"]
+        eight_schools = MODELS["eight_schools_ncp"]
         with pytest.raises(FileNotFoundError):
             get_adaptation_params(eight_schools, cache_dir=tmp_path)
 

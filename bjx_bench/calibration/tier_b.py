@@ -38,7 +38,7 @@ import optuna
 import optuna.distributions
 from blackjax.util import run_inference_algorithm
 
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 from bjx_bench.metrics.grad_counter import total_grad_evals
 from bjx_bench.metrics.headline import min_bulk_ess_per_grad
 
@@ -116,7 +116,7 @@ class TuningResult:
 
     Parameters
     ----------
-    algorithm_name
+    base_method_name
         Registry name of the algorithm, e.g. ``"hmc"``.
     posterior_name
         Registry name of the posterior target, e.g. ``"mvn_10"``.
@@ -140,7 +140,7 @@ class TuningResult:
         Companion tuning-difficulty profile computed from ``history``.
     """
 
-    algorithm_name: str
+    base_method_name: str
     posterior_name: str
     best_params: dict[str, Any]
     best_score: float
@@ -209,7 +209,7 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
         )
 
 
-def default_params_for(entry: AlgorithmEntry) -> dict[str, Any]:
+def default_params_for(entry: BaseMethod) -> dict[str, Any]:
     """Map ``default_value_for_space`` across all spaces in ``entry``.
 
     Returns a ``dict`` keyed by ``HyperparamSpace.name``, ready to pass
@@ -218,7 +218,7 @@ def default_params_for(entry: AlgorithmEntry) -> dict[str, Any]:
     Parameters
     ----------
     entry
-        An ``AlgorithmEntry`` whose ``default_hp_space`` defines the search
+        An ``BaseMethod`` whose ``default_hp_space`` defines the search
         space to map over.
 
     Returns
@@ -287,7 +287,7 @@ def optuna_distribution_for_space(
 
 
 def optuna_distributions_for(
-    entry: AlgorithmEntry,
+    entry: BaseMethod,
 ) -> dict[str, optuna.distributions.BaseDistribution]:
     """Build the dict-of-distributions Optuna's trial API expects.
 
@@ -297,7 +297,7 @@ def optuna_distributions_for(
     Parameters
     ----------
     entry
-        An ``AlgorithmEntry`` whose ``default_hp_space`` defines the search
+        An ``BaseMethod`` whose ``default_hp_space`` defines the search
         space.
 
     Returns
@@ -320,7 +320,7 @@ def optuna_distributions_for(
 def _run_warmup(
     logdensity_fn: Any,
     init_position: Any,
-    algorithm_entry: AlgorithmEntry,
+    algorithm_entry: BaseMethod,
     n_warmup: int,
     rng_key: jax.Array,
 ) -> tuple[Any, dict[str, Any]]:
@@ -452,7 +452,7 @@ def _run_warmup(
 def _run_trial(
     logdensity_fn: Any,
     adapted_state: Any,
-    algorithm_entry: AlgorithmEntry,
+    algorithm_entry: BaseMethod,
     kernel_params: dict[str, Any],
     n_chains: int,
     n_samples: int,
@@ -619,8 +619,8 @@ def _build_tuning_difficulty(
 
 
 def tune_algorithm(
-    posterior_entry: Any,  # PosteriorEntry; import deferred to avoid circular dep
-    algorithm_entry: AlgorithmEntry,
+    posterior_entry: Any,  # Posterior; import deferred to avoid circular dep
+    algorithm_entry: BaseMethod,
     *,
     n_trials: int = 50,
     n_seeds: int = 5,
@@ -676,9 +676,9 @@ def tune_algorithm(
     Parameters
     ----------
     posterior_entry
-        A ``PosteriorEntry`` describing the target distribution.
+        A ``Posterior`` describing the target distribution.
     algorithm_entry
-        The ``AlgorithmEntry`` whose ``default_hp_space`` defines the BO
+        The ``BaseMethod`` whose ``default_hp_space`` defines the BO
         search space and whose ``factory`` creates the kernel.
     n_trials
         Total Optuna trials to run (including the injected default trial 0).
@@ -713,7 +713,7 @@ def tune_algorithm(
     ValueError
         If ``sampler`` is not ``"tpe"`` or ``"random"``.
     """
-    from bjx_bench.registry._numpyro import build_logdensity_fn
+    from bjx_bench.model._numpyro import build_logdensity_fn
 
     # ------------------------------------------------------------------
     # 1. Build logdensity_fn from posterior entry
@@ -867,7 +867,7 @@ def tune_algorithm(
         )
 
     return TuningResult(
-        algorithm_name=algorithm_entry.name,
+        base_method_name=algorithm_entry.name,
         posterior_name=posterior_entry.name,
         best_params=best_params,
         best_score=best_score,

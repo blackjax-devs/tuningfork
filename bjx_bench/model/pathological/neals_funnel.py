@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-from bjx_bench.registry._base import PosteriorEntry
+from bjx_bench.model._base import Posterior
 
 __all__ = ["ENTRY"]
 
@@ -57,7 +57,7 @@ def _analytic_sampler(rng_key: jax.Array, n: int) -> dict[str, jax.Array]:
     return {"v": v, "theta": theta}
 
 
-ENTRY = PosteriorEntry(
+ENTRY = Posterior(
     name="neals_funnel",
     dim=DIM,
     class_="funnel",

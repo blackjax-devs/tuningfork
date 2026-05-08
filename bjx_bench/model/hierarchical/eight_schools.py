@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-from bjx_bench.registry._base import PosteriorEntry
+from bjx_bench.model._base import Posterior
 
 __all__ = ["ENTRY"]
 
@@ -32,7 +32,7 @@ def _model(y: jnp.ndarray, sigma: jnp.ndarray) -> None:
     numpyro.sample("y", dist.Normal(theta, sigma), obs=y)
 
 
-ENTRY = PosteriorEntry(
+ENTRY = Posterior(
     name="eight_schools_ncp",
     # unconstrained: mu(1) + tau(1, softplus) + theta_raw(8) = 10
     dim=J + 2,

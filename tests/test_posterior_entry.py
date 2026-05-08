@@ -1,4 +1,4 @@
-"""Tests for PosteriorEntry dataclass and ReferenceMethod enum."""
+"""Tests for Posterior dataclass and ReferenceMethod enum."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import numpyro
 import numpyro.distributions as dist
 import pytest
 
-from bjx_bench.registry._base import PosteriorEntry, ReferenceMethod
+from bjx_bench.model._base import Posterior, ReferenceMethod
 
 
 def _dummy_model():
@@ -19,9 +19,9 @@ def _dummy_sampler(rng_key: jax.Array, n: int) -> dict[str, jax.Array]:
     return {"x": jax.random.normal(rng_key, (n,))}
 
 
-class TestPosteriorEntryConstruction:
+class TestPosteriorConstruction:
     def test_minimal_nuts_entry(self):
-        entry = PosteriorEntry(
+        entry = Posterior(
             name="dummy_nuts",
             dim=1,
             class_="gaussian",
@@ -33,7 +33,7 @@ class TestPosteriorEntryConstruction:
         assert entry.analytic_sampler is None
 
     def test_analytic_entry(self):
-        entry = PosteriorEntry(
+        entry = Posterior(
             name="dummy_analytic",
             dim=1,
             class_="gaussian",
@@ -43,7 +43,7 @@ class TestPosteriorEntryConstruction:
         assert entry.reference_method == ReferenceMethod.ANALYTIC
 
     def test_frozen_dataclass_immutable(self):
-        entry = PosteriorEntry(
+        entry = Posterior(
             name="dummy",
             dim=1,
             class_="gaussian",
@@ -54,7 +54,7 @@ class TestPosteriorEntryConstruction:
 
     def test_dim_zero_raises(self):
         with pytest.raises(ValueError, match="dim must be positive"):
-            PosteriorEntry(
+            Posterior(
                 name="bad",
                 dim=0,
                 class_="gaussian",
@@ -63,7 +63,7 @@ class TestPosteriorEntryConstruction:
 
     def test_dim_negative_raises(self):
         with pytest.raises(ValueError, match="dim must be positive"):
-            PosteriorEntry(
+            Posterior(
                 name="bad",
                 dim=-5,
                 class_="gaussian",
@@ -72,7 +72,7 @@ class TestPosteriorEntryConstruction:
 
     def test_non_callable_model_raises(self):
         with pytest.raises(TypeError, match="numpyro_model must be callable"):
-            PosteriorEntry(
+            Posterior(
                 name="bad",
                 dim=1,
                 class_="gaussian",
@@ -85,7 +85,7 @@ class TestPosteriorEntryConstruction:
             numpyro.sample("obs", dist.Normal(0.0, 1.0), obs=y)
 
         y_obs = jnp.array([1.0, 2.0])
-        entry = PosteriorEntry(
+        entry = Posterior(
             name="with_args",
             dim=1,
             class_="glm",
@@ -97,7 +97,7 @@ class TestPosteriorEntryConstruction:
         assert entry.model_kwargs["sigma"] == 2.0
 
     def test_posteriordb_id_and_citations(self):
-        entry = PosteriorEntry(
+        entry = Posterior(
             name="eight_schools_ncp",
             dim=10,
             class_="hierarchical",

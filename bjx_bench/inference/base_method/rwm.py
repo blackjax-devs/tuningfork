@@ -18,7 +18,7 @@ import jax
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
-from bjx_bench.algorithms._base import AlgorithmEntry, HyperparamSpace
+from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
 __all__ = ["ENTRY", "_make_rwm"]
 
@@ -55,7 +55,7 @@ def _make_rwm(logdensity_fn: object, sigma: float) -> object:
     return blackjax.rmh(logdensity_fn, proposal_generator)
 
 
-ENTRY = AlgorithmEntry(
+ENTRY = BaseMethod(
     name="rwm",
     family="mcmc",
     factory=_make_rwm,  # called as factory(logdensity_fn, sigma=...)

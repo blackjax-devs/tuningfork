@@ -12,13 +12,13 @@ from __future__ import annotations
 import jax
 
 from bjx_bench.calibration._summary import Summaries, compute_summaries
-from bjx_bench.registry._base import PosteriorEntry, ReferenceMethod
+from bjx_bench.model._base import Posterior, ReferenceMethod
 
 __all__ = ["certify_reference_analytic"]
 
 
 def certify_reference_analytic(
-    entry: PosteriorEntry,
+    entry: Posterior,
     n: int,
     rng_key: jax.Array,
 ) -> tuple[dict[str, jax.Array], Summaries]:
