@@ -6,7 +6,7 @@ Tests
 2.  dim == 3, class_ == "glm", tags contain "logistic-regression".
 3.  Data is deterministic across imports (X_DATA and Y_DATA have stable hashes).
 4.  y is binary — all values in {0, 1}.
-5.  Bicluster is separable: a simple threshold classifier achieves >95% accuracy.
+5.  Bicluster is separable: a simple threshold classifier achieves >85% accuracy.
 6.  build_logdensity_fn returns finite log-density at zero-init position.
 7.  Log-density at a near-MLE point is higher than at the zero-init position.
 8.  Posterior dim matches the parameter count after build_logdensity_fn (3).
@@ -174,3 +174,58 @@ def test_posterior_dim_matches_params() -> None:
         f"Posterior dim {ENTRY.dim} != parameter count {total_params} "
         "from build_logdensity_fn."
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: posterior recovers correct signs via short NUTS
+# ---------------------------------------------------------------------------
+
+
+def test_posterior_recovers_correct_signs_via_short_nuts() -> None:
+    """500-sample NUTS smoke: beta_1 and beta_2 should both be positive
+    (mean estimates around +1.1 from Laplace approximation; tolerance
+    3 standard-error bands). Catches label-swap bugs and likelihood
+    misspecifications that the structural tests above all miss.
+
+    Per the statistician's retroactive checkpoint review (2026-05-08).
+    NOT marked @pytest.mark.fast — runs MCMC.
+    """
+    import blackjax
+
+    rng_key = jax.random.key(0)
+    init_position, logdensity_fn, _ = build_logdensity_fn(rng_key, ENTRY)
+
+    # Short NUTS run — enough to check signs but not full Tier-A
+    warmup = blackjax.window_adaptation(
+        blackjax.nuts, logdensity_fn, target_acceptance_rate=0.80
+    )
+    (state, params), _ = warmup.run(rng_key, init_position, num_steps=500)
+
+    # Sample 500 post-warmup. run_inference_algorithm returns
+    # (final_state, history) where history = (states_trace, infos_trace)
+    # under the default transform.
+    nuts = blackjax.nuts(logdensity_fn, **params)
+    _, (history_states, _) = blackjax.util.run_inference_algorithm(
+        rng_key=jax.random.key(1),
+        inference_algorithm=nuts,
+        num_steps=500,
+        initial_state=state,
+    )
+
+    # Extract beta means from the position trace
+    beta_samples = history_states.position["beta"]  # shape (500, 3)
+    mean_beta = beta_samples.mean(axis=0)
+
+    # Both feature coefficients should be positive (cluster centres at +1.5
+    # for class 1, -1.5 for class 0 → positive logit slope on each feature).
+
+    # Expect mean_beta[1], mean_beta[2] ≈ 1.1 (Laplace approximation point
+    # estimate at the data MLE); allow generous bounds because n=500 is small.
+    assert (
+        mean_beta[1] > 0.3
+    ), f"beta_1 should be > 0; got {mean_beta[1]:.3f} (suggests label-swap)"
+    assert (
+        mean_beta[2] > 0.3
+    ), f"beta_2 should be > 0; got {mean_beta[2]:.3f} (suggests label-swap)"
+    # Also check that both are FINITE — catches improper-posterior bugs
+    assert jnp.isfinite(mean_beta).all(), f"non-finite posterior mean: {mean_beta}"

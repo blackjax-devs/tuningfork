@@ -30,7 +30,10 @@ Model description:
     - Likelihood: y_i ~ Bernoulli(sigmoid(beta_0 + beta_1*x_1 + beta_2*x_2)).
     - Priors: beta_k ~ N(0, 5) for k = 0, 1, 2 (weakly informative).
     - Posterior dim = 3 (beta vector in unconstrained space).
-    - Tier-A reference: Long-NUTS (Path B), n_warmup=1000, n_samples=10_000.
+    - Tier-A reference: Long-NUTS (Path B). In-spawn verification budget:
+      n_warmup=1000, n_samples=10_000 (sufficient for the 3-D well-conditioned
+      posterior to pass the certification gate). Production cache regeneration
+      per PLAN_bjx_bench.md uses n_samples=100_000 on first user-facing call.
 
 The bicluster dataset is generated DETERMINISTICALLY at module import time with
 a fixed NumPy seed (seed=42). The design deliberately avoids complete
