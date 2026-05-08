@@ -4,32 +4,32 @@
   "warmup_name": "stan_window",
   "effort": "high",
   "base_method_params": {
-    "step_size": 0.8508923592597659,
+    "step_size": 0.03852998453322654,
     "num_integration_steps": 1
   },
   "warmup_params": {},
-  "headline_metric": 0.014482286758720875,
+  "headline_metric": 0.009103319607675076,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 20,
-    "wall_seconds_estimate": 31.367526526999427,
+    "wall_seconds_estimate": 28.290022118017077,
     "n_seeds": 2
   },
   "difficulty": {
-    "default_score": 9.742486690811347e-05,
-    "best_score": 0.014482286758720875,
-    "threshold_score": 0.007241143379360437,
+    "default_score": 0.00011229947813262697,
+    "best_score": 0.009103319607675076,
+    "threshold_score": 0.004551659803837538,
     "default_works": false,
-    "n_trials_to_threshold": 13,
-    "n_trials_to_best": 13,
-    "wall_seconds_to_threshold": 31.367526526999427,
-    "wall_seconds_to_best": 31.367526526999427
+    "n_trials_to_threshold": 12,
+    "n_trials_to_best": 12,
+    "wall_seconds_to_threshold": 28.290022118017077,
+    "wall_seconds_to_best": 28.290022118017077
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune gmm_25 hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.8508923592597659, 'num_integration_steps': 1}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0145.\nTotal calibration time: ~0 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune gmm_25 hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.03852998453322654, 'num_integration_steps': 1}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0091.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
   "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-08T13:29:33Z"
+  "timestamp_utc": "2026-05-08T14:10:15Z"
 }

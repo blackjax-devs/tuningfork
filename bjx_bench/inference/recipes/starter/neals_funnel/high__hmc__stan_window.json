@@ -4,32 +4,32 @@
   "warmup_name": "stan_window",
   "effort": "high",
   "base_method_params": {
-    "step_size": 0.0010578659882373837,
+    "step_size": 0.0014112582749491256,
     "num_integration_steps": 1
   },
   "warmup_params": {},
-  "headline_metric": 0.0015128972008824348,
+  "headline_metric": 0.001484489010181278,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 20,
-    "wall_seconds_estimate": 26.338773184019374,
+    "wall_seconds_estimate": 34.75694003200624,
     "n_seeds": 2
   },
   "difficulty": {
-    "default_score": 0.0005275449948385358,
-    "best_score": 0.0015128972008824348,
-    "threshold_score": 0.0007564486004412174,
+    "default_score": 0.0003718573789228685,
+    "best_score": 0.001484489010181278,
+    "threshold_score": 0.000742244505090639,
     "default_works": false,
-    "n_trials_to_threshold": 10,
-    "n_trials_to_best": 10,
-    "wall_seconds_to_threshold": 26.338773184019374,
-    "wall_seconds_to_best": 26.338773184019374
+    "n_trials_to_threshold": 13,
+    "n_trials_to_best": 13,
+    "wall_seconds_to_threshold": 34.75694003200624,
+    "wall_seconds_to_best": 34.75694003200624
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune neals_funnel hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0010578659882373837, 'num_integration_steps': 1}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0015.\nTotal calibration time: ~0 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune neals_funnel hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0014112582749491256, 'num_integration_steps': 1}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0015.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
   "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-08T13:22:31Z"
+  "timestamp_utc": "2026-05-08T14:03:14Z"
 }

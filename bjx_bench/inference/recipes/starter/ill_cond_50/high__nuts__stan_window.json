@@ -4,31 +4,31 @@
   "warmup_name": "stan_window",
   "effort": "high",
   "base_method_params": {
-    "step_size": 0.1515212081411872
+    "step_size": 0.12589254117941667
   },
   "warmup_params": {},
-  "headline_metric": 0.009911117143929005,
+  "headline_metric": 0.010654199868440628,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 20,
-    "wall_seconds_estimate": 141.10298409199459,
+    "wall_seconds_estimate": 8.336234629008686,
     "n_seeds": 2
   },
   "difficulty": {
-    "default_score": 0.009537094738334417,
-    "best_score": 0.009911117143929005,
-    "threshold_score": 0.009537094738334417,
+    "default_score": 0.010654199868440628,
+    "best_score": 0.010654199868440628,
+    "threshold_score": 0.010654199868440628,
     "default_works": true,
     "n_trials_to_threshold": 0,
-    "n_trials_to_best": 15,
+    "n_trials_to_best": 0,
     "wall_seconds_to_threshold": 0.0,
-    "wall_seconds_to_best": 141.10298409199459
+    "wall_seconds_to_best": 8.336234629008686
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune ill_cond_50 nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.1515212081411872}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0099.\nTotal calibration time: ~2 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune ill_cond_50 nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.12589254117941667}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0107.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
   "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-08T13:19:21Z"
+  "timestamp_utc": "2026-05-08T14:00:04Z"
 }
