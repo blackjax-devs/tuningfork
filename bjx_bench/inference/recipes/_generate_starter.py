@@ -49,6 +49,7 @@ from bjx_bench.model import MODELS
 # P4.1 adds ill_cond_50 (Block A: 50-D ill-conditioned Gaussian, κ≈1000).
 # P4.2 adds banana (Block A: 2-D banana/Rosenbrock-style, curved manifold).
 # P4.3 adds gmm_25 (Block A: 2-D 25-mode Gaussian mixture on a 5x5 grid).
+# P4.4 adds logistic_synthetic (Block B: 3-D logistic regression on 2-D bicluster).
 STARTER_MODEL_NAMES = [
     "mvn_10",
     "ill_cond_50",
@@ -56,6 +57,7 @@ STARTER_MODEL_NAMES = [
     "eight_schools_ncp",
     "banana",
     "gmm_25",
+    "logistic_synthetic",
 ]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)

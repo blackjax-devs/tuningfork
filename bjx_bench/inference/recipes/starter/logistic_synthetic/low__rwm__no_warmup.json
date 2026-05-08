@@ -1,5 +1,5 @@
 {
-  "model_name": "gmm_25",
+  "model_name": "logistic_synthetic",
   "base_method_name": "rwm",
   "warmup_name": "no_warmup",
   "effort": "low",

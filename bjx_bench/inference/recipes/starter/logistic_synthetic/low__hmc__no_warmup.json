@@ -1,5 +1,5 @@
 {
-  "model_name": "neals_funnel",
+  "model_name": "logistic_synthetic",
   "base_method_name": "hmc",
   "warmup_name": "no_warmup",
   "effort": "low",
