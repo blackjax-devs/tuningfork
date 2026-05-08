@@ -152,7 +152,7 @@ class TestXCheckResultSchema:
         )
         out = tmp_path / "nan_result.json"
         r.save(out)
-        text = out.read_text()
+        out.read_text()  # smoke check the file is readable
         # NaN in Python json.dumps becomes null or NaN depending on allow_nan
         # We do NOT restrict this; just check the file is readable.
         # Python's json module writes NaN as "NaN" by default (non-standard JSON).
