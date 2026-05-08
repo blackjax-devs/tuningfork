@@ -13,6 +13,7 @@ from bjx_bench.model._numpyro import build_logdensity_fn
 from bjx_bench.model.gaussians.ill_cond_50 import ENTRY as _ill_cond_50
 from bjx_bench.model.gaussians.mvn_10 import ENTRY as _mvn_10
 from bjx_bench.model.glm.german_credit import ENTRY as _german_credit
+from bjx_bench.model.glm.horseshoe import ENTRY as _horseshoe
 from bjx_bench.model.glm.logistic_synthetic import ENTRY as _logistic_synthetic
 from bjx_bench.model.hierarchical.eight_schools import ENTRY as _eight_schools_ncp
 from bjx_bench.model.pathological.banana import ENTRY as _banana
@@ -32,5 +33,6 @@ MODELS: dict[str, Posterior] = {
         _gmm_25,
         _logistic_synthetic,
         _german_credit,
+        _horseshoe,
     ]
 }

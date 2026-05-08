@@ -51,6 +51,7 @@ from bjx_bench.model import MODELS
 # P4.3 adds gmm_25 (Block A: 2-D 25-mode Gaussian mixture on a 5x5 grid).
 # P4.4 adds logistic_synthetic (Block B: 3-D logistic regression on 2-D bicluster).
 # P4.5 adds german_credit (Block B: 26-D logistic regression on real UCI German Credit data).
+# P4.6 adds horseshoe (Block B: 204-D Finnish horseshoe sparse linear regression, NCP).
 STARTER_MODEL_NAMES = [
     "mvn_10",
     "ill_cond_50",
@@ -60,6 +61,7 @@ STARTER_MODEL_NAMES = [
     "gmm_25",
     "logistic_synthetic",
     "german_credit",
+    "horseshoe",
 ]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
