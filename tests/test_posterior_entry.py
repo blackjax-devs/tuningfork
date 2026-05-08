@@ -10,6 +10,8 @@ import pytest
 
 from bjx_bench.model._base import Posterior, ReferenceMethod
 
+pytestmark = pytest.mark.fast
+
 
 def _dummy_model():
     numpyro.sample("x", dist.Normal(0.0, 1.0))

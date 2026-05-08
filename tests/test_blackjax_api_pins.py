@@ -11,8 +11,11 @@ drifts land, promote to a Makefile target `make verify-blackjax-api`.
 import blackjax
 import jax
 import jax.numpy as jnp
+import pytest
 from blackjax.adaptation.mclmc_adaptation import MCLMCAdaptationState
 from blackjax.mcmc.mclmc import MCLMCInfo
+
+pytestmark = pytest.mark.fast
 
 
 # ───────────────── 1. mclmc_find_L_and_step_size return shape ─────────────────

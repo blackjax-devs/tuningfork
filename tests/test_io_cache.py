@@ -29,6 +29,8 @@ from bjx_bench.reference._io import (
     get_reference_summaries,
 )
 
+pytestmark = pytest.mark.fast
+
 MVN_ENTRY = MODELS["mvn_10"]
 N_SMALL = 50  # small n for fast tests
 

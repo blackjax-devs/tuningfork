@@ -28,6 +28,8 @@ import pytest
 from bjx_bench.metrics.grad_counter import total_grad_evals
 from bjx_bench.metrics.headline import min_bulk_ess_per_grad
 
+pytestmark = pytest.mark.fast
+
 # ---------------------------------------------------------------------------
 # Helper: deterministic keys for reproducible tests
 # ---------------------------------------------------------------------------

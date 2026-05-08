@@ -53,6 +53,8 @@ from bjx_bench.calibration.tier_b import (
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
+pytestmark = pytest.mark.fast
+
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
