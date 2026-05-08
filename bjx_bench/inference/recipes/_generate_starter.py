@@ -56,6 +56,7 @@ from bjx_bench.model import MODELS
 # P4.8 adds irt_2pl (Block C: 144-D NCP IRT 2PL, J=100 I=20, no posteriordb xcheck).
 # P4.9 adds stoch_vol (Block D: 503-D NCP AR(1) state-space, KSC 1998).
 # P4.10 adds lotka_volterra (Block D: 7-D ODE inverse via ProbDiffEq).
+# P4.11 adds gp_regression (Block D: 203-D Cholesky-NCP joint GP, FINAL P4 model).
 STARTER_MODEL_NAMES = [
     "mvn_10",
     "ill_cond_50",
@@ -70,6 +71,7 @@ STARTER_MODEL_NAMES = [
     "irt_2pl",
     "stoch_vol",
     "lotka_volterra",
+    "gp_regression",
 ]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
