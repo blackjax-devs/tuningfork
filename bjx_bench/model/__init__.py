@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from bjx_bench.model._base import Posterior, ReferenceMethod
 from bjx_bench.model._numpyro import build_logdensity_fn
+from bjx_bench.model.gaussians.ill_cond_50 import ENTRY as _ill_cond_50
 from bjx_bench.model.gaussians.mvn_10 import ENTRY as _mvn_10
 from bjx_bench.model.hierarchical.eight_schools import ENTRY as _eight_schools_ncp
 from bjx_bench.model.pathological.neals_funnel import ENTRY as _neals_funnel
@@ -20,6 +21,7 @@ MODELS: dict[str, Posterior] = {
     entry.name: entry
     for entry in [
         _mvn_10,
+        _ill_cond_50,
         _neals_funnel,
         _eight_schools_ncp,
     ]

@@ -1,5 +1,5 @@
 {
-  "model_name": "neals_funnel",
+  "model_name": "ill_cond_50",
   "base_method_name": "nuts",
   "warmup_name": "no_warmup",
   "effort": "low",

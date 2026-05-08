@@ -2,25 +2,23 @@
 
 Subtask P3.3 (Phase 3): generate 12 LOW + 6 MEDIUM starter recipes.
 Subtask P3.4 (Phase 3): generate 6 HIGH starter recipes via Tier-B BO.
+Subtask P4.1 (Phase 4): added ill_cond_50 to STARTER_MODEL_NAMES.
 
 **LOW recipes** (zero-cost; uses no_warmup):
-  - 3 starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
+  - N starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
   - Calls ``Recipe.from_default_config`` for each pair.
-  - The 6 existing LOW recipes for {hmc, nuts} are regenerated bit-identical
-    (from_default_config is deterministic).
+  - Deterministic — re-running produces bit-identical output.
 
 **MEDIUM recipes** (warmup-only; uses stan_window):
-  - 3 starter models × 2 algorithms (nuts, hmc)
+  - N starter models × 2 algorithms (nuts, hmc)
   - Runs stan_window warmup at n_warmup=1000; records adapted params + elapsed.
   - Calls ``Recipe.from_warmup_only`` for each pair.
-  - Total: 18 LOW + 6 MEDIUM = 24 starter recipes on disk.
 
 **HIGH recipes** (Tier-B BO; uses stan_window):
-  - 3 starter models × 2 algorithms (nuts, hmc)
+  - N starter models × 2 algorithms (nuts, hmc)
   - Runs tune_algorithm at n_trials=20, n_seeds=2, n_chains=2, n_samples=400,
     n_warmup=500; records BO-tuned config + TuningDifficulty profile.
   - Calls ``Recipe.from_tuning_result`` for each pair.
-  - Total: 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes on disk.
 
 Usage
 -----
@@ -30,7 +28,8 @@ Usage
 The script is idempotent: re-running overwrites existing files with fresh
 provenance timestamps.
 
-Compute: ~3–5 min total for LOW+MEDIUM; ~18–30 min for HIGH (n_trials=20).
+Compute: ~3–5 min total for LOW+MEDIUM per model; ~18–30 min for HIGH per model
+(n_trials=20).
 """
 
 from __future__ import annotations
@@ -46,8 +45,9 @@ from bjx_bench.inference.recipes._base import Recipe
 from bjx_bench.inference.warmup import WARMUPS
 from bjx_bench.model import MODELS
 
-# The 3 starter models (Phase 2.5 scope; Phase 4 adds the remaining 11)
-STARTER_MODEL_NAMES = ["mvn_10", "neals_funnel", "eight_schools_ncp"]
+# Starter models: Phase 2.5 seed set + Phase 4 models as they land.
+# P4.1 adds ill_cond_50 (Block A: 50-D ill-conditioned Gaussian, κ≈1000).
+STARTER_MODEL_NAMES = ["mvn_10", "ill_cond_50", "neals_funnel", "eight_schools_ncp"]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
 ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc"]
@@ -232,10 +232,11 @@ def emit_high_recipes(seed: int = 0, n_trials: int = 20) -> list[Path]:
 def main() -> None:
     """Generate and save all LOW + MEDIUM + HIGH starter recipes.
 
-    Subtask P3.3: emit 18 LOW + 6 MEDIUM = 24 total starter recipes.
-    Subtask P3.4: emit 6 HIGH recipes via Tier-B BO (n_trials=20).
-    Total: 30 starter recipes on disk.
-    Expected compute: ~3–5 min for LOW+MEDIUM; ~18–30 min for HIGH.
+    Phase 3 (P3.3 + P3.4): 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes
+    for the 3 original models.
+    Phase 4 (P4.1+): adds ill_cond_50 and subsequent models as they land.
+    Expected compute: ~3–5 min for LOW+MEDIUM per model; ~18–30 min for HIGH
+    per model (n_trials=20).
     """
     print("Generating LOW-effort recipes (6 algorithms, 3 models)...")
     low = emit_low_recipes()

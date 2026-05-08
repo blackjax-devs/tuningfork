@@ -1,5 +1,5 @@
 {
-  "model_name": "eight_schools_ncp",
+  "model_name": "ill_cond_50",
   "base_method_name": "hmc",
   "warmup_name": "no_warmup",
   "effort": "low",
