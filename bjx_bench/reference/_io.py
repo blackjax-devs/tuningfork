@@ -1,7 +1,7 @@
 """Load-or-generate reference cache for bjx-bench.
 
 This is the only module the runner and CLI call.  It owns the cache contract:
-given a ``PosteriorEntry`` and a requested sample count, it either loads a
+given a ``Posterior`` and a requested sample count, it either loads a
 valid cached artifact or regenerates it.
 
 Cache layout (relative to ``cache_dir``, default ``bjx_bench/reference/``):
@@ -55,7 +55,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import bjx_bench
-from bjx_bench.registry._base import PosteriorEntry, ReferenceMethod
+from bjx_bench.model._base import Posterior, ReferenceMethod
 
 if TYPE_CHECKING:
     from bjx_bench.calibration._summary import Summaries
@@ -208,7 +208,7 @@ def _summaries_from_dict(data: dict) -> Summaries:
 
 
 def _write_artifacts(
-    entry: PosteriorEntry,
+    entry: Posterior,
     draws: dict[str, jax.Array],
     summaries: Summaries,
     metadata: dict,
@@ -240,7 +240,7 @@ def _write_artifacts(
 
 
 def _build_metadata(
-    entry: PosteriorEntry,
+    entry: Posterior,
     draws: dict[str, jax.Array],
     seed: int,
     current_version: str,
@@ -269,7 +269,7 @@ def _build_metadata(
 
 
 def _regenerate_analytic(
-    entry: PosteriorEntry,
+    entry: Posterior,
     n: int,
     rng_key: jax.Array,
 ) -> tuple[dict[str, jax.Array], Summaries, dict]:
@@ -288,7 +288,7 @@ def _regenerate_analytic(
 
 
 def _regenerate_nuts(
-    entry: PosteriorEntry,
+    entry: Posterior,
     n: int,
     rng_key: jax.Array,
     n_warmup: int = 5_000,
@@ -322,7 +322,7 @@ def _regenerate_nuts(
 
 
 def get_reference_draws(
-    entry: PosteriorEntry,
+    entry: Posterior,
     n: int = 100_000,
     rng_key: jax.Array | None = None,
     *,
@@ -411,7 +411,7 @@ def get_reference_draws(
 
 
 def get_reference_summaries(
-    entry: PosteriorEntry,
+    entry: Posterior,
     *,
     cache_dir: Path | None = None,
     auto_regenerate: bool = True,
@@ -471,7 +471,7 @@ def get_reference_summaries(
 
 
 def get_adaptation_params(
-    entry: PosteriorEntry,
+    entry: Posterior,
     *,
     cache_dir: Path | None = None,
 ) -> AdaptationParams:

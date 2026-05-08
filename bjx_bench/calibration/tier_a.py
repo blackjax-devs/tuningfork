@@ -26,8 +26,8 @@ import jax.numpy as jnp
 from blackjax.util import run_inference_algorithm
 
 from bjx_bench.calibration._summary import Summaries, compute_summaries
-from bjx_bench.registry._base import PosteriorEntry, ReferenceMethod
-from bjx_bench.registry._numpyro import build_logdensity_fn
+from bjx_bench.model._base import Posterior, ReferenceMethod
+from bjx_bench.model._numpyro import build_logdensity_fn
 
 __all__ = [
     "AdaptationParams",
@@ -117,7 +117,7 @@ def _compute_e_bfmi(energy: jax.Array) -> jax.Array:
 
 
 def certify_reference_nuts(
-    entry: PosteriorEntry,
+    entry: Posterior,
     rng_key: jax.Array,
     *,
     n_warmup: int = 5_000,

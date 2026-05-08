@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-from bjx_bench.registry._base import PosteriorEntry
+from bjx_bench.model._base import Posterior
 
 __all__ = ["ENTRY"]
 
@@ -40,7 +40,7 @@ def _analytic_sampler(rng_key: jax.Array, n: int) -> dict[str, jax.Array]:
     return {"x": jax.random.normal(rng_key, (n, DIM))}
 
 
-ENTRY = PosteriorEntry(
+ENTRY = Posterior(
     name="mvn_10",
     dim=DIM,
     class_="gaussian",

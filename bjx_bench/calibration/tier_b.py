@@ -619,7 +619,7 @@ def _build_tuning_difficulty(
 
 
 def tune_algorithm(
-    posterior_entry: Any,  # PosteriorEntry; import deferred to avoid circular dep
+    posterior_entry: Any,  # Posterior; import deferred to avoid circular dep
     algorithm_entry: AlgorithmEntry,
     *,
     n_trials: int = 50,
@@ -676,7 +676,7 @@ def tune_algorithm(
     Parameters
     ----------
     posterior_entry
-        A ``PosteriorEntry`` describing the target distribution.
+        A ``Posterior`` describing the target distribution.
     algorithm_entry
         The ``AlgorithmEntry`` whose ``default_hp_space`` defines the BO
         search space and whose ``factory`` creates the kernel.
@@ -713,7 +713,7 @@ def tune_algorithm(
     ValueError
         If ``sampler`` is not ``"tpe"`` or ``"random"``.
     """
-    from bjx_bench.registry._numpyro import build_logdensity_fn
+    from bjx_bench.model._numpyro import build_logdensity_fn
 
     # ------------------------------------------------------------------
     # 1. Build logdensity_fn from posterior entry

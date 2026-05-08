@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-from bjx_bench.registry._base import PosteriorEntry
-from bjx_bench.registry._numpyro import build_logdensity_fn
+from bjx_bench.model._base import Posterior
+from bjx_bench.model._numpyro import build_logdensity_fn
 
 
 def _mvn_model():
@@ -23,14 +23,14 @@ def _hierarchical_model(y, sigma):
     numpyro.sample("y", dist.Normal(theta, sigma), obs=y)
 
 
-MVN_ENTRY = PosteriorEntry(
+MVN_ENTRY = Posterior(
     name="test_mvn_3",
     dim=3,
     class_="gaussian",
     numpyro_model=_mvn_model,
 )
 
-HIER_ENTRY = PosteriorEntry(
+HIER_ENTRY = Posterior(
     name="test_hier",
     dim=4,
     class_="hierarchical",

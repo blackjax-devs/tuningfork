@@ -25,18 +25,18 @@ def _cmd_tier_a(args: argparse.Namespace) -> int:
     """Handle the `tier-a` subcommand."""
     import jax
 
+    from bjx_bench.model import MODELS
     from bjx_bench.reference._io import get_reference_draws, get_reference_summaries
-    from bjx_bench.registry import REGISTRY
 
-    if args.model not in REGISTRY:
-        known = ", ".join(sorted(REGISTRY.keys()))
+    if args.model not in MODELS:
+        known = ", ".join(sorted(MODELS.keys()))
         print(
             f"error: unknown model {args.model!r}. Known models: {known}",
             file=sys.stderr,
         )
         return 1
 
-    entry = REGISTRY[args.model]
+    entry = MODELS[args.model]
     key = jax.random.key(args.seed)
 
     # NUTS-specific parameters: use small fixed values for v1 CLI
@@ -191,13 +191,13 @@ def _cmd_tune(args: argparse.Namespace) -> int:
     import json
 
     from bjx_bench.algorithms import ALGORITHMS
-    from bjx_bench.registry import REGISTRY
+    from bjx_bench.model import MODELS
 
     # ------------------------------------------------------------------ #
     # 1. Validate model and algo                                          #
     # ------------------------------------------------------------------ #
-    if args.model not in REGISTRY:
-        known = ", ".join(sorted(REGISTRY.keys()))
+    if args.model not in MODELS:
+        known = ", ".join(sorted(MODELS.keys()))
         print(
             f"error: unknown model {args.model!r}. Known models: {known}",
             file=sys.stderr,
@@ -212,7 +212,7 @@ def _cmd_tune(args: argparse.Namespace) -> int:
         )
         return 2
 
-    posterior_entry = REGISTRY[args.model]
+    posterior_entry = MODELS[args.model]
     algorithm_entry = ALGORITHMS[args.algo]
 
     # ------------------------------------------------------------------ #

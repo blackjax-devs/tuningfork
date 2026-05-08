@@ -25,7 +25,7 @@ from bjx_bench.calibration.tier_b import (
     default_params_for,
     tune_algorithm,
 )
-from bjx_bench.registry import REGISTRY
+from bjx_bench.model import MODELS
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -37,7 +37,7 @@ _N_TRIALS = 3
 _N_SEEDS = 1
 _N_CHAINS = 1
 
-_MVN_ENTRY = REGISTRY["mvn_10"]
+_MVN_ENTRY = MODELS["mvn_10"]
 _NUTS_ENTRY = ALGORITHMS["nuts"]
 _MALA_ENTRY = ALGORITHMS["mala"]
 _RWM_ENTRY = ALGORITHMS["rwm"]

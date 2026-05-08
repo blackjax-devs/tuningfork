@@ -1,6 +1,6 @@
 """Base types for the bjx-bench model registry.
 
-Every benchmark posterior is described by a single ``PosteriorEntry`` dataclass.
+Every benchmark posterior is described by a single ``Posterior`` dataclass.
 Whether a model is a one-line analytic Gaussian or a full hierarchical NumPyro
 program, the runner, cache, and CLI always see the same surface — no subclassing.
 """
@@ -14,7 +14,7 @@ from typing import Any
 
 from jax import Array
 
-__all__ = ["ReferenceMethod", "PosteriorEntry"]
+__all__ = ["ReferenceMethod", "Posterior"]
 
 
 class ReferenceMethod(str, Enum):
@@ -25,7 +25,7 @@ class ReferenceMethod(str, Enum):
 
 
 @dataclass(frozen=True)
-class PosteriorEntry:
+class Posterior:
     """Registry entry for a single benchmark posterior.
 
     Every model in the suite — analytic Gaussians, GLMs, ODE inverses — exposes
@@ -66,7 +66,7 @@ class PosteriorEntry:
     The ``reference_method`` property is the single dispatch point for the
     cache and runner; do not branch on model ``class_``.
 
-    Why no inheritance / ``Hierarchical(PosteriorEntry)`` subclass: registry
+    Why no inheritance / ``Hierarchical(Posterior)`` subclass: registry
     consumers (cache, runner, CLI) should not branch on type.
     """
 
@@ -88,6 +88,9 @@ class PosteriorEntry:
     posteriordb_id: str | None = None
     citations: tuple[str, ...] = ()
     description: str = ""
+    tags: tuple[
+        str, ...
+    ] = ()  # for persona-2 recommendation queries (Phase 6); Phase 4 fills these as more models land
 
     # ---- derived ----
     @property
