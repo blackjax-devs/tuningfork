@@ -47,7 +47,14 @@ from bjx_bench.model import MODELS
 
 # Starter models: Phase 2.5 seed set + Phase 4 models as they land.
 # P4.1 adds ill_cond_50 (Block A: 50-D ill-conditioned Gaussian, κ≈1000).
-STARTER_MODEL_NAMES = ["mvn_10", "ill_cond_50", "neals_funnel", "eight_schools_ncp"]
+# P4.2 adds banana (Block A: 2-D banana/Rosenbrock-style, curved manifold).
+STARTER_MODEL_NAMES = [
+    "mvn_10",
+    "ill_cond_50",
+    "neals_funnel",
+    "eight_schools_ncp",
+    "banana",
+]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
 ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc"]
