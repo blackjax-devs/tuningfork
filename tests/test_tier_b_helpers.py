@@ -51,7 +51,6 @@ from bjx_bench.calibration.tier_b import (
     default_value_for_space,
     optuna_distribution_for_space,
     optuna_distributions_for,
-    tune_algorithm,
 )
 
 # ---------------------------------------------------------------------------
@@ -530,45 +529,13 @@ class TestTuningResultConstruction:
 
 
 # ---------------------------------------------------------------------------
-# 6. tune_algorithm stub
+# 6. tune_algorithm stub (T2.6a tests — retired in T2.6b)
 # ---------------------------------------------------------------------------
-
-
-class TestTuneAlgorithmStub:
-    """tune_algorithm raises NotImplementedError with T2.6b mention."""
-
-    def test_raises_not_implemented(self) -> None:
-        """Calling tune_algorithm raises NotImplementedError."""
-        with pytest.raises(NotImplementedError):
-            tune_algorithm(
-                posterior_entry=None,
-                algorithm_entry=HMC_ENTRY,
-            )
-
-    def test_error_message_mentions_t2_6b(self) -> None:
-        """NotImplementedError message must mention T2.6b."""
-        with pytest.raises(NotImplementedError, match="T2.6b"):
-            tune_algorithm(
-                posterior_entry=None,
-                algorithm_entry=HMC_ENTRY,
-                n_trials=5,
-                n_seeds=2,
-            )
-
-    def test_accepts_all_kwargs(self) -> None:
-        """All documented kwargs are accepted before the error is raised."""
-        with pytest.raises(NotImplementedError):
-            tune_algorithm(
-                posterior_entry=object(),
-                algorithm_entry=HMC_ENTRY,
-                n_trials=10,
-                n_seeds=3,
-                n_chains=2,
-                n_samples=100,
-                n_warmup=200,
-                rng_key=None,
-                storage=None,
-            )
+# The three stub tests that verified tune_algorithm raised NotImplementedError
+# with a "T2.6b" message have been REMOVED here.  T2.6b replaces the stub
+# body with the real Optuna BO loop; those tests were specifically exercising
+# the now-obsolete stub.  The new behaviour (real BO loop, NotImplementedError
+# only for non-MM kernels) is covered by tests/test_tier_b_bo_loop.py.
 
 
 # ---------------------------------------------------------------------------
