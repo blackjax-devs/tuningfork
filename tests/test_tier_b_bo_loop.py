@@ -290,83 +290,58 @@ class TestTuningDifficultyInvariants:
 
 
 # ---------------------------------------------------------------------------
-# 5. NotImplementedError for MALA
+# 5. MALA dispatch: T2.6c wired these paths — smoke-check they run
 # ---------------------------------------------------------------------------
 
 
-class TestNotImplementedMala:
-    """tune_algorithm raises NotImplementedError for MALA with T2.6c hint."""
+class TestMalaDispatchWired:
+    """Sanity check: tune_algorithm no longer raises NotImplementedError for MALA.
 
-    def test_raises_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
-            tune_algorithm(
-                _MVN_ENTRY,
-                _MALA_ENTRY,
-                n_trials=1,
-                n_seeds=1,
-                n_chains=1,
-                n_samples=10,
-                n_warmup=10,
-                rng_key=jax.random.key(0),
-            )
+    T2.6b had these as NotImplementedError tests.  T2.6c wires MALA/RWM
+    dispatch (no warmup), so these tests confirm the dispatch is active.
+    Full coverage lives in tests/test_tier_b_dispatch.py.
+    """
 
-    def test_error_message_mentions_t2_6c(self) -> None:
-        with pytest.raises(NotImplementedError, match="T2.6c"):
-            tune_algorithm(
-                _MVN_ENTRY,
-                _MALA_ENTRY,
-                n_trials=1,
-                n_seeds=1,
-                n_chains=1,
-                n_samples=10,
-                n_warmup=10,
-                rng_key=jax.random.key(0),
-            )
+    def test_does_not_raise_not_implemented(self) -> None:
+        # Should complete without raising NotImplementedError.
+        result = tune_algorithm(
+            _MVN_ENTRY,
+            _MALA_ENTRY,
+            n_trials=1,
+            n_seeds=1,
+            n_chains=1,
+            n_samples=50,
+            n_warmup=50,
+            rng_key=jax.random.key(0),
+        )
+        assert isinstance(result, TuningResult)
+        assert result.algorithm_name == "mala"
 
 
 # ---------------------------------------------------------------------------
-# 6. NotImplementedError for MCLMC
+# 6. MCLMC dispatch: T2.6c wired these paths — smoke-check they run
 # ---------------------------------------------------------------------------
 
 
-class TestNotImplementedMclmc:
-    """tune_algorithm raises NotImplementedError for MCLMC with T2.6c hint."""
+class TestMclmcDispatchWired:
+    """Sanity check: tune_algorithm no longer raises NotImplementedError for MCLMC.
 
-    def test_raises_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
-            tune_algorithm(
-                _MVN_ENTRY,
-                _MCLMC_ENTRY,
-                n_trials=1,
-                n_seeds=1,
-                n_chains=1,
-                n_samples=10,
-                n_warmup=10,
-                rng_key=jax.random.key(0),
-            )
+    T2.6b had these as NotImplementedError tests.  T2.6c wires MCLMC dispatch
+    via mclmc_find_L_and_step_size, so these tests confirm the dispatch is
+    active.  Full coverage lives in tests/test_tier_b_dispatch.py.
+    """
 
-    def test_error_message_mentions_mclmc(self) -> None:
-        with pytest.raises(NotImplementedError, match="MCLMC"):
-            tune_algorithm(
-                _MVN_ENTRY,
-                _MCLMC_ENTRY,
-                n_trials=1,
-                n_seeds=1,
-                n_chains=1,
-                n_samples=10,
-                n_warmup=10,
-                rng_key=jax.random.key(0),
-            )
-
-    def test_error_message_mentions_t2_6c(self) -> None:
-        with pytest.raises(NotImplementedError, match="T2.6c"):
-            tune_algorithm(
-                _MVN_ENTRY,
-                _MCLMC_ENTRY,
-                n_trials=1,
-                n_seeds=1,
-                n_chains=1,
-                n_samples=10,
-                n_warmup=10,
-                rng_key=jax.random.key(0),
-            )
+    def test_does_not_raise_not_implemented(self) -> None:
+        # Should complete without raising NotImplementedError.
+        result = tune_algorithm(
+            _MVN_ENTRY,
+            _MCLMC_ENTRY,
+            n_trials=1,
+            n_seeds=1,
+            n_chains=1,
+            n_samples=50,
+            n_warmup=200,
+            rng_key=jax.random.key(0),
+        )
+        assert isinstance(result, TuningResult)
+        assert result.algorithm_name == "mclmc"

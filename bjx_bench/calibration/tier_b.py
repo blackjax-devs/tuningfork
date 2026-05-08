@@ -1,7 +1,10 @@
 """Tier-B per-algorithm tuning via Optuna BO. Foundation layer (T2.6a).
 
+Extended in T2.6b (mass-matrix kernels) and T2.6c (sampler-swap, MALA/RWM,
+MCLMC dispatch, best_trial robustness guard).
+
 This module owns the *types* and *pure helpers* for the BO loop. The actual
-loop body (``tune_algorithm``) is implemented in T2.6b.
+loop body (``tune_algorithm``) is implemented in T2.6b/T2.6c.
 
 The tuning-difficulty metric (``PLAN_bjx_bench_API_phase2.md``
 §"Tuning Difficulty Metric") is the companion to the headline ESS/grad: it
@@ -16,6 +19,10 @@ to store as a value in another frozen container. Callers construct it by
 converting their mutable list of per-trial dicts to a tuple at the point of
 ``TuningResult`` construction; this is cheap (one allocation) and the
 immutability is load-bearing for the evaluation pipeline.
+
+Fallback behaviour: if all trials diverge, ``study.best_trial`` raises
+``ValueError``. The loop catches this and returns trial-0 (the enqueued
+default) as the "best" params with score ``-inf``.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -317,16 +324,24 @@ def _run_warmup(
     n_warmup: int,
     rng_key: jax.Array,
 ) -> tuple[Any, dict[str, Any]]:
-    """Run window adaptation once and return (adapted_state, adapted_params).
+    """Run warmup and return (adapted_state, adapted_params).
 
-    ``adapted_params`` always contains ``step_size`` and
-    ``inverse_mass_matrix``.  These are reused across all BO trials; only
-    the BO-tunable HPs (e.g. ``step_size``, ``num_integration_steps``) are
-    overridden per trial.
+    Dispatch logic (T2.6b + T2.6c):
 
-    For HMC the warmup itself needs a ``num_integration_steps`` argument
-    (it must simulate trajectories during adaptation).  We supply the
-    default-HP-space midpoint value for that purpose.
+    - **Mass-matrix kernels** (NUTS, HMC, Barker, ``needs_mass_matrix=True``):
+      ``blackjax.window_adaptation`` runs once.  ``adapted_params`` contains
+      at least ``step_size`` and ``inverse_mass_matrix``.  These are reused
+      across all BO trials; only the BO-tunable HPs (e.g. ``step_size``,
+      ``num_integration_steps``) are overridden per trial.
+    - **MALA / RWM** (no warmup): kernel state is initialised from the
+      default HPs; no adaptation is run.  ``adapted_params`` is empty (``{}``);
+      all kernel params come from the BO trial.
+    - **MCLMC**: ``blackjax.mclmc_find_L_and_step_size`` is called for
+      ``n_warmup`` steps.  The returned ``MCLMCAdaptationState`` (fields:
+      ``L``, ``step_size``, ``inverse_mass_matrix``) is converted to a plain
+      ``dict`` and returned.  BO trials override ``step_size`` and ``L``; the
+      warmup ``inverse_mass_matrix`` is dropped from the BO search space and
+      used as a fixed diagonal preconditioner during sampling.
 
     Parameters
     ----------
@@ -335,7 +350,7 @@ def _run_warmup(
     init_position
         Initial parameter dict (unconstrained).
     algorithm_entry
-        Registry entry; must have ``needs_mass_matrix=True``.
+        Registry entry describing the algorithm.
     n_warmup
         Number of warmup steps.
     rng_key
@@ -344,33 +359,94 @@ def _run_warmup(
     Returns
     -------
     adapted_state
-        The BlackJAX state object after warmup.
+        The BlackJAX state object after warmup (or a freshly initialised
+        state for no-warmup algorithms).
     adapted_params
-        Dict with at least ``step_size`` and ``inverse_mass_matrix``.
+        Dict of warmup-adapted parameters to merge with per-trial BO params.
+        Empty dict for MALA/RWM (all params come from BO).
     """
     import blackjax
 
-    target_ar = algorithm_entry.target_acceptance_rate
-    if target_ar is None:
-        target_ar = 0.80  # sensible default if entry omits it
+    name = algorithm_entry.name
 
-    # Extra kwargs for the warmup (e.g. num_integration_steps for HMC).
-    # We inject defaults for any HPs that are NOT step_size or
-    # inverse_mass_matrix — these are needed by the kernel during warmup
-    # but are later overridden per BO trial.
-    extra_kwargs: dict[str, Any] = {}
-    for space in algorithm_entry.default_hp_space:
-        if space.name not in ("step_size", "inverse_mass_matrix"):
-            extra_kwargs[space.name] = default_value_for_space(space)
+    # ------------------------------------------------------------------
+    # Path A: mass-matrix kernels — window_adaptation
+    # ------------------------------------------------------------------
+    if algorithm_entry.needs_mass_matrix:
+        target_ar = algorithm_entry.target_acceptance_rate
+        if target_ar is None:
+            target_ar = 0.80  # sensible default if entry omits it
 
-    warmup = blackjax.window_adaptation(
-        algorithm_entry.factory,
-        logdensity_fn,
-        target_acceptance_rate=target_ar,
-        **extra_kwargs,
-    )
-    (adapted_state, adapted_params), _ = warmup.run(rng_key, init_position, n_warmup)
-    return adapted_state, dict(adapted_params)
+        # Extra kwargs for the warmup (e.g. num_integration_steps for HMC).
+        # We inject defaults for any HPs that are NOT step_size or
+        # inverse_mass_matrix — these are needed by the kernel during warmup
+        # but are later overridden per BO trial.
+        extra_kwargs: dict[str, Any] = {}
+        for space in algorithm_entry.default_hp_space:
+            if space.name not in ("step_size", "inverse_mass_matrix"):
+                extra_kwargs[space.name] = default_value_for_space(space)
+
+        warmup = blackjax.window_adaptation(
+            algorithm_entry.factory,
+            logdensity_fn,
+            target_acceptance_rate=target_ar,
+            **extra_kwargs,
+        )
+        (adapted_state, adapted_params), _ = warmup.run(
+            rng_key, init_position, n_warmup
+        )
+        return adapted_state, dict(adapted_params)
+
+    # ------------------------------------------------------------------
+    # Path B: MALA / RWM — no warmup; state from default params
+    # ------------------------------------------------------------------
+    elif name in {"mala", "rwm"}:
+        default_kwargs = default_params_for(algorithm_entry)
+        kernel = algorithm_entry.factory(logdensity_fn, **default_kwargs)
+        adapted_state = kernel.init(init_position)
+        return adapted_state, {}  # empty dict: all params flow from BO trial
+
+    # ------------------------------------------------------------------
+    # Path C: MCLMC — mclmc_find_L_and_step_size
+    # ------------------------------------------------------------------
+    elif name == "mclmc":
+        init_key, warmup_key = jax.random.split(rng_key, 2)
+        # Build kernel with default params to get a state we can pass to
+        # mclmc_find_L_and_step_size.  The actual L/step_size used here are
+        # overwritten internally by the adaptation routine.
+        default_kwargs = default_params_for(algorithm_entry)
+        kernel = algorithm_entry.factory(logdensity_fn, **default_kwargs)
+        init_state = kernel.init(init_position, init_key)
+
+        # mclmc_find_L_and_step_size takes the raw build_kernel output, not
+        # the SamplingAlgorithm wrapper.
+        mclmc_kernel = blackjax.mclmc.build_kernel()
+        state_post, mclmc_params, _n_tuning_steps = blackjax.mclmc_find_L_and_step_size(
+            mclmc_kernel,
+            num_steps=n_warmup,
+            state=init_state,
+            rng_key=warmup_key,
+            logdensity_fn=logdensity_fn,
+            diagonal_preconditioning=True,
+        )
+        # mclmc_params is MCLMCAdaptationState(L, step_size, inverse_mass_matrix).
+        # Convert to dict; BO trials will override step_size and L; we keep
+        # inverse_mass_matrix as the fixed preconditioner.
+        adapted_params = {
+            "L": float(mclmc_params.L),
+            "step_size": float(mclmc_params.step_size),
+            "inverse_mass_matrix": mclmc_params.inverse_mass_matrix,
+        }
+        return state_post, adapted_params
+
+    # ------------------------------------------------------------------
+    # Unknown algorithm
+    # ------------------------------------------------------------------
+    else:
+        raise NotImplementedError(
+            f"_run_warmup: no warmup dispatch for algorithm {name!r}. "
+            "Extend this function to add support."
+        )
 
 
 def _run_trial(
@@ -552,30 +628,49 @@ def tune_algorithm(
     n_samples: int = 500,
     n_warmup: int = 1000,
     rng_key: Any = None,  # jax.Array
+    sampler: Literal["tpe", "random"] = "tpe",
     storage: str | None = None,
 ) -> TuningResult:
-    """Optuna TPE BO over ``algorithm_entry.default_hp_space``.
+    """Optuna BO over ``algorithm_entry.default_hp_space``.
 
-    Architecture (mass-matrix path, T2.6b):
+    Architecture (T2.6b + T2.6c):
 
-    1. **Dispatch**: only ``needs_mass_matrix=True`` algorithms (NUTS, HMC,
-       Barker) are supported.  Non-MM gradient kernels (MALA, RWM) and MCLMC
-       raise ``NotImplementedError`` pointing to T2.6c.
-    2. **Single warmup**: ``blackjax.window_adaptation`` runs ONCE per study.
-       The adapted ``inverse_mass_matrix`` is reused across ALL trials; only
-       the BO-tunable HPs (e.g. ``step_size``, ``num_integration_steps``)
-       are overridden per trial.
-    3. **Trial 0 = default**: before calling ``study.optimize``, the loop
+    1. **Warmup dispatch** (via ``_run_warmup``):
+
+       - ``needs_mass_matrix=True`` (NUTS, HMC, Barker): ``window_adaptation``
+         runs ONCE per study; adapted ``inverse_mass_matrix`` is reused across
+         all trials.
+       - MALA / RWM (no warmup): kernel state is initialised from default HPs;
+         all kernel params come from BO trial suggestions.
+       - MCLMC: ``blackjax.mclmc_find_L_and_step_size`` runs for ``n_warmup``
+         steps; the returned ``L``, ``step_size``, and ``inverse_mass_matrix``
+         are warm-start values that BO trials can override.
+
+    2. **Trial 0 = default**: before calling ``study.optimize``, the loop
        enqueues a deterministic default configuration via
        ``study.enqueue_trial(default_params_for(algorithm_entry))``.  This
        pins trial 0 as the "out-of-the-box" reference; the BO difficulty
        metric is defined relative to this baseline.
-    4. **Optuna TPE**: ``n_trials`` trials with the TPE sampler; direction
-       is "maximize" (higher ``min_bulk_ess_per_grad`` is better).
-    5. **Multi-chain / multi-seed**: T2.6b uses a Python loop over
-       ``n_chains`` (no vmap) and ``n_seeds`` (averaged score).  T2.6c may
-       add vmap-based parallelism if profiling justifies the complexity.
-    6. **TuningDifficulty**: computed from the per-trial history after all
+
+    3. **Sampler**: controlled by the ``sampler`` argument.  ``"tpe"``
+       (default) uses ``optuna.samplers.TPESampler``; ``"random"`` uses
+       ``optuna.samplers.RandomSampler``.  Both are seeded deterministically
+       from ``rng_key`` so results are reproducible.  This enables the
+       dogfood comparison described in
+       ``PLAN_bjx_bench_API_phase2.md`` §"BO library choice — rationale".
+
+    4. **Optuna direction**: "maximize" (higher ``min_bulk_ess_per_grad`` is
+       better).
+
+    5. **Multi-chain / multi-seed**: Python loop over ``n_chains`` (no vmap)
+       and ``n_seeds`` (averaged score).
+
+    6. **best_trial fallback**: if all trials diverge,
+       ``study.best_trial`` raises ``ValueError``.  The loop catches this
+       and returns trial-0 (the enqueued default) as the fallback "best"
+       with score ``-inf``.
+
+    7. **TuningDifficulty**: computed from the per-trial history after all
        trials complete.
 
     Parameters
@@ -594,9 +689,14 @@ def tune_algorithm(
     n_samples
         Post-warmup samples per chain.
     n_warmup
-        Warmup steps per chain.
+        Warmup steps per seed (window adaptation, or MCLMC tuning steps).
     rng_key
         Base JAX random key; subkeys are folded-in per trial and per seed.
+    sampler
+        Optuna suggestion strategy.  ``"tpe"`` (default) uses
+        ``TPESampler``; ``"random"`` uses ``RandomSampler``.  Both options
+        preserve the full Optuna machinery (enqueue_trial, difficulty
+        profile, result schema).
     storage
         Optional Optuna RDB URL (e.g. ``"sqlite:///tuning.db"``) for
         persistent study storage.  ``None`` for in-memory (default).
@@ -605,40 +705,25 @@ def tune_algorithm(
     -------
     TuningResult
         Full tuning outcome including best params, score, history, and
-        difficulty profile.
+        difficulty profile.  If all trials diverge, ``best_params`` holds
+        the trial-0 (default) params and ``best_score`` is ``-inf``.
 
     Raises
     ------
-    NotImplementedError
-        For non-mass-matrix algorithms (MALA, RWM, MCLMC) — wired in T2.6c.
+    ValueError
+        If ``sampler`` is not ``"tpe"`` or ``"random"``.
     """
     from bjx_bench.registry._numpyro import build_logdensity_fn
 
     # ------------------------------------------------------------------
-    # 1. Dispatch on needs_mass_matrix
-    # ------------------------------------------------------------------
-    if not algorithm_entry.needs_mass_matrix:
-        if algorithm_entry.name == "mclmc":
-            raise NotImplementedError(
-                f"MCLMC has its own warmup routine — T2.6c will dispatch via "
-                f"mclmc_find_L_and_step_size (algorithm: {algorithm_entry.name!r})."
-            )
-        else:
-            raise NotImplementedError(
-                f"Non-MM gradient kernels (MALA, RWM) are not yet wired — "
-                f"T2.6c will implement the fixed-step warmup path for "
-                f"{algorithm_entry.name!r}."
-            )
-
-    # ------------------------------------------------------------------
-    # 2. Build logdensity_fn from posterior entry
+    # 1. Build logdensity_fn from posterior entry
     # ------------------------------------------------------------------
     rng_key_init, rng_key_warmup, rng_key_study = jax.random.split(rng_key, 3)
 
     init_position, logdensity_fn, _ = build_logdensity_fn(rng_key_init, posterior_entry)
 
     # ------------------------------------------------------------------
-    # 3. Single warmup run (reused across ALL trials)
+    # 2. Single warmup run (reused across ALL trials)
     # ------------------------------------------------------------------
     adapted_state, warmup_params = _run_warmup(
         logdensity_fn=logdensity_fn,
@@ -647,17 +732,23 @@ def tune_algorithm(
         n_warmup=n_warmup,
         rng_key=rng_key_warmup,
     )
-    # warmup_params: {"step_size": ..., "inverse_mass_matrix": ...}
-    # The IMM is fixed for the whole study.
+    # warmup_params for MM-kernels: {"step_size": ..., "inverse_mass_matrix": ...}
+    # warmup_params for MALA/RWM: {} (all params come from BO)
+    # warmup_params for MCLMC: {"L": ..., "step_size": ..., "inverse_mass_matrix": ...}
 
     # ------------------------------------------------------------------
-    # 4. Optuna study with TPE sampler
+    # 3. Optuna study with selected sampler
     # ------------------------------------------------------------------
     sampler_seed = int(jax.random.bits(jax.random.fold_in(rng_key_study, 0)))
-    sampler = optuna.samplers.TPESampler(seed=sampler_seed)
+    if sampler == "tpe":
+        optuna_sampler = optuna.samplers.TPESampler(seed=sampler_seed)
+    elif sampler == "random":
+        optuna_sampler = optuna.samplers.RandomSampler(seed=sampler_seed)
+    else:
+        raise ValueError(f"sampler must be 'tpe' or 'random', got {sampler!r}")
     study = optuna.create_study(
         direction="maximize",
-        sampler=sampler,
+        sampler=optuna_sampler,
         storage=storage,
     )
 
@@ -756,9 +847,24 @@ def tune_algorithm(
     # ------------------------------------------------------------------
     # 7. Build and return TuningResult
     # ------------------------------------------------------------------
-    best_trial = study.best_trial
-    best_params = dict(best_trial.params)
-    best_score = float(best_trial.value)
+    # Robustness guard: if ALL trials diverged, study.best_trial raises
+    # ValueError (Optuna has no finite-valued trial to report as best).
+    # We fall back to trial-0 (the enqueued default) so the caller always
+    # receives a valid TuningResult rather than an exception.  The
+    # best_score of -inf signals "all trials diverged" to the caller.
+    try:
+        best_trial = study.best_trial
+        best_params = dict(best_trial.params)
+        best_score = float(best_trial.value)
+    except ValueError:
+        # All trials returned -inf.  Fall back to trial-0 (default params).
+        if not study.trials:
+            raise RuntimeError("No trials completed; this should not happen")
+        fallback = study.trials[0]
+        best_params = dict(fallback.params)
+        best_score = (
+            float(fallback.value) if fallback.value is not None else float("-inf")
+        )
 
     return TuningResult(
         algorithm_name=algorithm_entry.name,
