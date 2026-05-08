@@ -20,8 +20,11 @@ from __future__ import annotations
 from typing import NamedTuple
 
 import jax.numpy as jnp
+import pytest
 
 from bjx_bench.metrics.grad_counter import total_grad_evals
+
+pytestmark = pytest.mark.fast
 
 # ---------------------------------------------------------------------------
 # Fake info NamedTuple that mimics what BlackJAX produces after

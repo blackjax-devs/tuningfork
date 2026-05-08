@@ -323,25 +323,30 @@ def _run_warmup(
     algorithm_entry: BaseMethod,
     n_warmup: int,
     rng_key: jax.Array,
+    warmup_name: str = "stan_window",
 ) -> tuple[Any, dict[str, Any]]:
     """Run warmup and return (adapted_state, adapted_params).
 
-    Dispatch logic (T2.6b + T2.6c):
+    Dispatch is via the ``WARMUPS`` registry (Phase 3, P3.1).  The
+    ``warmup_name`` selects the warmup procedure; ``tune_algorithm``
+    resolves ``None`` to the right default before calling this function.
 
-    - **Mass-matrix kernels** (NUTS, HMC, Barker, ``needs_mass_matrix=True``):
+    Behaviour by warmup:
+
+    - ``"stan_window"`` (mass-matrix kernels — NUTS, HMC, Barker, MALA):
       ``blackjax.window_adaptation`` runs once.  ``adapted_params`` contains
       at least ``step_size`` and ``inverse_mass_matrix``.  These are reused
       across all BO trials; only the BO-tunable HPs (e.g. ``step_size``,
       ``num_integration_steps``) are overridden per trial.
-    - **MALA / RWM** (no warmup): kernel state is initialised from the
+    - ``"no_warmup"`` (MALA, RWM): kernel state is initialised from the
       default HPs; no adaptation is run.  ``adapted_params`` is empty (``{}``);
       all kernel params come from the BO trial.
-    - **MCLMC**: ``blackjax.mclmc_find_L_and_step_size`` is called for
-      ``n_warmup`` steps.  The returned ``MCLMCAdaptationState`` (fields:
-      ``L``, ``step_size``, ``inverse_mass_matrix``) is converted to a plain
-      ``dict`` and returned.  BO trials override ``step_size`` and ``L``; the
-      warmup ``inverse_mass_matrix`` is dropped from the BO search space and
-      used as a fixed diagonal preconditioner during sampling.
+    - ``"mclmc_tuning"`` (MCLMC): ``blackjax.mclmc_find_L_and_step_size``
+      runs for ``n_warmup`` steps.  The returned ``MCLMCAdaptationState``
+      (fields: ``L``, ``step_size``, ``inverse_mass_matrix``) is converted to
+      a plain ``dict`` and returned.  BO trials override ``step_size`` and
+      ``L``; the warmup ``inverse_mass_matrix`` is used as a fixed diagonal
+      preconditioner.
 
     Parameters
     ----------
@@ -355,6 +360,9 @@ def _run_warmup(
         Number of warmup steps.
     rng_key
         JAX random key for the warmup run.
+    warmup_name
+        Key into the ``WARMUPS`` registry.  ``tune_algorithm`` resolves
+        ``None`` → the auto-dispatched default before calling here.
 
     Returns
     -------
@@ -363,90 +371,35 @@ def _run_warmup(
         state for no-warmup algorithms).
     adapted_params
         Dict of warmup-adapted parameters to merge with per-trial BO params.
-        Empty dict for MALA/RWM (all params come from BO).
+        Empty dict for ``no_warmup`` (all params come from BO).
+
+    Raises
+    ------
+    ValueError
+        If ``warmup_name`` is not in ``WARMUPS`` or if the selected warmup
+        is not compatible with ``algorithm_entry.name``.
     """
-    import blackjax
+    from bjx_bench.inference.warmup import WARMUPS
 
-    name = algorithm_entry.name
-
-    # ------------------------------------------------------------------
-    # Path A: mass-matrix kernels — window_adaptation
-    # ------------------------------------------------------------------
-    if algorithm_entry.needs_mass_matrix:
-        target_ar = algorithm_entry.target_acceptance_rate
-        if target_ar is None:
-            target_ar = 0.80  # sensible default if entry omits it
-
-        # Extra kwargs for the warmup (e.g. num_integration_steps for HMC).
-        # We inject defaults for any HPs that are NOT step_size or
-        # inverse_mass_matrix — these are needed by the kernel during warmup
-        # but are later overridden per BO trial.
-        extra_kwargs: dict[str, Any] = {}
-        for space in algorithm_entry.default_hp_space:
-            if space.name not in ("step_size", "inverse_mass_matrix"):
-                extra_kwargs[space.name] = default_value_for_space(space)
-
-        warmup = blackjax.window_adaptation(
-            algorithm_entry.factory,
-            logdensity_fn,
-            target_acceptance_rate=target_ar,
-            **extra_kwargs,
+    if warmup_name not in WARMUPS:
+        raise ValueError(
+            f"_run_warmup: unknown warmup {warmup_name!r}; "
+            f"available: {sorted(WARMUPS)}"
         )
-        (adapted_state, adapted_params), _ = warmup.run(
-            rng_key, init_position, n_warmup
+    warmup = WARMUPS[warmup_name]
+    if not warmup.is_compatible(algorithm_entry.name):
+        raise ValueError(
+            f"warmup {warmup_name!r} is not compatible with "
+            f"base_method {algorithm_entry.name!r}; "
+            f"compatible_methods = {warmup.compatible_methods}"
         )
-        return adapted_state, dict(adapted_params)
-
-    # ------------------------------------------------------------------
-    # Path B: MALA / RWM — no warmup; state from default params
-    # ------------------------------------------------------------------
-    elif name in {"mala", "rwm"}:
-        default_kwargs = default_params_for(algorithm_entry)
-        kernel = algorithm_entry.factory(logdensity_fn, **default_kwargs)
-        adapted_state = kernel.init(init_position)
-        return adapted_state, {}  # empty dict: all params flow from BO trial
-
-    # ------------------------------------------------------------------
-    # Path C: MCLMC — mclmc_find_L_and_step_size
-    # ------------------------------------------------------------------
-    elif name == "mclmc":
-        init_key, warmup_key = jax.random.split(rng_key, 2)
-        # Build kernel with default params to get a state we can pass to
-        # mclmc_find_L_and_step_size.  The actual L/step_size used here are
-        # overwritten internally by the adaptation routine.
-        default_kwargs = default_params_for(algorithm_entry)
-        kernel = algorithm_entry.factory(logdensity_fn, **default_kwargs)
-        init_state = kernel.init(init_position, init_key)
-
-        # mclmc_find_L_and_step_size takes the raw build_kernel output, not
-        # the SamplingAlgorithm wrapper.
-        mclmc_kernel = blackjax.mclmc.build_kernel()
-        state_post, mclmc_params, _n_tuning_steps = blackjax.mclmc_find_L_and_step_size(
-            mclmc_kernel,
-            num_steps=n_warmup,
-            state=init_state,
-            rng_key=warmup_key,
-            logdensity_fn=logdensity_fn,
-            diagonal_preconditioning=True,
-        )
-        # mclmc_params is MCLMCAdaptationState(L, step_size, inverse_mass_matrix).
-        # Convert to dict; BO trials will override step_size and L; we keep
-        # inverse_mass_matrix as the fixed preconditioner.
-        adapted_params = {
-            "L": float(mclmc_params.L),
-            "step_size": float(mclmc_params.step_size),
-            "inverse_mass_matrix": mclmc_params.inverse_mass_matrix,
-        }
-        return state_post, adapted_params
-
-    # ------------------------------------------------------------------
-    # Unknown algorithm
-    # ------------------------------------------------------------------
-    else:
-        raise NotImplementedError(
-            f"_run_warmup: no warmup dispatch for algorithm {name!r}. "
-            "Extend this function to add support."
-        )
+    return warmup.runner(
+        rng_key,
+        init_position,
+        n_warmup,
+        algorithm_entry,
+        logdensity_fn=logdensity_fn,
+    )
 
 
 def _run_trial(
@@ -630,6 +583,7 @@ def tune_algorithm(
     rng_key: Any = None,  # jax.Array
     sampler: Literal["tpe", "random"] = "tpe",
     storage: str | None = None,
+    warmup_name: str | None = None,
 ) -> TuningResult:
     """Optuna BO over ``algorithm_entry.default_hp_space``.
 
@@ -700,6 +654,18 @@ def tune_algorithm(
     storage
         Optional Optuna RDB URL (e.g. ``"sqlite:///tuning.db"``) for
         persistent study storage.  ``None`` for in-memory (default).
+    warmup_name
+        Name of the warmup procedure from the ``WARMUPS`` registry
+        (``"stan_window"``, ``"mclmc_tuning"``, ``"no_warmup"``).
+        When ``None`` (default), the warmup is auto-dispatched:
+
+        - ``"mclmc_tuning"`` for ``algorithm_entry.name == "mclmc"``
+        - ``"stan_window"`` for ``algorithm_entry.needs_mass_matrix == True``
+          (NUTS, HMC, Barker, MALA)
+        - ``"no_warmup"`` for all remaining algorithms (RWM, etc.)
+
+        This auto-dispatch reproduces the inline behavior of the Phase 2
+        ``_run_warmup`` exactly.
 
     Returns
     -------
@@ -711,7 +677,8 @@ def tune_algorithm(
     Raises
     ------
     ValueError
-        If ``sampler`` is not ``"tpe"`` or ``"random"``.
+        If ``sampler`` is not ``"tpe"`` or ``"random"``, or if
+        ``warmup_name`` is unknown or incompatible with the algorithm.
     """
     from bjx_bench.model._numpyro import build_logdensity_fn
 
@@ -723,7 +690,18 @@ def tune_algorithm(
     init_position, logdensity_fn, _ = build_logdensity_fn(rng_key_init, posterior_entry)
 
     # ------------------------------------------------------------------
-    # 2. Single warmup run (reused across ALL trials)
+    # 2. Resolve warmup_name (auto-dispatch when None)
+    # ------------------------------------------------------------------
+    if warmup_name is None:
+        if algorithm_entry.name == "mclmc":
+            warmup_name = "mclmc_tuning"
+        elif algorithm_entry.needs_mass_matrix:
+            warmup_name = "stan_window"
+        else:
+            warmup_name = "no_warmup"
+
+    # ------------------------------------------------------------------
+    # 3. Single warmup run (reused across ALL trials)
     # ------------------------------------------------------------------
     adapted_state, warmup_params = _run_warmup(
         logdensity_fn=logdensity_fn,
@@ -731,10 +709,14 @@ def tune_algorithm(
         algorithm_entry=algorithm_entry,
         n_warmup=n_warmup,
         rng_key=rng_key_warmup,
+        warmup_name=warmup_name,
     )
-    # warmup_params for MM-kernels: {"step_size": ..., "inverse_mass_matrix": ...}
-    # warmup_params for MALA/RWM: {} (all params come from BO)
-    # warmup_params for MCLMC: {"L": ..., "step_size": ..., "inverse_mass_matrix": ...}
+    # warmup_params for stan_window (MM-kernels):
+    #   {"step_size": ..., "inverse_mass_matrix": ...}
+    # warmup_params for no_warmup (MALA/RWM): {} (all params come from BO)
+    # warmup_params for mclmc_tuning:
+    #   {"L": ..., "step_size": ..., "inverse_mass_matrix": ...,
+    #    "_total_tuning_steps": ...}
 
     # ------------------------------------------------------------------
     # 3. Optuna study with selected sampler
@@ -791,7 +773,14 @@ def tune_algorithm(
         # The BO search space intentionally does NOT include
         # inverse_mass_matrix (verified by tests in T2.2), so the merge
         # is safe: warmup_params provides IMM; trial_params provide the rest.
-        kernel_params = {**warmup_params, **trial_params}
+        # Strip internal metadata keys (underscore-prefixed, e.g.
+        # "_total_tuning_steps" from mclmc_tuning) before passing to the
+        # kernel factory — those keys are for Recipe.calibration_budget, not
+        # for blackjax kernel construction.
+        public_warmup_params = {
+            k: v for k, v in warmup_params.items() if not k.startswith("_")
+        }
+        kernel_params = {**public_warmup_params, **trial_params}
 
         # Average score over n_seeds
         seed_scores: list[float] = []

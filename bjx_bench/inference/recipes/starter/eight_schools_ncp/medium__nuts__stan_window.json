@@ -1,0 +1,39 @@
+{
+  "model_name": "eight_schools_ncp",
+  "base_method_name": "nuts",
+  "warmup_name": "stan_window",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.40475067496299744,
+    "inverse_mass_matrix": [
+      10.014094352722168,
+      1.1144822835922241,
+      1.0367685556411743,
+      0.8409426212310791,
+      0.9189469218254089,
+      0.9481260776519775,
+      0.7979276776313782,
+      0.830418586730957,
+      0.9379715323448181,
+      1.0399718284606934
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 1000
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.7050935350125656,
+    "n_warmup": 1000
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (stan_window adaptation). To use:\n  ```python\n  warmup = blackjax.window_adaptation(blackjax.nuts, logdensity_fn, **{'n_warmup': 1000})\n  (state, params), _ = warmup.run(rng_key, init_position, 1000)\n  kernel = blackjax.nuts(logdensity_fn, **params)\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: None.\nWarmup wall time: ~0 s.",
+  "notes": "",
+  "tuning_seed": 326892089,
+  "bjx_bench_version": "0.1.dev0+d20260507",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T09:20:50Z"
+}

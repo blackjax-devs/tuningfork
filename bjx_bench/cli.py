@@ -182,6 +182,277 @@ def _serialize_tuning_result(result: object) -> dict:
     return _coerce_for_json(raw)  # type: ignore[return-value]
 
 
+def _cmd_warmup(args: argparse.Namespace) -> int:
+    """Handle the ``warmup`` subcommand.
+
+    Validates model/algo/warmup names, runs warmup-only via
+    Recipe.from_warmup_only, prints a summary table, and optionally saves
+    the recipe JSON to ``--save PATH``.
+    """
+    import json
+
+    from bjx_bench.inference.base_method import BASE_METHODS
+    from bjx_bench.inference.warmup import WARMUPS
+    from bjx_bench.model import MODELS
+
+    # ------------------------------------------------------------------ #
+    # 1. Validate model, algo, and warmup                                #
+    # ------------------------------------------------------------------ #
+    if args.model not in MODELS:
+        known = ", ".join(sorted(MODELS.keys()))
+        print(
+            f"error: unknown model {args.model!r}. Known models: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.algo not in BASE_METHODS:
+        known = ", ".join(sorted(BASE_METHODS.keys()))
+        print(
+            f"error: unknown algorithm {args.algo!r}. Known algorithms: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.warmup not in WARMUPS:
+        known = ", ".join(sorted(WARMUPS.keys()))
+        print(
+            f"error: unknown warmup {args.warmup!r}. Known warmups: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    posterior_entry = MODELS[args.model]
+    algorithm_entry = BASE_METHODS[args.algo]
+    warmup_entry = WARMUPS[args.warmup]
+
+    # Validate warmup-algo compatibility.
+    if not warmup_entry.is_compatible(algorithm_entry.name):
+        print(
+            f"error: warmup {args.warmup!r} is not compatible with "
+            f"algorithm {args.algo!r}. "
+            f"Warmup {args.warmup!r} supports: {warmup_entry.compatible_methods}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # ------------------------------------------------------------------ #
+    # 2. Banner                                                           #
+    # ------------------------------------------------------------------ #
+    print()
+    print(
+        f"bjx-bench warmup  model={args.model}  algo={args.algo}  "
+        f"warmup={args.warmup}  n_warmup={args.n_warmup}  seed={args.seed}"
+    )
+    print()
+
+    # ------------------------------------------------------------------ #
+    # 3. Run warmup-only recipe generation                               #
+    # ------------------------------------------------------------------ #
+    import jax
+
+    from bjx_bench.inference.recipes._base import Recipe
+
+    rng_key = jax.random.key(args.seed)
+    t0 = time.monotonic()
+    recipe = Recipe.from_warmup_only(
+        posterior_entry,
+        algorithm_entry,
+        warmup_entry,
+        n_warmup=args.n_warmup,
+        rng_key=rng_key,
+    )
+    wall_total = time.monotonic() - t0
+
+    # ------------------------------------------------------------------ #
+    # 4. Print summary table                                              #
+    # ------------------------------------------------------------------ #
+    col_w = 26
+    print(f"warmup {args.model} {args.algo}")
+    print(f"  {'effort:':<{col_w}} {recipe.effort.value}")
+    print(f"  {'warmup_name:':<{col_w}} {recipe.warmup_name}")
+    print(f"  {'n_warmup:':<{col_w}} {args.n_warmup}")
+    print(f"  {'wall_seconds_estimate:':<{col_w}} {wall_total:.2f}")
+    # Display key adapted parameters
+    if "step_size" in recipe.base_method_params:
+        print(
+            f"  {'adapted_step_size:':<{col_w}} "
+            f"{recipe.base_method_params['step_size']:.6g}"
+        )
+    if "inverse_mass_matrix" in recipe.base_method_params:
+        imm = recipe.base_method_params["inverse_mass_matrix"]
+        if isinstance(imm, (int, float)):
+            imm_shape = "scalar"
+        elif isinstance(imm, (list, tuple)):
+            imm_shape = f"vector[{len(imm)}]"
+        else:
+            imm_shape = str(type(imm).__name__)
+        print(f"  {'inverse_mass_matrix:':<{col_w}} {imm_shape}")
+    print(
+        f"  {'base_method_params keys:':<{col_w}} {', '.join(sorted(recipe.base_method_params.keys()))}"
+    )
+    print()
+
+    # ------------------------------------------------------------------ #
+    # 5. Optionally save JSON                                             #
+    # ------------------------------------------------------------------ #
+    if args.save:
+        from pathlib import Path
+
+        save_path = Path(args.save)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        d = recipe.__dict__.copy()
+        # Convert effort Enum to string value
+        d["effort"] = recipe.effort.value
+        with save_path.open("w") as fh:
+            json.dump(d, fh, indent=2, default=str)
+        print(f"Recipe saved to {save_path}")
+
+    return 0
+
+
+def _cmd_leaderboard(args: argparse.Namespace) -> int:
+    """Handle the ``leaderboard`` subcommand.
+
+    Scans bjx_bench/inference/recipes/starter/<model>/*.json, loads recipes,
+    filters by effort (if specified), and renders a markdown table (default)
+    or JSON list.
+    """
+    import json
+    from pathlib import Path
+
+    from bjx_bench.inference.recipes._base import Recipe
+    from bjx_bench.model import MODELS
+
+    # ------------------------------------------------------------------ #
+    # 1. Validate model                                                  #
+    # ------------------------------------------------------------------ #
+    if args.model not in MODELS:
+        known = ", ".join(sorted(MODELS.keys()))
+        print(
+            f"error: unknown model {args.model!r}. Known models: {known}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # ------------------------------------------------------------------ #
+    # 2. Glob recipes from disk                                          #
+    # ------------------------------------------------------------------ #
+    recipe_dir = (
+        Path(__file__).parent / "inference" / "recipes" / "starter" / args.model
+    )
+    recipes: list[Recipe] = []
+    if not recipe_dir.exists():
+        # Model directory doesn't exist; no recipes
+        pass
+    else:
+        recipe_files = sorted(recipe_dir.glob("*.json"))
+        for recipe_file in recipe_files:
+            try:
+                recipe = Recipe.load(recipe_file)
+                recipes.append(recipe)
+            except Exception as e:
+                print(
+                    f"warning: failed to load {recipe_file}: {e}",
+                    file=sys.stderr,
+                )
+
+    # ------------------------------------------------------------------ #
+    # 3. Filter by effort if specified                                   #
+    # ------------------------------------------------------------------ #
+    if args.effort:
+        recipes = [r for r in recipes if r.effort.value == args.effort]
+
+    # ------------------------------------------------------------------ #
+    # 4. Sort: effort (LOW → MEDIUM → HIGH), then headline_metric desc  #
+    #    within HIGH (null sorts to the end), then alphabetically        #
+    # ------------------------------------------------------------------ #
+    def sort_key(recipe):
+        effort_order = {"low": 0, "medium": 1, "high": 2}
+        effort_val = effort_order.get(recipe.effort.value, 999)
+
+        # For sorting within HIGH: by headline_metric descending (nulls last),
+        # then by algorithm name alphabetically
+        if recipe.effort.value == "high" and recipe.headline_metric is not None:
+            headline_sort = (-recipe.headline_metric, recipe.base_method_name)
+        else:
+            headline_sort = (float("inf"), recipe.base_method_name)
+
+        return (effort_val, headline_sort)
+
+    recipes.sort(key=sort_key)
+
+    # ------------------------------------------------------------------ #
+    # 5. Render output                                                   #
+    # ------------------------------------------------------------------ #
+    if args.format == "json":
+        output = [
+            {
+                "model_name": recipe.model_name,
+                "base_method_name": recipe.base_method_name,
+                "warmup_name": recipe.warmup_name,
+                "effort": recipe.effort.value,
+                "headline_metric": recipe.headline_metric,
+                "default_works": (
+                    recipe.difficulty["default_works"] if recipe.difficulty else None
+                ),
+                "n_trials_to_threshold": (
+                    recipe.difficulty["n_trials_to_threshold"]
+                    if recipe.difficulty
+                    else None
+                ),
+            }
+            for recipe in recipes
+        ]
+        print(json.dumps(output, indent=2))
+    else:
+        # markdown format (default)
+        print()
+        print(f"Leaderboard for {args.model}:")
+        print()
+
+        if not recipes:
+            print("No recipes found.")
+            return 0
+
+        # Render markdown table
+        print(
+            "| effort | algorithm | warmup       | headline   | default_works | n_to_thresh |"
+        )
+        print(
+            "|--------|-----------|--------------|------------|---------------|-------------|"
+        )
+
+        for recipe in recipes:
+            effort = recipe.effort.value
+            algorithm = recipe.base_method_name
+            warmup = recipe.warmup_name
+
+            # headline_metric: null for LOW/MEDIUM, show as "n/a"
+            if recipe.headline_metric is None:
+                headline_str = "n/a"
+            else:
+                headline_str = f"{recipe.headline_metric:.4g}"
+
+            # default_works and n_to_thresh: only for HIGH
+            if recipe.difficulty is not None:
+                default_works_str = str(recipe.difficulty.get("default_works", "n/a"))
+                n_to_thresh_str = str(
+                    recipe.difficulty.get("n_trials_to_threshold", "n/a")
+                )
+            else:
+                default_works_str = "n/a"
+                n_to_thresh_str = "n/a"
+
+            print(
+                f"| {effort:<6} | {algorithm:<9} | {warmup:<12} | {headline_str:<10} | {default_works_str:<13} | {n_to_thresh_str:<11} |"
+            )
+
+        print()
+
+    return 0
+
+
 def _cmd_tune(args: argparse.Namespace) -> int:
     """Handle the ``tune`` subcommand.
 
@@ -322,6 +593,44 @@ def main() -> int:
         help="Force regeneration even if cache is valid",
     )
 
+    # ---- warmup subcommand ----
+    p_warmup = sub.add_parser(
+        "warmup",
+        help="Run warmup-only and output a MEDIUM-effort recipe",
+    )
+    p_warmup.add_argument(
+        "model",
+        help="Model name, e.g. mvn_10, neals_funnel",
+    )
+    p_warmup.add_argument(
+        "algo",
+        help="Algorithm name, e.g. nuts, hmc, mala, barker, rwm, mclmc",
+    )
+    p_warmup.add_argument(
+        "--warmup",
+        default="stan_window",
+        help="Warmup strategy: stan_window, mclmc_tuning, no_warmup (default: stan_window)",
+    )
+    p_warmup.add_argument(
+        "--n-warmup",
+        type=int,
+        default=1000,
+        dest="n_warmup",
+        help="Number of warmup steps (default: 1000)",
+    )
+    p_warmup.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="RNG seed (default: 0)",
+    )
+    p_warmup.add_argument(
+        "--save",
+        default=None,
+        metavar="PATH",
+        help="If set, write JSON recipe to this path",
+    )
+
     # ---- tune subcommand ----
     p_tune = sub.add_parser(
         "tune",
@@ -389,11 +698,37 @@ def main() -> int:
         help="If set, write JSON-serialized TuningResult to this path",
     )
 
+    # ---- leaderboard subcommand ----
+    p_leaderboard = sub.add_parser(
+        "leaderboard",
+        help="Render a leaderboard table of recipes for a model",
+    )
+    p_leaderboard.add_argument(
+        "model",
+        help="Model name, e.g. mvn_10, neals_funnel",
+    )
+    p_leaderboard.add_argument(
+        "--effort",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Filter by effort level (default: show all)",
+    )
+    p_leaderboard.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Output format: markdown (default) or json",
+    )
+
     args = parser.parse_args()
     if args.cmd == "tier-a":
         return _cmd_tier_a(args)
+    if args.cmd == "warmup":
+        return _cmd_warmup(args)
     if args.cmd == "tune":
         return _cmd_tune(args)
+    if args.cmd == "leaderboard":
+        return _cmd_leaderboard(args)
 
     # Should not be reachable (subparsers required=True)
     parser.print_help()

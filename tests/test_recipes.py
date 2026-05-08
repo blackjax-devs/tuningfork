@@ -1,20 +1,25 @@
 """Tests for bjx_bench.inference.recipes (Recipe dataclass + Effort enum).
 
-Phase 2.5 commit 3: covers the LOW-effort path only. MEDIUM and HIGH
-constructors are stubs (NotImplementedError).
+Phase 3, P3.2: extends P2.5 commit 3 tests with MEDIUM and HIGH constructors.
 
 Tests
 -----
-1. Effort enum — values are lowercase strings.
-2. Recipe — constructs from kwargs; frozen (no mutation).
-3. Recipe.from_default_config — NUTS + mvn_10 produces the expected LOW recipe.
-4. Recipe.from_default_config — HMC + mvn_10 produces the expected LOW recipe.
-5. Recipe.save / load — round-trip preserves all fields.
-6. Recipe.from_warmup_only — raises NotImplementedError mentioning follow-up spawn.
-7. Recipe.from_tuning_result — raises NotImplementedError similarly.
-8. Starter JSONs — all 6 files exist, load cleanly, have effort=LOW, warmup_name="no_warmup",
-   and base_method_name in BASE_METHODS.
-9. render_instructions — returns non-empty prose for LOW recipes.
+1.  Effort enum — values are lowercase strings.                 [fast]
+2.  Recipe — constructs from kwargs; frozen (no mutation).      [fast]
+3.  Recipe.from_default_config — NUTS + mvn_10.                 [fast]
+4.  Recipe.from_default_config — HMC + mvn_10.                  [fast]
+5.  Recipe.save / load — LOW recipe round-trip.                 [fast]
+6.  JSON effort field stored as plain string.                   [fast]
+7.  Starter JSONs — all 6 exist and load cleanly.               [fast]
+8.  render_instructions — non-empty prose for LOW.              [fast]
+9.  render_instructions — non-empty prose for stub MEDIUM.      [fast]
+10. render_instructions — non-empty prose for stub HIGH.        [fast]
+11. from_warmup_only (stan_window + NUTS) — MEDIUM recipe.
+12. from_warmup_only (mclmc_tuning + MCLMC) — metadata threaded.
+13. from_warmup_only — incompatible pair raises ValueError.
+14. from_tuning_result (NUTS) — HIGH recipe from tune_algorithm.
+15. from_tuning_result — save/load round-trip.
+16. render_instructions — MEDIUM/HIGH prose contains expected tokens.
 """
 
 from __future__ import annotations
@@ -23,12 +28,14 @@ import json
 import math
 from pathlib import Path
 
+import jax
 import pytest
 
 from bjx_bench.calibration.tier_b import default_params_for
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.recipes import Effort, Recipe
 from bjx_bench.inference.recipes._instructions import render_instructions
+from bjx_bench.inference.warmup import WARMUPS
 from bjx_bench.model import MODELS
 
 # Path to the committed starter recipes
@@ -42,6 +49,7 @@ _STARTER_ROOT = (
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_effort_enum_values() -> None:
     """Effort enum members have lowercase string values."""
     assert Effort.LOW.value == "low"
@@ -57,6 +65,7 @@ def test_effort_enum_values() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_recipe_construct_and_frozen() -> None:
     """Recipe constructs from kwargs and is immutable (frozen dataclass)."""
     recipe = Recipe(
@@ -90,6 +99,7 @@ def test_recipe_construct_and_frozen() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_from_default_config_nuts_mvn10() -> None:
     """from_default_config for NUTS + mvn_10 produces the expected LOW recipe."""
     posterior = MODELS["mvn_10"]
@@ -120,6 +130,7 @@ def test_from_default_config_nuts_mvn10() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_from_default_config_hmc_mvn10() -> None:
     """from_default_config for HMC + mvn_10 produces the expected LOW recipe."""
     posterior = MODELS["mvn_10"]
@@ -145,6 +156,7 @@ def test_from_default_config_hmc_mvn10() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_save_load_roundtrip(tmp_path: Path) -> None:
     """Recipe.save(tmp_path) → Recipe.load(path) round-trips all fields."""
     posterior = MODELS["mvn_10"]
@@ -183,6 +195,7 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     assert saved_path.parent.name == "mvn_10"
 
 
+@pytest.mark.fast
 def test_save_json_effort_is_string(tmp_path: Path) -> None:
     """The JSON file stores effort as a plain string (not 'Effort.LOW')."""
     posterior = MODELS["mvn_10"]
@@ -196,29 +209,7 @@ def test_save_json_effort_is_string(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 6: from_warmup_only stub
-# ---------------------------------------------------------------------------
-
-
-def test_from_warmup_only_raises() -> None:
-    """from_warmup_only raises NotImplementedError mentioning follow-up spawn."""
-    with pytest.raises(NotImplementedError, match="follow-up spawn"):
-        Recipe.from_warmup_only()
-
-
-# ---------------------------------------------------------------------------
-# Test 7: from_tuning_result stub
-# ---------------------------------------------------------------------------
-
-
-def test_from_tuning_result_raises() -> None:
-    """from_tuning_result raises NotImplementedError mentioning follow-up spawn."""
-    with pytest.raises(NotImplementedError, match="follow-up spawn"):
-        Recipe.from_tuning_result()
-
-
-# ---------------------------------------------------------------------------
-# Test 8: 6 starter JSONs exist and load cleanly
+# Test 7 (was 8): 6 starter JSONs exist and load cleanly
 # ---------------------------------------------------------------------------
 
 _EXPECTED_COMBOS = [
@@ -231,6 +222,7 @@ _EXPECTED_COMBOS = [
 ]
 
 
+@pytest.mark.fast
 @pytest.mark.parametrize("model_name,method_name", _EXPECTED_COMBOS)
 def test_starter_recipe_exists_and_loads(model_name: str, method_name: str) -> None:
     """Each of the 6 starter LOW recipes exists on disk and loads cleanly."""
@@ -253,10 +245,11 @@ def test_starter_recipe_exists_and_loads(model_name: str, method_name: str) -> N
 
 
 # ---------------------------------------------------------------------------
-# Test 9: render_instructions returns non-empty prose
+# Test 8 (was 9): render_instructions returns non-empty prose
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_render_instructions_low() -> None:
     """render_instructions returns non-empty prose for a LOW recipe."""
     posterior = MODELS["mvn_10"]
@@ -271,6 +264,7 @@ def test_render_instructions_low() -> None:
     assert "zero-calibration" in prose
 
 
+@pytest.mark.fast
 def test_render_instructions_medium_stub() -> None:
     """render_instructions with a stub MEDIUM recipe returns non-empty text."""
     # Build a Recipe manually with MEDIUM effort (simulating a future from_warmup_only)
@@ -298,6 +292,7 @@ def test_render_instructions_medium_stub() -> None:
     assert "medium" in prose.lower() or "Medium" in prose
 
 
+@pytest.mark.fast
 def test_render_instructions_high_stub() -> None:
     """render_instructions with a stub HIGH recipe returns non-empty text."""
     recipe = Recipe(
@@ -322,3 +317,407 @@ def test_render_instructions_high_stub() -> None:
     assert isinstance(prose, str)
     assert len(prose) > 10
     assert "high" in prose.lower() or "High" in prose
+
+
+# ---------------------------------------------------------------------------
+# Tests 11–16: P3.2 — MEDIUM and HIGH constructors (require actual warmup)
+# ---------------------------------------------------------------------------
+
+
+def test_from_warmup_only_stan_window_nuts() -> None:
+    """from_warmup_only with stan_window + NUTS returns a MEDIUM recipe.
+
+    Verifies:
+    - effort = MEDIUM
+    - warmup_name = "stan_window"
+    - base_method_params contains both step_size (from defaults) and
+      inverse_mass_matrix (from warmup adaptation)
+    - calibration_budget["n_warmup"] == 200
+    - calibration_budget["wall_seconds_estimate"] > 0
+    """
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["nuts"]
+    warmup = WARMUPS["stan_window"]
+
+    recipe = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        warmup,
+        n_warmup=200,
+        rng_key=jax.random.key(0),
+    )
+
+    assert recipe.effort == Effort.MEDIUM
+    assert recipe.warmup_name == "stan_window"
+    assert recipe.model_name == "mvn_10"
+    assert recipe.base_method_name == "nuts"
+
+    # base_method_params must include both the default step_size (loguniform
+    # geometric mean ≈ 0.0316) AND the warmup-adapted inverse_mass_matrix.
+    assert "step_size" in recipe.base_method_params
+    assert "inverse_mass_matrix" in recipe.base_method_params
+
+    # IMM must be a list (coerced from jax.Array by _to_jsonable).
+    imm = recipe.base_method_params["inverse_mass_matrix"]
+    assert isinstance(imm, list), f"inverse_mass_matrix should be list, got {type(imm)}"
+    assert len(imm) == 10  # mvn_10 is 10-D
+
+    # calibration_budget fields
+    assert recipe.calibration_budget["n_warmup"] == 200
+    assert recipe.calibration_budget["wall_seconds_estimate"] > 0
+    assert recipe.calibration_budget["trials"] == 0
+
+    # warmup_params records the input config
+    assert recipe.warmup_params["n_warmup"] == 200
+
+    # headline_metric is None for MEDIUM (no post-warmup samples)
+    assert recipe.headline_metric is None
+
+    # instructions must be non-empty prose
+    assert isinstance(recipe.instructions, str)
+    assert len(recipe.instructions) > 10
+
+
+def test_from_warmup_only_mclmc_tuning_metadata() -> None:
+    """from_warmup_only with mclmc_tuning threads _total_tuning_steps into calibration_budget.
+
+    P3.1 threads the ``_total_tuning_steps`` metadata key from mclmc_tuning into
+    adapted_params with an underscore prefix.  from_warmup_only must capture it
+    in calibration_budget and strip it from base_method_params.
+    """
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["mclmc"]
+    warmup = WARMUPS["mclmc_tuning"]
+
+    recipe = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        warmup,
+        n_warmup=200,
+        rng_key=jax.random.key(1),
+    )
+
+    assert recipe.effort == Effort.MEDIUM
+    assert recipe.warmup_name == "mclmc_tuning"
+
+    # _total_tuning_steps must appear in calibration_budget (threaded from metadata).
+    assert "_total_tuning_steps" in recipe.calibration_budget
+    assert isinstance(recipe.calibration_budget["_total_tuning_steps"], int)
+
+    # _total_tuning_steps must NOT appear in base_method_params (stripped).
+    assert "_total_tuning_steps" not in recipe.base_method_params
+
+    # MCLMC adapted params (L, step_size) must be in base_method_params.
+    assert "step_size" in recipe.base_method_params
+    assert "L" in recipe.base_method_params
+
+
+def test_from_warmup_only_incompatible_raises() -> None:
+    """from_warmup_only with an incompatible (warmup, base_method) pair raises ValueError."""
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["nuts"]
+    # mclmc_tuning is only compatible with mclmc, not nuts.
+    warmup = WARMUPS["mclmc_tuning"]
+
+    with pytest.raises(ValueError, match="not compatible"):
+        Recipe.from_warmup_only(
+            posterior,
+            base_method,
+            warmup,
+            n_warmup=100,
+            rng_key=jax.random.key(0),
+        )
+
+
+def test_from_tuning_result_nuts() -> None:
+    """from_tuning_result produces a HIGH recipe from tune_algorithm output.
+
+    Verifies:
+    - effort = HIGH
+    - headline_metric > 0 (best_score was finite; mvn_10 + nuts is well-behaved)
+    - difficulty dict contains expected keys
+    - n_trials_completed matches n_trials arg
+    """
+    from bjx_bench.calibration.tier_b import tune_algorithm
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["nuts"]
+    warmup = WARMUPS["stan_window"]
+
+    tuning_result = tune_algorithm(
+        posterior,
+        base_method,
+        n_trials=3,
+        n_seeds=1,
+        n_chains=1,
+        n_samples=200,
+        n_warmup=200,
+        rng_key=jax.random.key(0),
+    )
+
+    recipe = Recipe.from_tuning_result(
+        tuning_result,
+        posterior=posterior,
+        base_method=base_method,
+        warmup=warmup,
+    )
+
+    assert recipe.effort == Effort.HIGH
+    assert recipe.model_name == "mvn_10"
+    assert recipe.base_method_name == "nuts"
+    assert recipe.warmup_name == "stan_window"
+
+    # headline_metric should be a finite float (mvn_10 doesn't diverge)
+    assert isinstance(recipe.headline_metric, float)
+    assert math.isfinite(recipe.headline_metric)
+
+    # difficulty dict from TuningDifficulty.asdict()
+    assert recipe.difficulty is not None
+    assert isinstance(recipe.difficulty, dict)
+    for key in (
+        "default_score",
+        "best_score",
+        "threshold_score",
+        "default_works",
+        "n_trials_to_threshold",
+        "n_trials_to_best",
+    ):
+        assert key in recipe.difficulty, f"Missing difficulty key: {key}"
+
+    # calibration_budget
+    assert recipe.calibration_budget["trials"] == 3
+    assert recipe.calibration_budget["n_seeds"] == 1
+
+    # instructions non-empty
+    assert len(recipe.instructions) > 10
+
+
+def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
+    """HIGH recipe round-trips through Recipe.save / Recipe.load.
+
+    Verifies in particular that:
+    - inverse_mass_matrix (list[float]) in base_method_params round-trips.
+    - difficulty dict (nested Python primitives) round-trips without JSON errors.
+    """
+    from bjx_bench.calibration.tier_b import tune_algorithm
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["nuts"]
+    warmup = WARMUPS["stan_window"]
+
+    tuning_result = tune_algorithm(
+        posterior,
+        base_method,
+        n_trials=2,
+        n_seeds=1,
+        n_chains=1,
+        n_samples=100,
+        n_warmup=100,
+        rng_key=jax.random.key(42),
+    )
+
+    recipe = Recipe.from_tuning_result(
+        tuning_result,
+        posterior=posterior,
+        base_method=base_method,
+        warmup=warmup,
+    )
+
+    saved_path = recipe.save(tmp_path)
+    loaded = Recipe.load(saved_path)
+
+    # Core identity fields
+    assert loaded.effort == Effort.HIGH
+    assert loaded.model_name == recipe.model_name
+    assert loaded.base_method_name == recipe.base_method_name
+    assert loaded.warmup_name == recipe.warmup_name
+
+    # headline_metric round-trip (float precision)
+    assert loaded.headline_metric == recipe.headline_metric
+
+    # difficulty round-trip (nested dict, not a dataclass after load)
+    assert loaded.difficulty == recipe.difficulty
+    assert isinstance(loaded.difficulty, dict)
+
+    # inverse_mass_matrix round-trip: list[float] after load
+    if "inverse_mass_matrix" in recipe.base_method_params:
+        orig_imm = recipe.base_method_params["inverse_mass_matrix"]
+        loaded_imm = loaded.base_method_params["inverse_mass_matrix"]
+        assert isinstance(loaded_imm, list)
+        assert loaded_imm == orig_imm  # exact list equality (both are Python floats)
+
+    # Filename convention
+    assert saved_path.name == "high__nuts__stan_window.json"
+
+
+def test_render_instructions_medium_and_high_real() -> None:
+    """render_instructions on real MEDIUM and HIGH recipes returns meaningful prose."""
+    from bjx_bench.calibration.tier_b import tune_algorithm
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["nuts"]
+    warmup_sw = WARMUPS["stan_window"]
+
+    # --- MEDIUM ---
+    medium = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        warmup_sw,
+        n_warmup=100,
+        rng_key=jax.random.key(7),
+    )
+    prose_m = render_instructions(medium)
+    assert isinstance(prose_m, str)
+    assert len(prose_m) > 20
+    assert "stan_window" in prose_m
+
+    # --- HIGH ---
+    tuning_result = tune_algorithm(
+        posterior,
+        base_method,
+        n_trials=2,
+        n_seeds=1,
+        n_chains=1,
+        n_samples=100,
+        n_warmup=100,
+        rng_key=jax.random.key(8),
+    )
+    high = Recipe.from_tuning_result(
+        tuning_result,
+        posterior=posterior,
+        base_method=base_method,
+        warmup=warmup_sw,
+    )
+    prose_h = render_instructions(high)
+    assert isinstance(prose_h, str)
+    assert len(prose_h) > 20
+    # HIGH template shows the number of trials
+    assert str(tuning_result.n_trials_completed) in prose_h
+
+
+# ---------------------------------------------------------------------------
+# Tests 9-10: P3.3 wider LOW coverage + MEDIUM smoke
+# ---------------------------------------------------------------------------
+
+_LOW_OTHER_ALGOS = [
+    (model, method)
+    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
+    for method in ("mala", "barker", "rwm", "mclmc")
+]
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("model_name,method_name", _LOW_OTHER_ALGOS)
+def test_low_recipe_exists_for_other_algos(model_name: str, method_name: str) -> None:
+    """P3.3: every (starter_model, base_method) pair has a LOW recipe on disk."""
+    path = _STARTER_ROOT / model_name / f"low__{method_name}__no_warmup.json"
+    assert path.exists(), f"Missing LOW recipe for {model_name} + {method_name}"
+    recipe = Recipe.load(path)
+    assert recipe.effort == Effort.LOW
+    assert recipe.warmup_name == "no_warmup"
+    assert recipe.model_name == model_name
+    assert recipe.base_method_name == method_name
+
+
+_MEDIUM_COMBOS = [
+    (model, method)
+    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
+    for method in ("hmc", "nuts")
+]
+
+
+@pytest.mark.parametrize("model_name,method_name", _MEDIUM_COMBOS)
+def test_medium_recipe_exists_and_has_warmup_data(
+    model_name: str, method_name: str
+) -> None:
+    """P3.3: each (starter_model, {hmc,nuts}) has a MEDIUM recipe via stan_window
+    with non-empty warmup-adapted params and positive wall-clock."""
+    path = _STARTER_ROOT / model_name / f"medium__{method_name}__stan_window.json"
+    assert path.exists(), f"Missing MEDIUM recipe for {model_name} + {method_name}"
+    recipe = Recipe.load(path)
+    assert recipe.effort == Effort.MEDIUM
+    assert recipe.warmup_name == "stan_window"
+    assert recipe.calibration_budget["n_warmup"] == 1000
+    assert recipe.calibration_budget["wall_seconds_estimate"] > 0
+    # The warmup-adapted base_method_params must contain step_size AND
+    # inverse_mass_matrix (a non-trivial adaptation, not just defaults).
+    assert "step_size" in recipe.base_method_params
+    assert "inverse_mass_matrix" in recipe.base_method_params
+    imm = recipe.base_method_params["inverse_mass_matrix"]
+    assert isinstance(imm, list)  # JSON deserialization gives list
+    assert len(imm) > 0
+    assert recipe.headline_metric is None  # MEDIUM doesn't measure post-warmup ESS
+
+
+# ---------------------------------------------------------------------------
+# Tests P3.4: 6 HIGH recipes exist and have correct schema
+# ---------------------------------------------------------------------------
+
+_HIGH_COMBOS = [
+    (model, method)
+    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
+    for method in ("hmc", "nuts")
+]
+
+_EXPECTED_DIFFICULTY_KEYS = (
+    "default_score",
+    "best_score",
+    "threshold_score",
+    "default_works",
+    "n_trials_to_threshold",
+    "n_trials_to_best",
+    "wall_seconds_to_threshold",
+    "wall_seconds_to_best",
+)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("model_name,method_name", _HIGH_COMBOS)
+def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -> None:
+    """P3.4: each (starter_model, {hmc,nuts}) has a HIGH recipe via Tier-B BO
+    at n_trials=20 with a valid headline_metric and TuningDifficulty profile."""
+    path = _STARTER_ROOT / model_name / f"high__{method_name}__stan_window.json"
+    assert (
+        path.exists()
+    ), f"Missing HIGH recipe for {model_name} + {method_name}: {path}"
+
+    recipe = Recipe.load(path)
+
+    # Identity and effort checks
+    assert recipe.effort == Effort.HIGH
+    assert recipe.warmup_name == "stan_window"
+    assert recipe.model_name == model_name
+    assert recipe.base_method_name == method_name
+
+    # headline_metric must be a real, positive float (all starter models
+    # are well-conditioned; divergence here would be a real failure).
+    assert recipe.headline_metric is not None
+    assert isinstance(recipe.headline_metric, float)
+    assert math.isfinite(recipe.headline_metric)
+    assert recipe.headline_metric > 0, (
+        f"headline_metric={recipe.headline_metric} for {model_name}+{method_name}; "
+        "expected > 0 for these well-conditioned starter models."
+    )
+
+    # calibration_budget shape
+    assert recipe.calibration_budget["trials"] == 20
+    assert "n_seeds" in recipe.calibration_budget
+
+    # difficulty is a dict with all expected keys
+    assert recipe.difficulty is not None
+    assert isinstance(recipe.difficulty, dict)
+    for key in _EXPECTED_DIFFICULTY_KEYS:
+        assert key in recipe.difficulty, (
+            f"Missing difficulty key {key!r} in HIGH recipe "
+            f"{model_name}+{method_name}"
+        )
+
+    # Spot-check difficulty numeric types
+    assert isinstance(recipe.difficulty["default_score"], float)
+    assert isinstance(recipe.difficulty["best_score"], float)
+    assert isinstance(recipe.difficulty["default_works"], bool)
+    assert isinstance(recipe.difficulty["n_trials_to_threshold"], int)
+
+    # Instructions non-empty prose
+    assert isinstance(recipe.instructions, str)
+    assert len(recipe.instructions) > 10

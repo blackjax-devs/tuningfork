@@ -16,6 +16,8 @@ import pytest
 
 from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 
+pytestmark = pytest.mark.fast
+
 # ---------------------------------------------------------------------------
 # Minimal helpers for constructing valid instances.
 # ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ bench = [
     "posteriordb",              # Tier-A cross-check against Stan reference draws (#3, #6, #10)
     "pytest",
     "pytest-cov",
+    "pytest-xdist",             # parallel test execution; ~3-5x speedup
     "pre-commit",
 ]
 
@@ -78,3 +79,5 @@ profile = "black"
 
 [tool.pytest.ini_options]
 filterwarnings = ["error"]
+addopts = "-n auto"
+markers = ["fast: pure-logic tests that do not run a chain (use -m fast for inner-loop iteration)"]

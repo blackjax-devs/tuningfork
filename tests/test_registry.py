@@ -15,6 +15,8 @@ import pytest
 
 from bjx_bench.model import MODELS, ReferenceMethod, build_logdensity_fn
 
+pytestmark = pytest.mark.fast
+
 
 @pytest.mark.parametrize("name", ["mvn_10", "neals_funnel", "eight_schools_ncp"])
 def test_all_starter_models_registered(name: str) -> None:
