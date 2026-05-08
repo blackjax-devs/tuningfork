@@ -1,5 +1,5 @@
 {
-  "model_name": "ill_cond_50",
+  "model_name": "banana",
   "base_method_name": "hmc",
   "warmup_name": "no_warmup",
   "effort": "low",

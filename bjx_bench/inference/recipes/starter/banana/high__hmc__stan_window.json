@@ -1,0 +1,35 @@
+{
+  "model_name": "banana",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.0807462072631403,
+    "num_integration_steps": 46
+  },
+  "warmup_params": {},
+  "headline_metric": 0.014149594586342573,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 31.66637545300182,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 0.0056046792306005955,
+    "best_score": 0.014149594586342573,
+    "threshold_score": 0.007074797293171287,
+    "default_works": false,
+    "n_trials_to_threshold": 13,
+    "n_trials_to_best": 13,
+    "wall_seconds_to_threshold": 31.66637545300182,
+    "wall_seconds_to_best": 31.66637545300182
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune banana hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0807462072631403, 'num_integration_steps': 46}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0141.\nTotal calibration time: ~0 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T12:32:17Z"
+}
