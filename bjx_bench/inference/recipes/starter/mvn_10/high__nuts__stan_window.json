@@ -4,31 +4,31 @@
   "warmup_name": "stan_window",
   "effort": "high",
   "base_method_params": {
-    "step_size": 0.7782285845377275
+    "step_size": 0.9790807974957917
   },
   "warmup_params": {},
-  "headline_metric": 0.21934226900339127,
+  "headline_metric": 0.25281551480293274,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 20,
-    "wall_seconds_estimate": 41.65523792197928,
+    "wall_seconds_estimate": 51.34544809698127,
     "n_seeds": 2
   },
   "difficulty": {
-    "default_score": 0.010201925877481699,
-    "best_score": 0.21934226900339127,
-    "threshold_score": 0.10967113450169563,
+    "default_score": 0.03441951982676983,
+    "best_score": 0.25281551480293274,
+    "threshold_score": 0.12640775740146637,
     "default_works": false,
-    "n_trials_to_threshold": 3,
-    "n_trials_to_best": 11,
-    "wall_seconds_to_threshold": 14.67470236698864,
-    "wall_seconds_to_best": 41.65523792197928
+    "n_trials_to_threshold": 9,
+    "n_trials_to_best": 16,
+    "wall_seconds_to_threshold": 31.448952400998678,
+    "wall_seconds_to_best": 51.34544809698127
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune mvn_10 nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.7782285845377275}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.2193.\nTotal calibration time: ~0 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune mvn_10 nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.9790807974957917}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.2528.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
-  "bjx_bench_version": "0.1.dev0+d20260507",
+  "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-08T09:21:55Z"
+  "timestamp_utc": "2026-05-08T10:28:50Z"
 }

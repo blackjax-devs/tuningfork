@@ -19,6 +19,7 @@ This measures how well the momentum resampling explores the energy surface.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import blackjax
 import jax
@@ -270,4 +271,32 @@ def certify_reference_nuts(
         )
 
     summaries = compute_summaries(draws)
+
+    # --- Posteriordb cross-check (optional; only for models with a posteriordb_id) ---
+    if entry.posteriordb_id is not None:
+        from bjx_bench.reference._posteriordb_xcheck import (
+            cross_check_against_posteriordb,
+        )
+
+        # Build the our_summaries dict in the format expected by cross_check_against_posteriordb:
+        # {site: {"mean": array, "std": array, "q05": array, "q95": array}}
+        our_summaries: dict[str, dict[str, object]] = {
+            site: {
+                "mean": summaries.mean[site],
+                "std": summaries.std[site],
+                "q05": summaries.q05[site],
+                "q95": summaries.q95[site],
+            }
+            for site in summaries.mean
+        }
+        xcheck = cross_check_against_posteriordb(
+            model_name=entry.name,
+            posteriordb_id=entry.posteriordb_id,
+            our_summaries=our_summaries,
+            n_samples_ours=n_samples,
+        )
+        xcheck_dir = Path(__file__).parent.parent / "reference" / "posteriordb_xcheck"
+        xcheck_dir.mkdir(parents=True, exist_ok=True)
+        xcheck.save(xcheck_dir / f"{entry.name}.json")
+
     return draws, summaries, adaptation, cert

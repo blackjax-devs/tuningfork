@@ -35,7 +35,6 @@ Empirical findings documented here:
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import optuna
@@ -75,19 +74,23 @@ class TestDefaultValueForSpace:
     """One test per kind + bad-kind error."""
 
     def test_loguniform(self) -> None:
-        """Geometric mean of 1e-3 and 1.0 is sqrt(1e-3) ≈ 0.03162."""
+        """70th-percentile on log-scale: low * (high/low)**0.7.
+
+        For [1e-3, 1.0]: 1e-3 * 1000**0.7 ≈ 0.1259 (P4.0 tweak from sqrt).
+        """
         space = HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0)
         result = default_value_for_space(space)
-        expected = math.sqrt(1e-3 * 1.0)
+        expected = 1e-3 * (1.0 / 1e-3) ** 0.7
         assert result == pytest.approx(
             expected, rel=1e-9
         ), f"loguniform default: expected {expected}, got {result}"
 
     def test_loguniform_symmetric(self) -> None:
-        """For symmetric log-range e.g. [0.01, 100], default == 1.0."""
+        """For symmetric log-range e.g. [0.01, 100], default == 0.01 * 10000**0.7."""
         space = HyperparamSpace("lr", "loguniform", low=0.01, high=100.0)
         result = default_value_for_space(space)
-        assert result == pytest.approx(1.0, rel=1e-9)
+        expected = 0.01 * (100.0 / 0.01) ** 0.7
+        assert result == pytest.approx(expected, rel=1e-9)
 
     def test_uniform(self) -> None:
         """Midpoint of [0, 10] is 5.0."""
@@ -166,9 +169,9 @@ class TestDefaultParamsFor:
         }, f"Unexpected keys: {set(params.keys())}"
 
     def test_hmc_step_size_value(self) -> None:
-        """step_size default = sqrt(1e-3 * 1.0) ≈ 0.03162 (geometric mean)."""
+        """step_size default = 1e-3 * 1000**0.7 (70th-percentile on log-scale, P4.0)."""
         params = default_params_for(HMC_ENTRY)
-        expected = math.sqrt(1e-3 * 1.0)
+        expected = 1e-3 * (1.0 / 1e-3) ** 0.7
         assert params["step_size"] == pytest.approx(expected, rel=1e-9)
 
     def test_hmc_num_integration_steps_value(self) -> None:
@@ -206,7 +209,7 @@ class TestDefaultParamsFor:
         )
         params = default_params_for(entry)
         assert set(params.keys()) == {"a", "b", "c"}
-        assert params["a"] == pytest.approx(math.sqrt(1e-4), rel=1e-9)
+        assert params["a"] == pytest.approx(1e-4 * (1.0 / 1e-4) ** 0.7, rel=1e-9)
         assert params["b"] == pytest.approx(1.0, rel=1e-9)
         assert params["c"] == 5  # (1+9)//2 = 5
 
