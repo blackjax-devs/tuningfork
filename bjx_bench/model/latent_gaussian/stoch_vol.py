@@ -79,8 +79,6 @@ References:
     PLAN_bjx_bench_phase4.md § "Block D", row P4.9 (stoch_vol).
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import jax

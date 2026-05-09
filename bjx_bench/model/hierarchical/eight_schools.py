@@ -22,8 +22,6 @@ Reference draws are produced via the long-NUTS path (Path B) because the
 posterior has no closed-form marginals.
 """
 
-from __future__ import annotations
-
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist

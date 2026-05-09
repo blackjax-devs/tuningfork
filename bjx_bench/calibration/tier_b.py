@@ -38,8 +38,6 @@ Fallback behaviour: if all trials diverge, ``study.best_trial`` raises
 default) as the "best" params with score ``-inf``.
 """
 
-from __future__ import annotations
-
 import math
 import time
 from dataclasses import dataclass

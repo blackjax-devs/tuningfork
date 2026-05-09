@@ -46,8 +46,6 @@ Empirical findings documented here:
    callers are expected not to mutate them after ``TuningResult`` creation.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import optuna

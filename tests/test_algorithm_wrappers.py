@@ -26,8 +26,6 @@ Covers:
 - 5-step end-to-end chain smoke test for each algorithm.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import pytest

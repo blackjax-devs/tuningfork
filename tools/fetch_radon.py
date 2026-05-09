@@ -27,8 +27,6 @@ Usage:
     uv run python tools/fetch_radon.py
 """
 
-from __future__ import annotations
-
 import csv
 import io
 import json

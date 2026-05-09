@@ -33,8 +33,6 @@ Empirically verified (see tests/test_headline.py):
 - AR(1) φ=0.9 suppression: headline_iid / headline_ar1 ≈ 15–22 for S=2000.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from typing import Any
 

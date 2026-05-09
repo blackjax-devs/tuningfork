@@ -45,8 +45,6 @@ Compute: ~3–5 min total for LOW+MEDIUM per model; ~18–30 min for HIGH per mo
 (n_trials=20).
 """
 
-from __future__ import annotations
-
 import time
 from pathlib import Path
 

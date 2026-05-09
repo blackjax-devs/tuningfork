@@ -40,8 +40,6 @@ Each ``HyperparamSpace`` maps 1-to-1 to an Optuna ``suggest_*`` call:
 - ``"categorical"`` → ``trial.suggest_categorical(name, choices)``
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal

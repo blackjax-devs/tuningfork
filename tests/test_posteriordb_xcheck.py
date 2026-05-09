@@ -28,8 +28,6 @@ live posteriordb database for tests 1–3; those tests use the
 monkeypatch the client.  Test 4 relies on the graceful-error path.
 """
 
-from __future__ import annotations
-
 import json
 import math
 from pathlib import Path

@@ -23,8 +23,6 @@ standard stress test for adaptation schemes.
 Reference: Neal (2003), "Slice sampling". Annals of Statistics.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpyro

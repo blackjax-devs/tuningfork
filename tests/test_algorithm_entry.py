@@ -23,8 +23,6 @@ Covers:
   confirm the callable is usable.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace

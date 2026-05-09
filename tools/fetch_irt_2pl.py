@@ -36,8 +36,6 @@ Usage:
     uv run python tools/fetch_irt_2pl.py
 """
 
-from __future__ import annotations
-
 import csv
 import io
 import json

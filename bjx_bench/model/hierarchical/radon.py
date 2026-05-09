@@ -80,8 +80,6 @@ References:
     PLAN_bjx_bench_phase4.md § "Block C", row P4.7 (radon).
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import jax.numpy as jnp

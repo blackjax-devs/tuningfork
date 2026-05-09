@@ -34,8 +34,6 @@ call so the warmup kernel can construct itself; BO trials later override
 those HPs via trial_params.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import blackjax

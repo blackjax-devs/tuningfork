@@ -27,8 +27,6 @@ Tests
 10. Fixed orthogonal matrix U is deterministic: two imports produce the same COV.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

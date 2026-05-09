@@ -60,8 +60,6 @@ References:
     PLAN_bjx_bench_phase4.md § "Block D", row P4.10 (lotka_volterra).
 """
 
-from __future__ import annotations
-
 import functools as ft
 from pathlib import Path
 

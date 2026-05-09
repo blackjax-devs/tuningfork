@@ -19,8 +19,6 @@ file imports them all and assembles the dict so callers never need to know
 where a model lives.
 """
 
-from __future__ import annotations
-
 from bjx_bench.model._base import Posterior, ReferenceMethod
 from bjx_bench.model._numpyro import build_logdensity_fn
 from bjx_bench.model.gaussians.ill_cond_50 import ENTRY as _ill_cond_50

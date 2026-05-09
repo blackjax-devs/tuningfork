@@ -24,8 +24,6 @@ Bumping to n_samples=4000 lets seed=42 clear the gate with
 min_chunk_bulk_ess ≈ 554, 0 divergences, e_bfmi ≈ 0.97.
 """
 
-from __future__ import annotations
-
 import jax
 import pytest
 

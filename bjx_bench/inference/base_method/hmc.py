@@ -21,8 +21,6 @@ Grad cost per step: ``info.num_integration_steps`` (1 gradient per leapfrog
 step).  Optimal target acceptance rate ≈ 0.65 (Beskos et al. 2013).
 """
 
-from __future__ import annotations
-
 import blackjax
 import jax.numpy as jnp
 

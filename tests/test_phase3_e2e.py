@@ -30,8 +30,6 @@ import overhead (~3–5 s per subprocess) the total budget is comfortably
 under 1 min on CPU.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess

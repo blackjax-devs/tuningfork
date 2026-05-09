@@ -24,8 +24,6 @@ Test parameters chosen for fast CI on CPU (total target < 90 s):
   MCLMC: n_warmup=200 (adaptation needs enough steps for ESS estimates)
 """
 
-from __future__ import annotations
-
 import math
 from unittest.mock import patch
 

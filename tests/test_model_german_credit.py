@@ -33,8 +33,6 @@ Notes
 - Test 8 (NUTS smoke) is NOT @pytest.mark.fast — runs MCMC.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

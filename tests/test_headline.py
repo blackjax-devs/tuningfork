@@ -30,8 +30,6 @@ Empirical questions answered here (confirmed via test output):
    ≈ 210. Observed ratio is ≥ 5 (required) and typically 15–22.
 """
 
-from __future__ import annotations
-
 from typing import NamedTuple
 
 import jax

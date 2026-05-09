@@ -35,8 +35,6 @@ Tests
 16. render_instructions — MEDIUM/HIGH prose contains expected tokens.
 """
 
-from __future__ import annotations
-
 import json
 import math
 from pathlib import Path

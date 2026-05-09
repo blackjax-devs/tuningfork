@@ -13,8 +13,6 @@
 # limitations under the License.
 """Tests for build_logdensity_fn — the NumPyro → BlackJAX bridge."""
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpyro

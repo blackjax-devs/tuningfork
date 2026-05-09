@@ -16,8 +16,6 @@
 All tests are marked ``fast`` — no chain sampling, only structural checks.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

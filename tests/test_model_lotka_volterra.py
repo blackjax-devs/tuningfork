@@ -18,8 +18,6 @@ All tests are marked ``fast`` — they run the ProbDiffEq solver exactly once
 call is the slowest test in this file.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

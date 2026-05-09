@@ -18,8 +18,6 @@ sample axis (axis=0).  ``compute_summaries`` is the only constructor users
 should call.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 import jax

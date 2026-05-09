@@ -32,8 +32,6 @@ Empirical findings (T2.6b, written after first successful run):
    rather than a fixed numeric outcome.
 """
 
-from __future__ import annotations
-
 import math
 
 import jax

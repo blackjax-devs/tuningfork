@@ -29,8 +29,6 @@ fast smoke runs). With JAX + Optuna import overhead (~5–10 s per subprocess)
 and 3 MCMC trials each the total budget is comfortably under 2 min on CPU.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess

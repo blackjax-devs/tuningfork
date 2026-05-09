@@ -24,8 +24,6 @@ MH accept/reject ratio.  Optimal target acceptance rate ≈ 0.234 (Gelman,
 Roberts & Gilks 1996 / Roberts & Rosenthal 2001).
 """
 
-from __future__ import annotations
-
 import blackjax
 import jax
 import jax.numpy as jnp

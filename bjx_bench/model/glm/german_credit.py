@@ -72,8 +72,6 @@ Reference:
     Dua, D. and Graff, C. (2019). UCI Machine Learning Repository.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import jax.numpy as jnp

@@ -29,8 +29,6 @@ where ``energy`` is the Hamiltonian energy at each post-warmup step.
 This measures how well the momentum resampling explores the energy surface.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 

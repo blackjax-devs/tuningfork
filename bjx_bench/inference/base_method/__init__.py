@@ -24,8 +24,6 @@ Adding a new algorithm
 2. Import it here and add it to ``BASE_METHODS``.
 """
 
-from __future__ import annotations
-
 from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 from bjx_bench.inference.base_method.barker import ENTRY as _barker_entry
 from bjx_bench.inference.base_method.hmc import ENTRY as _hmc_entry

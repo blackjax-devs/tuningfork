@@ -27,8 +27,6 @@ Covers:
  10. tune_algorithm regression: existing calls with warmup_name=None still pass.
 """
 
-from __future__ import annotations
-
 import math
 
 import jax

@@ -28,8 +28,6 @@ posteriordb_id is explicitly None: 'irt_2pl-irt_2pl' has no reference posterior
 draws upstream. Tier-A uses Long-NUTS self-check only.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

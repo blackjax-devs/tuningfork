@@ -28,8 +28,6 @@ Tests mirror the three grad-cost patterns in the algorithm zoo:
 - RWM: zero cost                                         → sum = 0
 """
 
-from __future__ import annotations
-
 from typing import NamedTuple
 
 import jax.numpy as jnp

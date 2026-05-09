@@ -30,8 +30,6 @@ initialisation.  Calls are therefore kernel.init(position, rng_key) rather
 than the key-free form used by HMC/MALA/Barker.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 

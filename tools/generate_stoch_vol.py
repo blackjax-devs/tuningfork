@@ -31,8 +31,6 @@ Usage:
     uv run python tools/generate_stoch_vol.py
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import jax

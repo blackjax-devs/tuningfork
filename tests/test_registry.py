@@ -20,8 +20,6 @@ Covers:
 - Eight-schools NCP has dim==10 and reference_method==NUTS.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import pytest

@@ -25,8 +25,6 @@ Tests
 8.  build_logdensity_fn returns finite log-density at init position.
 """
 
-from __future__ import annotations
-
 import math
 
 import jax

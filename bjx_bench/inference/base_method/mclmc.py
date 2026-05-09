@@ -31,8 +31,6 @@ dedicated warmup routine. Tier-B (T2.6) will dispatch to it based on
 BaseMethod.name. T2.4 only declares the entry.
 """
 
-from __future__ import annotations
-
 import blackjax
 import jax.numpy as jnp
 

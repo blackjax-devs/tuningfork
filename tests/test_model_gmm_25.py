@@ -27,8 +27,6 @@ Tests
 10. COMPONENT_LOCS has shape (25, 2) with correct corner entries.
 """
 
-from __future__ import annotations
-
 import math
 
 import jax

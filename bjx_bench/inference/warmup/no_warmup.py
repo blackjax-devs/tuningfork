@@ -37,8 +37,6 @@ BlackJAX kernels' ``.init`` methods accept only a position.  This
 module handles the distinction via ``base_method.name == "mclmc"``.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import jax

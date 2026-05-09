@@ -35,8 +35,6 @@ Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
   normal and the encoding is verified deterministically by the test suite.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

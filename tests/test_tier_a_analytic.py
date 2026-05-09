@@ -20,8 +20,6 @@ Checks:
 - Raises ValueError for a NUTS-path entry.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

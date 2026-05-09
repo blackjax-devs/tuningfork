@@ -22,8 +22,6 @@ step to evaluate the candidate.  Optimal target acceptance rate ≈ 0.574
 (Roberts & Rosenthal 1998).
 """
 
-from __future__ import annotations
-
 import blackjax
 import jax.numpy as jnp
 

@@ -36,8 +36,6 @@ Usage:
     uv run python tools/generate_gp_regression.py
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import jax

@@ -26,8 +26,6 @@ Notes
 All tests are @pytest.mark.fast (no MCMC).
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

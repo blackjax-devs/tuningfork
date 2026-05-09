@@ -34,8 +34,6 @@ Assumption documented here for T2.5 review:
        possibly JIT-compiled).
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any
 

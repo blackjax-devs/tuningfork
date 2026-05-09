@@ -36,8 +36,6 @@ Runner signature (uniform across all warmups)::
             *, logdensity_fn, **kwargs) -> (state, adapted_params)
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import blackjax

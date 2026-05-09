@@ -18,8 +18,6 @@ Whether a model is a one-line analytic Gaussian or a full hierarchical NumPyro
 program, the runner, cache, and CLI always see the same surface — no subclassing.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum

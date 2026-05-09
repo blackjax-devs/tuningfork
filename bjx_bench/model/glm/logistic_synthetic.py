@@ -63,8 +63,6 @@ Reference:
     PLAN_bjx_bench.md § "The 14-Model Suite", row #7 (synthetic logistic).
 """
 
-from __future__ import annotations
-
 import jax.numpy as jnp
 import numpy as np
 import numpyro

@@ -18,8 +18,6 @@ The analytic sampler returns i.i.d. draws from N(0, I_10), which are
 shape-compatible with the unconstrained parameterisation NumPyro produces.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpyro

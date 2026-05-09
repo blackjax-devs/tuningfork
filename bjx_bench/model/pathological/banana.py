@@ -41,8 +41,6 @@ Reference:
   Rosenbrock function used as a non-convex benchmark in optimisation.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpyro

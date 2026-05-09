@@ -27,8 +27,6 @@ Covers:
   3. MALA grad count is exactly 1 per step (verified with a counter).
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import pytest

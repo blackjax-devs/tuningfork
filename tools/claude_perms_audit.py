@@ -34,8 +34,6 @@ Limitations:
 - May false-positive on dynamic command construction (e.g., `["git", verb]`
   where `verb` is a runtime variable).
 """
-from __future__ import annotations
-
 import json
 import re
 from collections import defaultdict

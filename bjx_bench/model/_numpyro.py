@@ -22,8 +22,6 @@ Pinned upstream API (NumPyro 0.21.0):
     ``param_info`` is ``ParamInfo(z, potential_energy, z_grad)``.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import jax

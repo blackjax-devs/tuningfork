@@ -25,8 +25,6 @@ Tests
 8.  Posterior dim matches the parameter count after build_logdensity_fn (3).
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpy as np

@@ -46,8 +46,6 @@ Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
   marginal moments, and logdensity ordering.
 """
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpyro

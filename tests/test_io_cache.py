@@ -22,8 +22,6 @@ Tests:
 - get_adaptation_params raises ValueError for analytic models.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

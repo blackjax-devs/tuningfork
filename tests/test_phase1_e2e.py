@@ -24,8 +24,6 @@ Eight-schools note: the CLI hard-codes n_warmup=500, n_chunks=4 for NUTS
 models (v1). With n=4000 and seed=42 the run certifies in ~40s.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess

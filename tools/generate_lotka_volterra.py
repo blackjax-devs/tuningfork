@@ -39,8 +39,6 @@ Usage:
     uv run python tools/generate_lotka_volterra.py
 """
 
-from __future__ import annotations
-
 import functools as ft
 from pathlib import Path
 

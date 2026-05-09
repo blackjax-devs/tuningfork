@@ -29,8 +29,6 @@ left as ``None`` (identity) or supplied by the warmup adaptation.
 ``needs_mass_matrix=True`` signals the Tier-B runner to thread one through.
 """
 
-from __future__ import annotations
-
 import blackjax
 import jax.numpy as jnp
 

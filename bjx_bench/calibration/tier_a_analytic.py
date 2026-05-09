@@ -20,8 +20,6 @@ a unit-test-level check, not a runtime gate — analytic samples are exact by
 construction.
 """
 
-from __future__ import annotations
-
 import jax
 
 from bjx_bench.calibration._summary import Summaries, compute_summaries

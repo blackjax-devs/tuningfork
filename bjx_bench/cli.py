@@ -27,8 +27,6 @@ Future phases will add:
     bjx-bench report                # leaderboard + figures
 """
 
-from __future__ import annotations
-
 import argparse
 import sys
 import time

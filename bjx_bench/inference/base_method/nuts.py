@@ -22,8 +22,6 @@ Grad cost per step: ``info.num_integration_steps`` (1 gradient per
 leapfrog step, same accounting as HMC).
 """
 
-from __future__ import annotations
-
 import blackjax
 import jax.numpy as jnp
 

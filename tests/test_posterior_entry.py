@@ -13,8 +13,6 @@
 # limitations under the License.
 """Tests for Posterior dataclass and ReferenceMethod enum."""
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 import numpyro

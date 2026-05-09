@@ -73,8 +73,6 @@ References:
     PLAN_bjx_bench_phase4.md § "Block B", row P4.6 (horseshoe).
 """
 
-from __future__ import annotations
-
 import jax.numpy as jnp
 import numpy as np
 import numpyro
