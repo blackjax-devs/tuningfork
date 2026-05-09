@@ -11,25 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the Phase 3 (P3.1) warmup registry.
+"""Tests for the Phase 3 (P3.1) warmup registry and Phase 5 (P5.0c) multi-chain contract.
 
 Covers:
   1. WARMUPS dict has exactly the three expected entries.
   2. is_compatible() for stan_window: hmc/nuts → True; mclmc → False.
   3. is_compatible() for mclmc_tuning: mclmc → True; nuts → False.
   4. is_compatible() for no_warmup: any name → True (sentinel "*").
-  5. stan_window smoke: NUTS on 10-D MVN at n_warmup=200.
-  6. mclmc_tuning smoke: MCLMC on 10-D MVN at n_warmup=200.
-  7. no_warmup smoke: RWM (gradient-free) and NUTS.
+  5. stan_window smoke: NUTS on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
+  6. mclmc_tuning smoke: MCLMC on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
+  7. no_warmup smoke: RWM (gradient-free) and NUTS, num_chains=1.
   8. Compatibility error via _run_warmup (wrong warmup for algorithm).
   9. Auto-dispatch in tune_algorithm: mclmc → mclmc_tuning, nuts → stan_window,
      rwm → no_warmup (verified via result structure).
  10. tune_algorithm regression: existing calls with warmup_name=None still pass.
+ 11. Multi-chain contract tests (P5.0c): shape checks for num_chains=1/4/8,
+     pre-batched init_position, dense mass matrix, MCLMC multi-chain, no_warmup multi-chain.
 """
 
 import math
 
 import jax
+import jax.numpy as jnp
 import pytest
 
 from bjx_bench.calibration.tier_b import _run_warmup, tune_algorithm
@@ -158,130 +161,97 @@ class TestIsCompatible:
 
 
 # ---------------------------------------------------------------------------
-# 5. stan_window smoke: NUTS on MVN-10 at n_warmup=200
+# 5. stan_window smoke: NUTS on MVN-10 at n_warmup=200, num_chains=1 (single-chain shim)
 # ---------------------------------------------------------------------------
 
 
 class TestStanWindowSmoke:
-    """stan_window smoke test on NUTS + MVN-10."""
+    """stan_window smoke test on NUTS + MVN-10.
 
-    def test_returns_state_and_adapted_params(self) -> None:
-        key = jax.random.key(101)
+    Uses num_chains=1 to preserve backward-compatible shim semantics.
+    Output shapes have a leading dim of 1.
+    """
+
+    def _run(self, seed: int, **kw):
+        key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
         warmup_key = jax.random.fold_in(key, 1)
-        state, params = WARMUPS["stan_window"].runner(
-            warmup_key, init_pos, 200, _NUTS, logdensity_fn=logdensity_fn
+        return WARMUPS["stan_window"].runner(
+            warmup_key, init_pos, 200, _NUTS, logdensity_fn=logdensity_fn, **kw
         )
+
+    def test_returns_state_and_adapted_params(self) -> None:
+        state, params = self._run(101, num_chains=1)
         assert state is not None
         assert isinstance(params, dict)
 
     def test_adapted_params_has_step_size(self) -> None:
-        key = jax.random.key(102)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        _, params = WARMUPS["stan_window"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
+        _, params = self._run(102, num_chains=1)
         assert "step_size" in params, f"params keys: {list(params.keys())}"
 
     def test_adapted_params_has_inverse_mass_matrix(self) -> None:
-        key = jax.random.key(103)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        _, params = WARMUPS["stan_window"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
+        _, params = self._run(103, num_chains=1)
         assert "inverse_mass_matrix" in params, f"params keys: {list(params.keys())}"
 
     def test_step_size_positive(self) -> None:
-        key = jax.random.key(104)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        _, params = WARMUPS["stan_window"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
-        assert float(params["step_size"]) > 0, f"step_size={params['step_size']} <= 0"
+        _, params = self._run(104, num_chains=1)
+        step_sizes = jnp.asarray(params["step_size"])
+        # shape (1,) — all positive
+        assert bool(jnp.all(step_sizes > 0)), f"step_size={step_sizes} not all > 0"
 
     def test_inverse_mass_matrix_shape(self) -> None:
-        key = jax.random.key(105)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        _, params = WARMUPS["stan_window"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
+        _, params = self._run(105, num_chains=1)
         imm = params["inverse_mass_matrix"]
+        # num_chains=1 → shape (1, 10)
         assert imm.shape == (
+            1,
             10,
-        ), f"inverse_mass_matrix.shape={imm.shape}, expected (10,) for diagonal default"
+        ), f"inverse_mass_matrix.shape={imm.shape}, expected (1, 10) for num_chains=1 diagonal"
 
     def test_dense_mass_matrix_shape(self) -> None:
-        """P5.0b: is_mass_matrix_diagonal=False produces a (d, d) IMM."""
-        key = jax.random.key(106)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        _, params = WARMUPS["stan_window"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-            is_mass_matrix_diagonal=False,
-        )
+        """P5.0b: is_mass_matrix_diagonal=False produces (num_chains, d, d) IMM."""
+        _, params = self._run(106, num_chains=1, is_mass_matrix_diagonal=False)
         imm = params["inverse_mass_matrix"]
+        # num_chains=1 → shape (1, 10, 10)
         assert imm.shape == (
+            1,
             10,
             10,
-        ), f"inverse_mass_matrix.shape={imm.shape}, expected (10, 10) for dense MM"
+        ), f"inverse_mass_matrix.shape={imm.shape}, expected (1, 10, 10)"
 
     def test_dense_mass_matrix_is_symmetric_positive_definite(self) -> None:
-        """Sanity check: dense IMM should be symmetric and PD."""
-        import jax.numpy as jnp
-
-        key = jax.random.key(107)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        _, params = WARMUPS["stan_window"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-            is_mass_matrix_diagonal=False,
-        )
+        """Sanity check: dense IMM should be symmetric and PD (per chain)."""
+        _, params = self._run(107, num_chains=1, is_mass_matrix_diagonal=False)
         imm = params["inverse_mass_matrix"]
-        # Symmetry within float tolerance.
-        assert jnp.allclose(imm, imm.T, atol=1e-6), "dense IMM must be symmetric"
-        # Positive definiteness via Cholesky.
+        # imm has shape (1, 10, 10); check chain 0
+        imm_chain0 = imm[0]
+        assert jnp.allclose(
+            imm_chain0, imm_chain0.T, atol=1e-6
+        ), "dense IMM must be symmetric"
         try:
-            jnp.linalg.cholesky(imm)
+            jnp.linalg.cholesky(imm_chain0)
         except Exception as exc:  # pragma: no cover
             raise AssertionError(f"dense IMM not positive definite: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
-# 6. mclmc_tuning smoke: MCLMC on MVN-10 at n_warmup=200
+# 6. mclmc_tuning smoke: MCLMC on MVN-10 at n_warmup=200, num_chains=1
 # ---------------------------------------------------------------------------
 
 
 class TestMclmcTuningSmoke:
-    """mclmc_tuning smoke test on MCLMC + MVN-10."""
+    """mclmc_tuning smoke test on MCLMC + MVN-10.
+
+    Uses num_chains=1 to preserve backward-compatible shim semantics.
+    Output shapes have a leading dim of 1.
+    """
 
     def _run(self, seed: int) -> tuple[object, dict]:
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
         warmup_key = jax.random.fold_in(key, 1)
         return WARMUPS["mclmc_tuning"].runner(
-            warmup_key, init_pos, 200, _MCLMC, logdensity_fn=logdensity_fn
+            warmup_key, init_pos, 200, _MCLMC, logdensity_fn=logdensity_fn, num_chains=1
         )
 
     def test_returns_state_and_adapted_params(self) -> None:
@@ -307,18 +277,23 @@ class TestMclmcTuningSmoke:
 
     def test_L_positive(self) -> None:
         _, params = self._run(206)
-        assert float(params["L"]) > 0, f"L={params['L']} <= 0"
+        # shape (1,) for num_chains=1
+        assert bool(jnp.all(jnp.asarray(params["L"]) > 0)), f"L={params['L']} not > 0"
 
     def test_step_size_positive(self) -> None:
         _, params = self._run(207)
-        assert float(params["step_size"]) > 0, f"step_size={params['step_size']} <= 0"
+        assert bool(
+            jnp.all(jnp.asarray(params["step_size"]) > 0)
+        ), f"step_size={params['step_size']} not > 0"
 
     def test_inverse_mass_matrix_shape(self) -> None:
         _, params = self._run(208)
         imm = params["inverse_mass_matrix"]
+        # num_chains=1 → shape (1, 10)
         assert imm.shape == (
+            1,
             10,
-        ), f"inverse_mass_matrix.shape={imm.shape}, expected (10,)"
+        ), f"inverse_mass_matrix.shape={imm.shape}, expected (1, 10)"
 
     def test_total_tuning_steps_positive(self) -> None:
         _, params = self._run(209)
@@ -327,18 +302,23 @@ class TestMclmcTuningSmoke:
 
 
 # ---------------------------------------------------------------------------
-# 7. no_warmup smoke
+# 7. no_warmup smoke (num_chains=1 shim)
 # ---------------------------------------------------------------------------
 
 
 class TestNoWarmupSmoke:
-    """no_warmup smoke tests on RWM and NUTS."""
+    """no_warmup smoke tests on RWM and NUTS (num_chains=1 shim)."""
 
     def test_rwm_returns_state_and_empty_params(self) -> None:
         key = jax.random.key(301)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
         state, params = WARMUPS["no_warmup"].runner(
-            jax.random.fold_in(key, 1), init_pos, 200, _RWM, logdensity_fn=logdensity_fn
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _RWM,
+            logdensity_fn=logdensity_fn,
+            num_chains=1,
         )
         assert state is not None
         assert params == {}, f"Expected empty dict, got {params}"
@@ -352,6 +332,7 @@ class TestNoWarmupSmoke:
             200,
             _NUTS,
             logdensity_fn=logdensity_fn,
+            num_chains=1,
         )
         assert state is not None
         assert params == {}, f"Expected empty dict, got {params}"
@@ -367,6 +348,7 @@ class TestNoWarmupSmoke:
             200,
             _MCLMC,
             logdensity_fn=logdensity_fn,
+            num_chains=1,
         )
         assert state is not None
         assert params == {}
@@ -562,3 +544,269 @@ class TestTuneAlgorithmRegression:
         result = self._run(_MALA, 604)
         assert result.base_method_name == "mala"
         assert result.n_trials_completed == self._N_TRIALS
+
+
+# ---------------------------------------------------------------------------
+# 11. Multi-chain contract tests (P5.0c)
+# ---------------------------------------------------------------------------
+
+
+def _state_leading_dim(states) -> int:
+    """Return the leading dimension of the vmapped state pytree."""
+    leaves = jax.tree.leaves(states)
+    return leaves[0].shape[0]
+
+
+def _position_shape(states) -> tuple:
+    """Return (num_chains, *param_shape) from the position pytree."""
+    pos_leaves = jax.tree.leaves(states.position)
+    return pos_leaves[0].shape
+
+
+class TestStanWindowMultiChain:
+    """P5.0c: stan_window multi-chain shape contract tests."""
+
+    def _run(self, seed: int, num_chains: int, **kw):
+        key = jax.random.key(seed)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        return WARMUPS["stan_window"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _NUTS,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+            **kw,
+        )
+
+    def test_default_num_chains_is_4(self) -> None:
+        """No num_chains kwarg → default 4; position leading dim == 4."""
+        key = jax.random.key(1001)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        states, params = WARMUPS["stan_window"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _NUTS,
+            logdensity_fn=logdensity_fn,
+        )
+        leading = _state_leading_dim(states)
+        assert leading == 4, f"Default num_chains should be 4, got {leading}"
+
+    def test_explicit_num_chains_4_state_shape(self) -> None:
+        """num_chains=4 → position shape is (4, 10)."""
+        states, params = self._run(1002, num_chains=4)
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
+
+    def test_explicit_num_chains_4_step_size_shape(self) -> None:
+        """num_chains=4 → step_size has shape (4,)."""
+        _, params = self._run(1003, num_chains=4)
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (4,), f"Expected (4,), got {ss.shape}"
+
+    def test_explicit_num_chains_4_imm_shape(self) -> None:
+        """num_chains=4 → inverse_mass_matrix has shape (4, 10)."""
+        _, params = self._run(1004, num_chains=4)
+        imm = params["inverse_mass_matrix"]
+        assert imm.shape == (4, 10), f"Expected (4, 10), got {imm.shape}"
+
+    def test_explicit_num_chains_8(self) -> None:
+        """num_chains=8 → leading dim 8."""
+        states, params = self._run(1005, num_chains=8)
+        leading = _state_leading_dim(states)
+        assert leading == 8, f"Expected leading dim 8, got {leading}"
+        assert params["step_size"].shape == (
+            8,
+        ), f"Expected (8,), got {params['step_size'].shape}"
+        assert params["inverse_mass_matrix"].shape == (
+            8,
+            10,
+        ), f"Expected (8, 10), got {params['inverse_mass_matrix'].shape}"
+
+    def test_num_chains_1_not_squeezed(self) -> None:
+        """num_chains=1 → leading dim 1 (NOT squeezed)."""
+        states, params = self._run(1006, num_chains=1)
+        leading = _state_leading_dim(states)
+        assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
+        assert params["step_size"].shape == (
+            1,
+        ), f"Expected (1,), got {params['step_size'].shape}"
+
+    def test_pre_batched_init_position(self) -> None:
+        """init_position with leading dim == num_chains passes through verbatim."""
+        num_chains = 4
+        key = jax.random.key(1007)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        # Pre-batch: replicate 4 times
+        batched_pos = jax.tree.map(
+            lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape), init_pos
+        )
+        states, params = WARMUPS["stan_window"].runner(
+            jax.random.fold_in(key, 1),
+            batched_pos,
+            200,
+            _NUTS,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+        )
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, 10), f"Pre-batched: expected (4, 10), got {pos_shape}"
+
+    def test_dense_mm_multi_chain_shape(self) -> None:
+        """num_chains=2, is_mass_matrix_diagonal=False → IMM shape (2, d, d)."""
+        states, params = self._run(1008, num_chains=2, is_mass_matrix_diagonal=False)
+        imm = params["inverse_mass_matrix"]
+        assert imm.shape == (
+            2,
+            10,
+            10,
+        ), f"Expected (2, 10, 10) for dense multi-chain, got {imm.shape}"
+        pos_shape = _position_shape(states)
+        assert pos_shape == (2, 10), f"Expected (2, 10), got {pos_shape}"
+
+    def test_all_step_sizes_positive(self) -> None:
+        """All per-chain step sizes must be positive."""
+        _, params = self._run(1009, num_chains=4)
+        ss = jnp.asarray(params["step_size"])
+        assert bool(jnp.all(ss > 0)), f"Not all step sizes positive: {ss}"
+
+
+class TestMclmcTuningMultiChain:
+    """P5.0c: mclmc_tuning multi-chain shape contract tests."""
+
+    def _run(self, seed: int, num_chains: int) -> tuple[object, dict]:
+        key = jax.random.key(seed)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        warmup_key = jax.random.fold_in(key, 1)
+        return WARMUPS["mclmc_tuning"].runner(
+            warmup_key,
+            init_pos,
+            200,
+            _MCLMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+        )
+
+    def test_default_num_chains_is_4(self) -> None:
+        """No num_chains kwarg → default 4."""
+        key = jax.random.key(2001)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        states, params = WARMUPS["mclmc_tuning"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _MCLMC,
+            logdensity_fn=logdensity_fn,
+        )
+        leading = _state_leading_dim(states)
+        assert leading == 4, f"Default num_chains should be 4, got {leading}"
+
+    def test_num_chains_4_state_shape(self) -> None:
+        """num_chains=4 → position leading dim == 4."""
+        states, params = self._run(2002, num_chains=4)
+        leading = _state_leading_dim(states)
+        assert leading == 4, f"Expected leading dim 4, got {leading}"
+
+    def test_num_chains_4_L_shape(self) -> None:
+        """num_chains=4 → L has shape (4,)."""
+        _, params = self._run(2003, num_chains=4)
+        L = jnp.asarray(params["L"])
+        assert L.shape == (4,), f"Expected (4,), got {L.shape}"
+
+    def test_num_chains_4_step_size_shape(self) -> None:
+        """num_chains=4 → step_size has shape (4,)."""
+        _, params = self._run(2004, num_chains=4)
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (4,), f"Expected (4,), got {ss.shape}"
+
+    def test_num_chains_4_imm_shape(self) -> None:
+        """num_chains=4 → inverse_mass_matrix has shape (4, 10)."""
+        _, params = self._run(2005, num_chains=4)
+        imm = params["inverse_mass_matrix"]
+        assert imm.shape == (4, 10), f"Expected (4, 10), got {imm.shape}"
+
+    def test_num_chains_1_not_squeezed(self) -> None:
+        """num_chains=1 → leading dim 1 (NOT squeezed)."""
+        states, params = self._run(2006, num_chains=1)
+        leading = _state_leading_dim(states)
+        assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
+
+    def test_total_tuning_steps_is_int(self) -> None:
+        """_total_tuning_steps is a Python int (not a JAX array)."""
+        _, params = self._run(2007, num_chains=4)
+        steps = params["_total_tuning_steps"]
+        assert isinstance(
+            steps, int
+        ), f"_total_tuning_steps should be int, got {type(steps)}"
+        assert steps > 0, f"_total_tuning_steps={steps} <= 0"
+
+    def test_all_L_positive(self) -> None:
+        """All per-chain L values must be positive."""
+        _, params = self._run(2008, num_chains=4)
+        L = jnp.asarray(params["L"])
+        assert bool(jnp.all(L > 0)), f"Not all L values positive: {L}"
+
+
+class TestNoWarmupMultiChain:
+    """P5.0c: no_warmup multi-chain shape contract tests."""
+
+    def _run(self, seed: int, base_method, num_chains: int) -> tuple[object, dict]:
+        key = jax.random.key(seed)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        return WARMUPS["no_warmup"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            base_method,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+        )
+
+    def test_default_num_chains_is_4(self) -> None:
+        """No num_chains kwarg → default 4."""
+        key = jax.random.key(3001)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        states, params = WARMUPS["no_warmup"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _RWM,
+            logdensity_fn=logdensity_fn,
+        )
+        leading = _state_leading_dim(states)
+        assert leading == 4, f"Default num_chains should be 4, got {leading}"
+
+    def test_num_chains_4_nuts_state_shape(self) -> None:
+        """num_chains=4, NUTS → position leading dim == 4."""
+        states, params = self._run(3002, _NUTS, num_chains=4)
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
+        assert params == {}, f"no_warmup always returns empty dict, got {params}"
+
+    def test_num_chains_4_rwm_state_shape(self) -> None:
+        """num_chains=4, RWM → position leading dim == 4."""
+        states, params = self._run(3003, _RWM, num_chains=4)
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
+        assert params == {}
+
+    def test_num_chains_4_mclmc_state_shape(self) -> None:
+        """num_chains=4, MCLMC → position leading dim == 4."""
+        states, params = self._run(3004, _MCLMC, num_chains=4)
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
+        assert params == {}
+
+    def test_num_chains_1_not_squeezed(self) -> None:
+        """num_chains=1 → leading dim 1 (NOT squeezed)."""
+        states, params = self._run(3005, _NUTS, num_chains=1)
+        leading = _state_leading_dim(states)
+        assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
+        assert params == {}
+
+    def test_adapted_params_always_empty(self) -> None:
+        """no_warmup always returns {} regardless of num_chains."""
+        for nc in (1, 2, 4, 8):
+            _, params = self._run(3010 + nc, _NUTS, num_chains=nc)
+            assert params == {}, f"num_chains={nc}: expected empty dict, got {params}"

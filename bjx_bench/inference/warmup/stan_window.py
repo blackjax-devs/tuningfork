@@ -23,17 +23,30 @@ Compatible with any BlackJAX kernel that accepts an ``inverse_mass_matrix``
 keyword argument (HMC, NUTS, Barker, MALA — verified in Phase 2 tripwire
 tests in ``tests/test_blackjax_api_pins.py``).
 
-Runner signature (uniform across all warmups)::
+Runner signature (multi-chain contract, P5.0c)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, target_acceptance_rate=None,
-            is_mass_matrix_diagonal=True, **kwargs)
-    -> (state, adapted_params)
+            is_mass_matrix_diagonal=True, num_chains: int = 4, **kwargs)
+    -> (states, adapted_params)
+
+Where:
+
+- ``rng_key`` is a single key; split internally into ``num_chains`` keys.
+- ``init_position`` is a single pytree (one chain's worth); replicated
+  across chains internally via ``_maybe_replicate`` unless the caller
+  pre-batches it (leading dim == ``num_chains``).
+- ``states`` is a batched pytree with leading dim ``num_chains``.
+- ``adapted_params`` contains ``"step_size"`` (shape ``(num_chains,)``) and
+  ``"inverse_mass_matrix"`` (shape ``(num_chains, d)`` for diagonal or
+  ``(num_chains, d, d)`` for dense).  Per-chain values are returned (not
+  averaged), so downstream callers can average if desired.
 
 The ``adapted_params`` dict always contains at least ``"step_size"``
 and ``"inverse_mass_matrix"`` on successful adaptation.  When
-``is_mass_matrix_diagonal=True`` the IMM has shape ``(d,)`` (one variance
-per dim); when ``False`` the IMM has shape ``(d, d)`` (full covariance).
+``is_mass_matrix_diagonal=True`` the per-chain IMM has shape ``(d,)``
+(stacked to ``(num_chains, d)`` in the output).  When ``False`` the
+per-chain IMM has shape ``(d, d)`` (stacked to ``(num_chains, d, d)``).
 HIGH-effort recipes that adapt a dense or large-diagonal IMM should
 persist it via ``Recipe.save_imm_sidecar`` rather than inlining (see
 P5.0a IMM sidecar helpers).
@@ -50,7 +63,7 @@ from typing import Any
 import blackjax
 import jax
 
-from bjx_bench.inference.warmup._base import Warmup
+from bjx_bench.inference.warmup._base import Warmup, _maybe_replicate
 
 __all__ = ["ENTRY"]
 
@@ -64,16 +77,21 @@ def _runner(
     logdensity_fn: Any,
     target_acceptance_rate: float | None = None,
     is_mass_matrix_diagonal: bool = True,
+    num_chains: int = 4,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
-    """Run blackjax.window_adaptation and return ``(state, adapted_params)``.
+    """Run blackjax.window_adaptation over ``num_chains`` chains via vmap.
 
     Parameters
     ----------
     rng_key
-        JAX random key for the adaptation run.
+        JAX random key for the adaptation run.  Split internally into
+        ``num_chains`` independent per-chain keys.
     init_position
         Initial unconstrained parameter dict (from the model's prior sample).
+        A SINGLE pytree (one chain's worth).  The runner replicates it across
+        ``num_chains`` unless the caller pre-batches it (leading dim ==
+        ``num_chains``).
     n_warmup
         Number of adaptation steps.
     base_method
@@ -85,12 +103,19 @@ def _runner(
         Override for the dual-averaging target.  Falls back to
         ``base_method.target_acceptance_rate``, then ``0.80``.
     is_mass_matrix_diagonal
-        ``True`` (default) — Stan-style diagonal mass matrix; adapted IMM
-        has shape ``(d,)``.  ``False`` — dense full-rank mass matrix;
-        adapted IMM has shape ``(d, d)``.  Use ``False`` only when posterior
-        correlation is the dominant pathology AND ``d`` is small enough that
-        a ``d × d`` matrix is tractable (rule of thumb: d ≲ 200; consult
-        ``Recipe.save_imm_sidecar`` for storage of large dense matrices).
+        ``True`` (default) — Stan-style diagonal mass matrix; per-chain adapted
+        IMM has shape ``(d,)``; output IMM has shape ``(num_chains, d)``.
+        ``False`` — dense full-rank mass matrix; per-chain IMM has shape
+        ``(d, d)``; output IMM has shape ``(num_chains, d, d)``.  Use
+        ``False`` only when posterior correlation is the dominant pathology AND
+        ``d`` is small enough that a ``d × d`` matrix is tractable (rule of
+        thumb: d ≲ 200; consult ``Recipe.save_imm_sidecar`` for storage of
+        large dense matrices).
+    num_chains
+        Number of independent chains to run in parallel via ``jax.vmap``.
+        Default ``4``, matching Stan/NumPyro convention.  Pass ``num_chains=1``
+        explicitly for BO trials (intentionally single-chain — chain count is
+        orthogonal to HP tuning).
     **kwargs
         Additional keyword arguments forwarded to ``window_adaptation``
         (e.g. ``num_integration_steps`` for HMC — the warmup kernel needs
@@ -99,11 +124,14 @@ def _runner(
 
     Returns
     -------
-    state
-        Post-warmup BlackJAX kernel state.
+    states
+        Post-warmup BlackJAX kernel states, batched over ``num_chains``.
+        ``states.position`` has shape ``(num_chains, d)``.
     adapted_params
         Dict with at least ``"step_size"`` and ``"inverse_mass_matrix"``.
-        IMM shape is ``(d,)`` for diagonal, ``(d, d)`` for dense.
+        ``"step_size"`` has shape ``(num_chains,)``.
+        ``"inverse_mass_matrix"`` has shape ``(num_chains, d)`` for diagonal
+        or ``(num_chains, d, d)`` for dense.
     """
     from bjx_bench.calibration.tier_b import default_value_for_space
 
@@ -125,8 +153,21 @@ def _runner(
         target_acceptance_rate=target,
         **extra_kwargs,
     )
-    (state, adapted_params), _info = warmup.run(rng_key, init_position, n_warmup)
-    return state, dict(adapted_params)
+
+    # Split the key for num_chains independent runs.
+    chain_keys = jax.random.split(rng_key, num_chains)
+
+    # Replicate init_position across chains.  Pass-through if pre-batched.
+    init_positions = _maybe_replicate(init_position, num_chains)
+
+    # vmap the warmup.run over (key, init_position).
+    @jax.vmap
+    def run_one(k: jax.Array, x0: Any) -> tuple[Any, Any]:
+        (state, params), _info = warmup.run(k, x0, n_warmup)
+        return state, params
+
+    states, adapted_params = run_one(chain_keys, init_positions)
+    return states, dict(adapted_params)
 
 
 ENTRY = Warmup(
@@ -136,6 +177,9 @@ ENTRY = Warmup(
     notes=(
         "Standard Stan window adaptation: dual-averaging step_size + diagonal "
         "mass matrix.  Compatible with hmc, nuts, barker, mala (all kernels "
-        "that accept inverse_mass_matrix).  Verified in Phase 2 tripwire tests."
+        "that accept inverse_mass_matrix).  Verified in Phase 2 tripwire tests.  "
+        "P5.0c: multi-chain by default (num_chains=4 via jax.vmap); per-chain "
+        "adapted_params returned (step_size shape (num_chains,), IMM shape "
+        "(num_chains, d) or (num_chains, d, d))."
     ),
 )

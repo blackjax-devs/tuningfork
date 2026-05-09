@@ -409,13 +409,40 @@ def _run_warmup(
             f"base_method {algorithm_entry.name!r}; "
             f"compatible_methods = {warmup.compatible_methods}"
         )
-    return warmup.runner(
+    # BO trials are intentionally single-chain — chain count is orthogonal to
+    # per-trial HP tuning.  Pass num_chains=1 explicitly so the new default
+    # num_chains=4 (P5.0c) doesn't accidentally change BO semantics.
+    #
+    # The multi-chain contract (P5.0c) always returns states with a leading
+    # dim of num_chains (here 1).  Squeeze that dim so _run_trial receives
+    # the un-batched state that run_inference_algorithm expects.
+    batched_state, batched_params = warmup.runner(
         rng_key,
         init_position,
         n_warmup,
         algorithm_entry,
         logdensity_fn=logdensity_fn,
+        num_chains=1,
     )
+    # Squeeze leading dim-1 from every leaf of the state pytree.
+    # The multi-chain contract (P5.0c) returns states with leading dim
+    # num_chains; for the BO case (num_chains=1) we restore the un-batched
+    # state that run_inference_algorithm expects.
+    adapted_state = jax.tree.map(
+        lambda x: x[0] if hasattr(x, "__getitem__") else x, batched_state
+    )
+    # Squeeze leading dim-1 from array params; pass scalars and non-arrays through.
+    adapted_params: dict[str, Any] = {}
+    for k, v in batched_params.items():
+        if isinstance(v, (int, float, bool)):
+            adapted_params[k] = v
+        else:
+            arr = jnp.asarray(v)
+            if arr.shape and arr.shape[0] == 1:
+                adapted_params[k] = arr[0]
+            else:
+                adapted_params[k] = v
+    return adapted_state, adapted_params
 
 
 def _run_trial(
