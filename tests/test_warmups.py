@@ -224,7 +224,48 @@ class TestStanWindowSmoke:
         imm = params["inverse_mass_matrix"]
         assert imm.shape == (
             10,
-        ), f"inverse_mass_matrix.shape={imm.shape}, expected (10,)"
+        ), f"inverse_mass_matrix.shape={imm.shape}, expected (10,) for diagonal default"
+
+    def test_dense_mass_matrix_shape(self) -> None:
+        """P5.0b: is_mass_matrix_diagonal=False produces a (d, d) IMM."""
+        key = jax.random.key(106)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        _, params = WARMUPS["stan_window"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _NUTS,
+            logdensity_fn=logdensity_fn,
+            is_mass_matrix_diagonal=False,
+        )
+        imm = params["inverse_mass_matrix"]
+        assert imm.shape == (
+            10,
+            10,
+        ), f"inverse_mass_matrix.shape={imm.shape}, expected (10, 10) for dense MM"
+
+    def test_dense_mass_matrix_is_symmetric_positive_definite(self) -> None:
+        """Sanity check: dense IMM should be symmetric and PD."""
+        import jax.numpy as jnp
+
+        key = jax.random.key(107)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        _, params = WARMUPS["stan_window"].runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _NUTS,
+            logdensity_fn=logdensity_fn,
+            is_mass_matrix_diagonal=False,
+        )
+        imm = params["inverse_mass_matrix"]
+        # Symmetry within float tolerance.
+        assert jnp.allclose(imm, imm.T, atol=1e-6), "dense IMM must be symmetric"
+        # Positive definiteness via Cholesky.
+        try:
+            jnp.linalg.cholesky(imm)
+        except Exception as exc:  # pragma: no cover
+            raise AssertionError(f"dense IMM not positive definite: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

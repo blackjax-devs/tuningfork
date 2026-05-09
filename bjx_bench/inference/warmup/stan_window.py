@@ -13,21 +13,32 @@
 # limitations under the License.
 """Stan-style window-adaptation warmup, wrapping ``blackjax.window_adaptation``.
 
-This warmup runs dual-averaging step-size adaptation together with diagonal
-mass-matrix estimation, matching the Stan HMC/NUTS default.  It is
-compatible with any BlackJAX kernel that accepts an ``inverse_mass_matrix``
+This warmup runs dual-averaging step-size adaptation together with mass-matrix
+estimation, matching the Stan HMC/NUTS default.  Mass-matrix shape is
+controlled by the ``is_mass_matrix_diagonal`` keyword (default ``True``,
+matching upstream BlackJAX); set to ``False`` for **dense** (full-rank)
+adaptation when posterior correlation is the dominant pathology (P5.0b).
+
+Compatible with any BlackJAX kernel that accepts an ``inverse_mass_matrix``
 keyword argument (HMC, NUTS, Barker, MALA — verified in Phase 2 tripwire
 tests in ``tests/test_blackjax_api_pins.py``).
 
 Runner signature (uniform across all warmups)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
-            *, logdensity_fn, target_acceptance_rate=None, **kwargs)
+            *, logdensity_fn, target_acceptance_rate=None,
+            is_mass_matrix_diagonal=True, **kwargs)
     -> (state, adapted_params)
 
 The ``adapted_params`` dict always contains at least ``"step_size"``
-and ``"inverse_mass_matrix"`` on successful adaptation.  If the
-``base_method`` has a BO-tunable HP that is NOT step_size or
+and ``"inverse_mass_matrix"`` on successful adaptation.  When
+``is_mass_matrix_diagonal=True`` the IMM has shape ``(d,)`` (one variance
+per dim); when ``False`` the IMM has shape ``(d, d)`` (full covariance).
+HIGH-effort recipes that adapt a dense or large-diagonal IMM should
+persist it via ``Recipe.save_imm_sidecar`` rather than inlining (see
+P5.0a IMM sidecar helpers).
+
+If the ``base_method`` has a BO-tunable HP that is NOT step_size or
 inverse_mass_matrix (e.g. ``num_integration_steps`` for HMC), the
 default value for that HP is injected into the ``window_adaptation``
 call so the warmup kernel can construct itself; BO trials later override
@@ -52,6 +63,7 @@ def _runner(
     *,
     logdensity_fn: Any,
     target_acceptance_rate: float | None = None,
+    is_mass_matrix_diagonal: bool = True,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
     """Run blackjax.window_adaptation and return ``(state, adapted_params)``.
@@ -72,6 +84,13 @@ def _runner(
     target_acceptance_rate
         Override for the dual-averaging target.  Falls back to
         ``base_method.target_acceptance_rate``, then ``0.80``.
+    is_mass_matrix_diagonal
+        ``True`` (default) — Stan-style diagonal mass matrix; adapted IMM
+        has shape ``(d,)``.  ``False`` — dense full-rank mass matrix;
+        adapted IMM has shape ``(d, d)``.  Use ``False`` only when posterior
+        correlation is the dominant pathology AND ``d`` is small enough that
+        a ``d × d`` matrix is tractable (rule of thumb: d ≲ 200; consult
+        ``Recipe.save_imm_sidecar`` for storage of large dense matrices).
     **kwargs
         Additional keyword arguments forwarded to ``window_adaptation``
         (e.g. ``num_integration_steps`` for HMC — the warmup kernel needs
@@ -84,6 +103,7 @@ def _runner(
         Post-warmup BlackJAX kernel state.
     adapted_params
         Dict with at least ``"step_size"`` and ``"inverse_mass_matrix"``.
+        IMM shape is ``(d,)`` for diagonal, ``(d, d)`` for dense.
     """
     from bjx_bench.calibration.tier_b import default_value_for_space
 
@@ -101,6 +121,7 @@ def _runner(
     warmup = blackjax.window_adaptation(
         base_method.factory,
         logdensity_fn,
+        is_mass_matrix_diagonal=is_mass_matrix_diagonal,
         target_acceptance_rate=target,
         **extra_kwargs,
     )
