@@ -162,8 +162,11 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
     The default is chosen so that it sits at the centre of the search
     space on the scale that BO will explore:
 
-    - ``"loguniform"``: geometric mean ``sqrt(low * high)`` — the midpoint
-      on log-scale, matching the scale TPE uses internally.
+    - ``"loguniform"``: 70th-percentile on log-scale
+      ``low * (high / low) ** 0.7`` — biased toward the high end of the
+      log-range.  For ``step_size [1e-3, 1.0]`` this gives ``0.1`` rather
+      than the geometric mean ``0.032``.  Empirically closer to typical
+      BO-best step_size values observed in Phase 3 HIGH recipes (P4.0 tweak).
     - ``"uniform"``: arithmetic midpoint ``(low + high) / 2``.
     - ``"int"``: integer midpoint ``(low + high) // 2``.  Integer division
       avoids returning a float for an integer parameter.  For even sums
@@ -192,8 +195,10 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
         not happen if ``HyperparamSpace.__post_init__`` validation was run).
     """
     if space.kind == "loguniform":
-        # Geometric mean: centre on log-scale
-        return math.sqrt(space.low * space.high)  # type: ignore[operator]
+        # 70th-percentile on log-scale: low * (high/low)**0.7
+        # For step_size [1e-3, 1.0]: 1e-3 * (1e3)**0.7 ≈ 0.1
+        # (P4.0 tweak; previously sqrt(low*high) = 50th-percentile ≈ 0.032)
+        return space.low * (space.high / space.low) ** 0.7  # type: ignore[operator]
     elif space.kind == "uniform":
         return (space.low + space.high) / 2  # type: ignore[operator]
     elif space.kind == "int":

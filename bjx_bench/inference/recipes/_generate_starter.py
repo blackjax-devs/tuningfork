@@ -2,25 +2,23 @@
 
 Subtask P3.3 (Phase 3): generate 12 LOW + 6 MEDIUM starter recipes.
 Subtask P3.4 (Phase 3): generate 6 HIGH starter recipes via Tier-B BO.
+Subtask P4.1 (Phase 4): added ill_cond_50 to STARTER_MODEL_NAMES.
 
 **LOW recipes** (zero-cost; uses no_warmup):
-  - 3 starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
+  - N starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
   - Calls ``Recipe.from_default_config`` for each pair.
-  - The 6 existing LOW recipes for {hmc, nuts} are regenerated bit-identical
-    (from_default_config is deterministic).
+  - Deterministic — re-running produces bit-identical output.
 
 **MEDIUM recipes** (warmup-only; uses stan_window):
-  - 3 starter models × 2 algorithms (nuts, hmc)
+  - N starter models × 2 algorithms (nuts, hmc)
   - Runs stan_window warmup at n_warmup=1000; records adapted params + elapsed.
   - Calls ``Recipe.from_warmup_only`` for each pair.
-  - Total: 18 LOW + 6 MEDIUM = 24 starter recipes on disk.
 
 **HIGH recipes** (Tier-B BO; uses stan_window):
-  - 3 starter models × 2 algorithms (nuts, hmc)
+  - N starter models × 2 algorithms (nuts, hmc)
   - Runs tune_algorithm at n_trials=20, n_seeds=2, n_chains=2, n_samples=400,
     n_warmup=500; records BO-tuned config + TuningDifficulty profile.
   - Calls ``Recipe.from_tuning_result`` for each pair.
-  - Total: 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes on disk.
 
 Usage
 -----
@@ -30,7 +28,8 @@ Usage
 The script is idempotent: re-running overwrites existing files with fresh
 provenance timestamps.
 
-Compute: ~3–5 min total for LOW+MEDIUM; ~18–30 min for HIGH (n_trials=20).
+Compute: ~3–5 min total for LOW+MEDIUM per model; ~18–30 min for HIGH per model
+(n_trials=20).
 """
 
 from __future__ import annotations
@@ -46,8 +45,34 @@ from bjx_bench.inference.recipes._base import Recipe
 from bjx_bench.inference.warmup import WARMUPS
 from bjx_bench.model import MODELS
 
-# The 3 starter models (Phase 2.5 scope; Phase 4 adds the remaining 11)
-STARTER_MODEL_NAMES = ["mvn_10", "neals_funnel", "eight_schools_ncp"]
+# Starter models: Phase 2.5 seed set + Phase 4 models as they land.
+# P4.1 adds ill_cond_50 (Block A: 50-D ill-conditioned Gaussian, κ≈1000).
+# P4.2 adds banana (Block A: 2-D banana/Rosenbrock-style, curved manifold).
+# P4.3 adds gmm_25 (Block A: 2-D 25-mode Gaussian mixture on a 5x5 grid).
+# P4.4 adds logistic_synthetic (Block B: 3-D logistic regression on 2-D bicluster).
+# P4.5 adds german_credit (Block B: 26-D logistic regression on real UCI German Credit data).
+# P4.6 adds horseshoe (Block B: 204-D Finnish horseshoe sparse linear regression, NCP).
+# P4.7 adds radon (Block C: 391-D NCP hierarchical, posteriordb radon_all).
+# P4.8 adds irt_2pl (Block C: 144-D NCP IRT 2PL, J=100 I=20, no posteriordb xcheck).
+# P4.9 adds stoch_vol (Block D: 503-D NCP AR(1) state-space, KSC 1998).
+# P4.10 adds lotka_volterra (Block D: 7-D ODE inverse via ProbDiffEq).
+# P4.11 adds gp_regression (Block D: 203-D Cholesky-NCP joint GP, FINAL P4 model).
+STARTER_MODEL_NAMES = [
+    "mvn_10",
+    "ill_cond_50",
+    "neals_funnel",
+    "eight_schools_ncp",
+    "banana",
+    "gmm_25",
+    "logistic_synthetic",
+    "german_credit",
+    "horseshoe",
+    "radon",
+    "irt_2pl",
+    "stoch_vol",
+    "lotka_volterra",
+    "gp_regression",
+]
 
 # All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
 ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc"]
@@ -59,7 +84,7 @@ MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
 _STARTER_ROOT = Path(__file__).parent / "starter"
 
 
-def emit_low_recipes(seed: int = 0) -> list[Path]:
+def emit_low_recipes(seed: int = 0, model_names: list[str] | None = None) -> list[Path]:
     """Emit LOW recipes for every (model, base_method) combination.
 
     Idempotent — overwrites existing low__*.json files in place.
@@ -77,7 +102,7 @@ def emit_low_recipes(seed: int = 0) -> list[Path]:
     _ = seed  # currently unused; kept for symmetry with emit_medium_recipes
     generated: list[Path] = []
 
-    for model_name in STARTER_MODEL_NAMES:
+    for model_name in model_names or STARTER_MODEL_NAMES:
         posterior = MODELS[model_name]
         for method_name in ALL_METHOD_NAMES:
             base_method = BASE_METHODS[method_name]
@@ -95,7 +120,11 @@ def emit_low_recipes(seed: int = 0) -> list[Path]:
     return generated
 
 
-def emit_medium_recipes(seed: int = 0, n_warmup: int = 1000) -> list[Path]:
+def emit_medium_recipes(
+    seed: int = 0,
+    n_warmup: int = 1000,
+    model_names: list[str] | None = None,
+) -> list[Path]:
     """Emit MEDIUM recipes for stan_window-compatible algorithms.
 
     Idempotent: re-running overwrites with deterministic content (same seed → same key).
@@ -118,7 +147,7 @@ def emit_medium_recipes(seed: int = 0, n_warmup: int = 1000) -> list[Path]:
     stan_window = WARMUPS["stan_window"]
     generated: list[Path] = []
 
-    for model_name in STARTER_MODEL_NAMES:
+    for model_name in model_names or STARTER_MODEL_NAMES:
         posterior = MODELS[model_name]
         for method_name in MEDIUM_METHOD_NAMES:
             base_method = BASE_METHODS[method_name]
@@ -152,7 +181,11 @@ def emit_medium_recipes(seed: int = 0, n_warmup: int = 1000) -> list[Path]:
     return generated
 
 
-def emit_high_recipes(seed: int = 0, n_trials: int = 20) -> list[Path]:
+def emit_high_recipes(
+    seed: int = 0,
+    n_trials: int = 20,
+    model_names: list[str] | None = None,
+) -> list[Path]:
     """Emit HIGH recipes via Tier-B BO for stan_window-compatible algorithms.
 
     Runs ``tune_algorithm`` at ``n_trials=20`` (starter default per
@@ -181,7 +214,7 @@ def emit_high_recipes(seed: int = 0, n_trials: int = 20) -> list[Path]:
     stan_window = WARMUPS["stan_window"]
     generated: list[Path] = []
 
-    for model_name in STARTER_MODEL_NAMES:
+    for model_name in model_names or STARTER_MODEL_NAMES:
         posterior = MODELS[model_name]
         for method_name in MEDIUM_METHOD_NAMES:
             base_method = BASE_METHODS[method_name]
@@ -232,22 +265,53 @@ def emit_high_recipes(seed: int = 0, n_trials: int = 20) -> list[Path]:
 def main() -> None:
     """Generate and save all LOW + MEDIUM + HIGH starter recipes.
 
-    Subtask P3.3: emit 18 LOW + 6 MEDIUM = 24 total starter recipes.
-    Subtask P3.4: emit 6 HIGH recipes via Tier-B BO (n_trials=20).
-    Total: 30 starter recipes on disk.
-    Expected compute: ~3–5 min for LOW+MEDIUM; ~18–30 min for HIGH.
+    Phase 3 (P3.3 + P3.4): 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes
+    for the 3 original models.
+    Phase 4 (P4.1+): adds ill_cond_50 and subsequent models as they land.
+    Expected compute: ~3–5 min for LOW+MEDIUM per model; ~18–30 min for HIGH
+    per model (n_trials=20).
+
+    Use ``--only <model_name>`` to regenerate recipes for a single model
+    (eliminates the per-spawn cost of re-running deterministic Tier-B BO for
+    already-committed models; saves ~12-15 min when adding a new model).
     """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate canonical starter recipes (LOW/MEDIUM/HIGH)."
+    )
+    parser.add_argument(
+        "--only",
+        default=None,
+        help=(
+            "If set, only emit recipes for this model name. Must be in "
+            "STARTER_MODEL_NAMES. Default: emit for all starter models."
+        ),
+    )
+    args = parser.parse_args()
+
+    if args.only is not None:
+        if args.only not in STARTER_MODEL_NAMES:
+            raise SystemExit(
+                f"--only {args.only!r} not in STARTER_MODEL_NAMES "
+                f"= {STARTER_MODEL_NAMES}"
+            )
+        names: list[str] | None = [args.only]
+        print(f"Generating recipes for ONLY: {args.only}")
+    else:
+        names = None
+
     print("Generating LOW-effort recipes (6 algorithms, 3 models)...")
-    low = emit_low_recipes()
+    low = emit_low_recipes(model_names=names)
 
     print("\nGenerating MEDIUM-effort recipes (stan_window warmup; nuts, hmc only)...")
-    medium = emit_medium_recipes()
+    medium = emit_medium_recipes(model_names=names)
 
     print(
         "\nGenerating HIGH-effort recipes "
         "(Tier-B BO, n_trials=20; nuts, hmc only)..."
     )
-    high = emit_high_recipes()
+    high = emit_high_recipes(model_names=names)
 
     total = len(low) + len(medium) + len(high)
     print(

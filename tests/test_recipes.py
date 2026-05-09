@@ -121,8 +121,10 @@ def test_from_default_config_nuts_mvn10() -> None:
     expected_params = default_params_for(base_method)
     assert recipe.base_method_params == expected_params
 
-    # NUTS default: step_size = sqrt(1e-3 * 1.0) ≈ 0.03162
-    assert math.isclose(recipe.base_method_params["step_size"], math.sqrt(1e-3 * 1.0))
+    # NUTS default: step_size = 1e-3 * (1/1e-3)**0.7 (70th-pctile on log-scale, P4.0 tweak)
+    assert math.isclose(
+        recipe.base_method_params["step_size"], 1e-3 * (1.0 / 1e-3) ** 0.7
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +147,11 @@ def test_from_default_config_hmc_mvn10() -> None:
     assert recipe.base_method_params == expected_params
 
     # HMC defaults:
-    # step_size = sqrt(1e-3 * 1.0) ≈ 0.03162
+    # step_size = 1e-3 * (1/1e-3)**0.7 (70th-pctile on log-scale, P4.0 tweak)
     # num_integration_steps = (1 + 128) // 2 = 64
-    assert math.isclose(recipe.base_method_params["step_size"], math.sqrt(1e-3 * 1.0))
+    assert math.isclose(
+        recipe.base_method_params["step_size"], 1e-3 * (1.0 / 1e-3) ** 0.7
+    )
     assert recipe.base_method_params["num_integration_steps"] == 64
 
 
@@ -353,7 +357,7 @@ def test_from_warmup_only_stan_window_nuts() -> None:
     assert recipe.base_method_name == "nuts"
 
     # base_method_params must include both the default step_size (loguniform
-    # geometric mean ≈ 0.0316) AND the warmup-adapted inverse_mass_matrix.
+    # 70th-pctile ≈ 0.126, P4.0 tweak) AND the warmup-adapted inverse_mass_matrix.
     assert "step_size" in recipe.base_method_params
     assert "inverse_mass_matrix" in recipe.base_method_params
 

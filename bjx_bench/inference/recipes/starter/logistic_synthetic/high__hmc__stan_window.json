@@ -1,0 +1,35 @@
+{
+  "model_name": "logistic_synthetic",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.0614395570185398,
+    "num_integration_steps": 45
+  },
+  "warmup_params": {},
+  "headline_metric": 0.03687846474349499,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 40.60610517600435,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 0.004388823523186147,
+    "best_score": 0.03687846474349499,
+    "threshold_score": 0.018439232371747494,
+    "default_works": false,
+    "n_trials_to_threshold": 19,
+    "n_trials_to_best": 19,
+    "wall_seconds_to_threshold": 40.60610517600435,
+    "wall_seconds_to_best": 40.60610517600435
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune logistic_synthetic hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0614395570185398, 'num_integration_steps': 45}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0369.\nTotal calibration time: ~0 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T14:12:08Z"
+}
