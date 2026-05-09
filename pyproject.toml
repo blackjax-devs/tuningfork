@@ -54,7 +54,7 @@ bench = [
 homepage = "https://github.com/blackjax-devs/bjx-bench"
 
 [project.license]
-text = "Apache License 2.0"
+text = "Apache-2.0"
 files = ["LICENSE"]
 
 [project.readme]
