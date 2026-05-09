@@ -38,6 +38,7 @@ Tests
 import json
 import math
 from pathlib import Path
+from typing import Any
 
 import jax
 import pytest
@@ -810,3 +811,152 @@ def test_main_help_smoke() -> None:
         assert exc_info.value.code == 0
     finally:
         sys.argv = saved_argv
+
+
+# ---------------------------------------------------------------------------
+# Tests P5.0a: Phase 5 schema fields + IMM sidecar helpers
+# ---------------------------------------------------------------------------
+
+_RECIPE_KWARGS_MINIMAL: dict[str, Any] = dict(
+    model_name="mvn_10",
+    base_method_name="nuts",
+    warmup_name="no_warmup",
+    effort=Effort.LOW,
+    base_method_params={"step_size": 0.1},
+    warmup_params={},
+    headline_metric=None,
+    sample_quality=None,
+    calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
+    difficulty=None,
+    instructions="test instructions",
+)
+
+
+@pytest.mark.fast
+def test_recipe_has_phase5_fields() -> None:
+    """P5.0a: new Phase 5 fields default to the expected values."""
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+
+    # inverse_mass_matrix_path defaults to None
+    assert recipe.inverse_mass_matrix_path is None
+
+    # workflow defaults to empty string
+    assert recipe.workflow == ""
+
+    # gate_evidence defaults to the prescribed nested dict shape
+    ge = recipe.gate_evidence
+    assert isinstance(ge, dict)
+    assert "auto" in ge
+    assert "override" in ge
+
+    auto = ge["auto"]
+    assert auto["rhat_max"] is None
+    assert auto["min_bulk_ess"] is None
+    assert auto["n_divergences"] is None
+    assert auto["max_abs_mean_z"] is None
+    assert auto["verdict"] == "NOT_RUN"
+    assert auto["margins"] == {}
+
+    override = ge["override"]
+    assert override["reason"] == ""
+    assert override["statistician_id"] == ""
+    assert override["decision"] == ""
+
+    # Verify default_factory produces independent dicts (no shared mutable state)
+    recipe2 = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    assert recipe.gate_evidence is not recipe2.gate_evidence
+
+
+@pytest.mark.fast
+def test_recipe_phase5_fields_save_load_roundtrip(tmp_path: Path) -> None:
+    """P5.0a: non-default Phase 5 field values round-trip through save/load."""
+    custom_gate_evidence = {
+        "auto": {
+            "rhat_max": 1.005,
+            "min_bulk_ess": 412.3,
+            "n_divergences": 0,
+            "max_abs_mean_z": 0.12,
+            "verdict": "PASS",
+            "margins": {"rhat_max": 0.005, "min_bulk_ess": 12.3},
+        },
+        "override": {
+            "reason": "Looks fine",
+            "statistician_id": "stat-007",
+            "decision": "APPROVE",
+        },
+    }
+    recipe = Recipe(
+        **_RECIPE_KWARGS_MINIMAL,
+        gate_evidence=custom_gate_evidence,
+        workflow="ran NUTS, observed leapfrog mean=22",
+        inverse_mass_matrix_path="test/path.imm.npz",
+    )
+
+    saved_path = recipe.save(tmp_path)
+    loaded = Recipe.load(saved_path)
+
+    assert loaded.inverse_mass_matrix_path == "test/path.imm.npz"
+    assert loaded.workflow == "ran NUTS, observed leapfrog mean=22"
+    assert loaded.gate_evidence == custom_gate_evidence
+    assert loaded.gate_evidence["auto"]["verdict"] == "PASS"
+    assert loaded.gate_evidence["override"]["decision"] == "APPROVE"
+
+
+@pytest.mark.fast
+def test_save_imm_sidecar_and_load_roundtrip(tmp_path: Path) -> None:
+    """P5.0a: save_imm_sidecar writes .npz; load_imm_sidecar recovers the array."""
+    import jax.numpy as jnp
+
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    original_imm = jnp.eye(10)
+
+    rel_path = recipe.save_imm_sidecar(tmp_path, original_imm)
+
+    # The file must exist at the expected location
+    expected_file = tmp_path / "mvn_10" / "low__nuts__no_warmup.imm.npz"
+    assert expected_file.exists(), f"Expected sidecar at {expected_file}"
+
+    # rel_path is relative to tmp_path
+    assert rel_path == str(Path("mvn_10") / "low__nuts__no_warmup.imm.npz")
+
+    # Load via load_imm_sidecar (with inverse_mass_matrix_path set)
+    recipe_with_path = Recipe(
+        **_RECIPE_KWARGS_MINIMAL, inverse_mass_matrix_path=rel_path
+    )
+    loaded_imm = recipe_with_path.load_imm_sidecar(tmp_path)
+
+    assert loaded_imm is not None
+    assert jnp.allclose(loaded_imm, original_imm)
+
+
+@pytest.mark.fast
+def test_load_imm_sidecar_returns_none_when_path_unset(tmp_path: Path) -> None:
+    """P5.0a: load_imm_sidecar returns None when inverse_mass_matrix_path is None."""
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    assert recipe.inverse_mass_matrix_path is None
+
+    result = recipe.load_imm_sidecar(tmp_path)
+    assert result is None
+
+
+_BACKWARD_COMPAT_RECIPES = [
+    "mvn_10/low__nuts__no_warmup.json",
+    "mvn_10/medium__nuts__stan_window.json",
+]
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("rel_path", _BACKWARD_COMPAT_RECIPES)
+def test_existing_starter_recipes_still_load(rel_path: str) -> None:
+    """P5.0a: existing committed recipes load without error and have Phase 5 defaults."""
+    path = _STARTER_ROOT / rel_path
+    assert path.exists(), f"Missing recipe: {path}"
+
+    recipe = Recipe.load(path)
+
+    # New fields must default correctly on old recipes that lack these keys
+    assert recipe.inverse_mass_matrix_path is None
+    assert recipe.workflow == ""
+    assert isinstance(recipe.gate_evidence, dict)
+    assert recipe.gate_evidence["auto"]["verdict"] == "NOT_RUN"
+    assert recipe.gate_evidence["override"]["decision"] == ""
