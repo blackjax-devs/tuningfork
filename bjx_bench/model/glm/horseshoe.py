@@ -11,67 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""204-D Finnish horseshoe sparse linear regression — Phase 4 Block-B model #9 (P4.6).
-
-Model class: Finnish (regularised) horseshoe sparse linear regression.
-Reference: Piironen & Vehtari (2017) "Sparsity information and regularization in
-the horseshoe and other shrinkage priors", Electronic Journal of Statistics.
-
-Statistician verdict (TL-orchestrated, 2026-05-08):
-    Approve-with-modifications. Adopt Finnish (regularized) horseshoe per
-    Piironen & Vehtari 2017. NCP on beta is mandatory; slab c² reduces (not
-    complicates) the tau-funnel pathology empirically. This implementation
-    matches `blackjax/tests/test_benchmarks.py::make_horseshoe_logdensity`
-    (SHA 2eb62abb), which is a vetted upstream reference.
-
-c2_tilde prior convention:
-    c2 = slab_scale² * c2_tilde where c2_tilde ~ InvGamma(slab_df/2, slab_df/2).
-    With slab_df=25 → InvGamma(12.5, 12.5). The slab variance caps the effective
-    shrinkage factor lam_tilde, preventing total shrinkage of high-signal predictors.
-
-Parameterization (NCP — non-centered on beta):
-    alpha ~ Normal(0, 2)
-    sigma ~ HalfNormal(2)
-    tau_tilde ~ HalfCauchy(1)
-    c2_tilde ~ InvGamma(slab_df/2, slab_df/2)
-    lambda_ ~ HalfCauchy(1)^M
-    beta_tilde ~ Normal(0, 1)^M
-
-    tau0 = m0 / (M - m0) / sqrt(N), with m0=10
-    tau = tau0 * sigma * tau_tilde
-    c2 = slab_scale^2 * c2_tilde, with slab_scale=3.0
-    lam_tilde = sqrt(c2 * lambda^2 / (c2 + tau^2 * lambda^2))
-    beta = tau * lam_tilde * beta_tilde   (NCP)
-
-Unconstrained dimensionality:
-    alpha (1) + sigma (1) + tau_tilde (1) + c2_tilde (1) + lambda_ (100) + beta_tilde (100) = 204.
-
-Synthetic data (seed=42, matches upstream BlackJAX reference):
-    N=200 observations, M=100 features.
-    Sparsity: 5% Bernoulli (~5 active features).
-    Nonzero coefficients ~ N(10, 1) — large signal pierces regularised shrinkage.
-    sigma_obs = 1.0.
-
-Tier-A budget:
-    In-spawn verification: n_warmup=2000, n_samples=2000.
-    Production cache: n_warmup=2000, n_samples=20000.
-
-Discrimination claim:
-    Extends the GLM discrimination ladder:
-    logistic_synthetic (3-D baseline) → german_credit (26-D, real data) →
-    horseshoe (204-D, sparse). Tests sampler performance on the funnel-like
-    tau geometry and high-dimensional NCP structure.
-
-References:
-    Piironen, J. & Vehtari, A. (2017). Sparsity information and regularization
-    in the horseshoe and other shrinkage priors.
-    Electronic Journal of Statistics, 11(2), 5018-5051.
-
-    BlackJAX upstream reference: blackjax/tests/test_benchmarks.py @ 2eb62abb
-    (function make_horseshoe_logdensity).
-
-    PLAN_bjx_bench_phase4.md § "Block B", row P4.6 (horseshoe).
-"""
+"""Finnish horseshoe sparse linear regression — 204-D NCP (N=200, M=100, 5% sparsity)."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -184,6 +124,50 @@ def horseshoe_regression(
     numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
 
 
+# Statistician verdict (TL-orchestrated, 2026-05-08):
+#     Approve-with-modifications. Adopt Finnish (regularized) horseshoe per
+#     Piironen & Vehtari 2017. NCP on beta is mandatory; slab c² reduces (not
+#     complicates) the tau-funnel pathology empirically. This implementation
+#     matches `blackjax/tests/test_benchmarks.py::make_horseshoe_logdensity`
+#     (SHA 2eb62abb), which is a vetted upstream reference.
+#     c2_tilde prior convention:
+#         c2 = slab_scale² * c2_tilde where c2_tilde ~ InvGamma(slab_df/2, slab_df/2).
+#         With slab_df=25 → InvGamma(12.5, 12.5). The slab variance caps the effective
+#         shrinkage factor lam_tilde, preventing total shrinkage of high-signal predictors.
+#     Parameterization (NCP — non-centered on beta):
+#         alpha ~ Normal(0, 2)
+#         sigma ~ HalfNormal(2)
+#         tau_tilde ~ HalfCauchy(1)
+#         c2_tilde ~ InvGamma(slab_df/2, slab_df/2)
+#         lambda_ ~ HalfCauchy(1)^M
+#         beta_tilde ~ Normal(0, 1)^M
+#         tau0 = m0 / (M - m0) / sqrt(N), with m0=10
+#         tau = tau0 * sigma * tau_tilde
+#         c2 = slab_scale^2 * c2_tilde, with slab_scale=3.0
+#         lam_tilde = sqrt(c2 * lambda^2 / (c2 + tau^2 * lambda^2))
+#         beta = tau * lam_tilde * beta_tilde   (NCP)
+#     Unconstrained dimensionality:
+#         alpha (1) + sigma (1) + tau_tilde (1) + c2_tilde (1) + lambda_ (100) + beta_tilde (100) = 204.
+#     Synthetic data (seed=42, matches upstream BlackJAX reference):
+#         N=200 observations, M=100 features.
+#         Sparsity: 5% Bernoulli (~5 active features).
+#         Nonzero coefficients ~ N(10, 1) — large signal pierces regularised shrinkage.
+#         sigma_obs = 1.0.
+#     Tier-A budget:
+#         In-spawn verification: n_warmup=2000, n_samples=2000.
+#         Production cache: n_warmup=2000, n_samples=20000.
+#     Discrimination claim:
+#         Extends the GLM discrimination ladder:
+#         logistic_synthetic (3-D baseline) → german_credit (26-D, real data) →
+#         horseshoe (204-D, sparse). Tests sampler performance on the funnel-like
+#         tau geometry and high-dimensional NCP structure.
+# References:
+#     Piironen, J. & Vehtari, A. (2017). Sparsity information and regularization
+#     in the horseshoe and other shrinkage priors.
+#     Electronic Journal of Statistics, 11(2), 5018-5051.
+#     BlackJAX upstream reference: blackjax/tests/test_benchmarks.py @ 2eb62abb
+#     (function make_horseshoe_logdensity).
+#     PLAN_bjx_bench_phase4.md § "Block B", row P4.6 (horseshoe).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

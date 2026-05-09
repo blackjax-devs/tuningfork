@@ -11,54 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""7-D Lotka-Volterra ODE inverse via ProbDiffEq — Phase 4 Block-D model #10 (P4.10).
-
-Model class: ODE inverse problem, 7-D unconstrained posterior.
-
-Statistician verdict (TL-orchestrated, 2026-05-08):
-    Approve-with-modifications. 7-D ODE inverse via ProbDiffEq probabilistic
-    solver (not plan's "4-D"). Likelihood form B (incorporates solver
-    uncertainty). posteriordb_id=None. Stable limit cycle with ~3 oscillations.
-
-Dimensionality correction (plan said 4-D, actual is 7-D):
-    4 ODE params (alpha, beta, gamma, delta)
-    + 2 initial conditions (u0, v0)
-    + 1 observation noise (sigma_obs)
-    = 7 unconstrained parameters
-
-ProbDiffEq integration (verified against 0.8.2):
-    Uses ``ivpsolvers.prior_wiener_integrated`` + ``strategy_filter`` +
-    ``correction_ts0`` + ``solver_mle`` + ``ivpsolve.solve_fixed_grid``.
-    ``solution.u`` is a list [pos, vel, acc] — index 0 gives the mean trajectory
-    of shape (T, 2). ``solution.u_std`` has the same structure; u_std[0] gives
-    the isotropic solver standard deviation at each time point.
-
-Likelihood form B (solver uncertainty included):
-    obs[t] ~ Normal(u_mean[t], sqrt(u_std[t]^2 + sigma_obs^2))
-    where u_mean / u_std come from the probabilistic ODE solver.
-    Form A (ignoring solver uncertainty) defeats the purpose of ProbDiffEq.
-    Form C (full multivariate) is overkill at 7-D.
-
-Synthetic data design (KSC-style):
-    alpha=0.5, beta=0.05, gamma=0.5, delta=0.05, u0=10.0, v0=5.0,
-    sigma_obs=0.5, T_obs=40 points on linspace(0, 20), seed=1234.
-    Stable limit cycle producing ~3 oscillations over 20 time units.
-    Committed as bjx_bench/data/lotka_volterra.npz.
-
-posteriordb_id = None:
-    Stan's lotka_volterra uses a different solver/likelihood structure.
-    No upstream cross-check available.
-
-Tier-A budget:
-    In-spawn verification: n_warmup=500, n_samples=500, 4 chains.
-    (Lighter than radon/stoch_vol — 7-D but each likelihood call = ODE solve.)
-    Production cache: n_warmup=1000, n_samples=10000.
-
-References:
-    Lotka, A. J. (1925). Elements of Physical Biology. Williams & Wilkins.
-    Volterra, V. (1926). Fluctuations in the abundance of a species.
-    PLAN_bjx_bench_phase4.md § "Block D", row P4.10 (lotka_volterra).
-"""
+"""Lotka-Volterra ODE inverse problem — 7-D posterior via ProbDiffEq probabilistic solver."""
 
 import functools as ft
 from pathlib import Path
@@ -284,6 +237,42 @@ def lotka_volterra_inverse(
     )
 
 
+# Statistician verdict (TL-orchestrated, 2026-05-08):
+#     Approve-with-modifications. 7-D ODE inverse via ProbDiffEq probabilistic
+#     solver (not plan's "4-D"). Likelihood form B (incorporates solver
+#     uncertainty). posteriordb_id=None. Stable limit cycle with ~3 oscillations.
+#     Dimensionality correction (plan said 4-D, actual is 7-D):
+#         4 ODE params (alpha, beta, gamma, delta)
+#         + 2 initial conditions (u0, v0)
+#         + 1 observation noise (sigma_obs)
+#         = 7 unconstrained parameters
+#     ProbDiffEq integration (verified against 0.8.2):
+#         Uses ``ivpsolvers.prior_wiener_integrated`` + ``strategy_filter`` +
+#         ``correction_ts0`` + ``solver_mle`` + ``ivpsolve.solve_fixed_grid``.
+#         ``solution.u`` is a list [pos, vel, acc] — index 0 gives the mean trajectory
+#         of shape (T, 2). ``solution.u_std`` has the same structure; u_std[0] gives
+#         the isotropic solver standard deviation at each time point.
+#     Likelihood form B (solver uncertainty included):
+#         obs[t] ~ Normal(u_mean[t], sqrt(u_std[t]^2 + sigma_obs^2))
+#         where u_mean / u_std come from the probabilistic ODE solver.
+#         Form A (ignoring solver uncertainty) defeats the purpose of ProbDiffEq.
+#         Form C (full multivariate) is overkill at 7-D.
+#     Synthetic data design (KSC-style):
+#         alpha=0.5, beta=0.05, gamma=0.5, delta=0.05, u0=10.0, v0=5.0,
+#         sigma_obs=0.5, T_obs=40 points on linspace(0, 20), seed=1234.
+#         Stable limit cycle producing ~3 oscillations over 20 time units.
+#         Committed as bjx_bench/data/lotka_volterra.npz.
+#     posteriordb_id = None:
+#         Stan's lotka_volterra uses a different solver/likelihood structure.
+#         No upstream cross-check available.
+#     Tier-A budget:
+#         In-spawn verification: n_warmup=500, n_samples=500, 4 chains.
+#         (Lighter than radon/stoch_vol — 7-D but each likelihood call = ODE solve.)
+#         Production cache: n_warmup=1000, n_samples=10000.
+# References:
+#     Lotka, A. J. (1925). Elements of Physical Biology. Williams & Wilkins.
+#     Volterra, V. (1926). Fluctuations in the abundance of a species.
+#     PLAN_bjx_bench_phase4.md § "Block D", row P4.10 (lotka_volterra).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------
