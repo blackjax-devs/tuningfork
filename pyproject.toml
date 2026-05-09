@@ -79,5 +79,5 @@ profile = "black"
 
 [tool.pytest.ini_options]
 filterwarnings = ["error"]
-addopts = "-n auto"
+addopts = "-n 2"
 markers = ["fast: pure-logic tests that do not run a chain (use -m fast for inner-loop iteration)"]
