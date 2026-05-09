@@ -736,3 +736,75 @@ def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -
     # Instructions non-empty prose
     assert isinstance(recipe.instructions, str)
     assert len(recipe.instructions) > 10
+
+
+# ---------------------------------------------------------------------------
+# Test 17 (P5.0): _generate_starter CLI flag filtering
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_emit_low_recipes_sampler_filter(tmp_path: Path, monkeypatch) -> None:
+    """emit_low_recipes(sampler='nuts') emits NUTS recipes only.
+
+    P5.0 (Q5.A) added per-cell flag filtering to ``_generate_starter.py``;
+    this test locks the ``sampler`` filter behavior at the function-level
+    so future refactors can't silently regress it.
+
+    Uses monkeypatch to redirect _STARTER_ROOT into tmp_path so we don't
+    clobber committed recipes. Only tests LOW because it's deterministic
+    and zero-cost (no MCMC).
+    """
+    from bjx_bench.inference.recipes import _generate_starter
+
+    monkeypatch.setattr(_generate_starter, "_STARTER_ROOT", tmp_path)
+    paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"], sampler="nuts")
+    assert len(paths) == 1, f"Expected 1 recipe, got {len(paths)}: {paths}"
+    assert paths[0].name == "low__nuts__no_warmup.json"
+
+
+@pytest.mark.fast
+def test_emit_low_recipes_no_filter_emits_all_methods(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """emit_low_recipes() with no sampler filter emits all 6 algos for the model."""
+    from bjx_bench.inference.recipes import _generate_starter
+
+    monkeypatch.setattr(_generate_starter, "_STARTER_ROOT", tmp_path)
+    paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"])
+    # 6 algorithms: hmc, nuts, mala, barker, rwm, mclmc
+    assert len(paths) == 6
+    method_names = sorted(p.name.split("__")[1] for p in paths)
+    assert method_names == sorted(["hmc", "nuts", "mala", "barker", "rwm", "mclmc"])
+
+
+@pytest.mark.fast
+def test_main_rejects_low_with_stan_window(monkeypatch) -> None:
+    """`--effort low --warmup stan_window` raises SystemExit (incoherent combo)."""
+    import sys
+
+    from bjx_bench.inference.recipes import _generate_starter
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["_generate_starter", "--effort", "low", "--warmup", "stan_window"],
+    )
+    with pytest.raises(SystemExit, match="incompatible"):
+        _generate_starter.main()
+
+
+@pytest.mark.fast
+def test_main_rejects_high_with_no_warmup(monkeypatch) -> None:
+    """`--effort high --warmup no_warmup` raises SystemExit (incoherent combo)."""
+    import sys
+
+    from bjx_bench.inference.recipes import _generate_starter
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["_generate_starter", "--effort", "high", "--warmup", "no_warmup"],
+    )
+    with pytest.raises(SystemExit, match="incompatible"):
+        _generate_starter.main()

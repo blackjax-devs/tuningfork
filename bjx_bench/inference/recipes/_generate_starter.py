@@ -16,6 +16,9 @@
 Subtask P3.3 (Phase 3): generate 12 LOW + 6 MEDIUM starter recipes.
 Subtask P3.4 (Phase 3): generate 6 HIGH starter recipes via Tier-B BO.
 Subtask P4.1 (Phase 4): added ill_cond_50 to STARTER_MODEL_NAMES.
+Subtask P5.0 (Phase 5): per-cell flag-filtering — ``--warmup``, ``--sampler``,
+``--effort`` flags added alongside the existing ``--only <model>`` (Q5.A
+decision: extend flags rather than introduce a YAML cell-spec file).
 
 **LOW recipes** (zero-cost; uses no_warmup):
   - N starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
@@ -35,14 +38,53 @@ Subtask P4.1 (Phase 4): added ill_cond_50 to STARTER_MODEL_NAMES.
 
 Usage
 -----
-    cd bjx-bench
-    uv run python -m bjx_bench.inference.recipes._generate_starter
+
+The recipe space is 3-D: ``model × (warmup, sampler) × effort``. The four
+filter flags compose intersectionally — each defaults to "all" and narrows
+the matrix when set.
+
+Common patterns:
+
+  # 1. Generate everything (full sweep — slow; ~3-5 min LOW+MED + ~18-30 min HIGH per model)
+  cd bjx-bench
+  uv run python -m bjx_bench.inference.recipes._generate_starter
+
+  # 2. Regenerate one model's full set after editing it (Phase 4 pattern)
+  uv run python -m bjx_bench.inference.recipes._generate_starter --only radon
+
+  # 3. Regenerate one cell only (Phase 5+ pattern; cheapest after a tweak)
+  uv run python -m bjx_bench.inference.recipes._generate_starter \\
+      --only radon --warmup stan_window --sampler nuts --effort medium
+
+  # 4. Refresh all LOW recipes after a default_params_for change
+  uv run python -m bjx_bench.inference.recipes._generate_starter --effort low
+
+  # 5. Refresh NUTS HIGH across every model (after a Tier-B BO bug fix)
+  uv run python -m bjx_bench.inference.recipes._generate_starter \\
+      --sampler nuts --effort high
+
+  # 6. Regenerate everything that uses a particular warmup
+  uv run python -m bjx_bench.inference.recipes._generate_starter --warmup stan_window
+
+Flag semantics:
+  - ``--only <m>``       restrict to one model (must be in STARTER_MODEL_NAMES)
+  - ``--warmup <w>``     restrict to one warmup; valid: "no_warmup" (LOW only),
+                         "stan_window" (MED + HIGH currently)
+  - ``--sampler <s>``    restrict to one base method; valid:
+                         "hmc", "nuts", "mala", "barker", "rwm", "mclmc"
+  - ``--effort <e>``     restrict to one effort tier; valid: "low", "medium", "high"
+
+Validity rules (enforced at top of ``main``):
+  - ``--effort low`` is incompatible with ``--warmup stan_window`` (LOW always
+    uses ``no_warmup``).
+  - ``--effort {medium, high}`` is incompatible with ``--warmup no_warmup``
+    (those tiers always run a real warmup).
+  - Sampler / warmup compatibility (e.g., ``mclmc`` is not compatible with
+    ``stan_window``) is checked per-cell at emit time and reported as ``SKIP``.
 
 The script is idempotent: re-running overwrites existing files with fresh
-provenance timestamps.
-
-Compute: ~3–5 min total for LOW+MEDIUM per model; ~18–30 min for HIGH per model
-(n_trials=20).
+provenance timestamps. Compute: ~3-5 min total for LOW+MEDIUM per model;
+~18-30 min for HIGH per model (n_trials=20).
 """
 
 import time
@@ -95,7 +137,11 @@ MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
 _STARTER_ROOT = Path(__file__).parent / "starter"
 
 
-def emit_low_recipes(seed: int = 0, model_names: list[str] | None = None) -> list[Path]:
+def emit_low_recipes(
+    seed: int = 0,
+    model_names: list[str] | None = None,
+    sampler: str | None = None,
+) -> list[Path]:
     """Emit LOW recipes for every (model, base_method) combination.
 
     Idempotent — overwrites existing low__*.json files in place.
@@ -105,6 +151,12 @@ def emit_low_recipes(seed: int = 0, model_names: list[str] | None = None) -> lis
     ----------
     seed
         Random seed for potential future use (currently unused; LOW is deterministic).
+    model_names
+        If set, restrict to this list of model names.  ``None`` = all
+        ``STARTER_MODEL_NAMES``.
+    sampler
+        If set, restrict to this single base-method name (e.g., ``"nuts"``).
+        ``None`` = iterate all of ``ALL_METHOD_NAMES``.
 
     Returns
     -------
@@ -112,10 +164,13 @@ def emit_low_recipes(seed: int = 0, model_names: list[str] | None = None) -> lis
     """
     _ = seed  # currently unused; kept for symmetry with emit_medium_recipes
     generated: list[Path] = []
+    repo_root = Path(__file__).parent.parent.parent.parent
 
     for model_name in model_names or STARTER_MODEL_NAMES:
         posterior = MODELS[model_name]
         for method_name in ALL_METHOD_NAMES:
+            if sampler is not None and method_name != sampler:
+                continue
             base_method = BASE_METHODS[method_name]
             recipe = Recipe.from_default_config(
                 posterior,
@@ -124,9 +179,13 @@ def emit_low_recipes(seed: int = 0, model_names: list[str] | None = None) -> lis
             )
             path = recipe.save(_STARTER_ROOT)
             generated.append(path)
-            print(
-                f"  LOW   {path.relative_to(Path(__file__).parent.parent.parent.parent)}"
-            )
+            try:
+                pretty = path.relative_to(repo_root)
+            except ValueError:
+                # _STARTER_ROOT was redirected outside the repo (e.g. tests using tmp_path);
+                # fall back to absolute path so logging never crashes.
+                pretty = path
+            print(f"  LOW   {pretty}")
 
     return generated
 
@@ -135,6 +194,7 @@ def emit_medium_recipes(
     seed: int = 0,
     n_warmup: int = 1000,
     model_names: list[str] | None = None,
+    sampler: str | None = None,
 ) -> list[Path]:
     """Emit MEDIUM recipes for stan_window-compatible algorithms.
 
@@ -150,6 +210,12 @@ def emit_medium_recipes(
         Base random seed; fold_in derives per-recipe keys deterministically.
     n_warmup
         Number of warmup adaptation steps (default 1000).
+    model_names
+        If set, restrict to this list of model names.  ``None`` = all
+        ``STARTER_MODEL_NAMES``.
+    sampler
+        If set, restrict to this single base-method name (e.g., ``"nuts"``).
+        ``None`` = iterate all of ``MEDIUM_METHOD_NAMES``.
 
     Returns
     -------
@@ -157,10 +223,13 @@ def emit_medium_recipes(
     """
     stan_window = WARMUPS["stan_window"]
     generated: list[Path] = []
+    repo_root = Path(__file__).parent.parent.parent.parent
 
     for model_name in model_names or STARTER_MODEL_NAMES:
         posterior = MODELS[model_name]
         for method_name in MEDIUM_METHOD_NAMES:
+            if sampler is not None and method_name != sampler:
+                continue
             base_method = BASE_METHODS[method_name]
 
             # Check compatibility
@@ -185,9 +254,11 @@ def emit_medium_recipes(
             )
             path = recipe.save(_STARTER_ROOT)
             generated.append(path)
-            print(
-                f"  MEDIUM {path.relative_to(Path(__file__).parent.parent.parent.parent)}"
-            )
+            try:
+                pretty = path.relative_to(repo_root)
+            except ValueError:
+                pretty = path
+            print(f"  MEDIUM {pretty}")
 
     return generated
 
@@ -196,6 +267,7 @@ def emit_high_recipes(
     seed: int = 0,
     n_trials: int = 20,
     model_names: list[str] | None = None,
+    sampler: str | None = None,
 ) -> list[Path]:
     """Emit HIGH recipes via Tier-B BO for stan_window-compatible algorithms.
 
@@ -215,6 +287,12 @@ def emit_high_recipes(
     n_trials
         Total Optuna trials per study (including the injected default trial
         0).  Default is 20 for starter recipes; production uses 50.
+    model_names
+        If set, restrict to this list of model names.  ``None`` = all
+        ``STARTER_MODEL_NAMES``.
+    sampler
+        If set, restrict to this single base-method name (e.g., ``"nuts"``).
+        ``None`` = iterate all of ``MEDIUM_METHOD_NAMES``.
 
     Returns
     -------
@@ -228,6 +306,8 @@ def emit_high_recipes(
     for model_name in model_names or STARTER_MODEL_NAMES:
         posterior = MODELS[model_name]
         for method_name in MEDIUM_METHOD_NAMES:
+            if sampler is not None and method_name != sampler:
+                continue
             base_method = BASE_METHODS[method_name]
 
             if not stan_window.is_compatible(method_name):
@@ -274,55 +354,136 @@ def emit_high_recipes(
 
 
 def main() -> None:
-    """Generate and save all LOW + MEDIUM + HIGH starter recipes.
+    """Generate and save LOW + MEDIUM + HIGH starter recipes (filtered by flags).
+
+    See the module docstring for the full Usage section. Briefly: each filter
+    flag (``--only``, ``--warmup``, ``--sampler``, ``--effort``) defaults to
+    "all" and narrows the recipe matrix when set.
 
     Phase 3 (P3.3 + P3.4): 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes
     for the 3 original models.
     Phase 4 (P4.1+): adds ill_cond_50 and subsequent models as they land.
-    Expected compute: ~3–5 min for LOW+MEDIUM per model; ~18–30 min for HIGH
-    per model (n_trials=20).
-
-    Use ``--only <model_name>`` to regenerate recipes for a single model
-    (eliminates the per-spawn cost of re-running deterministic Tier-B BO for
-    already-committed models; saves ~12-15 min when adding a new model).
+    Phase 5 (P5.0): the four flags now compose intersectionally — see module
+    docstring Usage section for the 6 canonical patterns.
     """
     import argparse
 
+    valid_warmups = {"no_warmup", "stan_window"}
+    valid_samplers = set(ALL_METHOD_NAMES)
+    valid_efforts = {"low", "medium", "high"}
+
     parser = argparse.ArgumentParser(
-        description="Generate canonical starter recipes (LOW/MEDIUM/HIGH)."
+        description=(
+            "Generate canonical starter recipes (LOW/MEDIUM/HIGH).  "
+            "All four filters compose; each defaults to 'all'."
+        )
     )
     parser.add_argument(
         "--only",
         default=None,
         help=(
-            "If set, only emit recipes for this model name. Must be in "
-            "STARTER_MODEL_NAMES. Default: emit for all starter models."
+            "Restrict to one model.  Must be in STARTER_MODEL_NAMES.  "
+            "Default: all starter models."
         ),
+    )
+    parser.add_argument(
+        "--warmup",
+        default=None,
+        choices=sorted(valid_warmups),
+        help=(
+            "Restrict to one warmup.  'no_warmup' is LOW-only; 'stan_window' "
+            "is MED+HIGH only.  Default: all."
+        ),
+    )
+    parser.add_argument(
+        "--sampler",
+        default=None,
+        choices=sorted(valid_samplers),
+        help=(
+            "Restrict to one base method.  Note that 'mala', 'barker', "
+            "'rwm', 'mclmc' are LOW-only currently.  Default: all."
+        ),
+    )
+    parser.add_argument(
+        "--effort",
+        default=None,
+        choices=sorted(valid_efforts),
+        help="Restrict to one effort tier.  Default: all.",
     )
     args = parser.parse_args()
 
-    if args.only is not None:
-        if args.only not in STARTER_MODEL_NAMES:
-            raise SystemExit(
-                f"--only {args.only!r} not in STARTER_MODEL_NAMES "
-                f"= {STARTER_MODEL_NAMES}"
-            )
-        names: list[str] | None = [args.only]
-        print(f"Generating recipes for ONLY: {args.only}")
-    else:
-        names = None
+    # ── Validation ──────────────────────────────────────────────────────────
+    if args.only is not None and args.only not in STARTER_MODEL_NAMES:
+        raise SystemExit(
+            f"--only {args.only!r} not in STARTER_MODEL_NAMES "
+            f"= {STARTER_MODEL_NAMES}"
+        )
 
-    print("Generating LOW-effort recipes (6 algorithms, 3 models)...")
-    low = emit_low_recipes(model_names=names)
+    # Cross-flag coherence: warmup vs effort
+    if args.effort == "low" and args.warmup == "stan_window":
+        raise SystemExit(
+            "--effort low is incompatible with --warmup stan_window "
+            "(LOW recipes always use no_warmup)."
+        )
+    if args.effort in {"medium", "high"} and args.warmup == "no_warmup":
+        raise SystemExit(
+            f"--effort {args.effort} is incompatible with --warmup no_warmup "
+            f"({args.effort.upper()} recipes always run a real warmup)."
+        )
 
-    print("\nGenerating MEDIUM-effort recipes (stan_window warmup; nuts, hmc only)...")
-    medium = emit_medium_recipes(model_names=names)
+    names: list[str] | None = [args.only] if args.only is not None else None
 
-    print(
-        "\nGenerating HIGH-effort recipes "
-        "(Tier-B BO, n_trials=20; nuts, hmc only)..."
+    # ── Effort gating ───────────────────────────────────────────────────────
+    # Each effort tier runs iff (a) --effort wasn't set, OR (b) --effort matches.
+    # The warmup filter further gates each tier to its native warmup.
+    do_low = args.effort in (None, "low") and args.warmup in (None, "no_warmup")
+    do_medium = args.effort in (None, "medium") and args.warmup in (
+        None,
+        "stan_window",
     )
-    high = emit_high_recipes(model_names=names)
+    do_high = args.effort in (None, "high") and args.warmup in (None, "stan_window")
+
+    # ── Echo selection ──────────────────────────────────────────────────────
+    selection = []
+    if args.only is not None:
+        selection.append(f"model={args.only}")
+    if args.warmup is not None:
+        selection.append(f"warmup={args.warmup}")
+    if args.sampler is not None:
+        selection.append(f"sampler={args.sampler}")
+    if args.effort is not None:
+        selection.append(f"effort={args.effort}")
+    if selection:
+        print(f"Generating recipes filtered by: {', '.join(selection)}")
+    else:
+        print("Generating ALL starter recipes (no filters set).")
+
+    low: list[Path] = []
+    medium: list[Path] = []
+    high: list[Path] = []
+
+    if do_low:
+        print(
+            "\nGenerating LOW-effort recipes "
+            f"({'all' if args.sampler is None else args.sampler} algorithms)..."
+        )
+        low = emit_low_recipes(model_names=names, sampler=args.sampler)
+
+    if do_medium:
+        print(
+            "\nGenerating MEDIUM-effort recipes "
+            f"(stan_window warmup; "
+            f"{'nuts/hmc' if args.sampler is None else args.sampler})..."
+        )
+        medium = emit_medium_recipes(model_names=names, sampler=args.sampler)
+
+    if do_high:
+        print(
+            "\nGenerating HIGH-effort recipes "
+            f"(Tier-B BO, n_trials=20; "
+            f"{'nuts/hmc' if args.sampler is None else args.sampler})..."
+        )
+        high = emit_high_recipes(model_names=names, sampler=args.sampler)
 
     total = len(low) + len(medium) + len(high)
     print(
