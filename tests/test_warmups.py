@@ -76,10 +76,10 @@ def _build_logdensity(posterior_entry, key):
 class TestWarmupRegistry:
     """WARMUPS registry structure tests (fast; no chain runs)."""
 
-    def test_warmups_has_three_entries(self) -> None:
+    def test_warmups_has_five_entries(self) -> None:
         assert (
-            len(WARMUPS) == 3
-        ), f"Expected 3 entries, got {len(WARMUPS)}: {sorted(WARMUPS)}"
+            len(WARMUPS) == 5
+        ), f"Expected 5 entries, got {len(WARMUPS)}: {sorted(WARMUPS)}"
 
     def test_warmups_has_stan_window(self) -> None:
         assert "stan_window" in WARMUPS
@@ -89,6 +89,14 @@ class TestWarmupRegistry:
 
     def test_warmups_has_no_warmup(self) -> None:
         assert "no_warmup" in WARMUPS
+
+    def test_warmups_has_pathfinder(self) -> None:
+        """P5.4: pathfinder warmup is registered."""
+        assert "pathfinder" in WARMUPS
+
+    def test_warmups_has_multipathfinder(self) -> None:
+        """P5.4: multipathfinder warmup is registered."""
+        assert "multipathfinder" in WARMUPS
 
     def test_all_entries_are_warmup_instances(self) -> None:
         for name, entry in WARMUPS.items():
@@ -142,6 +150,32 @@ class TestIsCompatible:
 
     def test_mclmc_tuning_not_compatible_with_rwm(self) -> None:
         assert not WARMUPS["mclmc_tuning"].is_compatible("rwm")
+
+    # -- pathfinder (P5.4) --
+    def test_pathfinder_compatible_with_nuts(self) -> None:
+        assert WARMUPS["pathfinder"].is_compatible("nuts")
+
+    def test_pathfinder_compatible_with_hmc(self) -> None:
+        assert WARMUPS["pathfinder"].is_compatible("hmc")
+
+    def test_pathfinder_compatible_with_barker(self) -> None:
+        assert WARMUPS["pathfinder"].is_compatible("barker")
+
+    def test_pathfinder_not_compatible_with_mclmc(self) -> None:
+        assert not WARMUPS["pathfinder"].is_compatible("mclmc")
+
+    # -- multipathfinder (P5.4) --
+    def test_multipathfinder_compatible_with_nuts(self) -> None:
+        assert WARMUPS["multipathfinder"].is_compatible("nuts")
+
+    def test_multipathfinder_compatible_with_hmc(self) -> None:
+        assert WARMUPS["multipathfinder"].is_compatible("hmc")
+
+    def test_multipathfinder_compatible_with_barker(self) -> None:
+        assert WARMUPS["multipathfinder"].is_compatible("barker")
+
+    def test_multipathfinder_not_compatible_with_mclmc(self) -> None:
+        assert not WARMUPS["multipathfinder"].is_compatible("mclmc")
 
     # -- no_warmup (sentinel "*") --
     def test_no_warmup_compatible_with_nuts(self) -> None:

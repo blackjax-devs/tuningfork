@@ -111,7 +111,83 @@ def test_hmc_nuts_info_have_num_integration_steps():
     )
 
 
-# ───────────────── 5. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+# ───────────────── 5. pathfinder / multipathfinder callable + return shapes ─────────────────
+def test_blackjax_pathfinder_callable():
+    """P5.4 tripwire: if upstream pathfinder API changes its callable signature, fail fast.
+
+    Pinned at P5.4: bjx_bench/inference/warmup/pathfinder.py calls
+    blackjax.pathfinder.approximate(rng_key, logdensity_fn, position, num_samples)
+    and expects a 2-tuple (PathfinderState, PathfinderInfo) back.
+    """
+    assert callable(blackjax.pathfinder.approximate), (
+        "blackjax.pathfinder.approximate must be callable; "
+        "update bjx_bench/inference/warmup/pathfinder.py if API changed."
+    )
+    assert callable(blackjax.pathfinder.sample), (
+        "blackjax.pathfinder.sample must be callable; "
+        "update bjx_bench/inference/warmup/pathfinder.py if API changed."
+    )
+
+    def logdensity_fn(x):
+        return -0.5 * jnp.sum(x**2)
+
+    key = jax.random.key(0)
+    result = blackjax.pathfinder.approximate(
+        key, logdensity_fn, jnp.zeros(3), num_samples=5
+    )
+    assert len(result) == 2, (
+        f"blackjax.pathfinder.approximate should return a 2-tuple (state, info), "
+        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/pathfinder.py."
+    )
+    pf_state, _pf_info = result
+    for field in ("elbo", "position", "grad_position", "alpha", "beta", "gamma"):
+        assert hasattr(pf_state, field), (
+            f"PathfinderState lost field {field!r}. "
+            f"Update bjx_bench/inference/warmup/pathfinder.py."
+        )
+
+
+def test_blackjax_multipathfinder_callable():
+    """P5.4 tripwire: if upstream multipathfinder API changes, fail fast.
+
+    Pinned at P5.4: bjx_bench/inference/warmup/multipathfinder.py calls
+    blackjax.multipathfinder(logdensity_fn).init(key, positions, num_samples)
+    and expects a 2-tuple (MultipathfinderState, PathfinderInfo) back.
+    psis_weights(state) must return a 2-tuple (log_weights, pareto_k).
+    """
+    assert callable(blackjax.multipathfinder), (
+        "blackjax.multipathfinder must be callable; "
+        "update bjx_bench/inference/warmup/multipathfinder.py if API changed."
+    )
+
+    from blackjax.vi.multipathfinder import psis_weights
+
+    def logdensity_fn(x):
+        return -0.5 * jnp.sum(x**2)
+
+    key = jax.random.key(0)
+    mpf = blackjax.multipathfinder(logdensity_fn)
+    result = mpf.init(key, jnp.zeros((2, 3)), num_samples=5)
+    assert len(result) == 2, (
+        f"multipathfinder.init should return a 2-tuple (state, info), "
+        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/multipathfinder.py."
+    )
+    mpf_state, _info = result
+    for field in ("path_states", "samples", "logp", "logq"):
+        assert hasattr(mpf_state, field), (
+            f"MultipathfinderState lost field {field!r}. "
+            f"Update bjx_bench/inference/warmup/multipathfinder.py."
+        )
+
+    # psis_weights must return 2-tuple (log_weights, pareto_k)
+    pw_result = psis_weights(mpf_state)
+    assert len(pw_result) == 2, (
+        f"psis_weights should return a 2-tuple (log_weights, pareto_k), "
+        f"got {len(pw_result)}-tuple. Update bjx_bench/inference/warmup/multipathfinder.py."
+    )
+
+
+# ───────────────── 6. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
