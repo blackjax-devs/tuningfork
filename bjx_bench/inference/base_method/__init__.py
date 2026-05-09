@@ -26,6 +26,7 @@ Adding a new algorithm
 
 from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
 from bjx_bench.inference.base_method.barker import ENTRY as _barker_entry
+from bjx_bench.inference.base_method.ghmc import ENTRY as _ghmc_entry
 from bjx_bench.inference.base_method.hmc import ENTRY as _hmc_entry
 from bjx_bench.inference.base_method.mala import ENTRY as _mala_entry
 from bjx_bench.inference.base_method.mclmc import ENTRY as _mclmc_entry
@@ -39,6 +40,7 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _barker_entry.name: _barker_entry,
     _rwm_entry.name: _rwm_entry,
     _mclmc_entry.name: _mclmc_entry,
+    _ghmc_entry.name: _ghmc_entry,
 }
 
 __all__ = ["BaseMethod", "HyperparamSpace", "BASE_METHODS"]

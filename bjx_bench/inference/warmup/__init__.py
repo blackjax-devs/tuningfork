@@ -39,6 +39,7 @@ Usage::
 
 from bjx_bench.inference.warmup._base import Warmup
 from bjx_bench.inference.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
+from bjx_bench.inference.warmup.meads import ENTRY as _meads
 from bjx_bench.inference.warmup.multipathfinder import ENTRY as _multipathfinder
 from bjx_bench.inference.warmup.no_warmup import ENTRY as _no_warmup
 from bjx_bench.inference.warmup.pathfinder import ENTRY as _pathfinder
@@ -50,6 +51,7 @@ WARMUPS: dict[str, Warmup] = {
     _no_warmup.name: _no_warmup,
     _pathfinder.name: _pathfinder,
     _multipathfinder.name: _multipathfinder,
+    _meads.name: _meads,
 }
 
 __all__ = ["WARMUPS", "Warmup"]

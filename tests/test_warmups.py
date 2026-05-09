@@ -50,6 +50,7 @@ _HMC = BASE_METHODS["hmc"]
 _MCLMC = BASE_METHODS["mclmc"]
 _RWM = BASE_METHODS["rwm"]
 _MALA = BASE_METHODS["mala"]
+_GHMC = BASE_METHODS["ghmc"]
 
 # Build a shared 10-D MVN logdensity_fn + init_position for smoke tests.
 # We do this once at module level to avoid per-test model compilation.
@@ -76,10 +77,10 @@ def _build_logdensity(posterior_entry, key):
 class TestWarmupRegistry:
     """WARMUPS registry structure tests (fast; no chain runs)."""
 
-    def test_warmups_has_five_entries(self) -> None:
+    def test_warmups_has_six_entries(self) -> None:
         assert (
-            len(WARMUPS) == 5
-        ), f"Expected 5 entries, got {len(WARMUPS)}: {sorted(WARMUPS)}"
+            len(WARMUPS) == 6
+        ), f"Expected 6 entries, got {len(WARMUPS)}: {sorted(WARMUPS)}"
 
     def test_warmups_has_stan_window(self) -> None:
         assert "stan_window" in WARMUPS
@@ -97,6 +98,10 @@ class TestWarmupRegistry:
     def test_warmups_has_multipathfinder(self) -> None:
         """P5.4: multipathfinder warmup is registered."""
         assert "multipathfinder" in WARMUPS
+
+    def test_warmups_has_meads(self) -> None:
+        """P5.5: meads warmup is registered."""
+        assert "meads" in WARMUPS
 
     def test_all_entries_are_warmup_instances(self) -> None:
         for name, entry in WARMUPS.items():
@@ -1119,3 +1124,149 @@ class TestMultiPathfinderMultiChain:
                 logdensity_fn=logdensity_fn,
                 num_chains=2,
             )
+
+
+# ---------------------------------------------------------------------------
+# 14. P5.5: MEADS multi-chain warmup (GHMC-specific)
+# ---------------------------------------------------------------------------
+
+
+class TestMeadsMultiChain:
+    """P5.5: meads warmup multi-chain shape contract tests.
+
+    MEADS is fundamentally multi-chain: a single call handles all num_chains
+    chains jointly via cross-validation across num_folds folds.  Unlike
+    stan_window (which vmaps per-chain), MEADS is NOT vmapped — one call, all
+    chains.
+
+    Adapted parameters are shared (single MEADS estimate) and broadcast to
+    (num_chains,) shape to satisfy the multi-chain contract.
+    """
+
+    def _run(self, seed: int, num_chains: int, **kw):
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        key = jax.random.key(seed)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        return ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _GHMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+            **kw,
+        )
+
+    def test_default_num_chains_equals_4_meets_num_folds_4(self) -> None:
+        """num_chains=4 == num_folds=4 (default): should not raise; shapes correct."""
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        key = jax.random.key(6001)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        states, params = ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            200,
+            _GHMC,
+            logdensity_fn=logdensity_fn,
+        )
+        leading = _state_leading_dim(states)
+        assert (
+            leading == 4
+        ), f"Default num_chains=4: expected leading dim 4, got {leading}"
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
+
+    def test_num_chains_below_num_folds_raises(self) -> None:
+        """num_chains=2 < num_folds=4 must raise ValueError."""
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        key = jax.random.key(6002)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        with pytest.raises(ValueError, match="num_chains"):
+            ENTRY.runner(
+                jax.random.fold_in(key, 1),
+                init_pos,
+                200,
+                _GHMC,
+                logdensity_fn=logdensity_fn,
+                num_chains=2,
+                num_folds=4,
+            )
+
+    def test_explicit_num_chains_8_num_folds_4(self) -> None:
+        """num_chains=8, num_folds=4 (chains > folds): shapes correct."""
+        states, params = self._run(6003, num_chains=8, num_folds=4)
+        leading = _state_leading_dim(states)
+        assert leading == 8, f"Expected leading dim 8, got {leading}"
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (8,), f"step_size expected (8,), got {ss.shape}"
+        imm = jnp.asarray(params["momentum_inverse_scale"])
+        assert imm.shape == (
+            8,
+            _D,
+        ), f"momentum_inverse_scale expected (8, {_D}), got {imm.shape}"
+
+    def test_pre_batched_init_position_passes_through(self) -> None:
+        """Pre-batched init_position (leading dim == num_chains) passes through verbatim."""
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        num_chains = 4
+        key = jax.random.key(6004)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        batched_pos = jax.tree.map(
+            lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape), init_pos
+        )
+        states, params = ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            batched_pos,
+            200,
+            _GHMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+        )
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, _D), f"Pre-batched: expected (4, {_D}), got {pos_shape}"
+
+    def test_step_size_alpha_delta_imm_keys_present(self) -> None:
+        """adapted_params must contain step_size, momentum_inverse_scale, alpha, delta."""
+        _, params = self._run(6005, num_chains=4)
+        for key_name in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
+            assert (
+                key_name in params
+            ), f"Missing {key_name!r} in MEADS adapted_params; got: {list(params)}"
+
+    def test_meads_num_folds_sidecar_present(self) -> None:
+        """_meads_num_folds sidecar key must be present."""
+        _, params = self._run(6006, num_chains=4)
+        assert (
+            "_meads_num_folds" in params
+        ), f"Missing _meads_num_folds sidecar; got: {list(params)}"
+        assert params["_meads_num_folds"] == 4
+
+    def test_compatibility_check_raises_for_nuts(self) -> None:
+        """MEADS is GHMC-only; is_compatible('nuts') must return False."""
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        assert not ENTRY.is_compatible(
+            "nuts"
+        ), "meads should not be compatible with nuts"
+
+    def test_meads_is_compatible_with_ghmc(self) -> None:
+        """is_compatible('ghmc') returns True."""
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        assert ENTRY.is_compatible("ghmc"), "meads must be compatible with ghmc"
+
+    def test_meads_not_compatible_with_hmc(self) -> None:
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        assert not ENTRY.is_compatible("hmc"), "meads should not be compatible with hmc"
+
+    def test_meads_not_compatible_with_mclmc(self) -> None:
+        from bjx_bench.inference.warmup.meads import ENTRY
+
+        assert not ENTRY.is_compatible(
+            "mclmc"
+        ), "meads should not be compatible with mclmc"
