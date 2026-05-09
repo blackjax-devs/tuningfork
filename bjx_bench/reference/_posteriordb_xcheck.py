@@ -97,7 +97,10 @@ class XCheckResult:
         d = asdict(self)
         # tuple → list for JSON serialisation
         d["failed_dims"] = list(d["failed_dims"])
-        path.write_text(json.dumps(d, indent=2))
+        # Trailing newline keeps the file POSIX-clean and idempotent under
+        # the `fix end of files` pre-commit hook (otherwise every test run
+        # leaves a 1-byte cosmetic diff that has to be stashed before merge).
+        path.write_text(json.dumps(d, indent=2) + "\n")
 
 
 # ---------------------------------------------------------------------------

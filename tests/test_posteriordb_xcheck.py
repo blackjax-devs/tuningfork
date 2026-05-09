@@ -154,6 +154,24 @@ class TestXCheckResultSchema:
         assert isinstance(data["failed_dims"], list)  # tuple → list for JSON
         assert data["max_abs_mean_z"] == pytest.approx(2.5)
 
+    def test_save_ends_with_newline_and_is_idempotent(self, tmp_path: Path) -> None:
+        """XCheckResult.save writes a POSIX-clean file ending in '\\n' and is idempotent.
+
+        Without the trailing newline, the `fix end of files` pre-commit hook
+        rewrites the file on the next pass and every test run leaves a
+        cosmetic 1-byte diff. Regression test for bug found pre-Phase-5
+        cleanup (see _posteriordb_xcheck.py::XCheckResult.save).
+        """
+        r = self._make_result()
+        out = tmp_path / "newline_check.json"
+        r.save(out)
+        text_first = out.read_text()
+        assert text_first.endswith("\n"), "save() output must end with newline"
+        # Idempotency: saving again produces the same bytes.
+        r.save(out)
+        text_second = out.read_text()
+        assert text_first == text_second
+
     def test_save_nan_fields(self, tmp_path: Path) -> None:
         """XCheckResult.save handles math.nan fields (JSON stores as null via Python)."""
         r = self._make_result(
