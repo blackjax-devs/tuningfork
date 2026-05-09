@@ -1270,3 +1270,175 @@ class TestMeadsMultiChain:
         assert not ENTRY.is_compatible(
             "mclmc"
         ), "meads should not be compatible with mclmc"
+
+
+# ---------------------------------------------------------------------------
+# 15. P5.6: CHEES multi-chain warmup (dynamic_hmc-specific)
+# ---------------------------------------------------------------------------
+
+_DYNAMIC_HMC = BASE_METHODS["dynamic_hmc"]
+
+
+class TestCheesMultiChain:
+    """P5.6: chees warmup multi-chain shape contract tests.
+
+    CHEES is fundamentally multi-chain: a single call handles all num_chains
+    chains jointly.  Like MEADS, CHEES is NOT vmapped — one call, all chains.
+
+    Upstream API note: chees_adaptation.run() requires step_size and an optax
+    optimizer as positional args (unlike meads_adaptation.run).  This wrapper
+    handles that internally.
+
+    Adapted numeric params (step_size, inverse_mass_matrix) are shared CHEES
+    estimates broadcast to (num_chains,) / (num_chains, d).  Callable params
+    (next_random_arg_fn, integration_steps_fn) are passed through as-is.
+    """
+
+    def _run(self, seed: int, num_chains: int, **kw):
+        from bjx_bench.inference.warmup.chees import ENTRY
+
+        key = jax.random.key(seed)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        return ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            50,  # short warmup for tests
+            _DYNAMIC_HMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+            **kw,
+        )
+
+    def test_default_num_chains_equals_4(self) -> None:
+        """Default num_chains=4: position leading dim == 4."""
+        from bjx_bench.inference.warmup.chees import ENTRY
+
+        key = jax.random.key(7001)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        states, params = ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            50,
+            _DYNAMIC_HMC,
+            logdensity_fn=logdensity_fn,
+        )
+        leading = _state_leading_dim(states)
+        assert (
+            leading == 4
+        ), f"Default num_chains=4: expected leading dim 4, got {leading}"
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
+
+    def test_explicit_num_chains_8(self) -> None:
+        """num_chains=8: position leading dim == 8."""
+        states, params = self._run(7002, num_chains=8)
+        leading = _state_leading_dim(states)
+        assert leading == 8, f"Expected leading dim 8, got {leading}"
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (8,), f"step_size expected (8,), got {ss.shape}"
+        imm = jnp.asarray(params["inverse_mass_matrix"])
+        assert imm.shape == (
+            8,
+            _D,
+        ), f"inverse_mass_matrix expected (8, {_D}), got {imm.shape}"
+
+    def test_pre_batched_init_position_passes_through(self) -> None:
+        """Pre-batched init_position (leading dim == num_chains) passes through verbatim."""
+        from bjx_bench.inference.warmup.chees import ENTRY
+
+        num_chains = 4
+        key = jax.random.key(7003)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        batched_pos = jax.tree.map(
+            lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape), init_pos
+        )
+        states, params = ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            batched_pos,
+            50,
+            _DYNAMIC_HMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+        )
+        pos_shape = _position_shape(states)
+        assert pos_shape == (4, _D), f"Pre-batched: expected (4, {_D}), got {pos_shape}"
+
+    def test_step_size_and_imm_keys_present(self) -> None:
+        """adapted_params must contain step_size and inverse_mass_matrix."""
+        _, params = self._run(7004, num_chains=4)
+        assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
+        assert (
+            "inverse_mass_matrix" in params
+        ), f"Missing inverse_mass_matrix; keys: {list(params)}"
+
+    def test_callable_params_present(self) -> None:
+        """CHEES adapted_params must contain next_random_arg_fn and integration_steps_fn."""
+        _, params = self._run(7005, num_chains=4)
+        assert (
+            "next_random_arg_fn" in params
+        ), f"Missing next_random_arg_fn; keys: {list(params)}"
+        assert (
+            "integration_steps_fn" in params
+        ), f"Missing integration_steps_fn; keys: {list(params)}"
+        assert callable(
+            params["next_random_arg_fn"]
+        ), "next_random_arg_fn must be callable"
+        assert callable(
+            params["integration_steps_fn"]
+        ), "integration_steps_fn must be callable"
+
+    def test_jitter_amount_default_in_sidecar(self) -> None:
+        """Sidecar must contain _chees_target_acceptance_rate metadata."""
+        _, params = self._run(7006, num_chains=4)
+        assert (
+            "_chees_target_acceptance_rate" in params
+        ), f"Missing _chees_target_acceptance_rate sidecar; keys: {list(params)}"
+        assert (
+            abs(params["_chees_target_acceptance_rate"] - 0.651) < 1e-6
+        ), f"Expected 0.651, got {params['_chees_target_acceptance_rate']}"
+
+    def test_max_leapfrog_steps_sidecar_present(self) -> None:
+        """Sidecar must contain _chees_max_leapfrog_steps metadata."""
+        _, params = self._run(7007, num_chains=4)
+        assert (
+            "_chees_max_leapfrog_steps" in params
+        ), f"Missing _chees_max_leapfrog_steps sidecar; keys: {list(params)}"
+        assert isinstance(
+            params["_chees_max_leapfrog_steps"], int
+        ), "_chees_max_leapfrog_steps must be a Python int"
+
+    def test_step_size_positive(self) -> None:
+        """Adapted step_size must be positive across all chains."""
+        _, params = self._run(7008, num_chains=4)
+        ss = jnp.asarray(params["step_size"])
+        assert bool(jnp.all(ss > 0)), f"Not all step sizes positive: {ss}"
+
+    def test_imm_shape_num_chains_4(self) -> None:
+        """num_chains=4 → inverse_mass_matrix has shape (4, d)."""
+        _, params = self._run(7009, num_chains=4)
+        imm = params["inverse_mass_matrix"]
+        assert imm.shape == (4, _D), f"Expected (4, {_D}), got {imm.shape}"
+
+    def test_compatibility_check_raises_for_nuts(self) -> None:
+        """CHEES is dynamic_hmc-only; is_compatible('nuts') must return False."""
+        from bjx_bench.inference.warmup.chees import ENTRY
+
+        assert not ENTRY.is_compatible(
+            "nuts"
+        ), "chees should not be compatible with nuts"
+
+    def test_compatibility_check_raises_for_hmc(self) -> None:
+        """CHEES is for dynamic_hmc, not fixed-L HMC; is_compatible('hmc') must return False."""
+        from bjx_bench.inference.warmup.chees import ENTRY
+
+        assert not ENTRY.is_compatible(
+            "hmc"
+        ), "chees should not be compatible with hmc (only dynamic_hmc)"
+
+    def test_chees_is_compatible_with_dynamic_hmc(self) -> None:
+        """is_compatible('dynamic_hmc') returns True."""
+        from bjx_bench.inference.warmup.chees import ENTRY
+
+        assert ENTRY.is_compatible(
+            "dynamic_hmc"
+        ), "chees must be compatible with dynamic_hmc"
