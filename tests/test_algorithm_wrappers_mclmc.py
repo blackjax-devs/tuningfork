@@ -73,11 +73,16 @@ class TestMclmcRegistry:
         """MCLMC is rejection-free; target_acceptance_rate must be None."""
         assert ENTRY.target_acceptance_rate is None
 
-    def test_algorithms_has_six_entries(self) -> None:
-        expected = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}
-        assert (
-            set(BASE_METHODS.keys()) == expected
-        ), f"Expected exactly {expected}, got {set(BASE_METHODS.keys())}"
+    def test_core_phase4_algorithms_present(self) -> None:
+        """The Phase-4 core six must remain present; Phase 5+ may add more.
+
+        Originally `test_algorithms_has_six_entries` (==6); changed to subset
+        check after P5.5 added `ghmc` and the strict-equality test became
+        fragile by design (failed every time a sampler was added).
+        """
+        core_six = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}
+        missing = core_six - set(BASE_METHODS.keys())
+        assert not missing, f"missing core base methods: {missing}"
 
 
 # ===========================================================================
