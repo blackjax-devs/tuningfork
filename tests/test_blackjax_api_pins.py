@@ -187,7 +187,94 @@ def test_blackjax_multipathfinder_callable():
     )
 
 
-# ───────────────── 6. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+# ───────────────── 6. GHMC + MEADS (P5.5) ─────────────────
+
+
+def test_blackjax_ghmc_factory_signature():
+    """Tripwire: blackjax.ghmc must accept (logdensity_fn, step_size,
+    momentum_inverse_scale, alpha, delta) as positional/keyword args.
+
+    Pinned at P5.5: bjx_bench/inference/base_method/ghmc.py calls
+    blackjax.ghmc(logdensity_fn, **trial_params) where trial_params includes
+    step_size, momentum_inverse_scale, alpha, delta.  If upstream renames or
+    removes any of these, factory calls in the BO loop fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.ghmc import as_top_level_api
+
+    inner = inspect.signature(as_top_level_api)
+    expected = {
+        "logdensity_fn",
+        "step_size",
+        "momentum_inverse_scale",
+        "alpha",
+        "delta",
+    }
+    missing = expected - set(inner.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.ghmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(inner.parameters)}. "
+        f"Update bjx_bench/inference/base_method/ghmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_meads_adaptation_signature():
+    """Tripwire: blackjax.meads_adaptation must accept (logdensity_fn,
+    num_chains, num_folds) as parameters.
+
+    Pinned at P5.5: bjx_bench/inference/warmup/meads.py calls
+    blackjax.meads_adaptation(logdensity_fn, num_chains, num_folds=num_folds, ...).
+    If upstream renames or removes any of these, the MEADS warmup fails.
+    """
+    import inspect
+
+    sig = inspect.signature(blackjax.meads_adaptation)
+    expected = {"logdensity_fn", "num_chains", "num_folds"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.meads_adaptation is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/warmup/meads.py if upstream API changed."
+    )
+
+
+def test_blackjax_meads_adaptation_run_returns_2tuple():
+    """Tripwire: meads_adaptation.run() must return a 2-tuple
+    (AdaptationResults, AdaptationInfo).
+
+    Pinned at P5.5: bjx_bench/inference/warmup/meads.py unpacks the result as
+    (adaptation_results, _adaptation_info) = meads.run(...).
+    If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
+    """
+    meads = blackjax.meads_adaptation(
+        lambda x: -0.5 * jnp.sum(x**2),
+        num_chains=4,
+        num_folds=4,
+    )
+    key = jax.random.key(0)
+    result = meads.run(key, jnp.zeros((4, 3)), num_steps=5)
+    assert len(result) == 2, (
+        f"meads_adaptation.run() should return a 2-tuple (AdaptationResults, AdaptationInfo), "
+        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/meads.py."
+    )
+    adaptation_results, _adaptation_info = result
+    assert hasattr(adaptation_results, "state"), (
+        "AdaptationResults must have 'state' field; "
+        "update bjx_bench/inference/warmup/meads.py."
+    )
+    assert hasattr(adaptation_results, "parameters"), (
+        "AdaptationResults must have 'parameters' field; "
+        "update bjx_bench/inference/warmup/meads.py."
+    )
+    for param_key in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
+        assert param_key in adaptation_results.parameters, (
+            f"meads_adaptation AdaptationResults.parameters lost key {param_key!r}. "
+            f"Update bjx_bench/inference/warmup/meads.py."
+        )
+
+
+# ───────────────── 7. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
