@@ -1,34 +1,17 @@
-"""2-D banana-shaped (Rosenbrock-style) distribution — Phase 4 Block-A model #5.
-
-The joint density is:
-
-    x₁ ~ N(0, σ²)            with σ² = 8  (std = 2√2 ≈ 2.83)
-    x₂ | x₁ ~ N(x₁² / 4, 1)
-
-The joint log-density (dropping constants) is:
-
-    log p(x₁, x₂) = -x₁² / (2 σ²) - (x₂ - x₁²/4)² / 2
-
-The level sets are banana-shaped — a curved manifold in 2-D.  This
-distribution is a classic test for samplers' ability to follow nonlinear
-geometry: the posterior mean of x₂ is non-linear in x₁, so naïve
-Gaussian-metric samplers (RWM, unadapted MALA) typically produce highly
-correlated chains.  NUTS / HMC with a diagonal mass matrix adapted from
-warmup handles this better, but the curved manifold still reveals
-step-size sensitivity.
-
-Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
-  No statistician preflight needed — the conditional structure is
-  analytically tractable and the test suite verifies marginal + conditional
-  moments exactly.
-
-Reference:
-  The parameterisation follows the description in PLAN_bjx_bench.md § "The
-  14-Model Suite", row #5 ("Banana").  The shape is closely related to the
-  Rosenbrock function used as a non-convex benchmark in optimisation.
-"""
-
-from __future__ import annotations
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""2-D banana-shaped (Rosenbrock-style) distribution — Block-A pathological model."""
 
 import jax
 import jax.numpy as jnp
@@ -39,6 +22,26 @@ from bjx_bench.model._base import Posterior
 
 __all__ = ["ENTRY"]
 
+# The joint density is:
+#     x₁ ~ N(0, σ²)            with σ² = 8  (std = 2√2 ≈ 2.83)
+#     x₂ | x₁ ~ N(x₁² / 4, 1)
+# The joint log-density (dropping constants) is:
+#     log p(x₁, x₂) = -x₁² / (2 σ²) - (x₂ - x₁²/4)² / 2
+# The level sets are banana-shaped — a curved manifold in 2-D.  This
+# distribution is a classic test for samplers' ability to follow nonlinear
+# geometry: the posterior mean of x₂ is non-linear in x₁, so naïve
+# Gaussian-metric samplers (RWM, unadapted MALA) typically produce highly
+# correlated chains.  NUTS / HMC with a diagonal mass matrix adapted from
+# warmup handles this better, but the curved manifold still reveals
+# step-size sensitivity.
+# Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
+#   No statistician preflight needed — the conditional structure is
+#   analytically tractable and the test suite verifies marginal + conditional
+#   moments exactly.
+# Reference:
+#   The parameterisation follows the description in PLAN_bjx_bench.md § "The
+#   14-Model Suite", row #5 ("Banana").  The shape is closely related to the
+#   Rosenbrock function used as a non-convex benchmark in optimisation.
 # ---------------------------------------------------------------------------
 # Model constants
 # ---------------------------------------------------------------------------

@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Tier-B per-algorithm tuning via Optuna BO. Foundation layer (T2.6a).
 
 Extended in T2.6b (mass-matrix kernels) and T2.6c (sampler-swap, MALA/RWM,
@@ -24,8 +37,6 @@ Fallback behaviour: if all trials diverge, ``study.best_trial`` raises
 ``ValueError``. The loop catches this and returns trial-0 (the enqueued
 default) as the "best" params with score ``-inf``.
 """
-
-from __future__ import annotations
 
 import math
 import time

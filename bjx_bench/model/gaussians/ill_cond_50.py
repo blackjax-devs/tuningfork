@@ -1,28 +1,17 @@
-"""50-dimensional ill-conditioned Gaussian — Phase 4 Block-A model #2.
-
-The covariance is constructed as:
-
-    Σ = U Λ Uᵀ
-
-where:
-    Λ = diag(λ₁, …, λ₅₀)  with λᵢ logarithmically spaced from 1 to 1000
-    U = fixed deterministic orthogonal matrix from QR(Gaussian(seed=42))
-
-This gives condition number κ(Σ) = λ_max / λ_min = 1000.
-
-The model discriminates sampler families via metric sensitivity:
-  - HMC / NUTS with well-adapted inverse mass matrix (from stan_window) should
-    achieve near-isotropic effective step sizes and high ESS / grad_eval.
-  - RWM / MALA struggle unless the proposal covariance is preconditioned.
-  - MCLMC uses a global L and step_size; the ill-conditioning stress-tests its
-    L-tuning heuristic.
-
-Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
-  No statistician preflight needed — the distribution is well-studied multivariate
-  normal and the encoding is verified deterministically by the test suite.
-"""
-
-from __future__ import annotations
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""50-D ill-conditioned Gaussian — Block-A model with condition number κ(Σ) = 1000."""
 
 import jax
 import jax.numpy as jnp
@@ -34,6 +23,21 @@ from bjx_bench.model._base import Posterior
 
 __all__ = ["ENTRY"]
 
+# The covariance is constructed as:
+#     Σ = U Λ Uᵀ
+# where:
+#     Λ = diag(λ₁, …, λ₅₀)  with λᵢ logarithmically spaced from 1 to 1000
+#     U = fixed deterministic orthogonal matrix from QR(Gaussian(seed=42))
+# This gives condition number κ(Σ) = λ_max / λ_min = 1000.
+# The model discriminates sampler families via metric sensitivity:
+#   - HMC / NUTS with well-adapted inverse mass matrix (from stan_window) should
+#     achieve near-isotropic effective step sizes and high ESS / grad_eval.
+#   - RWM / MALA struggle unless the proposal covariance is preconditioned.
+#   - MCLMC uses a global L and step_size; the ill-conditioning stress-tests its
+#     L-tuning heuristic.
+# Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
+#   No statistician preflight needed — the distribution is well-studied multivariate
+#   normal and the encoding is verified deterministically by the test suite.
 DIM = 50
 
 # ---------------------------------------------------------------------------

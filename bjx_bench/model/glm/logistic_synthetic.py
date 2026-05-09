@@ -1,56 +1,17 @@
-"""3-D Bayesian logistic regression on a synthetic 2-D bicluster — Phase 4 Block-B model #7.
-
-Design notes (no statistician kickoff occurred — see § Provenance below):
-    - Cluster centres at (±1.5, ±1.5) with blob std=1.5 (not the originally
-      proposed (±2, ±2) / std=0.8). The original design would have caused
-      *complete separation* (100% MLE accuracy, MLE logits → ±38) and the
-      resulting posterior would be improper / multi-modal-at-infinity, with
-      NUTS divergences. The revised design gives ~92% accuracy with genuine
-      misclassifications and a finite, well-conditioned MLE — the correct
-      regime for a "well-conditioned baseline GLM."
-    - n_warmup=1000 for in-spawn Tier-A. The 3-D well-conditioned posterior
-      adapts quickly; 5000 would be wasteful at this scale.
-
-Provenance:
-    The swe sub-agent's spawn prompt asked it to obtain a Template-A
-    statistician kickoff before implementing. Empirically (verified
-    2026-05-08 via a separate test spawn), Claude Code does not expose the
-    Agent tool to swe-as-sub-agent — sub-agents cannot spawn other
-    sub-agents. The design choices above were made by the swe agent
-    independently (without statistician review). They are reasonable but
-    NOT statistician-validated. A retroactive statistician checkpoint will
-    be run after this commit lands; if it requests changes, follow-up
-    commits will address.
-
-Model description:
-    - Data: 50 points from a 2-D bicluster (two Gaussian blobs labelled 0/1).
-      Class-0 centred at (-1.5, -1.5); Class-1 centred at (+1.5, +1.5); each
-      blob has std=1.5 in both dimensions. Designed to give ~92% linear
-      separability without complete separation.
-    - Likelihood: y_i ~ Bernoulli(sigmoid(beta_0 + beta_1*x_1 + beta_2*x_2)).
-    - Priors: beta_k ~ N(0, 5) for k = 0, 1, 2 (weakly informative).
-    - Posterior dim = 3 (beta vector in unconstrained space).
-    - Tier-A reference: Long-NUTS (Path B). In-spawn verification budget:
-      n_warmup=1000, n_samples=10_000 (sufficient for the 3-D well-conditioned
-      posterior to pass the certification gate). Production cache regeneration
-      per PLAN_bjx_bench.md uses n_samples=100_000 on first user-facing call.
-
-The bicluster dataset is generated DETERMINISTICALLY at module import time with
-a fixed NumPy seed (seed=42). The design deliberately avoids complete
-separation to ensure the posterior is well-conditioned (finite MLE, E-BFMI>0.9,
-no divergences).
-
-Discrimination claim:
-    RWM vs MALA vs HMC on a 3-D near-Gaussian posterior. The Laplace
-    approximation is accurate here, so this model tests how well each sampler
-    exploits gradient information on a simple, well-posed target. RWM should
-    show classical O(d^{-1/3}) step-size scaling; MALA and HMC converge faster.
-
-Reference:
-    PLAN_bjx_bench.md § "The 14-Model Suite", row #7 (synthetic logistic).
-"""
-
-from __future__ import annotations
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Bayesian logistic regression on a synthetic 2-D bicluster — 3-D well-conditioned posterior."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -112,6 +73,45 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
     numpyro.sample("y", dist.Bernoulli(logits=logits), obs=y)
 
 
+# Design notes (no statistician kickoff — see Provenance below):
+#     - Cluster centres at (±1.5, ±1.5) with blob std=1.5 (not the originally
+#       proposed (±2, ±2) / std=0.8). The original design would have caused
+#       *complete separation* (100% MLE accuracy, MLE logits → ±38) and the
+#       resulting posterior would be improper / multi-modal-at-infinity, with
+#       NUTS divergences. The revised design gives ~92% accuracy with genuine
+#       misclassifications and a finite, well-conditioned MLE — the correct
+#       regime for a "well-conditioned baseline GLM."
+#     - n_warmup=1000 for in-spawn Tier-A. The 3-D well-conditioned posterior
+#       adapts quickly; 5000 would be wasteful at this scale.
+#     Provenance:
+#         The swe sub-agent's spawn prompt asked it to obtain a Template-A
+#         statistician kickoff before implementing. Empirically (verified
+#         2026-05-08 via a separate test spawn), Claude Code does not expose the
+#         Agent tool to swe-as-sub-agent — sub-agents cannot spawn other
+#         sub-agents. The design choices above were made by the swe agent
+#         independently (without statistician review). They are reasonable but
+#         NOT statistician-validated. A retroactive statistician checkpoint will
+#         be run after this commit lands; if it requests changes, follow-up
+#         commits will address.
+#     Model description:
+#         - Data: 50 points from a 2-D bicluster (two Gaussian blobs labelled 0/1).
+#           Class-0 centred at (-1.5, -1.5); Class-1 centred at (+1.5, +1.5); each
+#           blob has std=1.5 in both dimensions. Designed to give ~92% linear
+#           separability without complete separation.
+#         - Likelihood: y_i ~ Bernoulli(sigmoid(beta_0 + beta_1*x_1 + beta_2*x_2)).
+#         - Priors: beta_k ~ N(0, 5) for k = 0, 1, 2 (weakly informative).
+#         - Posterior dim = 3 (beta vector in unconstrained space).
+#     The bicluster dataset is generated DETERMINISTICALLY at module import time with
+#     a fixed NumPy seed (seed=42). The design deliberately avoids complete
+#     separation to ensure the posterior is well-conditioned (finite MLE, E-BFMI>0.9,
+#     no divergences).
+#     Discrimination claim:
+#         RWM vs MALA vs HMC on a 3-D near-Gaussian posterior. The Laplace
+#         approximation is accurate here, so this model tests how well each sampler
+#         exploits gradient information on a simple, well-posed target. RWM should
+#         show classical O(d^{-1/3}) step-size scaling; MALA and HMC converge faster.
+# References:
+#     PLAN_bjx_bench.md § "The 14-Model Suite", row #7 (synthetic logistic).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

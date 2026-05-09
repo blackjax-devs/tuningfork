@@ -1,76 +1,17 @@
-"""144-D NCP Item Response Theory 2PL model — Phase 4 Block-C model #8 (P4.8).
-
-Model class: NCP 2-parameter logistic IRT (psychometric hierarchical model).
-
-Statistician verdict (TL-orchestrated, 2026-05-08):
-    Approve-with-modifications. Use Long-NUTS self-check only (split-R̂ gate).
-    CRITICAL CORRECTION 1: plan said dim ~230; correct dim = 144.
-        Decomposition: sigma_theta(1) + theta_raw(100) + sigma_a(1)
-        + log_a_raw(20) + mu_b(1) + sigma_b(1) + b_raw(20) = 144.
-    CRITICAL CORRECTION 2: posteriordb_id = None. The posteriordb posterior
-        'irt_2pl-irt_2pl' has reference_posterior_name: null (no reference
-        draws). Cross-checking against Stan reference is impossible.
-    CRITICAL CORRECTION 3: Stan model uses sigma_theta ~ Cauchy(0, 2) as a
-        FREE parameter (not fixed at 1). Match this for consistency.
-    NCP on all three hierarchical groups (theta/b/log_a) eliminates three
-    potential geometry funnels (sigma_theta, sigma_b, sigma_a → 0).
-
-Parameterization (NCP on all three hierarchical groups):
-    sigma_theta ~ HalfCauchy(2.0)
-    theta_raw   ~ Normal(0, 1)^J         J=100 students
-    theta       = sigma_theta * theta_raw  (deterministic)
-
-    mu_b        ~ Normal(0, 5)
-    sigma_b     ~ HalfCauchy(2.0)
-    b_raw       ~ Normal(0, 1)^I         I=20 items
-    b           = mu_b + sigma_b * b_raw  (deterministic)
-
-    sigma_a     ~ HalfCauchy(2.0)
-    log_a_raw   ~ Normal(0, 1)^I
-    log_a       = sigma_a * log_a_raw     (Stan: a ~ lognormal(0, sigma_a))
-    a           = exp(log_a)              (deterministic, positive)
-
-    logits = a[None, :] * (theta[:, None] - b[None, :])   # shape (J, I)
-    y      ~ Bernoulli(logits=logits)
-
-Unconstrained dimensionality:
-    sigma_theta(1) + theta_raw(100) + sigma_a(1) + log_a_raw(20)
-    + mu_b(1) + sigma_b(1) + b_raw(20) = 144.
-    (plan had ~230 — corrected by statistician).
-
-Data: posteriordb dataset 'irt_2pl' (J=100 students, I=20 items, 2000 responses).
-    Source: https://raw.githubusercontent.com/stan-dev/posteriordb/master/
-            posterior_database/data/data/irt_2pl.json.zip
-    Generated via tools/fetch_irt_2pl.py; committed as bjx_bench/data/irt_2pl.csv
-    (long format: student_id, item_id, response). Loader reshapes to RESPONSE (J×I).
-
-posteriordb_id = None:
-    'irt_2pl-irt_2pl' has reference_posterior_name: null (no reference draws).
-    Tier-A uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.
-
-Stan model reference:
-    https://raw.githubusercontent.com/stan-dev/posteriordb/master/
-    posterior_database/models/stan/irt_2pl.stan
-
-Tier-A budget:
-    In-spawn verification: n_warmup=1000, n_samples=2000, 4 chains.
-    Production cache: n_warmup=2000, n_samples=20000.
-
-Discrimination claim:
-    Defensible (CP vs NCP genuine — 3 free sigma hyperparameters → 3 funnels;
-    Pathfinder vs window-adaptation also defensible at 144-D).
-    Extends the hierarchical ladder: eight_schools_ncp (10-D) → radon (390-D)
-    → irt_2pl (144-D, distinct psychometric structure).
-
-References:
-    Stan User's Guide § 1.11 "Item Response Theory Models".
-    Baker, F.B. & Kim, S.-H. (2004). Item Response Theory: Parameter
-        Estimation Techniques (2nd ed.). Marcel Dekker.
-    posteriordb: https://github.com/stan-dev/posteriordb (dataset: irt_2pl).
-    PLAN_bjx_bench_phase4.md § "Block C", row P4.8 (irt_2pl).
-"""
-
-from __future__ import annotations
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""IRT 2PL model — 144-D NCP hierarchical psychometric model (J=100 students, I=20 items)."""
 
 from pathlib import Path
 
@@ -212,6 +153,60 @@ def irt_2pl(
     numpyro.sample("response", dist.Bernoulli(logits=logits), obs=response)
 
 
+# Statistician verdict (TL-orchestrated, 2026-05-08):
+#     Approve-with-modifications. Use Long-NUTS self-check only (split-R̂ gate).
+#     CRITICAL CORRECTION 1: plan said dim ~230; correct dim = 144.
+#         Decomposition: sigma_theta(1) + theta_raw(100) + sigma_a(1)
+#         + log_a_raw(20) + mu_b(1) + sigma_b(1) + b_raw(20) = 144.
+#     CRITICAL CORRECTION 2: posteriordb_id = None. The posteriordb posterior
+#         'irt_2pl-irt_2pl' has reference_posterior_name: null (no reference
+#         draws). Cross-checking against Stan reference is impossible.
+#     CRITICAL CORRECTION 3: Stan model uses sigma_theta ~ Cauchy(0, 2) as a
+#         FREE parameter (not fixed at 1). Match this for consistency.
+#     NCP on all three hierarchical groups (theta/b/log_a) eliminates three
+#     potential geometry funnels (sigma_theta, sigma_b, sigma_a → 0).
+#     Parameterization (NCP on all three hierarchical groups):
+#         sigma_theta ~ HalfCauchy(2.0)
+#         theta_raw   ~ Normal(0, 1)^J         J=100 students
+#         theta       = sigma_theta * theta_raw  (deterministic)
+#         mu_b        ~ Normal(0, 5)
+#         sigma_b     ~ HalfCauchy(2.0)
+#         b_raw       ~ Normal(0, 1)^I         I=20 items
+#         b           = mu_b + sigma_b * b_raw  (deterministic)
+#         sigma_a     ~ HalfCauchy(2.0)
+#         log_a_raw   ~ Normal(0, 1)^I
+#         log_a       = sigma_a * log_a_raw     (Stan: a ~ lognormal(0, sigma_a))
+#         a           = exp(log_a)              (deterministic, positive)
+#         logits = a[None, :] * (theta[:, None] - b[None, :])   # shape (J, I)
+#         y      ~ Bernoulli(logits=logits)
+#     Unconstrained dimensionality:
+#         sigma_theta(1) + theta_raw(100) + sigma_a(1) + log_a_raw(20)
+#         + mu_b(1) + sigma_b(1) + b_raw(20) = 144.
+#         (plan had ~230 — corrected by statistician).
+#     Data: posteriordb dataset 'irt_2pl' (J=100 students, I=20 items, 2000 responses).
+#         Source: https://raw.githubusercontent.com/stan-dev/posteriordb/master/
+#                 posterior_database/data/data/irt_2pl.json.zip
+#         Generated via tools/fetch_irt_2pl.py; committed as bjx_bench/data/irt_2pl.csv
+#     posteriordb_id = None:
+#         'irt_2pl-irt_2pl' has reference_posterior_name: null (no reference draws).
+#         Tier-A uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.
+#     Stan model reference:
+#         https://raw.githubusercontent.com/stan-dev/posteriordb/master/
+#         posterior_database/models/stan/irt_2pl.stan
+#     Tier-A budget:
+#         In-spawn verification: n_warmup=1000, n_samples=2000, 4 chains.
+#         Production cache: n_warmup=2000, n_samples=20000.
+#     Discrimination claim:
+#         Defensible (CP vs NCP genuine — 3 free sigma hyperparameters → 3 funnels;
+#         Pathfinder vs window-adaptation also defensible at 144-D).
+#         Extends the hierarchical ladder: eight_schools_ncp (10-D) → radon (390-D)
+#         → irt_2pl (144-D, distinct psychometric structure).
+# References:
+#     Stan User's Guide § 1.11 "Item Response Theory Models".
+#     Baker, F.B. & Kim, S.-H. (2004). Item Response Theory: Parameter
+#         Estimation Techniques (2nd ed.). Marcel Dekker.
+#     posteriordb: https://github.com/stan-dev/posteriordb (dataset: irt_2pl).
+#     PLAN_bjx_bench_phase4.md § "Block C", row P4.8 (irt_2pl).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

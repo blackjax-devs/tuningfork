@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Dispatch tests for Tier-B T2.6c extensions.
 
 Covers:
@@ -10,8 +23,6 @@ Test parameters chosen for fast CI on CPU (total target < 90 s):
   n_warmup=200, n_samples=200, n_trials=3, n_seeds=1, n_chains=1
   MCLMC: n_warmup=200 (adaptation needs enough steps for ESS estimates)
 """
-
-from __future__ import annotations
 
 import math
 from unittest.mock import patch

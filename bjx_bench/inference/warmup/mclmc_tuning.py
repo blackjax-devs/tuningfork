@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """MCLMC warmup via ``blackjax.mclmc_find_L_and_step_size``.
 
 This warmup is *only* compatible with the ``mclmc`` algorithm.  It runs
@@ -22,8 +35,6 @@ Runner signature (uniform across all warmups)::
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, **kwargs) -> (state, adapted_params)
 """
-
-from __future__ import annotations
 
 from typing import Any
 

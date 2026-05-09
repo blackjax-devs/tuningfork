@@ -1,39 +1,17 @@
-"""2-D mixture of 25 isotropic Gaussians on a 5x5 grid — Phase 4 Block-A model #11.
-
-The joint density is a mixture of 25 components with equal weights (1/25).
-The component means are arranged on a regular 5×5 grid spanning [-4, 4]^2:
-
-    μ_k ∈ {−4, −2, 0, 2, 4}² for k = 1, …, 25
-
-Each component is an isotropic Gaussian:
-
-    x | k ~ N(μ_k, σ²I)   with σ = 0.3
-
-The marginal log-density (dropping constants) is:
-
-    log p(x) = log Σ_k (1/25) N(x; μ_k, σ²I)
-
-Analytic moments:
-    E[x] = 0 (modes symmetric around origin)
-    Var[x_i] = E[Var[x_i | k]] + Var[E[x_i | k]]
-             = σ² + E[μ_k,i²]
-             = 0.09 + (16 + 4 + 0 + 4 + 16) / 5
-             = 0.09 + 8.0 = 8.09
-    Std[x_i] = √8.09 ≈ 2.844
-
-With σ = 0.3 the components are well-separated (inter-mode distance = 2,
-within-component 2σ = 0.6 ≪ 2): there is no between-mode overlap, so
-gradient-based MCMC (NUTS/HMC) without tempering will be trapped in a
-single mode.  This discriminates SMC and parallel-tempered methods
-vs vanilla NUTS/HMC.
-
-Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
-  No statistician preflight needed — the analytic sampler is
-  exact by construction and the test suite verifies shape, mode coverage,
-  marginal moments, and logdensity ordering.
-"""
-
-from __future__ import annotations
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""2-D mixture of 25 isotropic Gaussians on a 5×5 grid — Block-A multimodal pathological model."""
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +22,29 @@ from bjx_bench.model._base import Posterior
 
 __all__ = ["ENTRY"]
 
+# The joint density is a mixture of 25 components with equal weights (1/25).
+# The component means are arranged on a regular 5×5 grid spanning [-4, 4]^2:
+#     μ_k ∈ {−4, −2, 0, 2, 4}² for k = 1, …, 25
+# Each component is an isotropic Gaussian:
+#     x | k ~ N(μ_k, σ²I)   with σ = 0.3
+# The marginal log-density (dropping constants) is:
+#     log p(x) = log Σ_k (1/25) N(x; μ_k, σ²I)
+# Analytic moments:
+#     E[x] = 0 (modes symmetric around origin)
+#     Var[x_i] = E[Var[x_i | k]] + Var[E[x_i | k]]
+#              = σ² + E[μ_k,i²]
+#              = 0.09 + (16 + 4 + 0 + 4 + 16) / 5
+#              = 0.09 + 8.0 = 8.09
+#     Std[x_i] = √8.09 ≈ 2.844
+# With σ = 0.3 the components are well-separated (inter-mode distance = 2,
+# within-component 2σ = 0.6 ≪ 2): there is no between-mode overlap, so
+# gradient-based MCMC (NUTS/HMC) without tempering will be trapped in a
+# single mode.  This discriminates SMC and parallel-tempered methods
+# vs vanilla NUTS/HMC.
+# Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
+#   No statistician preflight needed — the analytic sampler is
+#   exact by construction and the test suite verifies shape, mode coverage,
+#   marginal moments, and logdensity ordering.
 # ---------------------------------------------------------------------------
 # Model constants
 # ---------------------------------------------------------------------------

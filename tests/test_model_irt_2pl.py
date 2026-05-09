@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Tests for the irt_2pl model (144-D NCP 2PL IRT, J=100 students, I=20 items).
 
 Tests
@@ -14,8 +27,6 @@ All tests are @pytest.mark.fast (no MCMC).
 posteriordb_id is explicitly None: 'irt_2pl-irt_2pl' has no reference posterior
 draws upstream. Tier-A uses Long-NUTS self-check only.
 """
-
-from __future__ import annotations
 
 import jax
 import jax.numpy as jnp

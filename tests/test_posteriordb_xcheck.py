@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Tests for bjx_bench.reference._posteriordb_xcheck.
 
 Covers:
@@ -14,8 +27,6 @@ live posteriordb database for tests 1–3; those tests use the
 ``posteriordb_root`` argument to point at a synthetic in-memory-like path or
 monkeypatch the client.  Test 4 relies on the graceful-error path.
 """
-
-from __future__ import annotations
 
 import json
 import math
@@ -140,6 +151,24 @@ class TestXCheckResultSchema:
         assert "x[0]" in data["failed_dims"]
         assert isinstance(data["failed_dims"], list)  # tuple → list for JSON
         assert data["max_abs_mean_z"] == pytest.approx(2.5)
+
+    def test_save_ends_with_newline_and_is_idempotent(self, tmp_path: Path) -> None:
+        """XCheckResult.save writes a POSIX-clean file ending in '\\n' and is idempotent.
+
+        Without the trailing newline, the `fix end of files` pre-commit hook
+        rewrites the file on the next pass and every test run leaves a
+        cosmetic 1-byte diff. Regression test for bug found pre-Phase-5
+        cleanup (see _posteriordb_xcheck.py::XCheckResult.save).
+        """
+        r = self._make_result()
+        out = tmp_path / "newline_check.json"
+        r.save(out)
+        text_first = out.read_text()
+        assert text_first.endswith("\n"), "save() output must end with newline"
+        # Idempotency: saving again produces the same bytes.
+        r.save(out)
+        text_second = out.read_text()
+        assert text_first == text_second
 
     def test_save_nan_fields(self, tmp_path: Path) -> None:
         """XCheckResult.save handles math.nan fields (JSON stores as null via Python)."""

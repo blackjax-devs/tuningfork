@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Headline metric for bjx-bench: min bulk-ESS per gradient evaluation.
 
 The metric an algorithm developer chases. Defined per PLAN_bjx_bench_API_phase2.md
@@ -19,8 +32,6 @@ Empirically verified (see tests/test_headline.py):
 - i.i.d. baseline: headline / (C*S) ≈ 0.85–1.05 for C=4, S=1000, D=5.
 - AR(1) φ=0.9 suppression: headline_iid / headline_ar1 ≈ 15–22 for S=2000.
 """
-
-from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any

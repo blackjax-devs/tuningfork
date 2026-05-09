@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Phase 1 end-to-end tests — CLI subprocess integration.
 
 Spawns `bjx-bench tier-a ...` as a subprocess with an isolated
@@ -10,8 +23,6 @@ single git state all cache hits are deterministic.
 Eight-schools note: the CLI hard-codes n_warmup=500, n_chunks=4 for NUTS
 models (v1). With n=4000 and seed=42 the run certifies in ~40s.
 """
-
-from __future__ import annotations
 
 import json
 import os

@@ -1,3 +1,16 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Tests for the Tier-A NUTS path (Path B) — 8-Schools NCP.
 
 Runs certify_reference_nuts with small parameters to keep the test fast
@@ -10,8 +23,6 @@ gives too few effective samples for 8-Schools at this warmup budget).
 Bumping to n_samples=4000 lets seed=42 clear the gate with
 min_chunk_bulk_ess ≈ 554, 0 divergences, e_bfmi ≈ 0.97.
 """
-
-from __future__ import annotations
 
 import jax
 import pytest
