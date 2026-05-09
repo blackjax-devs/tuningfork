@@ -779,8 +779,8 @@ def test_emit_low_recipes_no_filter_emits_all_methods(
 
 
 @pytest.mark.fast
-def test_main_rejects_low_with_stan_window(monkeypatch) -> None:
-    """`--effort low --warmup stan_window` raises SystemExit (incoherent combo)."""
+def test_main_rejects_unknown_model(monkeypatch) -> None:
+    """`--only <unknown>` raises SystemExit."""
     import sys
 
     from bjx_bench.inference.recipes import _generate_starter
@@ -788,23 +788,25 @@ def test_main_rejects_low_with_stan_window(monkeypatch) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["_generate_starter", "--effort", "low", "--warmup", "stan_window"],
+        ["_generate_starter", "--only", "no_such_model"],
     )
-    with pytest.raises(SystemExit, match="incompatible"):
+    with pytest.raises(SystemExit, match="not in STARTER_MODEL_NAMES"):
         _generate_starter.main()
 
 
 @pytest.mark.fast
-def test_main_rejects_high_with_no_warmup(monkeypatch) -> None:
-    """`--effort high --warmup no_warmup` raises SystemExit (incoherent combo)."""
+def test_main_help_smoke() -> None:
+    """`--help` exits with status 0 and prints flag descriptions."""
     import sys
 
     from bjx_bench.inference.recipes import _generate_starter
 
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["_generate_starter", "--effort", "high", "--warmup", "no_warmup"],
-    )
-    with pytest.raises(SystemExit, match="incompatible"):
-        _generate_starter.main()
+    saved_argv = sys.argv
+    try:
+        sys.argv = ["_generate_starter", "--help"]
+        with pytest.raises(SystemExit) as exc_info:
+            _generate_starter.main()
+        # argparse's --help calls sys.exit(0) on success.
+        assert exc_info.value.code == 0
+    finally:
+        sys.argv = saved_argv

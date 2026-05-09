@@ -11,80 +11,71 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""One-shot script to emit canonical starter recipes for all efforts and algorithms.
+"""LOW-emit step: produce candidate recipes for the Statistician gate.
 
-Subtask P3.3 (Phase 3): generate 12 LOW + 6 MEDIUM starter recipes.
-Subtask P3.4 (Phase 3): generate 6 HIGH starter recipes via Tier-B BO.
-Subtask P4.1 (Phase 4): added ill_cond_50 to STARTER_MODEL_NAMES.
-Subtask P5.0 (Phase 5): per-cell flag-filtering — ``--warmup``, ``--sampler``,
-``--effort`` flags added alongside the existing ``--only <model>`` (Q5.A
-decision: extend flags rather than introduce a YAML cell-spec file).
+This script runs the **default warmup + default sampler** combination for every
+selected ``(model, warmup, sampler)`` cell and writes a candidate recipe to
+``starter/<model>/low__<sampler>__<warmup>.json``. It does NOT decide whether
+the candidate is good enough to be a committed LOW recipe — that's the
+Statistician gate (`bjx_bench.calibration.statistician_gate`, **TBD in P5.0.5**).
 
-**LOW recipes** (zero-cost; uses no_warmup):
-  - N starter models × 6 algorithms (hmc, nuts, mala, barker, rwm, mclmc)
-  - Calls ``Recipe.from_default_config`` for each pair.
-  - Deterministic — re-running produces bit-identical output.
-
-**MEDIUM recipes** (warmup-only; uses stan_window):
-  - N starter models × 2 algorithms (nuts, hmc)
-  - Runs stan_window warmup at n_warmup=1000; records adapted params + elapsed.
-  - Calls ``Recipe.from_warmup_only`` for each pair.
-
-**HIGH recipes** (Tier-B BO; uses stan_window):
-  - N starter models × 2 algorithms (nuts, hmc)
-  - Runs tune_algorithm at n_trials=20, n_seeds=2, n_chains=2, n_samples=400,
-    n_warmup=500; records BO-tuned config + TuningDifficulty profile.
-  - Calls ``Recipe.from_tuning_result`` for each pair.
+Lineage:
+  P3.3 (Phase 3): generated 12 LOW + 6 MEDIUM starter recipes.
+  P3.4 (Phase 3): generated 6 HIGH starter recipes via Tier-B BO.
+  P4.1+ (Phase 4): added Phase 4 models to STARTER_MODEL_NAMES.
+  P5.Q5A (Phase 5, this commit): scoped down to LOW emission — `--effort`
+  flag removed. The MED/HIGH emit functions remain in this file as
+  helpers during the migration window (see `_generate_starter`'s P5
+  doc), but they're called by the Statistician-driven escalation
+  workflow, not by this script's CLI.
 
 Usage
 -----
 
-The recipe space is 3-D: ``model × (warmup, sampler) × effort``. The four
-filter flags compose intersectionally — each defaults to "all" and narrows
-the matrix when set.
+The recipe space is 3-D: ``model × (warmup, sampler) × effort``. This script
+emits LOW (default-everything) candidates. Three filters compose
+intersectionally to narrow the matrix.
 
 Common patterns:
 
-  # 1. Generate everything (full sweep — slow; ~3-5 min LOW+MED + ~18-30 min HIGH per model)
+  # 1. Generate LOW candidates for all (model, warmup, sampler) cells
   cd bjx-bench
   uv run python -m bjx_bench.inference.recipes._generate_starter
 
-  # 2. Regenerate one model's full set after editing it (Phase 4 pattern)
+  # 2. Regenerate LOW candidates for one model
   uv run python -m bjx_bench.inference.recipes._generate_starter --only radon
 
-  # 3. Regenerate one cell only (Phase 5+ pattern; cheapest after a tweak)
+  # 3. Regenerate one cell (cheapest after a tweak)
   uv run python -m bjx_bench.inference.recipes._generate_starter \\
-      --only radon --warmup stan_window --sampler nuts --effort medium
+      --only radon --warmup stan_window --sampler nuts
 
-  # 4. Refresh all LOW recipes after a default_params_for change
-  uv run python -m bjx_bench.inference.recipes._generate_starter --effort low
-
-  # 5. Refresh NUTS HIGH across every model (after a Tier-B BO bug fix)
-  uv run python -m bjx_bench.inference.recipes._generate_starter \\
-      --sampler nuts --effort high
-
-  # 6. Regenerate everything that uses a particular warmup
-  uv run python -m bjx_bench.inference.recipes._generate_starter --warmup stan_window
+  # 4. Refresh NUTS LOW candidates everywhere (after a default-HP change)
+  uv run python -m bjx_bench.inference.recipes._generate_starter --sampler nuts
 
 Flag semantics:
-  - ``--only <m>``       restrict to one model (must be in STARTER_MODEL_NAMES)
-  - ``--warmup <w>``     restrict to one warmup; valid: "no_warmup" (LOW only),
-                         "stan_window" (MED + HIGH currently)
-  - ``--sampler <s>``    restrict to one base method; valid:
-                         "hmc", "nuts", "mala", "barker", "rwm", "mclmc"
-  - ``--effort <e>``     restrict to one effort tier; valid: "low", "medium", "high"
-
-Validity rules (enforced at top of ``main``):
-  - ``--effort low`` is incompatible with ``--warmup stan_window`` (LOW always
-    uses ``no_warmup``).
-  - ``--effort {medium, high}`` is incompatible with ``--warmup no_warmup``
-    (those tiers always run a real warmup).
-  - Sampler / warmup compatibility (e.g., ``mclmc`` is not compatible with
-    ``stan_window``) is checked per-cell at emit time and reported as ``SKIP``.
+  - ``--only <m>``    restrict to one model (must be in STARTER_MODEL_NAMES)
+  - ``--warmup <w>``  restrict to one warmup; valid: "no_warmup", "stan_window"
+  - ``--sampler <s>`` restrict to one base method; valid:
+                      "hmc", "nuts", "mala", "barker", "rwm", "mclmc"
 
 The script is idempotent: re-running overwrites existing files with fresh
-provenance timestamps. Compute: ~3-5 min total for LOW+MEDIUM per model;
-~18-30 min for HIGH per model (n_trials=20).
+provenance timestamps. Compute: seconds-to-minutes per cell depending on
+the warmup; LOW emission is the cheap baseline.
+
+MED/HIGH note
+-------------
+
+Under the gate-driven Phase 5 framing, MEDIUM and HIGH recipes are produced
+by a **Statistician escalation workflow**, not by direct CLI invocation:
+
+  - LOW candidate fails auto-gate → TL spawns Statistician for MEDIUM
+    (manual workarounds: seed change, init change, "obvious bug" fixes).
+  - MEDIUM also fails → Statistician escalates to HIGH (gold-standard
+    sampler comparison + BO + model-specific param injection).
+
+The ``emit_medium_recipes`` and ``emit_high_recipes`` functions stay in this
+file as helpers the Statistician can call during escalation; they are NOT
+exposed via the CLI.
 """
 
 import time
@@ -354,28 +345,32 @@ def emit_high_recipes(
 
 
 def main() -> None:
-    """Generate and save LOW + MEDIUM + HIGH starter recipes (filtered by flags).
+    """LOW-emit step: produce candidate recipes for the Statistician gate.
 
-    See the module docstring for the full Usage section. Briefly: each filter
-    flag (``--only``, ``--warmup``, ``--sampler``, ``--effort``) defaults to
-    "all" and narrows the recipe matrix when set.
+    See the module docstring for the full Usage section.  Three filter flags
+    (``--only``, ``--warmup``, ``--sampler``) compose intersectionally; each
+    defaults to "all" and narrows the matrix when set.
+
+    P5.Q5A removed the ``--effort`` flag because effort is gate-driven, not
+    something the script chooses (only LOW candidates are emitted here;
+    MEDIUM and HIGH come from a Statistician escalation workflow).
 
     Phase 3 (P3.3 + P3.4): 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes
     for the 3 original models.
     Phase 4 (P4.1+): adds ill_cond_50 and subsequent models as they land.
-    Phase 5 (P5.0): the four flags now compose intersectionally — see module
-    docstring Usage section for the 6 canonical patterns.
+    Phase 5 (P5.Q5A): scoped to LOW emission; ``--effort`` removed.
     """
     import argparse
 
     valid_warmups = {"no_warmup", "stan_window"}
     valid_samplers = set(ALL_METHOD_NAMES)
-    valid_efforts = {"low", "medium", "high"}
 
     parser = argparse.ArgumentParser(
         description=(
-            "Generate canonical starter recipes (LOW/MEDIUM/HIGH).  "
-            "All four filters compose; each defaults to 'all'."
+            "Emit LOW candidate recipes (default warmup + default sampler).  "
+            "All three filters compose; each defaults to 'all'.  "
+            "MEDIUM/HIGH recipes come from a Statistician escalation workflow, "
+            "not from this CLI."
         )
     )
     parser.add_argument(
@@ -391,8 +386,10 @@ def main() -> None:
         default=None,
         choices=sorted(valid_warmups),
         help=(
-            "Restrict to one warmup.  'no_warmup' is LOW-only; 'stan_window' "
-            "is MED+HIGH only.  Default: all."
+            "Restrict to one warmup.  'no_warmup' applies to the LOW pass "
+            "for samplers without trajectory adaptation; 'stan_window' "
+            "applies to NUTS/HMC and other window-compatible samplers.  "
+            "Default: all."
         ),
     )
     parser.add_argument(
@@ -400,15 +397,9 @@ def main() -> None:
         default=None,
         choices=sorted(valid_samplers),
         help=(
-            "Restrict to one base method.  Note that 'mala', 'barker', "
-            "'rwm', 'mclmc' are LOW-only currently.  Default: all."
+            "Restrict to one base method.  Default: all of "
+            "{hmc, nuts, mala, barker, rwm, mclmc}."
         ),
-    )
-    parser.add_argument(
-        "--effort",
-        default=None,
-        choices=sorted(valid_efforts),
-        help="Restrict to one effort tier.  Default: all.",
     )
     args = parser.parse_args()
 
@@ -419,29 +410,16 @@ def main() -> None:
             f"= {STARTER_MODEL_NAMES}"
         )
 
-    # Cross-flag coherence: warmup vs effort
-    if args.effort == "low" and args.warmup == "stan_window":
-        raise SystemExit(
-            "--effort low is incompatible with --warmup stan_window "
-            "(LOW recipes always use no_warmup)."
-        )
-    if args.effort in {"medium", "high"} and args.warmup == "no_warmup":
-        raise SystemExit(
-            f"--effort {args.effort} is incompatible with --warmup no_warmup "
-            f"({args.effort.upper()} recipes always run a real warmup)."
-        )
-
     names: list[str] | None = [args.only] if args.only is not None else None
 
-    # ── Effort gating ───────────────────────────────────────────────────────
-    # Each effort tier runs iff (a) --effort wasn't set, OR (b) --effort matches.
-    # The warmup filter further gates each tier to its native warmup.
-    do_low = args.effort in (None, "low") and args.warmup in (None, "no_warmup")
-    do_medium = args.effort in (None, "medium") and args.warmup in (
-        None,
-        "stan_window",
-    )
-    do_high = args.effort in (None, "high") and args.warmup in (None, "stan_window")
+    # The warmup filter selects which LOW pass to run.
+    # `no_warmup`   → emit_low_recipes   (no adaptation; identity warmup)
+    # `stan_window` → emit_medium_recipes (window adaptation; *as a LOW candidate*
+    #                                      under the new framing — this function
+    #                                      runs the default warmup and produces
+    #                                      candidate output for the gate)
+    do_no_warmup = args.warmup in (None, "no_warmup")
+    do_stan_window = args.warmup in (None, "stan_window")
 
     # ── Echo selection ──────────────────────────────────────────────────────
     selection = []
@@ -451,44 +429,33 @@ def main() -> None:
         selection.append(f"warmup={args.warmup}")
     if args.sampler is not None:
         selection.append(f"sampler={args.sampler}")
-    if args.effort is not None:
-        selection.append(f"effort={args.effort}")
     if selection:
-        print(f"Generating recipes filtered by: {', '.join(selection)}")
+        print(f"Emitting LOW candidates filtered by: {', '.join(selection)}")
     else:
-        print("Generating ALL starter recipes (no filters set).")
+        print("Emitting ALL LOW candidates (no filters set).")
 
-    low: list[Path] = []
-    medium: list[Path] = []
-    high: list[Path] = []
+    no_warmup_paths: list[Path] = []
+    stan_window_paths: list[Path] = []
 
-    if do_low:
+    if do_no_warmup:
         print(
-            "\nGenerating LOW-effort recipes "
-            f"({'all' if args.sampler is None else args.sampler} algorithms)..."
+            "\nEmitting candidates for warmup=no_warmup "
+            f"({'all algorithms' if args.sampler is None else args.sampler})..."
         )
-        low = emit_low_recipes(model_names=names, sampler=args.sampler)
+        no_warmup_paths = emit_low_recipes(model_names=names, sampler=args.sampler)
 
-    if do_medium:
+    if do_stan_window:
         print(
-            "\nGenerating MEDIUM-effort recipes "
-            f"(stan_window warmup; "
-            f"{'nuts/hmc' if args.sampler is None else args.sampler})..."
+            "\nEmitting candidates for warmup=stan_window "
+            f"({'nuts/hmc' if args.sampler is None else args.sampler})..."
         )
-        medium = emit_medium_recipes(model_names=names, sampler=args.sampler)
+        stan_window_paths = emit_medium_recipes(model_names=names, sampler=args.sampler)
 
-    if do_high:
-        print(
-            "\nGenerating HIGH-effort recipes "
-            f"(Tier-B BO, n_trials=20; "
-            f"{'nuts/hmc' if args.sampler is None else args.sampler})..."
-        )
-        high = emit_high_recipes(model_names=names, sampler=args.sampler)
-
-    total = len(low) + len(medium) + len(high)
+    total = len(no_warmup_paths) + len(stan_window_paths)
     print(
-        f"\n✓ Emitted {len(low)} LOW + {len(medium)} MEDIUM + {len(high)} HIGH"
-        f" = {total} starter recipes."
+        f"\n✓ Emitted {len(no_warmup_paths)} no_warmup + "
+        f"{len(stan_window_paths)} stan_window = {total} LOW candidates.  "
+        f"Next: Statistician gate (P5.0.5)."
     )
 
 
