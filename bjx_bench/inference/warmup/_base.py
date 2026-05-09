@@ -102,6 +102,51 @@ def _maybe_replicate(position: Any, num_chains: int) -> Any:
     )
 
 
+def squeeze_single_chain(
+    batched_state: Any, batched_params: dict[str, Any]
+) -> tuple[Any, dict[str, Any]]:
+    """Squeeze a leading length-1 chain dim from a single-chain warmup result.
+
+    Use this in callers that ran a warmup with ``num_chains=1`` and need the
+    un-batched ``(state, params)`` shape that the rest of the codebase expects
+    (e.g. Tier-B BO trials, MEDIUM-effort recipe builders, single-chain demos).
+
+    Behaviour
+    ---------
+    - State pytree leaves: ``x`` becomes ``x[0]`` when subscriptable; non-array
+      leaves pass through unchanged.
+    - Param dict values: scalar Python numbers pass through; array-like values
+      are coerced to ``jnp.asarray`` and indexed with ``[0]`` only when their
+      first dim is exactly 1.  Anything else is returned verbatim.
+
+    Parameters
+    ----------
+    batched_state
+        Pytree returned by ``Warmup.runner`` with leading dim 1.
+    batched_params
+        Dict of adapted parameters (e.g. ``{"step_size": (1,)-array, ...}``).
+
+    Returns
+    -------
+    tuple[Any, dict[str, Any]]
+        ``(state, params)`` with the leading length-1 chain axis removed.
+    """
+    state = jax.tree.map(
+        lambda x: x[0] if hasattr(x, "__getitem__") else x, batched_state
+    )
+    params: dict[str, Any] = {}
+    for k, v in batched_params.items():
+        if isinstance(v, (int, float, bool)):
+            params[k] = v
+        else:
+            arr = jnp.asarray(v)
+            if arr.shape and arr.shape[0] == 1:
+                params[k] = arr[0]
+            else:
+                params[k] = v
+    return state, params
+
+
 @dataclass(frozen=True)
 class Warmup:
     """A warmup procedure: produces ``(states, params)`` before sampling.

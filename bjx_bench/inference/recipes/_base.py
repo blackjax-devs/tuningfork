@@ -389,14 +389,23 @@ class Recipe:
         init_key, warmup_key = jax.random.split(rng_key, 2)
         init_position, logdensity_fn, _ = build_logdensity_fn(init_key, posterior)
 
+        # MEDIUM recipes are single-chain by design: they capture one chain's
+        # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
+        # execution happens at recipe-run time, not at recipe-build time.
+        # Pass num_chains=1 + squeeze the leading dim out of the result, mirroring
+        # the Tier-B BO-trial pattern.
+        from bjx_bench.inference.warmup._base import squeeze_single_chain
+
         t0 = time.perf_counter()
-        _state, adapted_params = warmup.runner(
+        batched_state, batched_params = warmup.runner(
             warmup_key,
             init_position,
             n_warmup,
             base_method,
             logdensity_fn=logdensity_fn,
+            num_chains=1,
         )
+        _state, adapted_params = squeeze_single_chain(batched_state, batched_params)
         elapsed = time.perf_counter() - t0
 
         # Thread underscore-prefixed metadata (e.g. "_total_tuning_steps" from
