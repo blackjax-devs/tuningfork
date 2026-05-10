@@ -13,9 +13,9 @@
 # limitations under the License.
 """MCLMC (Microcanonical Langevin Monte Carlo) algorithm wrapper.
 
-Per the corrected PLAN_bjx_bench_API_phase2.md §"Grad costs": each MCLMC step
-performs one integrator step. The default integrator (isokinetic_mclachlan)
-costs 2 gradient evaluations per integrator step (palindromic [b1,a1,b2,a1,b1]
+Note: each MCLMC step performs one integrator step. The default integrator
+(isokinetic_mclachlan) costs 2 gradient evaluations per integrator step
+(palindromic [b1,a1,b2,a1,b1]
 scheme → 2 position updates) → constant 2 grads per kernel step.
 MCLMCInfo does NOT carry num_integration_steps; the trajectory length L (in
 time units) controls momentum-resample cadence (L / step_size time units).

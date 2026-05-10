@@ -41,7 +41,7 @@ __all__ = ["ENTRY"]
 # gradient-based MCMC (NUTS/HMC) without tempering will be trapped in a
 # single mode.  This discriminates SMC and parallel-tempered methods
 # vs vanilla NUTS/HMC.
-# Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
+# Analytic preflight:
 #   No statistician preflight needed — the analytic sampler is
 #   exact by construction and the test suite verifies shape, mode coverage,
 #   marginal moments, and logdensity ordering.

@@ -35,7 +35,7 @@ __all__ = ["ENTRY"]
 #   - RWM / MALA struggle unless the proposal covariance is preconditioned.
 #   - MCLMC uses a global L and step_size; the ill-conditioning stress-tests its
 #     L-tuning heuristic.
-# Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
+# Analytic preflight:
 #   No statistician preflight needed — the distribution is well-studied multivariate
 #   normal and the encoding is verified deterministically by the test suite.
 DIM = 50

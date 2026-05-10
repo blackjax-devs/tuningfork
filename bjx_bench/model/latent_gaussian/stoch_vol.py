@@ -190,7 +190,6 @@ ENTRY = Posterior(
         "Kim, S., Shephard, N., & Chib, S. (1998). Stochastic Volatility: "
         "Likelihood Inference and Comparison with ARCH Models. "
         "Review of Economic Studies, 65(3), 361–393.",
-        "PLAN_bjx_bench_phase4.md § 'Block D', row P4.9 (stoch_vol).",
     ),
     description=(
         "503-D NCP recursive AR(1) stochastic volatility (KSC 1998). "

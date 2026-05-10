@@ -19,8 +19,7 @@ MCLMC dispatch, best_trial robustness guard).
 This module owns the *types* and *pure helpers* for the BO loop. The actual
 loop body (``tune_algorithm``) is implemented in T2.6b/T2.6c.
 
-The tuning-difficulty metric (``PLAN_bjx_bench_API_phase2.md``
-§"Tuning Difficulty Metric") is the companion to the headline ESS/grad: it
+The tuning-difficulty metric (companion to the headline ESS/grad)
 captures HOW HARD it was to find good HPs, not just what the optimum is.
 Trial 0 is special — it uses a deterministic default config (geometric mean
 for loguniform, midpoint for uniform, etc.) so "out-of-the-box" performance
@@ -79,7 +78,7 @@ __all__ = [
 class TuningDifficulty:
     """Profile of how hard it was to reach a useful HP setting.
 
-    Per ``PLAN_bjx_bench_API_phase2.md`` §"Tuning Difficulty Metric".
+    Compute tuning difficulty metric (effort required to optimize HPs).
 
     Parameters
     ----------
@@ -634,9 +633,7 @@ def tune_algorithm(
     3. **Sampler**: controlled by the ``sampler`` argument.  ``"tpe"``
        (default) uses ``optuna.samplers.TPESampler``; ``"random"`` uses
        ``optuna.samplers.RandomSampler``.  Both are seeded deterministically
-       from ``rng_key`` so results are reproducible.  This enables the
-       dogfood comparison described in
-       ``PLAN_bjx_bench_API_phase2.md`` §"BO library choice — rationale".
+       from ``rng_key`` so results are reproducible.
 
     4. **Optuna direction**: "maximize" (higher ``min_bulk_ess_per_grad`` is
        better).

@@ -13,8 +13,7 @@
 # limitations under the License.
 """Headline metric for bjx-bench: min bulk-ESS per gradient evaluation.
 
-The metric an algorithm developer chases. Defined per PLAN_bjx_bench_API_phase2.md
-§Headline:
+The metric an algorithm developer chases:
 
     headline(states_position, n_grad_evals) =
         min over dims of bulk_ESS(states_position) / n_grad_evals

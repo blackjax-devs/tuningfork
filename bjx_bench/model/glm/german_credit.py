@@ -105,7 +105,6 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
 #         Extends the GLM discrimination ladder: logistic_synthetic (3-D baseline)
 #         → german_credit (26-D, real data) → horseshoe (103-D, sparse).
 # References:
-#     PLAN_bjx_bench.md § "The 14-Model Suite", row #8 (German Credit).
 #     UCI ML Repository: https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data)
 #     Dua, D. and Graff, C. (2019). UCI Machine Learning Repository.
 # ---------------------------------------------------------------------------

@@ -83,5 +83,4 @@ Regenerate whenever:
 ## Schema Reference
 
 See `bjx_bench/inference/recipes/_base.py` for the full `Recipe` dataclass
-definition and `PLAN_bjx_bench_restructure.md` § "Recipe schema" for the
-design rationale.
+definition and design rationale.
