@@ -24,6 +24,9 @@ Discipline rule: every test must be tagged with exactly one of ``fast``, ``slow`
 The ``requires_posteriordb`` marker is additive (combine with ``slow`` or ``e2e``).
 """
 
+# Import shared fixtures so pytest discovers them globally
+from tests import fixtures as _  # noqa: F401
+
 
 def pytest_configure(config: object) -> None:
     """Register custom markers so pytest does not warn about unknown marks."""
