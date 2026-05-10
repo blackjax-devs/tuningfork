@@ -57,6 +57,7 @@ from bjx_bench.inference.base_method.mgrad_gaussian import (
 from bjx_bench.inference.base_method.mhmc import ENTRY as _mhmc_entry
 from bjx_bench.inference.base_method.nuts import ENTRY as _nuts_entry
 from bjx_bench.inference.base_method.orbital_hmc import ENTRY as _orbital_hmc_entry
+from bjx_bench.inference.base_method.rmhmc import ENTRY as _rmhmc_entry
 from bjx_bench.inference.base_method.rwm import ENTRY as _rwm_entry
 
 BASE_METHODS: dict[str, BaseMethod] = {
@@ -82,6 +83,7 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _laplace_mhmc_entry.name: _laplace_mhmc_entry,
     _laplace_dmhmc_entry.name: _laplace_dmhmc_entry,
     _orbital_hmc_entry.name: _orbital_hmc_entry,
+    _rmhmc_entry.name: _rmhmc_entry,
     _additive_step_random_walk_entry.name: _additive_step_random_walk_entry,
 }
 

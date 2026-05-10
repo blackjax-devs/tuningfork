@@ -26,6 +26,7 @@ from bjx_bench.inference.smc.adaptive_tempered import ENTRY as _adaptive_tempere
 from bjx_bench.inference.smc.inner_kernel_tuning import ENTRY as _inner_kernel_tuning
 from bjx_bench.inference.smc.partial_posteriors import ENTRY as _partial_posteriors
 from bjx_bench.inference.smc.persistent_sampling import ENTRY as _persistent_sampling
+from bjx_bench.inference.smc.tempered import ENTRY as _tempered_smc
 
 SMC_METHODS: dict[str, SMCMethod] = {
     _adaptive_tempered.name: _adaptive_tempered,
@@ -33,6 +34,7 @@ SMC_METHODS: dict[str, SMCMethod] = {
     _inner_kernel_tuning.name: _inner_kernel_tuning,
     _persistent_sampling.name: _persistent_sampling,
     _adaptive_persistent_sampling.name: _adaptive_persistent_sampling,
+    _tempered_smc.name: _tempered_smc,
 }
 
 __all__ = ["SMCMethod", "SMC_METHODS"]

@@ -974,3 +974,86 @@ def test_base_methods_contains_p5_15_algorithmic_specials():
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
         f"Check bjx_bench/inference/base_method/__init__.py imports."
     )
+
+
+# ───────── 14. RMHMC (P5.15.5) ───────────────────────────────────────────────
+
+
+def test_blackjax_rmhmc_factory_signature():
+    """Tripwire: blackjax.mcmc.rmhmc.as_top_level_api must accept
+    {logdensity_fn, step_size, mass_matrix, num_integration_steps,
+    divergence_threshold, integrator}.
+
+    Pinned at P5.15.5: bjx_bench/inference/base_method/rmhmc.py calls
+    blackjax.rmhmc(logdensity_fn, step_size=..., mass_matrix=...,
+    num_integration_steps=...).  The CRITICAL parameter is 'mass_matrix'
+    (NOT 'inverse_mass_matrix' -- the bjx-bench factory converts IMM to
+    mass_matrix at the boundary).  If upstream renames this parameter,
+    factory calls will fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.rmhmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "logdensity_fn",
+        "step_size",
+        "mass_matrix",
+        "num_integration_steps",
+        "divergence_threshold",
+        "integrator",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.rmhmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"CRITICAL: if 'mass_matrix' is renamed, the bjx-bench IMM->mass_matrix "
+        f"conversion in bjx_bench/inference/base_method/rmhmc.py will break. "
+        f"Update the wrapper accordingly."
+    )
+    # Verify 'inverse_mass_matrix' is NOT a parameter (would indicate API change).
+    assert "inverse_mass_matrix" not in sig.parameters, (
+        "'inverse_mass_matrix' appeared in rmhmc.as_top_level_api signature. "
+        "If upstream switched to IMM convention, the bjx-bench wrapper's "
+        "IMM->mass_matrix conversion is now double-inverting. "
+        "Update bjx_bench/inference/base_method/rmhmc.py."
+    )
+
+
+def test_blackjax_rmhmc_reuses_hmc_state_and_kernel():
+    """Tripwire: rmhmc.init and rmhmc.build_kernel must be hmc.init and hmc.build_kernel.
+
+    Pinned at P5.15.5: upstream rmhmc.py lines 25-26 read:
+        init = hmc.init
+        build_kernel = hmc.build_kernel
+    This means rmhmc returns HMCState (no distinct RMHMCState NamedTuple).
+    If upstream adds a distinct state type, tripwire-pinned field assertions
+    in test_rmhmc.py need updating.
+    """
+    import blackjax.mcmc.hmc as hmc_mod
+    import blackjax.mcmc.rmhmc as rmhmc_mod
+
+    assert rmhmc_mod.init is hmc_mod.init, (
+        "rmhmc.init is no longer hmc.init. Upstream may have added a distinct "
+        "RMHMCState. Update bjx_bench/inference/base_method/rmhmc.py and "
+        "tests/inference/base_method/test_rmhmc.py state-type assertions."
+    )
+    assert rmhmc_mod.build_kernel is hmc_mod.build_kernel, (
+        "rmhmc.build_kernel is no longer hmc.build_kernel. Upstream may have "
+        "specialized the RMHMC kernel. Update bjx_bench/inference/base_method/rmhmc.py."
+    )
+
+
+def test_base_methods_contains_p5_15_5_rmhmc():
+    """Tripwire: BASE_METHODS must contain 'rmhmc' after P5.15.5 registration.
+
+    Subset check (META-011 dodge): future additions do not break this test.
+    """
+    from bjx_bench.inference.base_method import BASE_METHODS
+
+    assert "rmhmc" in BASE_METHODS, (
+        f"BASE_METHODS is missing 'rmhmc' after P5.15.5 registration. "
+        f"Registered keys: {sorted(BASE_METHODS.keys())}. "
+        f"Check bjx_bench/inference/base_method/__init__.py imports."
+    )

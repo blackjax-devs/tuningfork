@@ -465,3 +465,80 @@ def test_smc_methods_registry_subset_after_p511():
         f"SMC_METHODS registry is missing entries after P5.11 registration: {missing}. "
         f"Update bjx_bench/inference/smc/__init__.py to register all five SMC methods."
     )
+
+
+# ───────── tempered_smc (P5.15.5) ────────────────────────────────────────────
+
+
+def test_blackjax_tempered_smc_as_top_level_api_signature():
+    """Tripwire: blackjax.smc.tempered.as_top_level_api must accept
+    {logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn, mcmc_parameters,
+    resampling_fn, num_mcmc_steps, update_strategy, update_particles_fn}.
+
+    Pinned at P5.15.5: bjx_bench/inference/smc/tempered.py calls
+    _tempered.as_top_level_api(...) with these parameters.  Note that
+    blackjax.tempered_smc (the top-level object) collapses to *args/**kwargs
+    via GenerateSamplingAPI wrapping -- this tripwire inspects the inner module
+    directly, same pattern as adaptive_tempered_smc tripwire (P5.10c).
+    """
+    import inspect
+
+    from blackjax.smc.tempered import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "logprior_fn",
+        "loglikelihood_fn",
+        "mcmc_step_fn",
+        "mcmc_init_fn",
+        "mcmc_parameters",
+        "resampling_fn",
+        "num_mcmc_steps",
+        "update_strategy",
+        "update_particles_fn",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.smc.tempered.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/smc/tempered.py if upstream API changed."
+    )
+
+
+def test_blackjax_tempered_smc_state_fields():
+    """Tripwire: TemperedSMCState._fields must be ('particles', 'weights', 'tempering_param').
+
+    Pinned at P5.15.5: bjx_bench/inference/smc/tempered.py documents that the
+    state field is 'tempering_param' (NOT 'lmbda' as in persistent_sampling).
+    If upstream renames this field, our wrapper's notes and tests/inference/smc/
+    test_tempered.py state-access patterns break silently.
+
+    Finding (P5.15.5): 'tempering_param' is the correct upstream spelling --
+    distinct from 'lmbda' used in blackjax.smc.persistent_sampling.
+    """
+    from blackjax.smc.tempered import TemperedSMCState
+
+    expected = ("particles", "weights", "tempering_param")
+    assert TemperedSMCState._fields == expected, (
+        f"BlackJAX TemperedSMCState fields changed from {expected} to "
+        f"{TemperedSMCState._fields}. "
+        f"Update bjx_bench/inference/smc/tempered.py notes and "
+        f"tests/inference/smc/test_tempered.py state-access patterns. "
+        f"NOTE: field name is 'tempering_param' (not 'lmbda')."
+    )
+
+
+def test_smc_methods_registry_subset_after_p5155():
+    """Tripwire (META-011 subset check): SMC_METHODS must contain 'tempered_smc'
+    after P5.15.5 registration.
+
+    Subset check: future additions to SMC_METHODS do not break this test;
+    only removal of 'tempered_smc' triggers it.
+    """
+    from bjx_bench.inference.smc import SMC_METHODS
+
+    assert "tempered_smc" in SMC_METHODS, (
+        f"SMC_METHODS is missing 'tempered_smc' after P5.15.5 registration. "
+        f"Registered keys: {sorted(SMC_METHODS.keys())}. "
+        f"Check bjx_bench/inference/smc/__init__.py imports."
+    )
