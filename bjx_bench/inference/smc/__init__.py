@@ -19,14 +19,20 @@ SMC methods have a different factory contract from BaseMethod
 """
 
 from bjx_bench.inference.smc._base import SMCMethod
+from bjx_bench.inference.smc.adaptive_persistent_sampling import (
+    ENTRY as _adaptive_persistent_sampling,
+)
 from bjx_bench.inference.smc.adaptive_tempered import ENTRY as _adaptive_tempered
 from bjx_bench.inference.smc.inner_kernel_tuning import ENTRY as _inner_kernel_tuning
 from bjx_bench.inference.smc.partial_posteriors import ENTRY as _partial_posteriors
+from bjx_bench.inference.smc.persistent_sampling import ENTRY as _persistent_sampling
 
 SMC_METHODS: dict[str, SMCMethod] = {
     _adaptive_tempered.name: _adaptive_tempered,
     _partial_posteriors.name: _partial_posteriors,
     _inner_kernel_tuning.name: _inner_kernel_tuning,
+    _persistent_sampling.name: _persistent_sampling,
+    _adaptive_persistent_sampling.name: _adaptive_persistent_sampling,
 }
 
 __all__ = ["SMCMethod", "SMC_METHODS"]

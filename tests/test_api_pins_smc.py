@@ -239,3 +239,229 @@ def test_blackjax_smc_registry_has_three_entries():
         f"SMC_METHODS registry is missing entries after P5.10d registration: {missing}. "
         f"Update bjx_bench/inference/smc/__init__.py to register all three SMC methods."
     )
+
+
+# ─── 13. Persistent sampling family (P5.11) ──────────────────────────────────
+
+
+def test_blackjax_persistent_sampling_as_top_level_api_signature():
+    """Tripwire: blackjax.smc.persistent_sampling.as_top_level_api must have exactly
+    {logprior_fn, loglikelihood_fn, n_schedule, mcmc_step_fn, mcmc_init_fn,
+    mcmc_parameters, resampling_fn, num_mcmc_steps, update_strategy}.
+
+    Pinned at P5.11: bjx_bench/inference/smc/persistent_sampling.py calls
+    blackjax.smc.persistent_sampling.as_top_level_api with keyword args
+    logprior_fn, loglikelihood_fn, n_schedule, mcmc_step_fn, mcmc_init_fn,
+    mcmc_parameters, resampling_fn, num_mcmc_steps.  If upstream renames or
+    removes any of these, the wrapper's factory calls fail.
+
+    Note: update_strategy has a default (update_and_take_last) but is a named
+    POSITIONAL_OR_KEYWORD param — pin its presence.
+    """
+    from blackjax.smc.persistent_sampling import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected_named = {
+        "logprior_fn",
+        "loglikelihood_fn",
+        "n_schedule",
+        "mcmc_step_fn",
+        "mcmc_init_fn",
+        "mcmc_parameters",
+        "resampling_fn",
+        "num_mcmc_steps",
+        "update_strategy",
+    }
+    missing = expected_named - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.smc.persistent_sampling.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/smc/persistent_sampling.py if upstream API changed."
+    )
+    assert set(sig.parameters) == expected_named, (
+        f"blackjax.smc.persistent_sampling.as_top_level_api has unexpected parameters. "
+        f"Expected exactly {expected_named}, got {set(sig.parameters)}. "
+        f"Update bjx_bench/inference/smc/persistent_sampling.py if upstream API changed."
+    )
+
+
+def test_blackjax_adaptive_persistent_sampling_as_top_level_api_signature():
+    """Tripwire: blackjax.smc.adaptive_persistent_sampling.as_top_level_api must have
+    exactly {logprior_fn, loglikelihood_fn, max_iterations, mcmc_step_fn, mcmc_init_fn,
+    mcmc_parameters, resampling_fn, target_ess, num_mcmc_steps, update_strategy,
+    root_solver}.
+
+    Pinned at P5.11: bjx_bench/inference/smc/adaptive_persistent_sampling.py calls
+    blackjax.smc.adaptive_persistent_sampling.as_top_level_api with keyword args
+    logprior_fn, loglikelihood_fn, max_iterations, mcmc_step_fn, mcmc_init_fn,
+    mcmc_parameters, resampling_fn, target_ess, num_mcmc_steps.  If upstream renames
+    or removes any of these, the wrapper's factory calls fail.
+    """
+    from blackjax.smc.adaptive_persistent_sampling import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected_named = {
+        "logprior_fn",
+        "loglikelihood_fn",
+        "max_iterations",
+        "mcmc_step_fn",
+        "mcmc_init_fn",
+        "mcmc_parameters",
+        "resampling_fn",
+        "target_ess",
+        "num_mcmc_steps",
+        "update_strategy",
+        "root_solver",
+    }
+    missing = expected_named - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.smc.adaptive_persistent_sampling.as_top_level_api is missing parameters: "
+        f"{missing}. Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/smc/adaptive_persistent_sampling.py if upstream API changed."
+    )
+    assert set(sig.parameters) == expected_named, (
+        f"blackjax.smc.adaptive_persistent_sampling.as_top_level_api has unexpected parameters. "
+        f"Expected exactly {expected_named}, got {set(sig.parameters)}. "
+        f"Update bjx_bench/inference/smc/adaptive_persistent_sampling.py if upstream API changed."
+    )
+
+
+def test_blackjax_adaptive_persistent_sampling_step_arity_is_two_arg():
+    """Tripwire — META-004 candidate #8: step_fn of adaptive_persistent_sampling
+    is 2-arg (rng_key, state), NOT 3-arg (rng_key, state, lmbda) as the docstring
+    incorrectly states.
+
+    Pinned at P5.11: bjx_bench/inference/smc/adaptive_persistent_sampling.py
+    wraps the 2-arg step_fn as a standard bjx-bench step (step_kwargs_schema=()).
+    If upstream silently changes step_fn to 3-arg, our wrapper would silently
+    drop the lmbda arg, producing incorrect (delta=0) tempering.
+
+    We pin BOTH aspects:
+    1. The actual parameter count of step_fn is 2 (rng_key, state).
+    2. The upstream docstring STILL says '(rng_key, state, lmbda)' — if that
+       changes (docstring fix), the second assertion fires, reminding us to
+       re-audit whether the actual arity also changed.
+
+    When the docstring is eventually fixed upstream, remove or update the
+    docstring mismatch assertion below.
+    """
+    import functools as _functools
+
+    import blackjax.mcmc.random_walk as _rw
+    import jax.numpy as _jnp
+    from blackjax.base import SamplingAlgorithm as _SA
+    from blackjax.smc import resampling as _resampling
+    from blackjax.smc.adaptive_persistent_sampling import as_top_level_api
+
+    # Build a minimal algorithm instance to inspect the step_fn arity
+    def _logprior(x):
+        return -0.5 * _jnp.sum(x**2)
+
+    def _loglikelihood(x):
+        return -0.5 * _jnp.sum((x - 1.0) ** 2)
+
+    sigma_arr = _jnp.full(3, 0.5)
+    _step = _functools.partial(
+        _rw.build_additive_step(), random_step=_rw.normal(sigma_arr)
+    )
+    inner = _SA(init=_rw.init, step=_step)
+
+    alg = as_top_level_api(
+        logprior_fn=_logprior,
+        loglikelihood_fn=_loglikelihood,
+        max_iterations=5,
+        mcmc_step_fn=inner.step,
+        mcmc_init_fn=inner.init,
+        mcmc_parameters={},
+        resampling_fn=_resampling.systematic,
+        target_ess=0.5,
+        num_mcmc_steps=2,
+    )
+
+    step_sig = inspect.signature(alg.step)
+    actual_params = list(step_sig.parameters)
+    assert actual_params == ["rng_key", "state"], (
+        f"adaptive_persistent_sampling step_fn arity changed from 2-arg to {actual_params}. "
+        f"Update bjx_bench/inference/smc/adaptive_persistent_sampling.py: if now 3-arg, "
+        f"set step_kwargs_schema=('lmbda',) and update the factory. "
+        f"META-004 candidate #8 — check if docstring was also fixed upstream."
+    )
+
+    # Pin the docstring mismatch: upstream says '(rng_key, state, lmbda)' but step is 2-arg.
+    # When upstream fixes the docstring, this assertion will fire — re-audit at that point.
+    docstring = as_top_level_api.__doc__ or ""
+    assert "lmbda" in docstring, (
+        "blackjax.smc.adaptive_persistent_sampling.as_top_level_api docstring no longer "
+        "mentions 'lmbda' in the step signature description. The upstream docstring/arity "
+        "mismatch (META-004 #8) may have been fixed. Re-audit: confirm actual step arity "
+        "is still 2-arg (rng_key, state) and update bjx_bench wrapper notes accordingly."
+    )
+
+
+def test_blackjax_persistent_smc_state_fields():
+    """Tripwire: PersistentSMCState._fields must be
+    ('persistent_particles', 'persistent_log_likelihoods', 'persistent_log_Z',
+    'tempering_schedule', 'iteration').
+
+    Pinned at P5.11: bjx_bench wrapper docs and tests access state.particles
+    (property), state.tempering_param (property), state.iteration, and
+    state.persistent_particles (direct field). If upstream renames or adds/removes
+    fields, our access patterns break.
+    """
+    from blackjax.smc.persistent_sampling import PersistentSMCState
+
+    expected = (
+        "persistent_particles",
+        "persistent_log_likelihoods",
+        "persistent_log_Z",
+        "tempering_schedule",
+        "iteration",
+    )
+    assert PersistentSMCState._fields == expected, (
+        f"BlackJAX PersistentSMCState fields changed from {expected} to "
+        f"{PersistentSMCState._fields}. "
+        f"Update bjx_bench/inference/smc/persistent_sampling.py notes and "
+        f"tests/inference/smc/test_persistent_sampling.py state-access patterns."
+    )
+
+
+def test_blackjax_persistent_state_info_fields():
+    """Tripwire: PersistentStateInfo._fields must be ('ancestors', 'update_info').
+
+    Pinned at P5.11: tests access info.ancestors (resampling indices) and
+    info.update_info (MCMC kernel info). If upstream renames these fields,
+    our access patterns break silently.
+    """
+    from blackjax.smc.persistent_sampling import PersistentStateInfo
+
+    expected = ("ancestors", "update_info")
+    assert PersistentStateInfo._fields == expected, (
+        f"BlackJAX PersistentStateInfo fields changed from {expected} to "
+        f"{PersistentStateInfo._fields}. "
+        f"Update bjx_bench/inference/smc/persistent_sampling.py notes and "
+        f"tests/inference/smc/test_persistent_sampling.py info-access patterns."
+    )
+
+
+def test_smc_methods_registry_subset_after_p511():
+    """Tripwire (META-011 subset check): SMC_METHODS must contain at minimum the five
+    entries registered after P5.11 (adaptive_tempered_smc, partial_posteriors_smc,
+    inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc).
+
+    Uses subset check (not equality) per META-011: future additions to SMC_METHODS
+    should not trigger this tripwire — only removals will.
+    """
+    from bjx_bench.inference.smc import SMC_METHODS
+
+    required = {
+        "adaptive_tempered_smc",
+        "partial_posteriors_smc",
+        "inner_kernel_tuning",
+        "persistent_sampling_smc",
+        "adaptive_persistent_sampling_smc",
+    }
+    missing = required - set(SMC_METHODS.keys())
+    assert not missing, (
+        f"SMC_METHODS registry is missing entries after P5.11 registration: {missing}. "
+        f"Update bjx_bench/inference/smc/__init__.py to register all five SMC methods."
+    )
