@@ -80,4 +80,10 @@ profile = "black"
 [tool.pytest.ini_options]
 filterwarnings = ["error"]
 addopts = "-n 2"
-markers = ["fast: pure-logic tests that do not run a chain (use -m fast for inner-loop iteration)"]
+markers = [
+    "fast: pure-logic tests that do not run a chain (use -m fast for inner-loop iteration)",
+    "slow: chain-running or warmup tests; JAX-compiled body (>1 s wall time)",
+    "e2e: end-to-end phase-gate tests; multiple algorithms × models (>10 s each)",
+    "requires_posteriordb: tests that need the posteriordb data cache; fail offline",
+    "benchmark: reserved for future performance benchmarks",
+]
