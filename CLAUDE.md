@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`bjx-bench` is a BlackJAX-native benchmark library for MCMC/VI/SMC samplers. The full design lives in `../PLAN_bjx_bench.md`. Read that first for context — the 14-model suite, 3-tier calibration protocol (Tier-A gold ref / Tier-B per-algorithm tuning / Tier-C warmup-isolated), and headline metric `min-bulk-ESS / total_grad_evals` are all specified there.
+`bjx-bench` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. Phase 6 (recipe building under auto-gate) is next; the active plan is `../PLAN_phase6_recipe_matrix.md` (statistician-authored, 8-table colour-coded effort matrix + supersession map).
+
+Architecture decisions: 14-model suite, 3-tier calibration protocol (Tier-A gold ref / Tier-B per-algorithm tuning / Tier-C warmup-isolated), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history + frozen design snapshots (Phases 1-5 plans, audits, retrospectives) live under `../archive/bjx-bench/`.
 
 This is a **sibling repo** to `blackjax/` and `sampling-book/`, not a subdir of either. Heavy deps (Optuna, datasets, plotting) live here so `blackjax/` core stays light.
 
@@ -53,44 +55,64 @@ tests/
 
 **Discipline rule**: Every test must be tagged with exactly one of `fast`, `slow`, or `e2e`. If a test needs posteriordb, add `@pytest.mark.requires_posteriordb` as a second marker.
 
+**Three test_api_pins files at root** (split by family during TASK-004 PR-4): `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
+
 **Mandatory for agents**:
 - Run `make clean-orphans` before any heavy test sweep. See META-014 in `/home/jp/blackjax-devs/WORKLOG.md` — orphan Python REPLs can silently consume 7+ GB.
 - When adding a test, tag it with **exactly one** of `@pytest.mark.fast` / `@pytest.mark.slow` / `@pytest.mark.e2e`. Use module-level `pytestmark = pytest.mark.<marker>` if all tests in the file are the same kind.
 
 For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Architecture (per PLAN_bjx_bench.md)
+## Architecture
+
+Source layout reflects Phase 5 reorganization (`registry/` → `model/`, `algorithms/` → `inference/base_method/`, warmup wrappers reorganized under `inference/warmup/`, new `inference/smc/` for the SMC family):
 
 ```
 bjx_bench/
-├── registry/         # PosteriorEntry definitions, grouped by class
-│   ├── gaussians/        # models 1, 2
-│   ├── hierarchical/     # models 3, 6, 10
-│   ├── pathological/     # models 4, 5, 11
-│   ├── glm/              # models 7, 8, 9
-│   ├── latent_gaussian/  # models 12, 14
-│   └── ode/              # model 13
-├── data/             # raw datasets + generation scripts
-├── reference/        # Tier-A artifacts
-│   ├── draws/            # *.npz (gitignored; 100k-sample chains are large)
-│   ├── summaries/        # *.json (mean, std, 5%, 95%)
-│   ├── adaptation/       # *.json (step_size*, IMM*, num_leapfrog*)
-│   └── posteriordb_xcheck/  # discrepancy reports
-├── algorithms/       # thin wrappers around BlackJAX samplers; common signature
-├── warmup/           # Tier-C warmup wrappers (Stan window, MEADS, ChEES, Pathfinder, MCLMC tuning, no-op)
+├── model/                     # 14 PosteriorEntry definitions + MODELS registry
+├── inference/
+│   ├── base_method/           # 24 wrappers — see ENTRIES list below
+│   ├── warmup/                # 10 warmup wrappers — see ENTRIES list below
+│   └── smc/                   # 6 SMC method wrappers — see ENTRIES list below
+├── data/                      # raw datasets + generation scripts
+├── reference/                 # Tier-A artifacts
+│   ├── draws/                 # *.npz (gitignored; 100k-sample chains)
+│   ├── summaries/             # *.json (mean, std, 5%, 95%)
+│   ├── adaptation/            # *.json (step_size*, IMM*, num_leapfrog*)
+│   └── posteriordb_xcheck/    # discrepancy reports
 ├── calibration/
-│   ├── tier_a.py     # 1×100k NUTS, 10-chunk split-R̂ certifier
-│   ├── tier_b.py     # Optuna BO loop
-│   └── targets.py    # acceptance-rate / energy-error objectives
+│   ├── tier_a.py              # 1×100k NUTS, 10-chunk split-R̂ certifier
+│   ├── tier_b.py              # Optuna BO loop
+│   └── targets.py             # acceptance-rate / energy-error objectives
 ├── metrics/
-│   ├── headline.py   # min-bulk-ESS / total_grad_evals
+│   ├── headline.py            # min-bulk-ESS / total_grad_evals
 │   ├── diagnostics.py
 │   ├── reference_compare.py
-│   └── grad_counter.py    # logdensity_fn wrapper that counts grad evals
-├── runner/           # single-cell + matrix execution; persist to sqlite/parquet
+│   └── grad_counter.py        # logdensity_fn wrapper that counts grad evals
+├── runner/
+│   └── smc.py                 # init_particles_from_prior + run_smc helpers (P5.10e)
 ├── reporting/
 └── cli.py
 ```
+
+### Inventory (Phase 5 close)
+
+**24 base methods** (`inference/base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
+
+**10 warmups** (`inference/warmup/__init__.py:WARMUPS`): no_warmup, stan_window, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
+
+**6 SMC methods** (`inference/smc/__init__.py:SMC_METHODS`): adaptive_tempered_smc, tempered_smc, partial_posteriors_smc, inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc.
+
+### Specialised factories (`extra_required_kwargs`)
+
+Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, inverse_mass_matrix, ...)` shape — schema field `BaseMethod.extra_required_kwargs: tuple[str, ...]` declares them so the recipe runner can inject from `PosteriorEntry` metadata at call time. Currently:
+
+| Method | Extra required kwargs |
+|---|---|
+| `mgrad_gaussian`, `elliptical_slice` | `("prior_cov", "prior_mean")` |
+| `irmh` | `("proposal_distribution",)` |
+| `additive_step_random_walk` | `("proposal_generator",)` |
+| `laplace_hmc`, `laplace_dhmc`, `laplace_mhmc`, `laplace_dmhmc` | `("log_joint_fn", "theta_init")` |
 
 ## Out of scope for v1 (per resolved decisions)
 
