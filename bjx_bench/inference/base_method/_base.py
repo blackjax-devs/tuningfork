@@ -151,12 +151,21 @@ class BaseMethod:
     notes
         Free-form string for algorithm-specific caveats, citations, or
         implementation notes.
+    requires_prior_metadata
+        When ``True``, the BaseMethod's factory requires Gaussian-prior metadata
+        (``prior_cov``, ``prior_mean``) as keyword arguments in addition to
+        ``logdensity_fn``.  Used by latent-Gaussian specialists (P5.8).  Phase 6's
+        recipe-runner is responsible for extracting these from the
+        ``PosteriorEntry``'s prior structure and threading them through.  The
+        standard ``no_warmup`` path raises ``NotImplementedError`` for these
+        methods.
 
     Raises
     ------
     ValueError
         If ``name`` is empty; if ``family`` is not one of the three
-        valid values; or if ``default_hp_space`` is empty.
+        valid values; or if ``default_hp_space`` is empty and
+        ``requires_prior_metadata`` is ``False``.
 
     Notes
     -----
@@ -188,6 +197,16 @@ class BaseMethod:
     needs_mass_matrix: bool = False
     target_acceptance_rate: float | None = None
     notes: str = ""
+    # ---- specialised: latent-Gaussian samplers (P5.8) ----
+    requires_prior_metadata: bool = False
+    """When True, the BaseMethod's factory requires Gaussian-prior metadata
+    (``prior_cov``, ``prior_mean``) as keyword arguments in addition to
+    ``logdensity_fn``.  Used by latent-Gaussian specialists (P5.8).  Phase 6's
+    recipe-runner is responsible for extracting these from the
+    ``PosteriorEntry``'s prior structure and threading them through.  The
+    standard ``no_warmup`` path raises ``NotImplementedError`` for these
+    methods.
+    """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})
 
@@ -199,7 +218,7 @@ class BaseMethod:
                 f"BaseMethod '{self.name}': family must be one of "
                 f"{sorted(self._VALID_FAMILIES)}, got '{self.family}'"
             )
-        if not self.default_hp_space:
+        if not self.default_hp_space and not self.requires_prior_metadata:
             raise ValueError(
                 f"BaseMethod '{self.name}': 'default_hp_space' must contain "
                 f"at least one HyperparamSpace entry"

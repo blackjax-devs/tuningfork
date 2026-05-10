@@ -172,9 +172,23 @@ class TestBaseMethodValidation:
         with pytest.raises(ValueError, match="family must be one of"):
             _make_entry(family="nuts")  # type: ignore[arg-type]
 
-    def test_empty_hp_space_raises(self) -> None:
+    def test_empty_hp_space_raises_when_not_prior_metadata(self) -> None:
+        """Test A (preserved): empty HP space + requires_prior_metadata=False (default) STILL raises."""
         with pytest.raises(ValueError, match="'default_hp_space' must contain"):
-            _make_entry(default_hp_space=())
+            _make_entry(default_hp_space=(), requires_prior_metadata=False)
+
+    def test_empty_hp_space_allowed_when_requires_prior_metadata(self) -> None:
+        """Test B (new): empty HP space + requires_prior_metadata=True does NOT raise."""
+        entry = _make_entry(default_hp_space=(), requires_prior_metadata=True)
+        assert entry.requires_prior_metadata is True
+        assert entry.default_hp_space == ()
+
+    def test_requires_prior_metadata_defaults_false(self) -> None:
+        """Test C: default of requires_prior_metadata is False on a vanilla entry."""
+        from bjx_bench.inference.base_method import BASE_METHODS
+
+        hmc_entry = BASE_METHODS["hmc"]
+        assert hmc_entry.requires_prior_metadata is False
 
 
 class TestBaseMethodSmoke:

@@ -103,6 +103,14 @@ def _runner(
     """
     from bjx_bench.calibration.tier_b import default_params_for
 
+    if base_method.requires_prior_metadata:
+        raise NotImplementedError(
+            f"BaseMethod '{base_method.name}' requires Gaussian-prior metadata "
+            f"(prior_cov, prior_mean) which the no_warmup runner cannot supply. "
+            f"Use a specialised invocation path (Phase 6 recipe-runner integration). "
+            f"For unit tests, call base_method.factory directly with prior_cov + prior_mean kwargs."
+        )
+
     defaults = default_params_for(base_method)
 
     # For kernels that require an inverse_mass_matrix (e.g. HMC, NUTS, Barker)

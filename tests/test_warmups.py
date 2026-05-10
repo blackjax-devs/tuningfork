@@ -1618,3 +1618,39 @@ class TestAdjustedMclmcTuning:
             steps, int
         ), f"_total_tuning_steps must be int, got {type(steps)}"
         assert steps > 0, f"_total_tuning_steps must be > 0, got {steps}"
+
+
+# ---------------------------------------------------------------------------
+# TestNoWarmupGuards (P5.8)
+# ---------------------------------------------------------------------------
+
+
+class TestNoWarmupGuards:
+    """no_warmup._runner raises NotImplementedError for requires_prior_metadata=True methods."""
+
+    def test_no_warmup_raises_for_elliptical_slice(self) -> None:
+        """elliptical_slice.requires_prior_metadata=True → no_warmup raises NotImplementedError."""
+        import pytest
+
+        from bjx_bench.inference.base_method.elliptical_slice import (
+            ENTRY as _ELLIP_SLICE,
+        )
+        from bjx_bench.inference.warmup import WARMUPS
+
+        key = jax.random.key(9001)
+        init_pos = jnp.zeros(5)
+
+        def dummy_logdensity(x):
+            return -0.5 * jnp.sum(x**2)
+
+        with pytest.raises(
+            NotImplementedError, match="requires Gaussian-prior metadata"
+        ):
+            WARMUPS["no_warmup"].runner(
+                key,
+                init_pos,
+                0,
+                _ELLIP_SLICE,
+                logdensity_fn=dummy_logdensity,
+                num_chains=1,
+            )
