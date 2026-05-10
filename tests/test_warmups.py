@@ -1453,3 +1453,161 @@ class TestCheesMultiChain:
         assert ENTRY.is_compatible(
             "dynamic_hmc"
         ), "chees must be compatible with dynamic_hmc"
+
+
+# ---------------------------------------------------------------------------
+# 16. P5.7: adjusted_mclmc_tuning warmup (adjusted_mclmc + adjusted_mclmc_dynamic)
+# ---------------------------------------------------------------------------
+
+
+class TestAdjustedMclmcTuning:
+    """P5.7: adjusted_mclmc_tuning warmup registry and multi-chain shape contract tests.
+
+    adjusted_mclmc_tuning uses blackjax.adjusted_mclmc_find_L_and_step_size
+    (static kernel) to jointly find L, step_size, and a diagonal IMM.
+    Compatible with both adjusted_mclmc and adjusted_mclmc_dynamic.
+    """
+
+    def test_adjusted_mclmc_tuning_entry_importable(self) -> None:
+        """P5.7: adjusted_mclmc_tuning ENTRY is importable as a Warmup instance."""
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert isinstance(ENTRY, Warmup), f"ENTRY is not a Warmup: {type(ENTRY)}"
+        assert ENTRY.name == "adjusted_mclmc_tuning"
+
+    def test_adjusted_mclmc_tuning_is_warmup_instance(self) -> None:
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert isinstance(ENTRY, Warmup)
+
+    def test_adjusted_mclmc_tuning_name_matches_key(self) -> None:
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert ENTRY.name == "adjusted_mclmc_tuning"
+
+    def test_compatible_with_adjusted_mclmc(self) -> None:
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert ENTRY.is_compatible("adjusted_mclmc")
+
+    def test_compatible_with_adjusted_mclmc_dynamic(self) -> None:
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert ENTRY.is_compatible("adjusted_mclmc_dynamic")
+
+    def test_not_compatible_with_nuts(self) -> None:
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert not ENTRY.is_compatible("nuts")
+
+    def test_not_compatible_with_mclmc(self) -> None:
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        assert not ENTRY.is_compatible("mclmc")
+
+    def test_single_chain_signature_adjusted_mclmc(self) -> None:
+        """Single-chain run on 5-D MVN with adjusted_mclmc."""
+        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        key = jax.random.key(8001)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        warmup_key = jax.random.fold_in(key, 1)
+
+        states, params = ENTRY.runner(
+            warmup_key,
+            init_pos,
+            100,
+            _ADJ_MCLMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=1,
+        )
+        assert states is not None
+        assert isinstance(params, dict)
+        assert "L" in params, f"L missing; keys={list(params)}"
+        assert "step_size" in params, f"step_size missing; keys={list(params)}"
+        assert (
+            "inverse_mass_matrix" in params
+        ), f"inverse_mass_matrix missing; keys={list(params)}"
+        assert (
+            "_total_tuning_steps" in params
+        ), f"_total_tuning_steps missing; keys={list(params)}"
+
+    def test_single_chain_L_and_step_size_positive(self) -> None:
+        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        key = jax.random.key(8002)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        warmup_key = jax.random.fold_in(key, 1)
+
+        _, params = ENTRY.runner(
+            warmup_key,
+            init_pos,
+            100,
+            _ADJ_MCLMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=1,
+        )
+        assert bool(jnp.all(jnp.asarray(params["L"]) > 0)), f"L not > 0: {params['L']}"
+        assert bool(
+            jnp.all(jnp.asarray(params["step_size"]) > 0)
+        ), f"step_size not > 0: {params['step_size']}"
+
+    def test_multi_chain_3_shape(self) -> None:
+        """num_chains=3: L/step_size shape (3,), IMM shape (3, d)."""
+        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        key = jax.random.key(8003)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        warmup_key = jax.random.fold_in(key, 1)
+
+        states, params = ENTRY.runner(
+            warmup_key,
+            init_pos,
+            100,
+            _ADJ_MCLMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=3,
+        )
+        # State leading dim == 3
+        leaves = jax.tree.leaves(states)
+        assert (
+            leaves[0].shape[0] == 3
+        ), f"Expected leading dim 3, got {leaves[0].shape[0]}"
+
+        # L shape (3,)
+        L = jnp.asarray(params["L"])
+        assert L.shape == (3,), f"Expected L.shape=(3,), got {L.shape}"
+
+        # step_size shape (3,)
+        ss = jnp.asarray(params["step_size"])
+        assert ss.shape == (3,), f"Expected step_size.shape=(3,), got {ss.shape}"
+
+        # inverse_mass_matrix shape (3, d)
+        imm = params["inverse_mass_matrix"]
+        d = _D
+        assert imm.shape == (3, d), f"Expected IMM.shape=(3, {d}), got {imm.shape}"
+
+    def test_total_tuning_steps_is_python_int(self) -> None:
+        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+
+        key = jax.random.key(8004)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        warmup_key = jax.random.fold_in(key, 1)
+
+        _, params = ENTRY.runner(
+            warmup_key,
+            init_pos,
+            100,
+            _ADJ_MCLMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=2,
+        )
+        steps = params["_total_tuning_steps"]
+        assert isinstance(
+            steps, int
+        ), f"_total_tuning_steps must be int, got {type(steps)}"
+        assert steps > 0, f"_total_tuning_steps must be > 0, got {steps}"
