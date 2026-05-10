@@ -19,7 +19,9 @@ with a clear message pointing at the file in bjx-bench that needs an update.
 
 Includes sections: 1 (MCLMC), 2 (MCLMCInfo), 3 (MCLMCAdaptationState),
 4 (HMCInfo/NUTSInfo), 6 (GHMC), 7 (dynamic_hmc), 8 (adjusted_mclmc),
-9 (elliptical_slice + mgrad_gaussian), 10 (irmh).
+9 (elliptical_slice + mgrad_gaussian), 10 (irmh),
+11 (standard-momentum 2x2: mhmc + dmhmc),
+12 (Laplace-marginal 2x2: laplace_hmc + laplace_dhmc + laplace_mhmc + laplace_dmhmc).
 """
 
 import blackjax
@@ -673,6 +675,175 @@ def test_base_methods_contains_mhmc_and_dmhmc():
     missing = required - set(BASE_METHODS.keys())
     assert not missing, (
         f"BASE_METHODS is missing entries: {missing}. "
+        f"Registered keys: {sorted(BASE_METHODS.keys())}. "
+        f"Check bjx_bench/inference/base_method/__init__.py imports."
+    )
+
+
+# ───────── 12. Laplace-marginal 2×2 (P5.14b) ─────────────────────────────────
+
+
+def test_blackjax_laplace_hmc_factory_signature():
+    """Tripwire: blackjax.mcmc.laplace_hmc.as_top_level_api must accept
+    {log_joint_fn, theta_init, step_size, inverse_mass_matrix,
+    num_integration_steps, divergence_threshold, integrator, build_proposal}.
+
+    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_hmc.py calls
+    blackjax.laplace_hmc(log_joint_fn, theta_init, step_size,
+    inverse_mass_matrix, num_integration_steps, **optimizer_kwargs).
+    If upstream renames or removes any of these, the wrapper fails silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.laplace_hmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "log_joint_fn",
+        "theta_init",
+        "step_size",
+        "inverse_mass_matrix",
+        "num_integration_steps",
+        "divergence_threshold",
+        "integrator",
+        "build_proposal",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.laplace_hmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/laplace_hmc.py and "
+        f"bjx_bench/inference/base_method/laplace_mhmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_laplace_dhmc_factory_signature():
+    """Tripwire: blackjax.mcmc.laplace_dynamic_hmc.as_top_level_api must accept
+    {log_joint_fn, theta_init, step_size, inverse_mass_matrix,
+    divergence_threshold, integrator, next_random_arg_fn, integration_steps_fn,
+    integration_steps_params, build_proposal}.
+
+    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_dhmc.py calls
+    blackjax.laplace_dhmc(log_joint_fn, theta_init, step_size,
+    inverse_mass_matrix, **optimizer_kwargs).
+    If upstream renames or removes any of these, the wrapper fails silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.laplace_dynamic_hmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "log_joint_fn",
+        "theta_init",
+        "step_size",
+        "inverse_mass_matrix",
+        "divergence_threshold",
+        "integrator",
+        "next_random_arg_fn",
+        "integration_steps_fn",
+        "build_proposal",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.laplace_dynamic_hmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/laplace_dhmc.py and "
+        f"bjx_bench/inference/base_method/laplace_dmhmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_laplace_hmc_state_fields():
+    """Tripwire: LaplaceHMCState._fields must be
+    ('position', 'logdensity', 'logdensity_grad', 'theta_star').
+
+    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_hmc.py and
+    laplace_mhmc.py depend on the state carrying theta_star (the MAP latent
+    at current phi, used for warm-starting L-BFGS).  If upstream renames or
+    removes theta_star, warm-start and gradient accounting break silently.
+    """
+    from blackjax.mcmc.laplace_hmc import LaplaceHMCState
+
+    expected = ("position", "logdensity", "logdensity_grad", "theta_star")
+    assert LaplaceHMCState._fields == expected, (
+        f"BlackJAX LaplaceHMCState fields changed from {expected} to "
+        f"{LaplaceHMCState._fields}. "
+        f"Update bjx_bench/inference/base_method/laplace_hmc.py, laplace_mhmc.py "
+        f"and tests/inference/base_method/test_laplace_hmc.py."
+    )
+
+
+def test_blackjax_laplace_dynamic_hmc_state_fields():
+    """Tripwire: LaplaceDynamicHMCState._fields must be
+    ('position', 'logdensity', 'logdensity_grad', 'theta_star', 'random_generator_arg').
+
+    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_dhmc.py and
+    laplace_dmhmc.py depend on the state carrying both theta_star (warm-start)
+    and random_generator_arg (Halton step-count seed).  If either field is
+    renamed or removed, the dynamic wrappers break at runtime.
+    """
+    from blackjax.mcmc.laplace_dynamic_hmc import LaplaceDynamicHMCState
+
+    expected = (
+        "position",
+        "logdensity",
+        "logdensity_grad",
+        "theta_star",
+        "random_generator_arg",
+    )
+    assert LaplaceDynamicHMCState._fields == expected, (
+        f"BlackJAX LaplaceDynamicHMCState fields changed from {expected} to "
+        f"{LaplaceDynamicHMCState._fields}. "
+        f"Update bjx_bench/inference/base_method/laplace_dhmc.py, laplace_dmhmc.py "
+        f"and tests/inference/base_method/test_laplace_dhmc.py."
+    )
+
+
+def test_blackjax_laplace_hmc_build_kernel_callable():
+    """Tripwire: blackjax.mcmc.laplace_hmc.build_kernel must be callable.
+
+    Pinned at P5.14b: documents that the composable-kernel layer exists.
+    If upstream removes or renames build_kernel (e.g. following a module
+    refactor), this fires immediately rather than at kernel construction time.
+    """
+    import blackjax.mcmc.laplace_hmc as lh
+
+    assert callable(lh.build_kernel), (
+        "blackjax.mcmc.laplace_hmc.build_kernel is not callable. "
+        "Upstream may have removed or renamed the composable kernel layer. "
+        "Update bjx_bench/inference/base_method/laplace_hmc.py and laplace_mhmc.py."
+    )
+
+
+def test_blackjax_laplace_dynamic_hmc_build_kernel_callable():
+    """Tripwire: blackjax.mcmc.laplace_dynamic_hmc.build_kernel must be callable.
+
+    Pinned at P5.14b: documents that the composable-kernel layer exists for
+    the dynamic variant.  If upstream removes or renames build_kernel, this
+    fires immediately rather than at kernel construction time.
+    """
+    import blackjax.mcmc.laplace_dynamic_hmc as ldh
+
+    assert callable(ldh.build_kernel), (
+        "blackjax.mcmc.laplace_dynamic_hmc.build_kernel is not callable. "
+        "Upstream may have removed or renamed the composable kernel layer. "
+        "Update bjx_bench/inference/base_method/laplace_dhmc.py and laplace_dmhmc.py."
+    )
+
+
+def test_base_methods_contains_laplace_marginal_2x2():
+    """Tripwire: BASE_METHODS must contain all 4 Laplace-marginal entries.
+
+    Pinned at P5.14b (META-011 dodge: subset check, not equality, so adding
+    new algorithms doesn't break this test).  If any of the 4 entries is
+    accidentally dropped from __init__.py, this fires immediately.
+    """
+    from bjx_bench.inference.base_method import BASE_METHODS
+
+    required = {"laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc"}
+    missing = required - set(BASE_METHODS.keys())
+    assert not missing, (
+        f"BASE_METHODS is missing Laplace-marginal entries: {missing}. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
         f"Check bjx_bench/inference/base_method/__init__.py imports."
     )

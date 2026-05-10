@@ -41,6 +41,10 @@ from bjx_bench.inference.base_method.fullrank_vi import ENTRY as _fullrank_vi_en
 from bjx_bench.inference.base_method.ghmc import ENTRY as _ghmc_entry
 from bjx_bench.inference.base_method.hmc import ENTRY as _hmc_entry
 from bjx_bench.inference.base_method.irmh import ENTRY as _irmh_entry
+from bjx_bench.inference.base_method.laplace_dhmc import ENTRY as _laplace_dhmc_entry
+from bjx_bench.inference.base_method.laplace_dmhmc import ENTRY as _laplace_dmhmc_entry
+from bjx_bench.inference.base_method.laplace_hmc import ENTRY as _laplace_hmc_entry
+from bjx_bench.inference.base_method.laplace_mhmc import ENTRY as _laplace_mhmc_entry
 from bjx_bench.inference.base_method.mala import ENTRY as _mala_entry
 from bjx_bench.inference.base_method.mclmc import ENTRY as _mclmc_entry
 from bjx_bench.inference.base_method.meanfield_vi import ENTRY as _meanfield_vi_entry
@@ -69,6 +73,10 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _irmh_entry.name: _irmh_entry,
     _meanfield_vi_entry.name: _meanfield_vi_entry,
     _fullrank_vi_entry.name: _fullrank_vi_entry,
+    _laplace_hmc_entry.name: _laplace_hmc_entry,
+    _laplace_dhmc_entry.name: _laplace_dhmc_entry,
+    _laplace_mhmc_entry.name: _laplace_mhmc_entry,
+    _laplace_dmhmc_entry.name: _laplace_dmhmc_entry,
 }
 
 __all__ = ["BaseMethod", "HyperparamSpace", "BASE_METHODS"]
