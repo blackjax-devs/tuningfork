@@ -246,10 +246,10 @@ class Recipe:
     # `bjx_bench/metrics/reference_compare.py` is wired (Phase 6).
     sample_quality: dict[str, float] | None
 
-    # ---- Calibration cost (the persona filter) ----
+    # ---- Calibration cost (production effort summary) ----
     calibration_budget: dict[
         str, Any
-    ]  # {"trials": int, "wall_seconds_estimate": float}
+    ]  # {"trials": int, "wall_seconds_estimate": float, ...}
 
     # ---- Difficulty profile (only meaningful for HIGH; None for LOW/MEDIUM) ----
     difficulty: dict[str, Any] | None  # serialized TuningDifficulty.asdict() or None
