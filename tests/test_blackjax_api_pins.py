@@ -510,7 +510,105 @@ def test_blackjax_make_random_trajectory_length_fn_signature():
     )
 
 
-# ───────────────── 9. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+# ───────────────── 9. elliptical_slice + mgrad_gaussian (P5.8) ─────────────────
+
+
+def test_blackjax_elliptical_slice_factory_signature():
+    """Tripwire: blackjax.mcmc.elliptical_slice.as_top_level_api must accept
+    {loglikelihood_fn, mean, cov}.
+
+    Pinned at P5.8: bjx_bench/inference/base_method/elliptical_slice.py wraps
+    blackjax.elliptical_slice(logdensity_fn, mean=prior_mean, cov=prior_cov)
+    where the upstream positional arg is named 'loglikelihood_fn' (not 'logdensity_fn').
+    If upstream renames this param, our wrapper silently diverges in naming convention
+    and callers become confused about what the first arg should contain.
+    """
+    import inspect
+
+    from blackjax.mcmc.elliptical_slice import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {"loglikelihood_fn", "mean", "cov"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.elliptical_slice.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/elliptical_slice.py if upstream API changed. "
+        f"CRITICAL: if 'loglikelihood_fn' was renamed, update the docstring warning in _factory "
+        f"and the ENTRY notes — callers must supply a likelihood-ONLY function."
+    )
+
+
+def test_blackjax_mgrad_gaussian_factory_signature():
+    """Tripwire: blackjax.mcmc.marginal_latent_gaussian.as_top_level_api must accept
+    {logdensity_fn, covariance, mean, cov_svd, step_size}.
+
+    Pinned at P5.8: bjx_bench/inference/base_method/mgrad_gaussian.py calls
+    blackjax.mgrad_gaussian(logdensity_fn, covariance=prior_cov, mean=prior_mean,
+    step_size=step_size).  If upstream renames or removes any of these, factory
+    calls in the BO loop fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.marginal_latent_gaussian import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {"logdensity_fn", "covariance", "mean", "cov_svd", "step_size"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.marginal_latent_gaussian.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/mgrad_gaussian.py if upstream API changed."
+    )
+
+
+def test_blackjax_ellip_slice_info_fields_and_marginal_info_fields():
+    """Tripwire: pin EllipSliceInfo._fields and MarginalInfo._fields.
+
+    Pinned at P5.8:
+    - EllipSliceInfo._fields == ('momentum', 'theta', 'subiter'). The absence of
+      'acceptance_rate' is intentional (slice sampler always accepts); if upstream
+      adds it, our grad_count_per_step=0 and target_acceptance_rate=None decisions
+      need revisiting.
+    - MarginalInfo._fields == ('acceptance_rate', 'is_accepted', 'proposal'). Used
+      in mgrad_gaussian's grad_count_per_step test via synthetic MarginalInfo.
+      MarginalState._fields == ('position', 'logdensity', 'logdensity_grad', 'U_x',
+      'U_grad_x') — the internal SVD representation; if it changes, tests that
+      construct synthetic proposals break.
+    """
+    from blackjax.mcmc.elliptical_slice import EllipSliceInfo
+    from blackjax.mcmc.marginal_latent_gaussian import MarginalInfo, MarginalState
+
+    expected_ellip = ("momentum", "theta", "subiter")
+    assert EllipSliceInfo._fields == expected_ellip, (
+        f"BlackJAX EllipSliceInfo fields changed from {expected_ellip} to {EllipSliceInfo._fields}. "
+        f"Update bjx_bench/inference/base_method/elliptical_slice.py notes and "
+        f"tests/test_base_method_elliptical_slice.py accordingly. "
+        f"If 'acceptance_rate' was ADDED, revisit target_acceptance_rate=None decision."
+    )
+
+    expected_marginal = ("acceptance_rate", "is_accepted", "proposal")
+    assert MarginalInfo._fields == expected_marginal, (
+        f"BlackJAX MarginalInfo fields changed from {expected_marginal} to {MarginalInfo._fields}. "
+        f"Update bjx_bench/inference/base_method/mgrad_gaussian.py notes and "
+        f"tests/test_base_method_mgrad_gaussian.py accordingly."
+    )
+
+    expected_marginal_state = (
+        "position",
+        "logdensity",
+        "logdensity_grad",
+        "U_x",
+        "U_grad_x",
+    )
+    assert MarginalState._fields == expected_marginal_state, (
+        f"BlackJAX MarginalState fields changed from {expected_marginal_state} to "
+        f"{MarginalState._fields}. "
+        f"Update tests/test_base_method_mgrad_gaussian.py synthetic MarginalState construction."
+    )
+
+
+# ───────────────── 10. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
