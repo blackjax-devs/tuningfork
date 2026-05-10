@@ -607,7 +607,11 @@ def main() -> int:
     # ---- warmup subcommand ----
     p_warmup = sub.add_parser(
         "warmup",
-        help="Run warmup-only and output a MEDIUM-effort recipe",
+        help=(
+            "Run warmup-only and output a (B-taxonomy) MEDIUM-effort recipe. "
+            "Note: under canonical-C taxonomy this produces a legacy artifact; "
+            "the Phase 6 regen pipeline supersedes this command."
+        ),
     )
     p_warmup.add_argument(
         "model",
