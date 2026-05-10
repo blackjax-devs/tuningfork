@@ -35,6 +35,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 def _run_warmup(
     args: list[str],
@@ -55,6 +57,7 @@ def _run_warmup(
     )
 
 
+@pytest.mark.e2e
 class TestWarmupCLI:
     """Integration tests for ``bjx-bench warmup``."""
 
@@ -206,6 +209,7 @@ def _run_leaderboard(
     )
 
 
+@pytest.mark.e2e
 class TestLeaderboardCLI:
     """Integration tests for ``bjx-bench leaderboard``."""
 

@@ -30,6 +30,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 
 def _run_cli(
     args: list[str],
@@ -49,6 +51,7 @@ def _run_cli(
     )
 
 
+@pytest.mark.e2e
 class TestTierACLI:
     """Integration tests for `bjx-bench tier-a`."""
 

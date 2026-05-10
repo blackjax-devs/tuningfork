@@ -34,6 +34,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 def _run_tune(
     args: list[str],
@@ -54,6 +56,7 @@ def _run_tune(
     )
 
 
+@pytest.mark.e2e
 class TestTuneCLI:
     """Integration tests for ``bjx-bench tune``."""
 

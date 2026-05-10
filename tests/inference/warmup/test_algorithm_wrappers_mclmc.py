@@ -32,10 +32,13 @@ than the key-free form used by HMC/MALA/Barker.
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.base_method._base import HyperparamSpace
 from bjx_bench.inference.base_method.mclmc import ENTRY
+
+pytestmark = pytest.mark.slow
 
 # ---------------------------------------------------------------------------
 # Shared fixtures

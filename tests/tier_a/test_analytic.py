@@ -29,6 +29,8 @@ from bjx_bench.calibration._summary import Summaries
 from bjx_bench.calibration.tier_a_analytic import certify_reference_analytic
 from bjx_bench.model import MODELS
 
+pytestmark = pytest.mark.slow
+
 MVN_ENTRY = MODELS["mvn_10"]
 FUNNEL_ENTRY = MODELS["neals_funnel"]
 NUTS_ENTRY = MODELS["eight_schools_ncp"]
