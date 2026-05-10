@@ -42,8 +42,10 @@ from bjx_bench.inference.warmup.adjusted_mclmc_tuning import (
     ENTRY as _adjusted_mclmc_tuning,
 )
 from bjx_bench.inference.warmup.chees import ENTRY as _chees
+from bjx_bench.inference.warmup.fullrank_vi import ENTRY as _fullrank_vi
 from bjx_bench.inference.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
 from bjx_bench.inference.warmup.meads import ENTRY as _meads
+from bjx_bench.inference.warmup.meanfield_vi import ENTRY as _meanfield_vi
 from bjx_bench.inference.warmup.multipathfinder import ENTRY as _multipathfinder
 from bjx_bench.inference.warmup.no_warmup import ENTRY as _no_warmup
 from bjx_bench.inference.warmup.pathfinder import ENTRY as _pathfinder
@@ -58,6 +60,8 @@ WARMUPS: dict[str, Warmup] = {
     _multipathfinder.name: _multipathfinder,
     _meads.name: _meads,
     _chees.name: _chees,
+    _meanfield_vi.name: _meanfield_vi,
+    _fullrank_vi.name: _fullrank_vi,
 }
 
 __all__ = ["WARMUPS", "Warmup"]

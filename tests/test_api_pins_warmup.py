@@ -184,3 +184,122 @@ def test_window_adaptation_constructs_for_supported_kernels():
                 f"blackjax.window_adaptation(blackjax.{kernel_factory.__name__}) "
                 f"failed at construction: {type(exc).__name__}: {exc}"
             ) from exc
+
+
+# ───────────────── P5.12 meanfield_vi + fullrank_vi state/info field pins ─────────────────
+
+
+def test_mfvi_state_fields():
+    """P5.12 tripwire: pin MFVIState._fields.
+
+    bjx_bench/inference/base_method/meanfield_vi.py and
+    bjx_bench/inference/warmup/meanfield_vi.py depend on MFVIState having
+    fields ('mu', 'rho', 'opt_state').  If upstream renames or reorders
+    these, the wrappers break silently.
+    """
+    from blackjax.vi.meanfield_vi import MFVIState
+
+    assert MFVIState._fields == ("mu", "rho", "opt_state"), (
+        f"MFVIState._fields changed: {MFVIState._fields}. "
+        f"Update bjx_bench/inference/base_method/meanfield_vi.py and "
+        f"bjx_bench/inference/warmup/meanfield_vi.py."
+    )
+
+
+def test_mfvi_info_fields():
+    """P5.12 tripwire: pin MFVIInfo._fields.
+
+    bjx_bench wrappers expect MFVIInfo to have exactly ('elbo',).
+    """
+    from blackjax.vi.meanfield_vi import MFVIInfo
+
+    assert MFVIInfo._fields == ("elbo",), (
+        f"MFVIInfo._fields changed: {MFVIInfo._fields}. "
+        f"Update bjx_bench/inference/base_method/meanfield_vi.py."
+    )
+
+
+def test_frvi_state_fields():
+    """P5.12 tripwire: pin FRVIState._fields.
+
+    bjx_bench/inference/base_method/fullrank_vi.py and
+    bjx_bench/inference/warmup/fullrank_vi.py depend on FRVIState having
+    fields ('mu', 'chol_params', 'opt_state').  If upstream renames or
+    reorders these, the wrappers break silently.
+    """
+    from blackjax.vi.fullrank_vi import FRVIState
+
+    assert FRVIState._fields == ("mu", "chol_params", "opt_state"), (
+        f"FRVIState._fields changed: {FRVIState._fields}. "
+        f"Update bjx_bench/inference/base_method/fullrank_vi.py and "
+        f"bjx_bench/inference/warmup/fullrank_vi.py."
+    )
+
+
+def test_frvi_info_fields():
+    """P5.12 tripwire: pin FRVIInfo._fields.
+
+    bjx_bench wrappers expect FRVIInfo to have exactly ('elbo',).
+    """
+    from blackjax.vi.fullrank_vi import FRVIInfo
+
+    assert FRVIInfo._fields == ("elbo",), (
+        f"FRVIInfo._fields changed: {FRVIInfo._fields}. "
+        f"Update bjx_bench/inference/base_method/fullrank_vi.py."
+    )
+
+
+def test_meanfield_vi_as_top_level_api_signature():
+    """P5.12 tripwire: pin meanfield_vi.as_top_level_api signature.
+
+    The wrapper relies on as_top_level_api accepting
+    (logdensity_fn, optimizer, num_samples, objective, stl_estimator).
+    If upstream changes the signature, fail fast here.
+    """
+    import inspect
+
+    import blackjax.vi.meanfield_vi as mf
+
+    sig = inspect.signature(mf.as_top_level_api)
+    expected_params = {
+        "logdensity_fn",
+        "optimizer",
+        "num_samples",
+        "objective",
+        "stl_estimator",
+    }
+    actual_params = set(sig.parameters)
+    missing = expected_params - actual_params
+    assert not missing, (
+        f"meanfield_vi.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/meanfield_vi.py."
+    )
+
+
+def test_fullrank_vi_as_top_level_api_signature():
+    """P5.12 tripwire: pin fullrank_vi.as_top_level_api signature.
+
+    The wrapper relies on as_top_level_api accepting
+    (logdensity_fn, optimizer, num_samples, objective, stl_estimator).
+    If upstream changes the signature, fail fast here.
+    """
+    import inspect
+
+    import blackjax.vi.fullrank_vi as fr
+
+    sig = inspect.signature(fr.as_top_level_api)
+    expected_params = {
+        "logdensity_fn",
+        "optimizer",
+        "num_samples",
+        "objective",
+        "stl_estimator",
+    }
+    actual_params = set(sig.parameters)
+    missing = expected_params - actual_params
+    assert not missing, (
+        f"fullrank_vi.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/fullrank_vi.py."
+    )

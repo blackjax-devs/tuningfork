@@ -36,11 +36,13 @@ from bjx_bench.inference.base_method.dynamic_hmc import ENTRY as _dynamic_hmc_en
 from bjx_bench.inference.base_method.elliptical_slice import (
     ENTRY as _elliptical_slice_entry,
 )
+from bjx_bench.inference.base_method.fullrank_vi import ENTRY as _fullrank_vi_entry
 from bjx_bench.inference.base_method.ghmc import ENTRY as _ghmc_entry
 from bjx_bench.inference.base_method.hmc import ENTRY as _hmc_entry
 from bjx_bench.inference.base_method.irmh import ENTRY as _irmh_entry
 from bjx_bench.inference.base_method.mala import ENTRY as _mala_entry
 from bjx_bench.inference.base_method.mclmc import ENTRY as _mclmc_entry
+from bjx_bench.inference.base_method.meanfield_vi import ENTRY as _meanfield_vi_entry
 from bjx_bench.inference.base_method.mgrad_gaussian import (
     ENTRY as _mgrad_gaussian_entry,
 )
@@ -61,6 +63,8 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _elliptical_slice_entry.name: _elliptical_slice_entry,
     _mgrad_gaussian_entry.name: _mgrad_gaussian_entry,
     _irmh_entry.name: _irmh_entry,
+    _meanfield_vi_entry.name: _meanfield_vi_entry,
+    _fullrank_vi_entry.name: _fullrank_vi_entry,
 }
 
 __all__ = ["BaseMethod", "HyperparamSpace", "BASE_METHODS"]
