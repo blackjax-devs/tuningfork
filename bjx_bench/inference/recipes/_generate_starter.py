@@ -13,44 +13,13 @@
 # limitations under the License.
 """Starter recipe emission — candidate generator for the Statistician gate.
 
-This script generates candidate recipes for the *conventional* cells in the
+This script generates candidate recipes for the conventional cells in the
 ``(model, warmup, sampler)`` space — pairs where the warmup is the natural
 adaptation procedure for the sampler (see ``NATURAL_WARMUP_FOR_SAMPLER`` below).
 Each candidate is a ``Recipe`` with ``effort=Effort.LOW``; the Statistician
-auto-gate (`bjx_bench.calibration.statistician_gate`, P5.0.5) decides whether
-to commit (PASS) or escalate to MEDIUM / HIGH per the canonical taxonomy in
-``_base.py``'s ``Effort`` docstring.
-
-Effort tiers (canonical, locked Phase 5):
-
-  LOW    — conventional pairing; library defaults; auto-gate passes at first emit.
-           Produced by this script for every conventional cell.
-  MEDIUM — Statistician investigation: either (a) LOW failed the gate and a
-           manual workaround (seed change, init change, obvious-bug fix)
-           recovers it, or (b) the cell pairs a sampler with a
-           technically-possible-but-unconventional warmup (e.g.,
-           ``stan_window`` + ``mala``, ``stan_window`` + ``rmhmc``).
-           Produced by Statistician escalation, not by this CLI.
-  HIGH   — LOW and MEDIUM both failed.  Statistician compares against a
-           NUTS + window_adaptation oracle, runs BO over warmup
-           hyperparameters, and injects model-specific parameters until
-           the gate passes.  The full journey is recorded in ``workflow``.
-           Produced by Statistician escalation, not by this CLI.
-
-Lineage:
-  P3.3 (Phase 3): generated 12 LOW + 6 MEDIUM starter recipes (B-taxonomy:
-                  LOW=no_warmup, MEDIUM=stan_window).
-  P3.4 (Phase 3): generated 6 HIGH starter recipes via Tier-B BO (B-taxonomy).
-  P4.1+ (Phase 4): added Phase 4 models to STARTER_MODEL_NAMES.
-  P5.Q5A (Phase 5): scoped down to LOW emission; ``--effort`` flag removed.
-                  Module docstring updated to gate-driven framing; emit
-                  helpers retained for Statistician use.
-  Phase 6 (in flight): emit-logic rewrite to canonical-C — LOW emit runs the
-                  natural warmup + sampler + auto_gate per cell, not just a
-                  no-MCMC scaffold.  The legacy ``emit_low_recipes`` /
-                  ``emit_medium_recipes`` / ``emit_high_recipes`` helpers
-                  below still encode the B-taxonomy operationalisation and
-                  will be superseded by the Phase 6 regen pipeline.
+auto-gate (``bjx_bench.calibration.statistician_gate``) decides whether to
+commit (PASS) or escalate to MEDIUM / HIGH.  See ``_base.py``'s ``Effort``
+docstring for the per-tier semantics.
 
 Usage
 -----
@@ -62,9 +31,7 @@ Usage
 
 Flag semantics:
   - ``--only <m>``    restrict to one model (must be in STARTER_MODEL_NAMES)
-  - ``--warmup <w>``  restrict to one warmup (legacy: "no_warmup",
-                      "stan_window").  Phase 6 regen will iterate over
-                      NATURAL_WARMUP_FOR_SAMPLER per sampler instead.
+  - ``--warmup <w>``  restrict to one warmup (``"no_warmup"`` or ``"stan_window"``)
   - ``--sampler <s>`` restrict to one base method
 
 The script is idempotent: re-running overwrites existing files with fresh
@@ -73,19 +40,8 @@ provenance timestamps.
 MEDIUM / HIGH escalation
 ------------------------
 
-The ``emit_medium_recipes`` and ``emit_high_recipes`` functions stay in this
-file as helpers the Statistician can call during escalation; they are NOT
-exposed via the CLI.  Under canonical-C they will be repurposed:
-
-  - emit_medium → Statistician-driven re-run with workaround (seed/init/bug)
-    or unconventional-pairing exploration.
-  - emit_high → oracle comparison + BO over warmup HPs + model-specific
-    injection, with full Bayesian-workflow narrative captured in
-    ``Recipe.workflow``.
-
-The current implementations encode the B-taxonomy (emit_medium runs
-stan_window-only adapt; emit_high runs Tier-B BO over sampler params); the
-Phase 6 regen pipeline replaces both.
+The ``emit_medium_recipes`` and ``emit_high_recipes`` functions are helpers
+the Statistician can call during escalation; they are NOT exposed via the CLI.
 """
 
 import time

@@ -15,38 +15,24 @@
 
 A Recipe is a pinned ``(model, warmup, sampler)`` configuration with
 hyperparameters, gate verdict, and provenance metadata.  Effort tiers measure
-**human + machine wall time to produce a gate-passing recipe**, escalated by
-the Statistician → TL when the auto-gate fails (canonical Phase 5 taxonomy;
-see the ``Effort`` enum docstring below for the full definition):
+human + machine wall time to produce a gate-passing recipe; the Statistician
+escalates LOW → MEDIUM → HIGH via the TL when the auto-gate fails.  See the
+``Effort`` enum docstring for the per-tier semantics.
 
-  Effort.LOW    — conventional ``(warmup, sampler)`` pairing with library
-                  defaults; auto-gate passed at first emit. Machine-only.
-  Effort.MEDIUM — Statistician investigation. Either (a) LOW gate failure
-                  recovered with seed/init/bug-fix workaround, or (b) the
-                  cell explores a technically-possible-but-unconventional
-                  pairing (e.g., ``stan_window`` + ``mala``).
-  Effort.HIGH   — LOW and MEDIUM both failed.  Oracle (NUTS+window_adaptation)
-                  comparison + BO over warmup HPs + model-specific param
-                  injection; full Bayesian-workflow journey in ``Recipe.workflow``.
+CI consumes a Recipe by reading the pinned ``base_method_params`` (and the
+``inverse_mass_matrix_path`` sidecar if present) and running the BlackJAX
+kernel directly.  What differs across tiers is the production effort, not the
+consumption pattern.
 
-The same "use the pinned ``base_method_params`` (+ optional IMM sidecar)" CI
-consumption pattern applies at every tier — what differs is the *production*
-effort, not how the user reads the recipe.
+Constructor helpers:
 
-Three legacy constructors remain for backward compatibility:
-
-  - ``Recipe.from_default_config`` — produces a (B-taxonomy) LOW stub with no
-    MCMC run.  Useful as a scaffolding placeholder; not a gate-passing LOW
-    recipe under canonical-C.
-  - ``Recipe.from_warmup_only`` — produces a (B-taxonomy) MEDIUM recipe by
-    running ONLY warmup (no post-warmup sampler chain).
-  - ``Recipe.from_tuning_result`` — produces a (B-taxonomy) HIGH recipe by
-    running Tier-B BO over **sampler** hyperparameters.
-
-The Phase 6 regen pipeline replaces all three with a single emit path that
-runs warmup + sampler + auto_gate per cell and writes a Recipe at the lowest
-tier the gate passes.  See ``_generate_starter.py`` ``NATURAL_WARMUP_FOR_SAMPLER``
-+ the ``bjx-bench-phase6`` worklog thread.
+  - ``Recipe.from_default_config(posterior, base_method)`` — placeholder
+    Recipe stamped with default sampler params; no MCMC run.
+  - ``Recipe.from_warmup_only(posterior, base_method, warmup, ...)`` —
+    runs the warmup, captures the adapted ``(step_size, IMM)``, returns a
+    Recipe with the adapted params.
+  - ``Recipe.from_tuning_result(tuning_result, ...)`` — wraps a Tier-B BO
+    outcome (best params + difficulty profile) into a Recipe.
 """
 
 from __future__ import annotations
@@ -72,14 +58,12 @@ class Effort(str, Enum):
     a recipe that the Statistician auto-gate approves.
 
     LOW    — ``_generate_starter`` runs the *conventional* ``(warmup, sampler)``
-             pairing for the cell, with all BlackJAX library defaults
-             (``NATURAL_WARMUP_FOR_SAMPLER`` in ``_generate_starter.py`` captures
-             the convention map: stan_window for nuts/hmc/mala/barker; mclmc_tuning
-             for mclmc; meads for ghmc; chees for dynamic_hmc; no_warmup for
-             gradient-free / specialised samplers).  The Statistician auto-gate
-             (``bjx_bench.calibration.statistician_gate``, P5.0.5) evaluates the
-             resulting samples on R̂ / bulk-ESS / divergence count and against
-             the Tier-A reference where available (``max_abs_mean_z``,
+             pairing for the cell with all BlackJAX library defaults; the
+             ``NATURAL_WARMUP_FOR_SAMPLER`` map in ``_generate_starter.py``
+             defines the conventional pairing per sampler.  The Statistician
+             auto-gate (``bjx_bench.calibration.statistician_gate``) evaluates
+             the resulting samples on R̂ / bulk-ESS / divergence count and
+             against the Tier-A reference where available (``max_abs_mean_z``,
              ``sample_quality``).  Recipe commits at LOW iff the gate passes
              (or the Statistician overrides REVIEW to APPROVE).
              Wall time: machine only (warmup + sampling on the run host).
@@ -106,11 +90,11 @@ class Effort(str, Enum):
              doesn't pass, and Statistician workarounds + alternative pairings
              don't recover it.  The Statistician brings in a gold-standard
              reference — compares the failing run against NUTS + window_adaptation
-             output (step_size, inverse_mass_matrix), runs BO over selected
-             hyperparameters (per Phase 5 reframe, BO is repurposed primarily
-             for warmup HPs, optional on sampler HPs), and injects model-specific
-             parameters into either the warmup or the sampler.  The Statistician
-             writes up the full Bayesian-workflow journey in ``Recipe.workflow``.
+             output (step_size, inverse_mass_matrix), runs BO over warmup
+             hyperparameters (BO is used primarily for warmup HPs; optional on
+             sampler HPs), and injects model-specific parameters into either the
+             warmup or the sampler.  The Statistician writes up the full Bayesian-
+             workflow journey in ``Recipe.workflow``.
              Wall time: MEDIUM + extra Statistician work + BO compute.
 
     **Tier transition discipline.**  LOW → MEDIUM and MEDIUM → HIGH transitions
@@ -132,11 +116,7 @@ class Effort(str, Enum):
     ``inverse_mass_matrix_path`` sidecar if present) directly from the recipe and
     runs the BlackJAX kernel without re-running warmup.  This "sampler-only at
     runtime" consumption pattern applies to recipes at *any* tier — what makes
-    HIGH special is the *production* effort, not the consumption.
-
-    See ``archive/bjx-bench/PLAN_bjx_bench_phase5.md`` § "Why redo the taxonomy"
-    + ``worklog/threads/_archive/bjx-bench-phase5.md`` for the locked Phase 5
-    reframe context.
+    HIGH special is the production effort, not the consumption.
     """
 
     LOW = "low"
@@ -358,22 +338,15 @@ class Recipe:
         *,
         bjx_bench_version: str = "0.0.0.dev0",
     ) -> Recipe:
-        """Build a (B-taxonomy) LOW stub Recipe — no MCMC runs.
+        """Build a placeholder LOW Recipe stamped with default sampler params; no MCMC runs.
 
-        .. deprecated:: Phase 6
-           Encodes the pre-reframe B-taxonomy (LOW = ``no_warmup`` + sampler
-           defaults, no MCMC).  Under canonical-C, a LOW recipe means
-           "conventional pairing + library defaults + auto-gate passed",
-           which requires running warmup + sampler at recipe-build time.
-           This constructor remains available as a scaffolding placeholder
-           (e.g., for tests, or to pre-allocate a Recipe before measurement);
-           the Phase 6 regen pipeline produces gate-passing LOW recipes via
-           a different path that runs MCMC + auto_gate.
-
-        Stamps ``default_params_for(base_method)`` and ``warmup_name="no_warmup"``;
-        ``headline_metric``, ``sample_quality``, and ``gate_evidence.auto`` all
-        remain at their not-yet-measured defaults.  Provenance fields
-        (blackjax_version, jax_version, timestamp_utc) are populated at call time.
+        Useful as a scaffolding stub (e.g., for tests, or to pre-allocate a Recipe
+        before measurement).  ``headline_metric``, ``sample_quality``, and
+        ``gate_evidence.auto`` all remain at their not-yet-measured defaults;
+        provenance fields (blackjax_version, jax_version, timestamp_utc) are
+        populated at call time.  A gate-passing LOW recipe — one where warmup +
+        sampler ran and the Statistician auto-gate approved — is produced by the
+        recipe-emit pipeline, not by this constructor.
 
         Parameters
         ----------
@@ -389,8 +362,7 @@ class Recipe:
         Recipe
             A frozen ``Recipe`` with ``effort=Effort.LOW``, ``warmup_name="no_warmup"``,
             ``headline_metric=None``, and ``base_method_params`` from
-            ``default_params_for(base_method)``.  Note: under canonical-C this
-            is a pre-MCMC scaffold, not a gate-passing LOW recipe.
+            ``default_params_for(base_method)``.
         """
         from bjx_bench.calibration.tier_b import default_params_for
         from bjx_bench.inference.recipes._instructions import render_instructions
@@ -434,29 +406,17 @@ class Recipe:
         rng_key: Any,  # jax.Array
         bjx_bench_version: str = "0.0.0.dev0",
     ) -> Recipe:
-        """Build a (B-taxonomy) MEDIUM Recipe by running ONLY warmup (no sampler chain).
+        """Build a Recipe by running ONLY the warmup (no post-warmup sampler chain).
 
-        .. deprecated:: Phase 6
-           Encodes the pre-reframe B-taxonomy (MEDIUM = warmup-only adaptation,
-           no sampler chain run, no auto_gate).  Under canonical-C, MEDIUM is
-           the result of Statistician investigation — either (a) a LOW gate
-           failure was recovered with a workaround (seed/init/bug fix), or
-           (b) the cell explores a technically-possible-but-unconventional
-           pairing (e.g., ``stan_window`` + ``mala``).  Both branches run
-           warmup + sampler + auto_gate and are driven by the Phase 6 regen
-           pipeline under Statistician direction; this helper is retained for
-           backward compatibility but does not produce a canonical-C MEDIUM
-           recipe on its own.
+        Captures the warmup-adapted ``(step_size, inverse_mass_matrix, ...)``
+        values into a Recipe with ``effort=Effort.MEDIUM``.  Calibration cost is
+        the warmup wall-clock time; ``calibration_budget`` records both
+        ``n_warmup`` and ``wall_seconds_estimate``.
 
-        Captures the warmup-adapted (step_size, inverse_mass_matrix, ...) values
-        without running any post-warmup sampling.  Calibration cost is the warmup
-        wall-clock time; ``calibration_budget`` records both ``n_warmup`` and
-        ``wall_seconds_estimate``.
-
-        Per the Phase 3 resolved decision: calling
-        ``from_warmup_only(..., WARMUPS["no_warmup"])`` returns a recipe with
-        ``effort=Effort.MEDIUM`` and ``warmup_name="no_warmup"`` (semantically
-        distinct from LOW, which never goes through the warmup constructor).
+        Calling ``from_warmup_only(..., WARMUPS["no_warmup"])`` returns a Recipe
+        with ``effort=Effort.MEDIUM`` and ``warmup_name="no_warmup"`` —
+        semantically distinct from a LOW placeholder produced by
+        ``from_default_config``, which never goes through this warmup path.
 
         Parameters
         ----------
@@ -585,21 +545,10 @@ class Recipe:
         warmup: Any,  # Warmup; imported inline
         bjx_bench_version: str = "0.0.0.dev0",
     ) -> Recipe:
-        """Build a (B-taxonomy) HIGH Recipe from a Tier-B TuningResult.
-
-        .. deprecated:: Phase 6
-           Encodes the pre-reframe B-taxonomy (HIGH = Tier-B BO over **sampler**
-           hyperparameters with stan_window warmup).  Under canonical-C
-           (Phase 5 reframe), HIGH is the Statistician's recovery path after
-           LOW and MEDIUM both fail: compare against a NUTS + window_adaptation
-           oracle, run BO over **warmup** hyperparameters (BO repurposed),
-           inject model-specific parameters, and record the full Bayesian-
-           workflow journey in ``Recipe.workflow``.  This helper is retained
-           for backward compatibility; the Phase 6 regen pipeline produces
-           canonical-C HIGH recipes via a different path.
+        """Build a HIGH Recipe by wrapping a Tier-B BO outcome.
 
         The ``TuningResult`` already carries ``best_params``, ``best_score``,
-        and ``difficulty``; this constructor stamps provenance, serializes the
+        and ``difficulty``; this constructor stamps provenance, serialises the
         difficulty profile, and renders the instructions prose.
 
         Parameters
