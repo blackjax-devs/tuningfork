@@ -608,7 +608,7 @@ def test_blackjax_ellip_slice_info_fields_and_marginal_info_fields():
     )
 
 
-# ───────────────── 10. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+# ───────────────── window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
@@ -632,3 +632,95 @@ def test_window_adaptation_constructs_for_supported_kernels():
                 f"blackjax.window_adaptation(blackjax.{kernel_factory.__name__}) "
                 f"failed at construction: {type(exc).__name__}: {exc}"
             ) from exc
+
+
+# ───────────────── 10. irmh standalone (P5.9) ─────────────────
+
+
+def test_blackjax_irmh_factory_signature():
+    """Tripwire: blackjax.mcmc.random_walk.irmh_as_top_level_api must accept
+    {logdensity_fn, proposal_distribution, proposal_logdensity_fn}.
+
+    Pinned at P5.9: bjx_bench/inference/base_method/irmh.py calls
+    blackjax.irmh(logdensity_fn, proposal_distribution=...,
+    proposal_logdensity_fn=...).  If upstream renames or removes any of these,
+    factory calls in the BO loop fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.random_walk import irmh_as_top_level_api
+
+    sig = inspect.signature(irmh_as_top_level_api)
+    expected = {"logdensity_fn", "proposal_distribution", "proposal_logdensity_fn"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.random_walk.irmh_as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/irmh.py if upstream API changed."
+    )
+    assert set(sig.parameters) == expected, (
+        f"blackjax.mcmc.random_walk.irmh_as_top_level_api has unexpected parameters. "
+        f"Expected exactly {expected}, got {set(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/irmh.py if upstream API changed."
+    )
+
+
+def test_blackjax_irmh_alias_check():
+    """Tripwire: blackjax.irmh top-level aliases must point at the correct inner functions.
+
+    Pinned at P5.9: verifies that the top-level GenerateSamplingAPI wrapping
+    for blackjax.irmh wires the right inner functions.  If upstream refactors
+    random_walk.py (e.g. renames build_irmh or splits the module), this fires fast.
+
+    Checks:
+    - blackjax.irmh.differentiable is blackjax.mcmc.random_walk.irmh_as_top_level_api
+    - blackjax.irmh.init is blackjax.mcmc.random_walk.init
+    - blackjax.irmh.build_kernel is blackjax.mcmc.random_walk.build_irmh
+    """
+    from blackjax.mcmc.random_walk import build_irmh, init, irmh_as_top_level_api
+
+    assert blackjax.irmh.differentiable is irmh_as_top_level_api, (
+        "blackjax.irmh.differentiable is not blackjax.mcmc.random_walk.irmh_as_top_level_api. "
+        "Upstream may have refactored the random_walk module. "
+        "Update bjx_bench/inference/base_method/irmh.py and this tripwire."
+    )
+    assert blackjax.irmh.init is init, (
+        "blackjax.irmh.init is not blackjax.mcmc.random_walk.init. "
+        "Upstream may have introduced a separate IRMH init function. "
+        "Update bjx_bench/inference/base_method/irmh.py and this tripwire."
+    )
+    assert blackjax.irmh.build_kernel is build_irmh, (
+        "blackjax.irmh.build_kernel is not blackjax.mcmc.random_walk.build_irmh. "
+        "Upstream may have renamed build_irmh. "
+        "Update bjx_bench/inference/base_method/irmh.py and this tripwire."
+    )
+
+
+def test_blackjax_rwinfo_rwstate_fields():
+    """Tripwire: pin RWInfo._fields and RWState._fields for IRMH and RWM.
+
+    Pinned at P5.9: both IRMH and RWM share RWInfo and RWState.
+    - RWInfo._fields == ('acceptance_rate', 'is_accepted', 'proposal')
+    - RWState._fields == ('position', 'logdensity')
+
+    If upstream refactors these NamedTuples (e.g. renames 'proposal' or adds
+    fields), grad_count_per_step and the synthetic-info tests in
+    test_base_method_irmh.py and test_base_method_mgrad_gaussian.py break.
+
+    Note: MarginalInfo and MarginalState (also sharing this pattern) are
+    already pinned in section 9 above.
+    """
+    from blackjax.mcmc.random_walk import RWInfo, RWState
+
+    expected_rwinfo = ("acceptance_rate", "is_accepted", "proposal")
+    assert RWInfo._fields == expected_rwinfo, (
+        f"BlackJAX RWInfo fields changed from {expected_rwinfo} to {RWInfo._fields}. "
+        f"Update tests/test_base_method_irmh.py synthetic RWInfo construction. "
+        f"Also check test_base_method_mgrad_gaussian.py — MarginalInfo shares the same pattern."
+    )
+
+    expected_rwstate = ("position", "logdensity")
+    assert RWState._fields == expected_rwstate, (
+        f"BlackJAX RWState fields changed from {expected_rwstate} to {RWState._fields}. "
+        f"Update tests/test_base_method_irmh.py synthetic RWState construction in grad_count tests."
+    )

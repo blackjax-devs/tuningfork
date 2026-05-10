@@ -38,6 +38,7 @@ from bjx_bench.inference.base_method.elliptical_slice import (
 )
 from bjx_bench.inference.base_method.ghmc import ENTRY as _ghmc_entry
 from bjx_bench.inference.base_method.hmc import ENTRY as _hmc_entry
+from bjx_bench.inference.base_method.irmh import ENTRY as _irmh_entry
 from bjx_bench.inference.base_method.mala import ENTRY as _mala_entry
 from bjx_bench.inference.base_method.mclmc import ENTRY as _mclmc_entry
 from bjx_bench.inference.base_method.mgrad_gaussian import (
@@ -59,6 +60,7 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _adjusted_mclmc_dynamic_entry.name: _adjusted_mclmc_dynamic_entry,
     _elliptical_slice_entry.name: _elliptical_slice_entry,
     _mgrad_gaussian_entry.name: _mgrad_gaussian_entry,
+    _irmh_entry.name: _irmh_entry,
 }
 
 __all__ = ["BaseMethod", "HyperparamSpace", "BASE_METHODS"]
