@@ -13,15 +13,29 @@
 # limitations under the License.
 """Auto-templated user-facing instructions for each Effort level.
 
-Each template is a format string whose placeholders are filled from
-``Recipe`` fields by ``render_instructions``.  Templates aim to give a
-copy-pasteable snippet (LOW: direct kernel construction; MEDIUM: warmup +
-kernel; HIGH: CLI reproduction command) plus a one-line expectation and a
-"when to use" note.
+Each template formats a copy-pasteable usage snippet from a ``Recipe``'s
+pinned fields.  All three effort tiers produce the same kind of artifact
+(pinned ``base_method_params`` + optional IMM sidecar) — what differs across
+tiers is the *human + machine wall time to produce a gate-passing recipe*,
+not how the user consumes it.  The prose framing reflects that:
 
-LOW recipe note on ``headline_metric``: at LOW effort no MCMC is run, so the
-metric is ``None``.  The LOW template avoids formatting it as a float and
-instead shows ``"not measured (zero-calibration recipe)"``.
+  LOW    — conventional ``(warmup, sampler)`` pairing; library defaults passed
+           the Statistician auto-gate at first emit.  Machine-only wall time.
+  MEDIUM — Statistician investigation needed.  Either the default emit failed
+           the gate (manual workarounds: seed change, init change, obvious-bug
+           fix) or the cell explores a technically-possible-but-unconventional
+           pairing (e.g., ``stan_window`` + ``mala``, ``stan_window`` + ``rmhmc``).
+           Wall time = LOW + Statistician investigation.
+  HIGH   — LOW and MEDIUM both failed.  The Statistician compared against a
+           NUTS + window_adaptation oracle, ran BO over warmup hyperparameters,
+           and injected model-specific parameters until the gate passed.  The
+           full journey is recorded in ``workflow``.  CI consumes HIGH recipes
+           by reading the pinned scalars + IMM sidecar and running the sampler
+           directly (no warmup re-run).
+           Wall time = MEDIUM + extra Statistician work + BO compute.
+
+The same "use the pinned config" snippet applies to all tiers; the tier-specific
+prose explains what production effort produced those values.
 """
 
 from __future__ import annotations
@@ -40,38 +54,44 @@ __all__ = ["render_instructions"]
 # ---------------------------------------------------------------------------
 
 _LOW_TEMPLATE = """\
-**Low-effort recipe** (zero calibration). To use:
+**Low-effort recipe** (conventional `({warmup_name}, {base_method_name})` pairing; \
+library defaults passed the auto-gate at first emit).
+To use the pinned config (skip warmup at runtime):
   ```python
   kernel = blackjax.{base_method_name}(logdensity_fn, **{base_method_params})
   ```
-Expected `min-bulk-ESS / total_grad_evals`: not measured (zero-calibration recipe).
-When to use: one-off analysis, exploratory work, prototyping. \
-No warmup required — these are the geometric-mean defaults from the search space.\
+Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
+Wall time to produce this recipe: ~{wall_seconds} s (machine-only).\
 """
 
 _MEDIUM_TEMPLATE = """\
-**Medium-effort recipe** ({warmup_name} adaptation). To use:
+**Medium-effort recipe** (Statistician investigation on \
+`({warmup_name}, {base_method_name})`).
+The default emit either failed the auto-gate or explored a technically-possible-but-\
+unconventional pairing; the Statistician applied workarounds until the gate passed. \
+See `notes` for the specific intervention.
+To use the pinned config:
   ```python
-  warmup = blackjax.window_adaptation(blackjax.{base_method_name}, \
-logdensity_fn, **{warmup_params})
-  (state, params), _ = warmup.run(rng_key, init_position, {n_warmup})
-  kernel = blackjax.{base_method_name}(logdensity_fn, **params)
+  kernel = blackjax.{base_method_name}(logdensity_fn, **{base_method_params})
   ```
 Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
-Warmup wall time: ~{warmup_seconds} s.\
+Wall time: machine + Statistician investigation (see `calibration_budget`).\
 """
 
 _HIGH_TEMPLATE = """\
-**High-effort recipe** (Tier-B BO-tuned). To reproduce:
-  ```bash
-  bjx-bench tune {model_name} {base_method_name} \
---n-trials {n_trials} --seed {tuning_seed}
+**High-effort recipe** (oracle + BO + model-specific injection on \
+`({warmup_name}, {base_method_name})`).
+After LOW and MEDIUM both failed the auto-gate, the Statistician compared against a \
+NUTS + window_adaptation oracle, ran BO over warmup hyperparameters, and injected \
+model-specific parameters. The full journey is recorded in `workflow`; CI consumes \
+the pinned scalars below.
+To use (sampler-only at runtime — the intended CI consumption pattern):
+  ```python
+  # If `inverse_mass_matrix_path` is set, load the IMM sidecar first.
+  kernel = blackjax.{base_method_name}(logdensity_fn, **{base_method_params})
   ```
-Pinned config from {n_trials} trials, seed {tuning_seed}:
-  base_method_params: {base_method_params}
-  warmup_params:      {warmup_params}
 Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
-Total calibration time: ~{calibration_minutes} min.\
+Total calibration time: ~{calibration_minutes} min (warmup + BO + Statistician).\
 """
 
 
@@ -91,54 +111,42 @@ def render_instructions(recipe: Recipe) -> str:
 
     Notes
     -----
-    For ``Effort.LOW``, ``headline_metric`` is ``None`` (no MCMC run).  The
-    LOW template avoids the ``.4f`` format specifier and prints a fixed
-    placeholder string instead.
-
-    For ``Effort.MEDIUM`` and ``Effort.HIGH``, the template is rendered with
-    the actual metric values.  If ``headline_metric`` is still ``None`` in
-    those cases (which should not happen in a correctly constructed recipe),
-    the string ``"None"`` appears — a visible signal of incomplete data rather
-    than a silent formatting error.
+    All three tiers run MCMC at recipe-build time, so ``headline_metric`` is
+    expected to be a float for any gate-passing recipe.  When ``headline_metric``
+    is ``None`` (e.g., during scaffolding or for an in-flight recipe), the
+    template renders ``"not yet measured"`` rather than failing the format —
+    a visible signal of incomplete data.
     """
     effort = recipe.effort
+
+    headline = (
+        f"{recipe.headline_metric:.4f}"
+        if recipe.headline_metric is not None
+        else "not yet measured"
+    )
 
     if effort == Effort.LOW:
         return _LOW_TEMPLATE.format(
             base_method_name=recipe.base_method_name,
             base_method_params=recipe.base_method_params,
+            warmup_name=recipe.warmup_name,
+            headline_metric=headline,
+            wall_seconds=int(recipe.calibration_budget.get("wall_seconds_estimate", 0)),
         )
 
     if effort == Effort.MEDIUM:
-        headline = (
-            f"{recipe.headline_metric:.4f}"
-            if recipe.headline_metric is not None
-            else "None"
-        )
         return _MEDIUM_TEMPLATE.format(
             base_method_name=recipe.base_method_name,
+            base_method_params=recipe.base_method_params,
             warmup_name=recipe.warmup_name,
-            warmup_params=recipe.warmup_params,
-            n_warmup=recipe.warmup_params.get("n_warmup", "?"),
             headline_metric=headline,
-            warmup_seconds=int(
-                recipe.calibration_budget.get("wall_seconds_estimate", 0)
-            ),
         )
 
     if effort == Effort.HIGH:
-        headline = (
-            f"{recipe.headline_metric:.4f}"
-            if recipe.headline_metric is not None
-            else "None"
-        )
         return _HIGH_TEMPLATE.format(
-            model_name=recipe.model_name,
             base_method_name=recipe.base_method_name,
             base_method_params=recipe.base_method_params,
-            warmup_params=recipe.warmup_params,
-            n_trials=recipe.calibration_budget.get("trials", "?"),
-            tuning_seed=recipe.tuning_seed,
+            warmup_name=recipe.warmup_name,
             headline_metric=headline,
             calibration_minutes=int(
                 recipe.calibration_budget.get("wall_seconds_estimate", 0) / 60

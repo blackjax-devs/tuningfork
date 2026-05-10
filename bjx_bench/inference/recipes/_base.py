@@ -141,19 +141,32 @@ class Recipe:
     # ---- Identity (the 4-axis index) ----
     model_name: str
     base_method_name: str
-    warmup_name: (
-        str  # "no_warmup" for LOW; "stan_window" / "mclmc_tuning" for MEDIUM/HIGH
-    )
+    # Name of the warmup procedure registered in WARMUPS.  The choice of warmup
+    # is a property of the *cell* (model, warmup, sampler), not the effort tier:
+    # every tier uses whichever warmup the cell specifies.  Conventional cells
+    # pair a sampler with its natural warmup (stan_window for nuts/hmc/mala/barker;
+    # mclmc_tuning for mclmc; meads for ghmc; chees for dynamic_hmc; no_warmup
+    # for gradient-free / specialised samplers).  Unconventional but
+    # technically-possible cells (e.g., stan_window + rmhmc, stan_window + mala)
+    # are explored under MEDIUM effort.
+    warmup_name: str
     effort: Effort
 
     # ---- Pinned config ----
     base_method_params: dict[str, Any]
-    warmup_params: dict[str, Any]  # {} for LOW (no warmup)
+    # Warmup hyperparameters used at recipe-build time (e.g., n_warmup,
+    # target_acceptance).  Non-empty at every effort tier — LOW always runs
+    # warmup with library defaults; MEDIUM/HIGH may tune these values.
+    warmup_params: dict[str, Any]
 
     # ---- Performance ----
-    # headline_metric is None for LOW since no MCMC was run
+    # min_bulk_ess_per_grad measured at the pinned (warmup_params,
+    # base_method_params).  Filled at every effort tier that produces a
+    # gate-passing recipe (LOW, MEDIUM, HIGH all run MCMC at recipe-build
+    # time).  None means "not yet measured".
     headline_metric: float | None
-    # sample_quality is None until Phase 6 wires reference comparison
+    # sample_quality is filled by the recipe-emit pipeline once
+    # `bjx_bench/metrics/reference_compare.py` is wired (Phase 6).
     sample_quality: dict[str, float] | None
 
     # ---- Calibration cost (the persona filter) ----

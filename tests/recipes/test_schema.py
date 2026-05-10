@@ -262,8 +262,13 @@ def test_render_instructions_low() -> None:
     assert len(prose) > 20
     # LOW template should mention the algorithm name
     assert "nuts" in prose
-    # LOW template does NOT try to format headline_metric as a float
-    assert "zero-calibration" in prose
+    # Under canonical-C taxonomy, LOW = conventional pairing with library
+    # defaults; the prose should label it as such.  When `from_default_config`
+    # produces a not-yet-measured stub (headline_metric=None), the template
+    # renders "not yet measured" rather than failing to format.
+    assert "Low-effort recipe" in prose
+    assert "conventional" in prose
+    assert "not yet measured" in prose
 
 
 @pytest.mark.fast
