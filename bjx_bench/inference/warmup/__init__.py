@@ -38,6 +38,9 @@ Usage::
 """
 
 from bjx_bench.inference.warmup._base import Warmup
+from bjx_bench.inference.warmup.adjusted_mclmc_tuning import (
+    ENTRY as _adjusted_mclmc_tuning,
+)
 from bjx_bench.inference.warmup.chees import ENTRY as _chees
 from bjx_bench.inference.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
 from bjx_bench.inference.warmup.meads import ENTRY as _meads
@@ -49,6 +52,7 @@ from bjx_bench.inference.warmup.stan_window import ENTRY as _stan_window
 WARMUPS: dict[str, Warmup] = {
     _stan_window.name: _stan_window,
     _mclmc_tuning.name: _mclmc_tuning,
+    _adjusted_mclmc_tuning.name: _adjusted_mclmc_tuning,
     _no_warmup.name: _no_warmup,
     _pathfinder.name: _pathfinder,
     _multipathfinder.name: _multipathfinder,

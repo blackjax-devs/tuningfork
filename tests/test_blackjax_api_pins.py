@@ -372,7 +372,145 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
         )
 
 
-# ───────────────── 8. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+# ───────────────── 8. adjusted_mclmc + adjusted_mclmc_dynamic + adapter (P5.7) ─────────────────
+
+
+def test_blackjax_adjusted_mclmc_factory_signature():
+    """Tripwire: blackjax.mcmc.adjusted_mclmc.as_top_level_api must accept
+    {logdensity_fn, step_size, integration_steps_params, inverse_mass_matrix}.
+
+    Pinned at P5.7: bjx_bench/inference/base_method/adjusted_mclmc.py calls
+    blackjax.adjusted_mclmc(logdensity_fn, step_size=...,
+    integration_steps_params=(...,), inverse_mass_matrix=...).
+    If upstream renames or removes any of these, factory calls in the BO loop
+    fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.adjusted_mclmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "logdensity_fn",
+        "step_size",
+        "integration_steps_params",
+        "inverse_mass_matrix",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.adjusted_mclmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/adjusted_mclmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_adjusted_mclmc_dynamic_factory_signature():
+    """Tripwire: blackjax.mcmc.adjusted_mclmc_dynamic.as_top_level_api must accept
+    {logdensity_fn, step_size, integration_steps_fn, integration_steps_params,
+    inverse_mass_matrix}.
+
+    Pinned at P5.7: bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py calls
+    blackjax.adjusted_mclmc_dynamic(logdensity_fn, step_size=...,
+    integration_steps_fn=..., integration_steps_params=(...,),
+    inverse_mass_matrix=...).
+    If upstream renames or removes any of these, factory calls fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.adjusted_mclmc_dynamic import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "logdensity_fn",
+        "step_size",
+        "integration_steps_fn",
+        "integration_steps_params",
+        "inverse_mass_matrix",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.adjusted_mclmc_dynamic.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py if upstream API changed."
+    )
+
+
+def test_blackjax_adjusted_mclmc_find_L_and_step_size_returns_3_tuple():
+    """Tripwire: blackjax.adjusted_mclmc_find_L_and_step_size must return a 3-tuple
+    (state, MCLMCAdaptationState, total_num_tuning_integrator_steps).
+
+    Pinned at P5.7: bjx_bench/inference/warmup/adjusted_mclmc_tuning.py unpacks
+    (s, adaptation_state, total_steps). If upstream changes to a 2-tuple (matching
+    the vanilla mclmc docstring drift META-004), the unpack fails opaquely.
+
+    META-004 instance #6: adjusted_mclmc_find_L_and_step_size docstring says
+    'tuple containing the final state and final hyperparameters' but actually
+    returns a 3-tuple including total_num_tuning_integrator_steps. Confirmed here.
+    """
+
+    def logdensity_fn(x):
+        return -0.5 * jnp.sum(x**2)
+
+    key = jax.random.key(0)
+    init_state = blackjax.mcmc.adjusted_mclmc.init(jnp.zeros(10), logdensity_fn)
+    mclmc_kernel = blackjax.mcmc.adjusted_mclmc.build_kernel()
+    result = blackjax.adjusted_mclmc_find_L_and_step_size(
+        mclmc_kernel,
+        logdensity_fn=logdensity_fn,
+        num_steps=100,
+        state=init_state,
+        rng_key=key,
+        target=0.9,
+    )
+    assert len(result) == 3, (
+        f"BlackJAX changed adjusted_mclmc_find_L_and_step_size return arity "
+        f"from 3 to {len(result)}. "
+        f"Update bjx_bench/inference/warmup/adjusted_mclmc_tuning.py unpack accordingly."
+    )
+    assert result[1]._fields == ("L", "step_size", "inverse_mass_matrix"), (
+        f"MCLMCAdaptationState._fields changed from "
+        f"('L', 'step_size', 'inverse_mass_matrix') to {result[1]._fields}. "
+        f"Update bjx_bench/inference/warmup/adjusted_mclmc_tuning.py adapted_params dict."
+    )
+
+
+def test_blackjax_make_random_trajectory_length_fn_signature():
+    """Tripwire: blackjax.mcmc.adjusted_mclmc_dynamic.make_random_trajectory_length_fn
+    must accept 'random_trajectory_length' as parameter and return a callable
+    (rng_arg, avg) -> int-castable scalar in a reasonable range.
+
+    Pinned at P5.7: bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py calls
+    make_random_trajectory_length_fn(True) to get the integration_steps_fn.
+    If upstream renames the parameter or changes the returned function's signature,
+    the dynamic factory breaks.
+    """
+    import inspect
+
+    from blackjax.mcmc.adjusted_mclmc_dynamic import make_random_trajectory_length_fn
+
+    sig = inspect.signature(make_random_trajectory_length_fn)
+    assert "random_trajectory_length" in sig.parameters, (
+        f"make_random_trajectory_length_fn is missing 'random_trajectory_length' parameter. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py."
+    )
+
+    # Calling make_random_trajectory_length_fn(True) should return a callable
+    # that takes (rng_arg, avg) and returns an int-castable scalar.
+    steps_fn = make_random_trajectory_length_fn(True)
+    assert callable(
+        steps_fn
+    ), "make_random_trajectory_length_fn(True) must return a callable."
+    result = steps_fn(jax.random.key(0), 5.0)
+    result_int = int(result)
+    assert 0 <= result_int <= 100, (
+        f"make_random_trajectory_length_fn(True)(key, 5.0) returned {result_int}, "
+        f"expected an int-castable scalar in [0, ~10]. "
+        f"Update bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py."
+    )
+
+
+# ───────────────── 9. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and

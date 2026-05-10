@@ -82,6 +82,7 @@ class TestWarmupRegistry:
         expected = {
             "stan_window",
             "mclmc_tuning",
+            "adjusted_mclmc_tuning",
             "no_warmup",
             "pathfinder",
             "multipathfinder",
@@ -1467,6 +1468,12 @@ class TestAdjustedMclmcTuning:
     (static kernel) to jointly find L, step_size, and a diagonal IMM.
     Compatible with both adjusted_mclmc and adjusted_mclmc_dynamic.
     """
+
+    def test_adjusted_mclmc_tuning_in_registry(self) -> None:
+        """P5.7: adjusted_mclmc_tuning must be present in WARMUPS."""
+        assert (
+            "adjusted_mclmc_tuning" in WARMUPS
+        ), f"'adjusted_mclmc_tuning' not in WARMUPS; registered: {sorted(WARMUPS)}"
 
     def test_adjusted_mclmc_tuning_entry_importable(self) -> None:
         """P5.7: adjusted_mclmc_tuning ENTRY is importable as a Warmup instance."""
