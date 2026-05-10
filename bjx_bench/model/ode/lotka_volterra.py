@@ -296,7 +296,7 @@ ENTRY = Posterior(
         "Mathematically. Nature, 118(2972), 558–560.",
     ),
     description=(
-        "7-D Lotka-Volterra ODE inverse via ProbDiffEq (P4.10, Block D). "
+        "7-D Lotka-Volterra ODE inverse via ProbDiffEq. "
         "T=40 synthetic observations over 20 time units (~3 oscillations). "
         "True params: alpha=0.5, beta=0.05, gamma=0.5, delta=0.05, "
         "u0=10.0, v0=5.0, sigma_obs=0.5. "

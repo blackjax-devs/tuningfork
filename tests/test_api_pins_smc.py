@@ -28,7 +28,7 @@ import pytest
 pytestmark = pytest.mark.fast
 
 
-# ───────────────── 11. SMC family — adaptive_tempered_smc (P5.10) ─────────────────
+# ───────────────── 11. SMC family — adaptive_tempered_smc ─────────────────
 
 
 def test_blackjax_adaptive_tempered_smc_factory_signature():
@@ -36,7 +36,7 @@ def test_blackjax_adaptive_tempered_smc_factory_signature():
     {logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn, mcmc_parameters,
     resampling_fn, target_ess, root_solver, num_mcmc_steps, extra_parameters}.
 
-    Pinned at P5.10c: bjx_bench/inference/smc/adaptive_tempered.py calls
+    Pinned tripwire: bjx_bench/inference/smc/adaptive_tempered.py calls
     blackjax.adaptive_tempered_smc(logprior_fn=..., loglikelihood_fn=...,
     mcmc_step_fn=..., mcmc_init_fn=..., mcmc_parameters=..., resampling_fn=...,
     target_ess=..., num_mcmc_steps=...).  If upstream renames or removes any of
@@ -80,7 +80,7 @@ def test_blackjax_adaptive_tempered_smc_factory_signature():
 def test_blackjax_smc_resampling_systematic_exists():
     """Tripwire: blackjax.smc.resampling.systematic must be callable.
 
-    Pinned at P5.10c: bjx_bench/inference/smc/adaptive_tempered.py uses
+    Pinned tripwire: bjx_bench/inference/smc/adaptive_tempered.py uses
     blackjax.smc.resampling.systematic as the default resampling function.
     If upstream renames or removes it, the wrapper silently falls back to
     importing a non-existent name at module load time (ImportError) or
@@ -95,7 +95,7 @@ def test_blackjax_smc_resampling_systematic_exists():
     )
 
 
-# ───────────────── 12. SMC family — partial_posteriors_smc + inner_kernel_tuning (P5.10d) ─────────────────
+# ───────────────── 12. SMC family — partial_posteriors_smc + inner_kernel_tuning ─────────────────
 
 
 def test_blackjax_partial_posteriors_path_as_top_level_api_signature():
@@ -103,7 +103,7 @@ def test_blackjax_partial_posteriors_path_as_top_level_api_signature():
     {mcmc_step_fn, mcmc_init_fn, mcmc_parameters, resampling_fn, num_mcmc_steps,
     partial_logposterior_factory, update_strategy}.
 
-    Pinned at P5.10d: bjx_bench/inference/smc/partial_posteriors.py calls
+    Pinned tripwire: bjx_bench/inference/smc/partial_posteriors.py calls
     blackjax.smc.partial_posteriors_path.as_top_level_api with keyword args
     mcmc_step_fn, mcmc_init_fn, mcmc_parameters, resampling_fn, num_mcmc_steps,
     partial_logposterior_factory.  If upstream renames or removes any of these,
@@ -140,7 +140,7 @@ def test_blackjax_partial_posteriors_path_as_top_level_api_signature():
 def test_blackjax_partial_posteriors_smc_state_fields():
     """Tripwire: PartialPosteriorsSMCState._fields must be ('particles', 'weights', 'data_mask').
 
-    Pinned at P5.10d: bjx_bench/inference/smc/partial_posteriors.py documents
+    Pinned tripwire: bjx_bench/inference/smc/partial_posteriors.py documents
     this state shape; tests check state.particles.shape, state.weights.shape,
     state.data_mask.shape.  If upstream renames or adds/removes fields, our
     shape tests break silently (e.g., 'data_mask' renamed to 'mask' would make
@@ -163,7 +163,7 @@ def test_blackjax_inner_kernel_tuning_as_top_level_api_signature():
     resampling_fn, mcmc_parameter_update_fn, initial_parameter_value,
     num_mcmc_steps, smc_returns_state_with_parameter_override, extra_parameters}.
 
-    Pinned at P5.10d: bjx_bench/inference/smc/inner_kernel_tuning.py calls
+    Pinned tripwire: bjx_bench/inference/smc/inner_kernel_tuning.py calls
     blackjax.smc.inner_kernel_tuning.as_top_level_api with all of these.
     If upstream renames or removes any, the wrapper's factory calls fail.
 
@@ -204,7 +204,7 @@ def test_blackjax_inner_kernel_tuning_as_top_level_api_signature():
 def test_blackjax_state_with_parameter_override_fields():
     """Tripwire: StateWithParameterOverride._fields must be ('sampler_state', 'parameter_override').
 
-    Pinned at P5.10d: bjx_bench/inference/smc/inner_kernel_tuning.py documents
+    Pinned tripwire: bjx_bench/inference/smc/inner_kernel_tuning.py documents
     that particles live at state.sampler_state.particles (not state.particles
     directly).  Tests access state.sampler_state.particles and
     state.parameter_override.  If upstream renames these fields, tests break.
@@ -222,9 +222,9 @@ def test_blackjax_state_with_parameter_override_fields():
 
 def test_blackjax_smc_registry_has_three_entries():
     """Tripwire: SMC_METHODS registry must contain all three registered entries
-    after P5.10d (adaptive_tempered_smc, partial_posteriors_smc, inner_kernel_tuning).
+    after (adaptive_tempered_smc, partial_posteriors_smc, inner_kernel_tuning).
 
-    Pinned at P5.10d: verifies that the __init__.py registration is complete
+    Pinned tripwire: verifies that the __init__.py registration is complete
     and that all three names are resolvable in the registry dict.
     """
     from bjx_bench.inference.smc import SMC_METHODS
@@ -236,12 +236,12 @@ def test_blackjax_smc_registry_has_three_entries():
     }
     missing = required - set(SMC_METHODS.keys())
     assert not missing, (
-        f"SMC_METHODS registry is missing entries after P5.10d registration: {missing}. "
+        f"SMC_METHODS registry is missing entries after registration: {missing}. "
         f"Update bjx_bench/inference/smc/__init__.py to register all three SMC methods."
     )
 
 
-# ─── 13. Persistent sampling family (P5.11) ──────────────────────────────────
+# ───────── 13. Persistent sampling family ─────────
 
 
 def test_blackjax_persistent_sampling_as_top_level_api_signature():
@@ -249,7 +249,7 @@ def test_blackjax_persistent_sampling_as_top_level_api_signature():
     {logprior_fn, loglikelihood_fn, n_schedule, mcmc_step_fn, mcmc_init_fn,
     mcmc_parameters, resampling_fn, num_mcmc_steps, update_strategy}.
 
-    Pinned at P5.11: bjx_bench/inference/smc/persistent_sampling.py calls
+    Pinned tripwire: bjx_bench/inference/smc/persistent_sampling.py calls
     blackjax.smc.persistent_sampling.as_top_level_api with keyword args
     logprior_fn, loglikelihood_fn, n_schedule, mcmc_step_fn, mcmc_init_fn,
     mcmc_parameters, resampling_fn, num_mcmc_steps.  If upstream renames or
@@ -291,7 +291,7 @@ def test_blackjax_adaptive_persistent_sampling_as_top_level_api_signature():
     mcmc_parameters, resampling_fn, target_ess, num_mcmc_steps, update_strategy,
     root_solver}.
 
-    Pinned at P5.11: bjx_bench/inference/smc/adaptive_persistent_sampling.py calls
+    Pinned tripwire: bjx_bench/inference/smc/adaptive_persistent_sampling.py calls
     blackjax.smc.adaptive_persistent_sampling.as_top_level_api with keyword args
     logprior_fn, loglikelihood_fn, max_iterations, mcmc_step_fn, mcmc_init_fn,
     mcmc_parameters, resampling_fn, target_ess, num_mcmc_steps.  If upstream renames
@@ -327,11 +327,11 @@ def test_blackjax_adaptive_persistent_sampling_as_top_level_api_signature():
 
 
 def test_blackjax_adaptive_persistent_sampling_step_arity_is_two_arg():
-    """Tripwire — META-004 candidate #8: step_fn of adaptive_persistent_sampling
+    """Tripwire —  candidate #8: step_fn of adaptive_persistent_sampling
     is 2-arg (rng_key, state), NOT 3-arg (rng_key, state, lmbda) as the docstring
     incorrectly states.
 
-    Pinned at P5.11: bjx_bench/inference/smc/adaptive_persistent_sampling.py
+    Pinned tripwire: bjx_bench/inference/smc/adaptive_persistent_sampling.py
     wraps the 2-arg step_fn as a standard bjx-bench step (step_kwargs_schema=()).
     If upstream silently changes step_fn to 3-arg, our wrapper would silently
     drop the lmbda arg, producing incorrect (delta=0) tempering.
@@ -384,7 +384,7 @@ def test_blackjax_adaptive_persistent_sampling_step_arity_is_two_arg():
         f"adaptive_persistent_sampling step_fn arity changed from 2-arg to {actual_params}. "
         f"Update bjx_bench/inference/smc/adaptive_persistent_sampling.py: if now 3-arg, "
         f"set step_kwargs_schema=('lmbda',) and update the factory. "
-        f"META-004 candidate #8 — check if docstring was also fixed upstream."
+        f" candidate #8 — check if docstring was also fixed upstream."
     )
 
     # Pin the docstring mismatch: upstream says '(rng_key, state, lmbda)' but step is 2-arg.
@@ -393,7 +393,7 @@ def test_blackjax_adaptive_persistent_sampling_step_arity_is_two_arg():
     assert "lmbda" in docstring, (
         "blackjax.smc.adaptive_persistent_sampling.as_top_level_api docstring no longer "
         "mentions 'lmbda' in the step signature description. The upstream docstring/arity "
-        "mismatch (META-004 #8) may have been fixed. Re-audit: confirm actual step arity "
+        "mismatch ( #8) may have been fixed. Re-audit: confirm actual step arity "
         "is still 2-arg (rng_key, state) and update bjx_bench wrapper notes accordingly."
     )
 
@@ -403,7 +403,7 @@ def test_blackjax_persistent_smc_state_fields():
     ('persistent_particles', 'persistent_log_likelihoods', 'persistent_log_Z',
     'tempering_schedule', 'iteration').
 
-    Pinned at P5.11: bjx_bench wrapper docs and tests access state.particles
+    Pinned tripwire: bjx_bench wrapper docs and tests access state.particles
     (property), state.tempering_param (property), state.iteration, and
     state.persistent_particles (direct field). If upstream renames or adds/removes
     fields, our access patterns break.
@@ -428,7 +428,7 @@ def test_blackjax_persistent_smc_state_fields():
 def test_blackjax_persistent_state_info_fields():
     """Tripwire: PersistentStateInfo._fields must be ('ancestors', 'update_info').
 
-    Pinned at P5.11: tests access info.ancestors (resampling indices) and
+    Pinned tripwire: tests access info.ancestors (resampling indices) and
     info.update_info (MCMC kernel info). If upstream renames these fields,
     our access patterns break silently.
     """
@@ -444,11 +444,11 @@ def test_blackjax_persistent_state_info_fields():
 
 
 def test_smc_methods_registry_subset_after_p511():
-    """Tripwire (META-011 subset check): SMC_METHODS must contain at minimum the five
-    entries registered after P5.11 (adaptive_tempered_smc, partial_posteriors_smc,
+    """Tripwire ( subset check): SMC_METHODS must contain at minimum the five
+    entries registered after (adaptive_tempered_smc, partial_posteriors_smc,
     inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc).
 
-    Uses subset check (not equality) per META-011: future additions to SMC_METHODS
+    Uses subset check (not equality) per : future additions to SMC_METHODS
     should not trigger this tripwire — only removals will.
     """
     from bjx_bench.inference.smc import SMC_METHODS
@@ -462,12 +462,12 @@ def test_smc_methods_registry_subset_after_p511():
     }
     missing = required - set(SMC_METHODS.keys())
     assert not missing, (
-        f"SMC_METHODS registry is missing entries after P5.11 registration: {missing}. "
+        f"SMC_METHODS registry is missing entries after registration: {missing}. "
         f"Update bjx_bench/inference/smc/__init__.py to register all five SMC methods."
     )
 
 
-# ───────── tempered_smc (P5.15.5) ────────────────────────────────────────────
+# ───────── tempered_smc ────────────────────────────────────────────
 
 
 def test_blackjax_tempered_smc_as_top_level_api_signature():
@@ -475,11 +475,11 @@ def test_blackjax_tempered_smc_as_top_level_api_signature():
     {logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn, mcmc_parameters,
     resampling_fn, num_mcmc_steps, update_strategy, update_particles_fn}.
 
-    Pinned at P5.15.5: bjx_bench/inference/smc/tempered.py calls
+    Pinned tripwire: bjx_bench/inference/smc/tempered.py calls
     _tempered.as_top_level_api(...) with these parameters.  Note that
     blackjax.tempered_smc (the top-level object) collapses to *args/**kwargs
     via GenerateSamplingAPI wrapping -- this tripwire inspects the inner module
-    directly, same pattern as adaptive_tempered_smc tripwire (P5.10c).
+    directly, same pattern as adaptive_tempered_smc tripwire.
     """
     import inspect
 
@@ -508,12 +508,12 @@ def test_blackjax_tempered_smc_as_top_level_api_signature():
 def test_blackjax_tempered_smc_state_fields():
     """Tripwire: TemperedSMCState._fields must be ('particles', 'weights', 'tempering_param').
 
-    Pinned at P5.15.5: bjx_bench/inference/smc/tempered.py documents that the
+    Pinned tripwire: bjx_bench/inference/smc/tempered.py documents that the
     state field is 'tempering_param' (NOT 'lmbda' as in persistent_sampling).
     If upstream renames this field, our wrapper's notes and tests/inference/smc/
     test_tempered.py state-access patterns break silently.
 
-    Finding (P5.15.5): 'tempering_param' is the correct upstream spelling --
+    Finding: 'tempering_param' is the correct upstream spelling --
     distinct from 'lmbda' used in blackjax.smc.persistent_sampling.
     """
     from blackjax.smc.tempered import TemperedSMCState
@@ -529,8 +529,8 @@ def test_blackjax_tempered_smc_state_fields():
 
 
 def test_smc_methods_registry_subset_after_p5155():
-    """Tripwire (META-011 subset check): SMC_METHODS must contain 'tempered_smc'
-    after P5.15.5 registration.
+    """Tripwire ( subset check): SMC_METHODS must contain 'tempered_smc'
+    after registration.
 
     Subset check: future additions to SMC_METHODS do not break this test;
     only removal of 'tempered_smc' triggers it.
@@ -538,7 +538,7 @@ def test_smc_methods_registry_subset_after_p5155():
     from bjx_bench.inference.smc import SMC_METHODS
 
     assert "tempered_smc" in SMC_METHODS, (
-        f"SMC_METHODS is missing 'tempered_smc' after P5.15.5 registration. "
+        f"SMC_METHODS is missing 'tempered_smc' after registration. "
         f"Registered keys: {sorted(SMC_METHODS.keys())}. "
         f"Check bjx_bench/inference/smc/__init__.py imports."
     )

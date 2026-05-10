@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the inner_kernel_tuning SMC registry entry (P5.10d).
+"""Tests for the inner_kernel_tuning SMC registry entry.
 
 Covers:
 1. ENTRY field correctness (name, family, default_inner_method,
@@ -28,7 +28,7 @@ Covers:
 7. ENTRY is importable as SMCMethod without registry (commit-1 smoke).
 8. Schema-validation negative test.
 
-Finding (P5.10d): StateWithParameterOverride._fields = ('sampler_state',
+Finding: StateWithParameterOverride._fields = ('sampler_state',
   'parameter_override'). Particles live at state.sampler_state.particles
   (NOT state.particles). The smc_algorithm is re-instantiated at every step
   with the current parameter_override as mcmc_parameters — this is how
@@ -68,10 +68,10 @@ def _loglikelihood_fn(x):
 
 
 def _make_rwm_inner_kernel(dim: int, sigma: float) -> SamplingAlgorithm:
-    """Build a RWM inner kernel suitable for SMC (P5.10c pattern).
+    """Build a RWM inner kernel suitable for SMC.
 
     Binds the non-array random_step callable via functools.partial so that
-    mcmc_parameters stays array-only (P5.10c constraint).
+    mcmc_parameters stays array-only (JAX-arrays-only constraint).
     """
     sigma_arr = jnp.full(dim, sigma)
     step_fn = functools.partial(

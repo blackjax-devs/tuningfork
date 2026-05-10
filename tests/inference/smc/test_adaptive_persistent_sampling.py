@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the adaptive_persistent_sampling_smc SMC registry entry (P5.11).
+"""Tests for the adaptive_persistent_sampling_smc SMC registry entry.
 
 Covers:
 1. ENTRY field correctness (name, family, default_inner_method,
@@ -27,7 +27,7 @@ Covers:
 5. target_ess > 1 is valid (persistent ensemble ESS can exceed 1).
 6. Schema-validation negative test: missing required kwargs raises TypeError.
 
-Step-arity finding (P5.11 / META-004 #8):
+Step-arity finding:
   The upstream adaptive_persistent_sampling.as_top_level_api docstring
   incorrectly states step signature as (rng_key, state, lmbda) — 3-arg.
   The actual step_fn is 2-arg (rng_key, state). This is pinned in
@@ -195,7 +195,7 @@ class TestAdaptivePersistentSamplingHpSpace:
 def _make_rwm_inner_kernel(dim: int, sigma: float) -> SamplingAlgorithm:
     """Build a RWM inner kernel suitable for SMC.
 
-    Key finding (P5.10c): blackjax SMC's from_mcmc.unshared_parameters_and_step_fn
+    Key finding: blackjax SMC's from_mcmc.unshared_parameters_and_step_fn
     calls .shape on every value in mcmc_parameters, so mcmc_parameters must
     contain ONLY JAX arrays. The random_step callable for RWM must be bound via
     functools.partial BEFORE passing as mcmc_step_fn.
@@ -242,7 +242,7 @@ class TestAdaptivePersistentSamplingSMCEndToEnd:
     def test_step_is_two_arg_and_advances_state(self) -> None:
         """step_fn(rng_key, state) — 2-arg; kernel computes lmbda internally.
 
-        META-004 NOTE: upstream docstring says 3-arg (rng_key, state, lmbda),
+         NOTE: upstream docstring says 3-arg (rng_key, state, lmbda),
         but actual step_fn is 2-arg. This test confirms the actual behaviour.
         The tripwire in test_api_pins_smc.py section 13 pins this arity.
 

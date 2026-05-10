@@ -27,8 +27,8 @@ rng_key-free form used by HMC/MALA/Barker.
 Requires pytree_size(position) >= 2 (enforced by blackjax upstream).
 
 Adaptation: BlackJAX provides blackjax.mclmc_find_L_and_step_size as a
-dedicated warmup routine. Tier-B (T2.6) will dispatch to it based on
-BaseMethod.name. T2.4 only declares the entry.
+dedicated warmup routine. Tier-B will dispatch to it based on
+BaseMethod.name. This module only declares the entry.
 """
 
 import blackjax

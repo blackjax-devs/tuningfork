@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the Phase 3 (P3.1) warmup registry and Phase 5 (P5.0c) multi-chain contract.
+"""Tests for the warmup registry and multi-chain contract.
 
 Covers:
   1. WARMUPS dict has exactly the three expected entries.
@@ -25,7 +25,7 @@ Covers:
   9. Auto-dispatch in tune_algorithm: mclmc → mclmc_tuning, nuts → stan_window,
      rwm → no_warmup (verified via result structure).
  10. tune_algorithm regression: existing calls with warmup_name=None still pass.
- 11. Multi-chain contract tests (P5.0c): shape checks for num_chains=1/4/8,
+ 11. Multi-chain contract tests: shape checks for num_chains=1/4/8,
      pre-batched init_position, dense mass matrix, MCLMC multi-chain, no_warmup multi-chain.
 """
 
@@ -80,7 +80,7 @@ class TestWarmupRegistry:
     """WARMUPS registry structure tests (fast; no chain runs)."""
 
     def test_warmups_has_expected_entries(self) -> None:
-        """Subset assertion: all known warmups must be present (META-011 pattern)."""
+        """Subset assertion: all known warmups must be present ( pattern)."""
         expected = {
             "stan_window",
             "mclmc_tuning",
@@ -106,15 +106,15 @@ class TestWarmupRegistry:
         assert "no_warmup" in WARMUPS
 
     def test_warmups_has_pathfinder(self) -> None:
-        """P5.4: pathfinder warmup is registered."""
+        """pathfinder warmup is registered."""
         assert "pathfinder" in WARMUPS
 
     def test_warmups_has_multipathfinder(self) -> None:
-        """P5.4: multipathfinder warmup is registered."""
+        """multipathfinder warmup is registered."""
         assert "multipathfinder" in WARMUPS
 
     def test_warmups_has_meads(self) -> None:
-        """P5.5: meads warmup is registered."""
+        """meads warmup is registered."""
         assert "meads" in WARMUPS
 
     def test_all_entries_are_warmup_instances(self) -> None:
@@ -170,7 +170,7 @@ class TestIsCompatible:
     def test_mclmc_tuning_not_compatible_with_rwm(self) -> None:
         assert not WARMUPS["mclmc_tuning"].is_compatible("rwm")
 
-    # -- pathfinder (P5.4) --
+    # -- pathfinder --
     def test_pathfinder_compatible_with_nuts(self) -> None:
         assert WARMUPS["pathfinder"].is_compatible("nuts")
 
@@ -183,7 +183,7 @@ class TestIsCompatible:
     def test_pathfinder_not_compatible_with_mclmc(self) -> None:
         assert not WARMUPS["pathfinder"].is_compatible("mclmc")
 
-    # -- multipathfinder (P5.4) --
+    # -- multipathfinder --
     def test_multipathfinder_compatible_with_nuts(self) -> None:
         assert WARMUPS["multipathfinder"].is_compatible("nuts")
 
@@ -262,7 +262,7 @@ class TestStanWindowSmoke:
         ), f"inverse_mass_matrix.shape={imm.shape}, expected (1, 10) for num_chains=1 diagonal"
 
     def test_dense_mass_matrix_shape(self) -> None:
-        """P5.0b: is_mass_matrix_diagonal=False produces (num_chains, d, d) IMM."""
+        """is_mass_matrix_diagonal=False produces (num_chains, d, d) IMM."""
         _, params = self._run(106, num_chains=1, is_mass_matrix_diagonal=False)
         imm = params["inverse_mass_matrix"]
         # num_chains=1 → shape (1, 10, 10)
@@ -600,7 +600,7 @@ class TestTuneAlgorithmRegression:
 
 
 # ---------------------------------------------------------------------------
-# 11. Multi-chain contract tests (P5.0c)
+# 11. Multi-chain contract tests
 # ---------------------------------------------------------------------------
 
 
@@ -617,7 +617,7 @@ def _position_shape(states) -> tuple:
 
 
 class TestStanWindowMultiChain:
-    """P5.0c: stan_window multi-chain shape contract tests."""
+    """stan_window multi-chain shape contract tests."""
 
     def _run(self, seed: int, num_chains: int, **kw):
         key = jax.random.key(seed)
@@ -726,7 +726,7 @@ class TestStanWindowMultiChain:
 
 
 class TestMclmcTuningMultiChain:
-    """P5.0c: mclmc_tuning multi-chain shape contract tests."""
+    """mclmc_tuning multi-chain shape contract tests."""
 
     def _run(self, seed: int, num_chains: int) -> tuple[object, dict]:
         key = jax.random.key(seed)
@@ -802,7 +802,7 @@ class TestMclmcTuningMultiChain:
 
 
 class TestNoWarmupMultiChain:
-    """P5.0c: no_warmup multi-chain shape contract tests."""
+    """no_warmup multi-chain shape contract tests."""
 
     def _run(self, seed: int, base_method, num_chains: int) -> tuple[object, dict]:
         key = jax.random.key(seed)
@@ -866,14 +866,14 @@ class TestNoWarmupMultiChain:
 
 
 # ---------------------------------------------------------------------------
-# 12. P5.4: Pathfinder multi-chain warmup
+# 12. Pathfinder multi-chain warmup
 # ---------------------------------------------------------------------------
 
 _D = 10  # MVN-10 has 10 dimensions
 
 
 class TestPathfinderMultiChain:
-    """P5.4: pathfinder warmup multi-chain shape contract tests.
+    """pathfinder warmup multi-chain shape contract tests.
 
     Single-path Pathfinder: one independent L-BFGS run per chain (vmap).
     Returns init positions drawn from the per-chain variational surrogate and
@@ -999,12 +999,12 @@ class TestPathfinderMultiChain:
 
 
 # ---------------------------------------------------------------------------
-# 13. P5.4: MultiPathfinder multi-chain warmup
+# 13. MultiPathfinder multi-chain warmup
 # ---------------------------------------------------------------------------
 
 
 class TestMultiPathfinderMultiChain:
-    """P5.4: multipathfinder warmup multi-chain shape contract tests.
+    """multipathfinder warmup multi-chain shape contract tests.
 
     Multi-path Pathfinder: one multi-path fit feeds num_chains init positions
     drawn from the PSIS-resampled mixture.  The post-PSIS empirical covariance
@@ -1141,12 +1141,12 @@ class TestMultiPathfinderMultiChain:
 
 
 # ---------------------------------------------------------------------------
-# 14. P5.5: MEADS multi-chain warmup (GHMC-specific)
+# 14. MEADS multi-chain warmup (GHMC-specific)
 # ---------------------------------------------------------------------------
 
 
 class TestMeadsMultiChain:
-    """P5.5: meads warmup multi-chain shape contract tests.
+    """meads warmup multi-chain shape contract tests.
 
     MEADS is fundamentally multi-chain: a single call handles all num_chains
     chains jointly via cross-validation across num_folds folds.  Unlike
@@ -1287,14 +1287,14 @@ class TestMeadsMultiChain:
 
 
 # ---------------------------------------------------------------------------
-# 15. P5.6: CHEES multi-chain warmup (dynamic_hmc-specific)
+# 15. CHEES multi-chain warmup (dynamic_hmc-specific)
 # ---------------------------------------------------------------------------
 
 _DYNAMIC_HMC = BASE_METHODS["dynamic_hmc"]
 
 
 class TestCheesMultiChain:
-    """P5.6: chees warmup multi-chain shape contract tests.
+    """chees warmup multi-chain shape contract tests.
 
     CHEES is fundamentally multi-chain: a single call handles all num_chains
     chains jointly.  Like MEADS, CHEES is NOT vmapped — one call, all chains.
@@ -1459,12 +1459,12 @@ class TestCheesMultiChain:
 
 
 # ---------------------------------------------------------------------------
-# 16. P5.7: adjusted_mclmc_tuning warmup (adjusted_mclmc + adjusted_mclmc_dynamic)
+# 16. adjusted_mclmc_tuning warmup (adjusted_mclmc + adjusted_mclmc_dynamic)
 # ---------------------------------------------------------------------------
 
 
 class TestAdjustedMclmcTuning:
-    """P5.7: adjusted_mclmc_tuning warmup registry and multi-chain shape contract tests.
+    """adjusted_mclmc_tuning warmup registry and multi-chain shape contract tests.
 
     adjusted_mclmc_tuning uses blackjax.adjusted_mclmc_find_L_and_step_size
     (static kernel) to jointly find L, step_size, and a diagonal IMM.
@@ -1472,13 +1472,13 @@ class TestAdjustedMclmcTuning:
     """
 
     def test_adjusted_mclmc_tuning_in_registry(self) -> None:
-        """P5.7: adjusted_mclmc_tuning must be present in WARMUPS."""
+        """adjusted_mclmc_tuning must be present in WARMUPS."""
         assert (
             "adjusted_mclmc_tuning" in WARMUPS
         ), f"'adjusted_mclmc_tuning' not in WARMUPS; registered: {sorted(WARMUPS)}"
 
     def test_adjusted_mclmc_tuning_entry_importable(self) -> None:
-        """P5.7: adjusted_mclmc_tuning ENTRY is importable as a Warmup instance."""
+        """adjusted_mclmc_tuning ENTRY is importable as a Warmup instance."""
         from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert isinstance(ENTRY, Warmup), f"ENTRY is not a Warmup: {type(ENTRY)}"
@@ -1623,7 +1623,7 @@ class TestAdjustedMclmcTuning:
 
 
 # ---------------------------------------------------------------------------
-# TestNoWarmupGuards (P5.8)
+# TestNoWarmupGuards
 # ---------------------------------------------------------------------------
 
 

@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.15 additive_step_random_walk base method registry entry.
+"""Tests for the additive_step_random_walk base method registry entry.
 
 Covers:
   1. ENTRY field correctness (name, family, extra_required_kwargs, etc.).
   2. factory with inline Gaussian proposal_generator: init + 500-step scan,
      shape preservation, acceptance_rate finite, mean acceptance > 0.
   3. no_warmup runner raises NotImplementedError if invoked without proposal_generator
-     (proves P5.14a extra_required_kwargs schema integration).
+     (proves extra_required_kwargs schema integration).
   4. grad_count_per_step returns 0 (gradient-free).
   5. factory() without proposal_generator raises TypeError (contract pin).
 """
@@ -66,7 +66,7 @@ class TestAddStepRwEntryFields:
         assert ENTRY.family == "mcmc"
 
     def test_extra_required_kwargs_match(self) -> None:
-        """P5.14a schema: extra_required_kwargs=('proposal_generator',)."""
+        """schema: extra_required_kwargs=('proposal_generator',)."""
         assert ENTRY.extra_required_kwargs == ("proposal_generator",)
 
     def test_target_acceptance_rate_none(self) -> None:
@@ -180,11 +180,11 @@ class TestAddStepRwFactory:
 
 
 class TestAddStepRwNoWarmupSchema:
-    """Verifies P5.14a extra_required_kwargs schema: no_warmup raises NotImplementedError."""
+    """Verifies extra_required_kwargs schema: no_warmup raises NotImplementedError."""
 
     def test_no_warmup_raises_not_implemented_error(self) -> None:
         """no_warmup._runner raises NotImplementedError for any entry with
-        non-empty extra_required_kwargs.  This proves P5.14a schema integration.
+        non-empty extra_required_kwargs.  This proves schema integration.
         """
         from bjx_bench.inference.warmup.no_warmup import _runner
 

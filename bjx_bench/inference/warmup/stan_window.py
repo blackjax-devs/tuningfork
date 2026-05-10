@@ -20,8 +20,8 @@ matching upstream BlackJAX); set to ``False`` for **dense** (full-rank)
 adaptation when posterior correlation is the dominant pathology.
 
 Compatible with any BlackJAX kernel that accepts an ``inverse_mass_matrix``
-keyword argument (HMC, NUTS, Barker, MALA — verified in Phase 2 tripwire
-tests in ``tests/test_blackjax_api_pins.py``).
+keyword argument (HMC, NUTS, Barker, MALA — verified by tripwire tests
+in ``tests/test_api_pins_mcmc.py``).
 
 Runner signature (multi-chain contract)::
 
@@ -176,7 +176,7 @@ ENTRY = Warmup(
     notes=(
         "Standard Stan window adaptation: dual-averaging step_size + diagonal "
         "mass matrix.  Compatible with hmc, nuts, barker, mala (all kernels "
-        "that accept inverse_mass_matrix).  Verified in Phase 2 tripwire tests.  "
+        "that accept inverse_mass_matrix).  Verified by tripwire tests.  "
         "multi-chain by default (num_chains=4 via jax.vmap); per-chain "
         "adapted_params returned (step_size shape (num_chains,), IMM shape "
         "(num_chains, d) or (num_chains, d, d))."

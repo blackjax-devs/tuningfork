@@ -223,7 +223,7 @@ class Recipe:
     # time).  None means "not yet measured".
     headline_metric: float | None
     # sample_quality is filled by the recipe-emit pipeline once
-    # `bjx_bench/metrics/reference_compare.py` is wired (Phase 6).
+    # `bjx_bench/metrics/reference_compare.py` is wired.
     sample_quality: dict[str, float] | None
 
     # ---- Calibration cost (production effort summary) ----
@@ -267,8 +267,8 @@ class Recipe:
             },
         }
     )
-    # Phase 5 gate provenance. `auto` is populated by
-    # `bjx_bench.calibration.statistician_gate.auto_gate(samples, ...)` (P5.0.5).
+    # Gate provenance. `auto` is populated by
+    # `bjx_bench.calibration.statistician_gate.auto_gate(samples, ...)`.
     # `override` is populated by the Statistician agent when it manually overrides
     # the auto-gate verdict; empty fields mean no override.
     # Schema kept as plain dict (matches existing calibration_budget /
@@ -374,7 +374,7 @@ class Recipe:
             effort=Effort.LOW,
             base_method_params=params,
             warmup_params={},
-            # headline_metric is None for LOW: no MCMC was run; Phase 6 may fill
+            # headline_metric is None when no MCMC has been run; may be filled later
             headline_metric=None,
             sample_quality=None,
             calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
@@ -517,7 +517,7 @@ class Recipe:
             base_method_params=base_params,
             warmup_params={"n_warmup": n_warmup},
             # headline_metric is None for MEDIUM: no post-warmup samples taken;
-            # Phase 6 may fill this via a measurement run.
+            # May be filled later via a measurement run.
             headline_metric=None,
             sample_quality=None,
             calibration_budget=calibration_budget,

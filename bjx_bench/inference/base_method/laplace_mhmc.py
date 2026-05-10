@@ -134,7 +134,7 @@ ENTRY = BaseMethod(
         "(blackjax.mcmc.hmc.multinomial_hmc_proposal — NOT the top-level alias). "
         "Grad cost approximation: num_integration_steps * 5 (coarse). "
         "extra_required_kwargs=('log_joint_fn', 'theta_init'); no_warmup raises "
-        "NotImplementedError; Phase 6 will add specialised wiring path. "
+        "NotImplementedError; a specialised wiring path is required. "
         "See sampling-book/book/algorithms/laplace_hmc_demo.md for full algorithm description."
     ),
 )

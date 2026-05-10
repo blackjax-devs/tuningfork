@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.12 fullrank_vi warmup wrapper.
+"""Tests for the fullrank_vi warmup wrapper.
 
 Covers:
   1. ENTRY field correctness (name, compatible_methods).

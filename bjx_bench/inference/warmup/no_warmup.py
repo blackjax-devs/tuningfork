@@ -108,7 +108,7 @@ def _runner(
             f"no_warmup runner cannot construct base_method "
             f"{base_method.name!r}: factory requires extra kwargs "
             f"{base_method.extra_required_kwargs!r} that must be supplied "
-            f"by a specialised invocation path (Phase 6 recipe-runner integration)."
+            f"by a specialised invocation path (recipe-runner integration)."
         )
 
     defaults = default_params_for(base_method)

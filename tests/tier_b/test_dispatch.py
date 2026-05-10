@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Dispatch tests for Tier-B T2.6c extensions.
+"""Dispatch tests for Tier-B extensions.
 
 Covers:
   (i)   sampler="tpe"|"random" argument routing through Optuna samplers.

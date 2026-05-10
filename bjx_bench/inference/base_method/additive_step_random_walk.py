@@ -23,7 +23,7 @@ The proposal must be symmetric to maintain detailed balance.
 This is a **specialised** entry (``extra_required_kwargs=("proposal_generator",)``):
 the factory requires a ``proposal_generator`` callable beyond ``logdensity_fn`` and
 the HP-space items.  The standard ``no_warmup`` path raises ``NotImplementedError``;
-Phase 6 will add the specialised wiring path.
+a specialised wiring path is required.
 
 Hyperparameter-free: no BO-tunable scalar HPs (``default_hp_space=()``).  The
 proposal distribution is a full callable that encodes its own scale parameters.
@@ -94,7 +94,7 @@ ENTRY = BaseMethod(
         "a user-supplied step to the current position: new_pos = pos + proposal_generator(key, pos). "
         "The proposal_generator must be symmetric (P(step|pos) = P(-step|pos+step)). "
         "Specialised: extra_required_kwargs=('proposal_generator',); no_warmup raises "
-        "NotImplementedError; Phase 6 will add specialised wiring path. "
+        "NotImplementedError; a specialised wiring path is required. "
         "Gradient-free (grad_count_per_step=0). RWInfo carries acceptance_rate, is_accepted, proposal. "
         "Note: blackjax.additive_step_random_walk is a GenerateSamplingAPI instance with a registered "
         "normal_random_walk factory (line 122 of blackjax/__init__.py) for the Gaussian special case. "

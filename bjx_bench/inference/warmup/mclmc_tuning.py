@@ -23,11 +23,11 @@ The 3-tuple returned by ``blackjax.mclmc_find_L_and_step_size`` is::
     (IntegratorState, MCLMCAdaptationState, total_tuning_steps: int)
 
 where ``MCLMCAdaptationState._fields = ('L', 'step_size', 'inverse_mass_matrix')``.
-This was pinned in Phase 2 at ``tests/test_blackjax_api_pins.py``.
+This is pinned by tripwire tests in ``tests/test_api_pins_mcmc.py``.
 
 The third value ``total_tuning_steps`` is threaded into the returned
 ``adapted_params`` dict under the key ``"_total_tuning_steps"`` so
-``Recipe.calibration_budget`` (Phase 3.2) can capture the actual gradient
+``Recipe.calibration_budget`` can capture the actual gradient
 spend during warmup.
 
 Runner signature (multi-chain contract)::

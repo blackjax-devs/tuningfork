@@ -34,13 +34,13 @@ from blackjax.mcmc.mclmc import MCLMCInfo
 pytestmark = pytest.mark.fast
 
 
-# ───────────────── 1. mclmc_find_L_and_step_size return shape ─────────────────
+# ───────── 1. mclmc_find_L_and_step_size return shape ─────────
 def test_mclmc_find_L_and_step_size_returns_3_tuple():
-    """Pinned in T2.6c: bjx_bench/calibration/tier_b.py:_run_warmup unpacks
+    """Pinned tripwire: bjx_bench/calibration/tier_b.py:_run_warmup unpacks
     (state, params, _n_tuning_steps). If BlackJAX changes this to a 2-tuple
     (matching its docstring) or a different shape, the unpack fails opaquely.
 
-    Caught at T2.6c commit 55792ac. Documented in WORKLOG META-004 watch.
+    Caught at commit 55792ac. Documented in WORKLOG tripwire watch.
     """
 
     def logdensity_fn(x):
@@ -67,9 +67,9 @@ def test_mclmc_find_L_and_step_size_returns_3_tuple():
     )
 
 
-# ───────────────── 2. MCLMCInfo NamedTuple fields ─────────────────
+# ───────── 2. MCLMCInfo NamedTuple fields ─────────
 def test_mclmc_info_fields():
-    """Pinned in T2.4: bjx_bench/algorithms/mclmc.py grad_count_per_step is a
+    """Pinned tripwire: bjx_bench/algorithms/mclmc.py grad_count_per_step is a
     constant 2 (NOT 2 × info.num_integration_steps), because MCLMCInfo lacks
     that field. If BlackJAX adds num_integration_steps to MCLMCInfo, our
     constant-2 formula becomes incorrect for any integrator beyond default.
@@ -83,7 +83,7 @@ def test_mclmc_info_fields():
 
 # ───────────────── 3. MCLMCAdaptationState fields (params dict) ─────────────────
 def test_mclmc_adaptation_state_fields():
-    """Pinned in T2.6c: bjx_bench/calibration/tier_b.py treats the warmup
+    """Pinned tripwire: bjx_bench/calibration/tier_b.py treats the warmup
     output as a dict-like with at least step_size and L. If BlackJAX renames
     or removes either, our trial-params merge silently misbehaves.
     """
@@ -97,7 +97,7 @@ def test_mclmc_adaptation_state_fields():
 
 # ───────────────── 4. HMCInfo / NUTSInfo expose num_integration_steps ─────────────────
 def test_hmc_nuts_info_have_num_integration_steps():
-    """Pinned in T2.1+T2.2: grad_count_per_step for HMC and NUTS reads
+    """Pinned tripwire: grad_count_per_step for HMC and NUTS reads
     info.num_integration_steps. If that field disappears, our gradient-count
     accounting breaks silently (defaulting to 0?).
     """
@@ -114,14 +114,14 @@ def test_hmc_nuts_info_have_num_integration_steps():
     )
 
 
-# ───────────────── 6. GHMC + MEADS (P5.5) ─────────────────
+# ───────── 6. GHMC + MEADS ─────────
 
 
 def test_blackjax_ghmc_factory_signature():
     """Tripwire: blackjax.ghmc must accept (logdensity_fn, step_size,
     momentum_inverse_scale, alpha, delta) as positional/keyword args.
 
-    Pinned at P5.5: bjx_bench/inference/base_method/ghmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/ghmc.py calls
     blackjax.ghmc(logdensity_fn, **trial_params) where trial_params includes
     step_size, momentum_inverse_scale, alpha, delta.  If upstream renames or
     removes any of these, factory calls in the BO loop fail silently.
@@ -146,14 +146,14 @@ def test_blackjax_ghmc_factory_signature():
     )
 
 
-# ───────────────── 7. dynamic_hmc + CHEES (P5.6) ─────────────────
+# ───────── 7. dynamic_hmc + CHEES ─────────
 
 
 def test_blackjax_dynamic_hmc_factory_signature():
     """Tripwire: blackjax.dynamic_hmc inner API must accept (logdensity_fn,
     step_size, inverse_mass_matrix); also confirm dhmc alias.
 
-    Pinned at P5.6: bjx_bench/inference/base_method/dynamic_hmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/dynamic_hmc.py calls
     blackjax.dynamic_hmc(logdensity_fn, **trial_params) where trial_params
     includes step_size and inverse_mass_matrix (from CHEES warmup).  If
     upstream renames or removes any of these, factory calls in the BO loop
@@ -181,7 +181,7 @@ def test_blackjax_chees_adaptation_signature():
     """Tripwire: blackjax.chees_adaptation must accept (logdensity_fn,
     num_chains, target_acceptance_rate) as parameters.
 
-    Pinned at P5.6: bjx_bench/inference/warmup/chees.py calls
+    Pinned tripwire: bjx_bench/inference/warmup/chees.py calls
     blackjax.chees_adaptation(logdensity_fn, num_chains,
     target_acceptance_rate=..., max_leapfrog_steps=...).
     If upstream renames or removes any of these, the CHEES warmup fails.
@@ -202,7 +202,7 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
     """Tripwire: chees_adaptation.run() must return a 2-tuple
     (AdaptationResults, AdaptationInfo).
 
-    Pinned at P5.6: bjx_bench/inference/warmup/chees.py unpacks the result as
+    Pinned tripwire: bjx_bench/inference/warmup/chees.py unpacks the result as
     (adaptation_results, _adaptation_info) = chees.run(...).
     If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
 
@@ -244,14 +244,14 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
         )
 
 
-# ───────────────── 8. adjusted_mclmc + adjusted_mclmc_dynamic + adapter (P5.7) ─────────────────
+# ───────── 8. adjusted_mclmc + adjusted_mclmc_dynamic + adapter ─────────
 
 
 def test_blackjax_adjusted_mclmc_factory_signature():
     """Tripwire: blackjax.mcmc.adjusted_mclmc.as_top_level_api must accept
     {logdensity_fn, step_size, integration_steps_params, inverse_mass_matrix}.
 
-    Pinned at P5.7: bjx_bench/inference/base_method/adjusted_mclmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/adjusted_mclmc.py calls
     blackjax.adjusted_mclmc(logdensity_fn, step_size=...,
     integration_steps_params=(...,), inverse_mass_matrix=...).
     If upstream renames or removes any of these, factory calls in the BO loop
@@ -281,7 +281,7 @@ def test_blackjax_adjusted_mclmc_dynamic_factory_signature():
     {logdensity_fn, step_size, integration_steps_fn, integration_steps_params,
     inverse_mass_matrix}.
 
-    Pinned at P5.7: bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py calls
     blackjax.adjusted_mclmc_dynamic(logdensity_fn, step_size=...,
     integration_steps_fn=..., integration_steps_params=(...,),
     inverse_mass_matrix=...).
@@ -311,11 +311,11 @@ def test_blackjax_adjusted_mclmc_find_L_and_step_size_returns_3_tuple():
     """Tripwire: blackjax.adjusted_mclmc_find_L_and_step_size must return a 3-tuple
     (state, MCLMCAdaptationState, total_num_tuning_integrator_steps).
 
-    Pinned at P5.7: bjx_bench/inference/warmup/adjusted_mclmc_tuning.py unpacks
+    Pinned tripwire: bjx_bench/inference/warmup/adjusted_mclmc_tuning.py unpacks
     (s, adaptation_state, total_steps). If upstream changes to a 2-tuple (matching
-    the vanilla mclmc docstring drift META-004), the unpack fails opaquely.
+    the vanilla mclmc docstring drift), the unpack fails opaquely.
 
-    META-004 instance #6: adjusted_mclmc_find_L_and_step_size docstring says
+    adjusted_mclmc_find_L_and_step_size docstring says
     'tuple containing the final state and final hyperparameters' but actually
     returns a 3-tuple including total_num_tuning_integrator_steps. Confirmed here.
     """
@@ -351,7 +351,7 @@ def test_blackjax_make_random_trajectory_length_fn_signature():
     must accept 'random_trajectory_length' as parameter and return a callable
     (rng_arg, avg) -> int-castable scalar in a reasonable range.
 
-    Pinned at P5.7: bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/adjusted_mclmc_dynamic.py calls
     make_random_trajectory_length_fn(True) to get the integration_steps_fn.
     If upstream renames the parameter or changes the returned function's signature,
     the dynamic factory breaks.
@@ -382,14 +382,14 @@ def test_blackjax_make_random_trajectory_length_fn_signature():
     )
 
 
-# ───────────────── 9. elliptical_slice + mgrad_gaussian (P5.8) ─────────────────
+# ───────── 9. elliptical_slice + mgrad_gaussian ─────────
 
 
 def test_blackjax_elliptical_slice_factory_signature():
     """Tripwire: blackjax.mcmc.elliptical_slice.as_top_level_api must accept
     {loglikelihood_fn, mean, cov}.
 
-    Pinned at P5.8: bjx_bench/inference/base_method/elliptical_slice.py wraps
+    Pinned tripwire: bjx_bench/inference/base_method/elliptical_slice.py wraps
     blackjax.elliptical_slice(logdensity_fn, mean=prior_mean, cov=prior_cov)
     where the upstream positional arg is named 'loglikelihood_fn' (not 'logdensity_fn').
     If upstream renames this param, our wrapper silently diverges in naming convention
@@ -415,7 +415,7 @@ def test_blackjax_mgrad_gaussian_factory_signature():
     """Tripwire: blackjax.mcmc.marginal_latent_gaussian.as_top_level_api must accept
     {logdensity_fn, covariance, mean, cov_svd, step_size}.
 
-    Pinned at P5.8: bjx_bench/inference/base_method/mgrad_gaussian.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/mgrad_gaussian.py calls
     blackjax.mgrad_gaussian(logdensity_fn, covariance=prior_cov, mean=prior_mean,
     step_size=step_size).  If upstream renames or removes any of these, factory
     calls in the BO loop fail silently.
@@ -437,8 +437,7 @@ def test_blackjax_mgrad_gaussian_factory_signature():
 def test_blackjax_ellip_slice_info_fields_and_marginal_info_fields():
     """Tripwire: pin EllipSliceInfo._fields and MarginalInfo._fields.
 
-    Pinned at P5.8:
-    - EllipSliceInfo._fields == ('momentum', 'theta', 'subiter'). The absence of
+    Pinned tripwire: - EllipSliceInfo._fields == ('momentum', 'theta', 'subiter'). The absence of
       'acceptance_rate' is intentional (slice sampler always accepts); if upstream
       adds it, our grad_count_per_step=0 and target_acceptance_rate=None decisions
       need revisiting.
@@ -480,14 +479,14 @@ def test_blackjax_ellip_slice_info_fields_and_marginal_info_fields():
     )
 
 
-# ───────────────── 10. irmh standalone (P5.9) ─────────────────
+# ───────── 10. irmh standalone ─────────
 
 
 def test_blackjax_irmh_factory_signature():
     """Tripwire: blackjax.mcmc.random_walk.irmh_as_top_level_api must accept
     {logdensity_fn, proposal_distribution, proposal_logdensity_fn}.
 
-    Pinned at P5.9: bjx_bench/inference/base_method/irmh.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/irmh.py calls
     blackjax.irmh(logdensity_fn, proposal_distribution=...,
     proposal_logdensity_fn=...).  If upstream renames or removes any of these,
     factory calls in the BO loop fail silently.
@@ -514,7 +513,7 @@ def test_blackjax_irmh_factory_signature():
 def test_blackjax_irmh_alias_check():
     """Tripwire: blackjax.irmh top-level aliases must point at the correct inner functions.
 
-    Pinned at P5.9: verifies that the top-level GenerateSamplingAPI wrapping
+    Pinned tripwire: verifies that the top-level GenerateSamplingAPI wrapping
     for blackjax.irmh wires the right inner functions.  If upstream refactors
     random_walk.py (e.g. renames build_irmh or splits the module), this fires fast.
 
@@ -545,7 +544,7 @@ def test_blackjax_irmh_alias_check():
 def test_blackjax_rwinfo_rwstate_fields():
     """Tripwire: pin RWInfo._fields and RWState._fields for IRMH and RWM.
 
-    Pinned at P5.9: both IRMH and RWM share RWInfo and RWState.
+    Pinned tripwire: both IRMH and RWM share RWInfo and RWState.
     - RWInfo._fields == ('acceptance_rate', 'is_accepted', 'proposal')
     - RWState._fields == ('position', 'logdensity')
 
@@ -572,13 +571,13 @@ def test_blackjax_rwinfo_rwstate_fields():
     )
 
 
-# ───────────── 11. Standard-momentum 2×2 (P5.13): mhmc + dmhmc ─────────────
+# ───────────── 11. Standard-momentum 2×2: mhmc + dmhmc ─────────────
 
 
 def test_blackjax_mhmc_factory_signature():
     """Tripwire: blackjax.mhmc inner API must accept the same parameters as HMC.
 
-    Pinned at P5.13: bjx_bench/inference/base_method/mhmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/mhmc.py calls
     blackjax.mhmc(logdensity_fn, **trial_params) where trial_params includes
     step_size, inverse_mass_matrix, and num_integration_steps.  mhmc is a
     partial-applied HMC with multinomial_hmc_proposal; if upstream changes
@@ -606,7 +605,7 @@ def test_blackjax_mhmc_factory_signature():
 def test_blackjax_dmhmc_factory_signature():
     """Tripwire: blackjax.dmhmc inner API must accept the same parameters as dynamic_hmc.
 
-    Pinned at P5.13: bjx_bench/inference/base_method/dmhmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/dmhmc.py calls
     blackjax.dmhmc(logdensity_fn, **trial_params) where trial_params includes
     step_size and inverse_mass_matrix (from CHEES warmup).  dmhmc is a
     partial-applied dynamic_hmc with multinomial_hmc_proposal; if upstream
@@ -629,7 +628,7 @@ def test_blackjax_dmhmc_factory_signature():
 def test_blackjax_multinomial_hmc_alias():
     """Tripwire: blackjax.multinomial_hmc is blackjax.mhmc (backward-compat alias).
 
-    Pinned at P5.13: documented at blackjax/__init__.py; if upstream renames the
+    Pinned tripwire: documented at blackjax/__init__.py; if upstream renames the
     alias (e.g. removes multinomial_hmc or points it at a different factory),
     this fires immediately rather than silently at runtime.
     """
@@ -642,7 +641,7 @@ def test_blackjax_multinomial_hmc_alias():
 def test_blackjax_multinomial_hmc_proposal_exists():
     """Tripwire: blackjax.mcmc.hmc.multinomial_hmc_proposal exists and is callable.
 
-    Pinned at P5.13: mhmc and dmhmc are partial-applied HMC/DynamicHMC with
+    Pinned tripwire: mhmc and dmhmc are partial-applied HMC/DynamicHMC with
     build_proposal=blackjax.mcmc.hmc.multinomial_hmc_proposal.  If upstream
     renames or removes this function, the wrappers silently fall back to the
     default proposal, changing the algorithm semantics.
@@ -665,7 +664,7 @@ def test_blackjax_multinomial_hmc_proposal_exists():
 def test_base_methods_contains_mhmc_and_dmhmc():
     """Tripwire: BASE_METHODS registry must contain both 'mhmc' and 'dmhmc'.
 
-    Pinned at P5.13 (META-011 dodge: subset check, not equality, so adding
+    Pinned tripwire (subset check, not equality, so adding
     new algorithms doesn't break this test).  If either entry is accidentally
     dropped from __init__.py, this fires immediately.
     """
@@ -680,7 +679,7 @@ def test_base_methods_contains_mhmc_and_dmhmc():
     )
 
 
-# ───────── 12. Laplace-marginal 2×2 (P5.14b) ─────────────────────────────────
+# ───────── 12. Laplace-marginal 2×2 ─────────
 
 
 def test_blackjax_laplace_hmc_factory_signature():
@@ -688,7 +687,7 @@ def test_blackjax_laplace_hmc_factory_signature():
     {log_joint_fn, theta_init, step_size, inverse_mass_matrix,
     num_integration_steps, divergence_threshold, integrator, build_proposal}.
 
-    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_hmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/laplace_hmc.py calls
     blackjax.laplace_hmc(log_joint_fn, theta_init, step_size,
     inverse_mass_matrix, num_integration_steps, **optimizer_kwargs).
     If upstream renames or removes any of these, the wrapper fails silently.
@@ -723,7 +722,7 @@ def test_blackjax_laplace_dhmc_factory_signature():
     divergence_threshold, integrator, next_random_arg_fn, integration_steps_fn,
     integration_steps_params, build_proposal}.
 
-    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_dhmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/laplace_dhmc.py calls
     blackjax.laplace_dhmc(log_joint_fn, theta_init, step_size,
     inverse_mass_matrix, **optimizer_kwargs).
     If upstream renames or removes any of these, the wrapper fails silently.
@@ -757,7 +756,7 @@ def test_blackjax_laplace_hmc_state_fields():
     """Tripwire: LaplaceHMCState._fields must be
     ('position', 'logdensity', 'logdensity_grad', 'theta_star').
 
-    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_hmc.py and
+    Pinned tripwire: bjx_bench/inference/base_method/laplace_hmc.py and
     laplace_mhmc.py depend on the state carrying theta_star (the MAP latent
     at current phi, used for warm-starting L-BFGS).  If upstream renames or
     removes theta_star, warm-start and gradient accounting break silently.
@@ -777,7 +776,7 @@ def test_blackjax_laplace_dynamic_hmc_state_fields():
     """Tripwire: LaplaceDynamicHMCState._fields must be
     ('position', 'logdensity', 'logdensity_grad', 'theta_star', 'random_generator_arg').
 
-    Pinned at P5.14b: bjx_bench/inference/base_method/laplace_dhmc.py and
+    Pinned tripwire: bjx_bench/inference/base_method/laplace_dhmc.py and
     laplace_dmhmc.py depend on the state carrying both theta_star (warm-start)
     and random_generator_arg (Halton step-count seed).  If either field is
     renamed or removed, the dynamic wrappers break at runtime.
@@ -802,7 +801,7 @@ def test_blackjax_laplace_dynamic_hmc_state_fields():
 def test_blackjax_laplace_hmc_build_kernel_callable():
     """Tripwire: blackjax.mcmc.laplace_hmc.build_kernel must be callable.
 
-    Pinned at P5.14b: documents that the composable-kernel layer exists.
+    Pinned tripwire: documents that the composable-kernel layer exists.
     If upstream removes or renames build_kernel (e.g. following a module
     refactor), this fires immediately rather than at kernel construction time.
     """
@@ -818,7 +817,7 @@ def test_blackjax_laplace_hmc_build_kernel_callable():
 def test_blackjax_laplace_dynamic_hmc_build_kernel_callable():
     """Tripwire: blackjax.mcmc.laplace_dynamic_hmc.build_kernel must be callable.
 
-    Pinned at P5.14b: documents that the composable-kernel layer exists for
+    Pinned tripwire: documents that the composable-kernel layer exists for
     the dynamic variant.  If upstream removes or renames build_kernel, this
     fires immediately rather than at kernel construction time.
     """
@@ -834,7 +833,7 @@ def test_blackjax_laplace_dynamic_hmc_build_kernel_callable():
 def test_base_methods_contains_laplace_marginal_2x2():
     """Tripwire: BASE_METHODS must contain all 4 Laplace-marginal entries.
 
-    Pinned at P5.14b (META-011 dodge: subset check, not equality, so adding
+    Pinned tripwire (subset check, not equality, so adding
     new algorithms doesn't break this test).  If any of the 4 entries is
     accidentally dropped from __init__.py, this fires immediately.
     """
@@ -849,14 +848,14 @@ def test_base_methods_contains_laplace_marginal_2x2():
     )
 
 
-# ───────── 13. Algorithmic specials (P5.15): orbital_hmc + additive_step_random_walk ───
+# ───────── 13. Algorithmic specials: orbital_hmc + additive_step_random_walk ───
 
 
 def test_blackjax_orbital_hmc_factory_signature():
     """Tripwire: blackjax.mcmc.periodic_orbital.as_top_level_api must accept
     {logdensity_fn, step_size, inverse_mass_matrix, period, bijection}.
 
-    Pinned at P5.15: bjx_bench/inference/base_method/orbital_hmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/orbital_hmc.py calls
     blackjax.orbital_hmc(logdensity_fn, step_size=..., inverse_mass_matrix=...,
     period=...).  If upstream renames or removes any of these, factory calls
     in the BO loop fail silently.
@@ -889,7 +888,7 @@ def test_blackjax_periodic_orbital_state_fields():
     """Tripwire: PeriodicOrbitalState._fields must be
     ('positions', 'weights', 'directions', 'logdensities', 'logdensities_grad').
 
-    Pinned at P5.15: bjx_bench/inference/base_method/orbital_hmc.py documents
+    Pinned tripwire: bjx_bench/inference/base_method/orbital_hmc.py documents
     that the state carries the FULL orbit (plural fields: positions, logdensities,
     logdensities_grad are arrays of shape (period, D)).  If upstream renames or
     removes fields, shape assertions in tests/inference/base_method/test_orbital_hmc.py
@@ -918,7 +917,7 @@ def test_blackjax_periodic_orbital_state_fields():
 def test_blackjax_additive_step_random_walk_is_generate_sampling_api():
     """Tripwire: blackjax.additive_step_random_walk must be a GenerateSamplingAPI instance.
 
-    Pinned at P5.15: the upstream wraps additive_step_random_walk differently from
+    Pinned tripwire: the upstream wraps additive_step_random_walk differently from
     other algorithms — it uses GenerateSamplingAPI directly (line 118-122 of
     blackjax/__init__.py) rather than generate_top_level_api_from(module).
     If upstream refactors to a different wrapper class, the register_factory
@@ -941,7 +940,7 @@ def test_blackjax_additive_step_random_walk_is_generate_sampling_api():
 def test_blackjax_additive_step_random_walk_has_normal_random_walk():
     """Tripwire: blackjax.additive_step_random_walk.normal_random_walk must exist.
 
-    Pinned at P5.15: line 122 of blackjax/__init__.py calls
+    Pinned tripwire: line 122 of blackjax/__init__.py calls
     additive_step_random_walk.register_factory('normal_random_walk', normal_random_walk).
     This registers the Gaussian special-case as a named factory on the API object.
     If upstream removes this registration, users expecting the .normal_random_walk
@@ -959,9 +958,9 @@ def test_blackjax_additive_step_random_walk_has_normal_random_walk():
 
 
 def test_base_methods_contains_p5_15_algorithmic_specials():
-    """Tripwire: BASE_METHODS must contain both P5.15 entries.
+    """Tripwire: BASE_METHODS must contain both newly-registered entries.
 
-    Pinned at P5.15 (META-011 dodge: subset check, not equality, so adding
+    Pinned tripwire (subset check, not equality, so adding
     new algorithms doesn't break this test).  If either entry is accidentally
     dropped from __init__.py, this fires immediately.
     """
@@ -970,13 +969,13 @@ def test_base_methods_contains_p5_15_algorithmic_specials():
     required = {"orbital_hmc", "additive_step_random_walk"}
     missing = required - set(BASE_METHODS.keys())
     assert not missing, (
-        f"BASE_METHODS is missing P5.15 entries: {missing}. "
+        f"BASE_METHODS is missing entries: {missing}. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
         f"Check bjx_bench/inference/base_method/__init__.py imports."
     )
 
 
-# ───────── 14. RMHMC (P5.15.5) ───────────────────────────────────────────────
+# ───────── 14. RMHMC ─────────
 
 
 def test_blackjax_rmhmc_factory_signature():
@@ -984,7 +983,7 @@ def test_blackjax_rmhmc_factory_signature():
     {logdensity_fn, step_size, mass_matrix, num_integration_steps,
     divergence_threshold, integrator}.
 
-    Pinned at P5.15.5: bjx_bench/inference/base_method/rmhmc.py calls
+    Pinned tripwire: bjx_bench/inference/base_method/rmhmc.py calls
     blackjax.rmhmc(logdensity_fn, step_size=..., mass_matrix=...,
     num_integration_steps=...).  The CRITICAL parameter is 'mass_matrix'
     (NOT 'inverse_mass_matrix' -- the bjx-bench factory converts IMM to
@@ -1024,7 +1023,7 @@ def test_blackjax_rmhmc_factory_signature():
 def test_blackjax_rmhmc_reuses_hmc_state_and_kernel():
     """Tripwire: rmhmc.init and rmhmc.build_kernel must be hmc.init and hmc.build_kernel.
 
-    Pinned at P5.15.5: upstream rmhmc.py lines 25-26 read:
+    Pinned tripwire: upstream rmhmc.py lines 25-26 read:
         init = hmc.init
         build_kernel = hmc.build_kernel
     This means rmhmc returns HMCState (no distinct RMHMCState NamedTuple).
@@ -1046,14 +1045,14 @@ def test_blackjax_rmhmc_reuses_hmc_state_and_kernel():
 
 
 def test_base_methods_contains_p5_15_5_rmhmc():
-    """Tripwire: BASE_METHODS must contain 'rmhmc' after P5.15.5 registration.
+    """Tripwire: BASE_METHODS must contain 'rmhmc' after registration.
 
-    Subset check (META-011 dodge): future additions do not break this test.
+    Subset check ( dodge): future additions do not break this test.
     """
     from bjx_bench.inference.base_method import BASE_METHODS
 
     assert "rmhmc" in BASE_METHODS, (
-        f"BASE_METHODS is missing 'rmhmc' after P5.15.5 registration. "
+        f"BASE_METHODS is missing 'rmhmc' after registration. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
         f"Check bjx_bench/inference/base_method/__init__.py imports."
     )

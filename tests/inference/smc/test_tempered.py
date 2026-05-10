@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.15.5 tempered_smc SMC registry entry.
+"""Tests for the tempered_smc SMC registry entry.
 
 Covers:
   1. ENTRY field correctness (name, family, default_inner_method,
@@ -23,7 +23,7 @@ Covers:
   6. Step-signature contract: step_fn(key, state, tempering_param) — 3-arg.
   7. Schema-validation negative test: missing required kwargs raises TypeError.
 
-Finding (P5.15.5): step_fn uses 'tempering_param' (not 'lmbda' as in
+Finding: step_fn uses 'tempering_param' (not 'lmbda' as in
 persistent_sampling). The state field is also 'tempering_param'. This is the
 correct upstream spelling from blackjax/smc/tempered.py:TemperedSMCState.
 
@@ -65,7 +65,7 @@ def _loglikelihood_fn(x):
 def _make_rwm_inner_kernel(dim: int, sigma: float) -> SamplingAlgorithm:
     """Build a RWM inner kernel suitable for tempered SMC.
 
-    Finding (P5.10c): mcmc_parameters must contain ONLY JAX arrays.
+    Finding: mcmc_parameters must contain ONLY JAX arrays.
     Non-array params (random_step callable for RWM) must be bound via
     functools.partial BEFORE passing as mcmc_step_fn.
     """

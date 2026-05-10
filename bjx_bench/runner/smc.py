@@ -14,7 +14,7 @@
 """SMC runner helpers: particle initialisation + drive-to-convergence loop.
 
 These utilities form the bridge between the SMC method registry
-(``bjx_bench/inference/smc/``) and the recipe layer (Phase 6).  They are
+(``bjx_bench/inference/smc/``) and the recipe layer.  They are
 deliberately pure functions with no global state and no side effects, and
 are fully JIT-compatible.
 

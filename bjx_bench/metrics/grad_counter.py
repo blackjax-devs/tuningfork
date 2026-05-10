@@ -14,7 +14,7 @@
 """Gradient-evaluation aggregator for the headline metric.
 
 This is the load-bearing primitive for ``bjx_bench.metrics.headline``
-(T2.5).  It converts a per-step grad-count callable (carried on each
+It converts a per-step grad-count callable (carried on each
 ``BaseMethod``) into a scalar total across an entire chain.
 
 BlackJAX ``run_inference_algorithm`` produces a ``(states, infos,
@@ -25,7 +25,7 @@ vmap maps over the *leading axis* of every leaf; the resulting vmapped
 call receives a NamedTuple whose every field is a scalar (or shape
 matching the non-batch dims), exactly what a per-step callable expects.
 
-Assumption documented here for T2.5 review:
+Assumption documented here:
     ``grad_count_per_step`` must:
     1. Accept a single-step info object (one scalar per counted field).
     2. Return a JAX scalar (``jnp.ndarray`` or Python ``int``); vmap

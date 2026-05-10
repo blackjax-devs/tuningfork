@@ -465,7 +465,7 @@ def main() -> None:
     print(
         f"\n✓ Emitted {len(no_warmup_paths)} no_warmup + "
         f"{len(stan_window_paths)} stan_window = {total} LOW candidates.  "
-        f"Next: Statistician gate (P5.0.5)."
+        f"Next: Statistician gate."
     )
 
 

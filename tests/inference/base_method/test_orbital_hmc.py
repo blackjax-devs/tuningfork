@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.15 orbital_hmc base method registry entry.
+"""Tests for the orbital_hmc base method registry entry.
 
 Covers:
   1. ENTRY field correctness (name, family, default_hp_space, etc.).

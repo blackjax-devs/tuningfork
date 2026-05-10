@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the persistent_sampling_smc SMC registry entry (P5.11).
+"""Tests for the persistent_sampling_smc SMC registry entry.
 
 Covers:
 1. ENTRY field correctness (name, family, default_inner_method,
@@ -25,7 +25,7 @@ Covers:
    - multiple steps produce finite particles
 5. Schema-validation negative test: missing required kwargs raises TypeError.
 
-Step-arity finding (P5.11): persistent_sampling_smc uses a 3-arg step
+Step-arity finding: persistent_sampling_smc uses a 3-arg step
   step_fn(rng_key, state, lmbda) — caller must supply lmbda. This differs
   from adaptive_tempered_smc's standard 2-arg step_fn(rng_key, state).
   step_kwargs_schema = ("lmbda",) reflects this.
@@ -178,7 +178,7 @@ class TestPersistentSamplingHpSpace:
 def _make_rwm_inner_kernel(dim: int, sigma: float) -> SamplingAlgorithm:
     """Build a RWM inner kernel suitable for SMC.
 
-    Key finding (P5.10c): blackjax SMC's from_mcmc.unshared_parameters_and_step_fn
+    Key finding: blackjax SMC's from_mcmc.unshared_parameters_and_step_fn
     calls .shape on every value in mcmc_parameters, so mcmc_parameters must
     contain ONLY JAX arrays. The random_step callable for RWM must be bound via
     functools.partial BEFORE passing as mcmc_step_fn.

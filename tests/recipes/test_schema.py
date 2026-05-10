@@ -119,7 +119,7 @@ def test_from_default_config_nuts_mvn10() -> None:
     expected_params = default_params_for(base_method)
     assert recipe.base_method_params == expected_params
 
-    # NUTS default: step_size = 1e-3 * (1/1e-3)**0.7 (70th-pctile on log-scale, P4.0 tweak)
+    # NUTS default: step_size = 1e-3 * (1/1e-3)**0.7 (70th-pctile on log-scale)
     assert math.isclose(
         recipe.base_method_params["step_size"], 1e-3 * (1.0 / 1e-3) ** 0.7
     )
@@ -145,7 +145,7 @@ def test_from_default_config_hmc_mvn10() -> None:
     assert recipe.base_method_params == expected_params
 
     # HMC defaults:
-    # step_size = 1e-3 * (1/1e-3)**0.7 (70th-pctile on log-scale, P4.0 tweak)
+    # step_size = 1e-3 * (1/1e-3)**0.7 (70th-pctile on log-scale)
     # num_integration_steps = (1 + 128) // 2 = 64
     assert math.isclose(
         recipe.base_method_params["step_size"], 1e-3 * (1.0 / 1e-3) ** 0.7
@@ -262,7 +262,7 @@ def test_render_instructions_low() -> None:
     assert len(prose) > 20
     # LOW template should mention the algorithm name
     assert "nuts" in prose
-    # Under canonical-C taxonomy, LOW = conventional pairing with library
+    # Under the canonical taxonomy, LOW = conventional pairing with library
     # defaults; the prose should label it as such.  When `from_default_config`
     # produces a not-yet-measured stub (headline_metric=None), the template
     # renders "not yet measured" rather than failing to format.
@@ -327,7 +327,7 @@ def test_render_instructions_high_stub() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests 9-10: P3.3 wider LOW coverage + MEDIUM smoke
+# wider LOW coverage + MEDIUM smoke
 # ---------------------------------------------------------------------------
 
 _LOW_OTHER_ALGOS = [
@@ -340,7 +340,7 @@ _LOW_OTHER_ALGOS = [
 @pytest.mark.fast
 @pytest.mark.parametrize("model_name,method_name", _LOW_OTHER_ALGOS)
 def test_low_recipe_exists_for_other_algos(model_name: str, method_name: str) -> None:
-    """P3.3: every (starter_model, base_method) pair has a LOW recipe on disk."""
+    """every (starter_model, base_method) pair has a LOW recipe on disk."""
     path = _STARTER_ROOT / model_name / f"low__{method_name}__no_warmup.json"
     assert path.exists(), f"Missing LOW recipe for {model_name} + {method_name}"
     recipe = Recipe.load(path)
@@ -351,7 +351,7 @@ def test_low_recipe_exists_for_other_algos(model_name: str, method_name: str) ->
 
 
 # ---------------------------------------------------------------------------
-# Tests P3.4: 6 HIGH recipes exist and have correct schema
+# Tests for 6 HIGH recipes exist and have correct schema
 # ---------------------------------------------------------------------------
 
 _HIGH_COMBOS = [
@@ -375,7 +375,7 @@ _EXPECTED_DIFFICULTY_KEYS = (
 @pytest.mark.fast
 @pytest.mark.parametrize("model_name,method_name", _HIGH_COMBOS)
 def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -> None:
-    """P3.4: each (starter_model, {hmc,nuts}) has a HIGH recipe via Tier-B BO
+    """each (starter_model, {hmc,nuts}) has a HIGH recipe via Tier-B BO
     at n_trials=20 with a valid headline_metric and TuningDifficulty profile."""
     path = _STARTER_ROOT / model_name / f"high__{method_name}__stan_window.json"
     assert (
@@ -425,7 +425,7 @@ def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -
 
 
 # ---------------------------------------------------------------------------
-# Test 17 (P5.0): _generate_starter CLI flag filtering
+# Test 17: _generate_starter CLI flag filtering
 # ---------------------------------------------------------------------------
 
 
@@ -433,7 +433,7 @@ def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -
 def test_emit_low_recipes_sampler_filter(tmp_path: Path, monkeypatch) -> None:
     """emit_low_recipes(sampler='nuts') emits NUTS recipes only.
 
-    P5.0 (Q5.A) added per-cell flag filtering to ``_generate_starter.py``;
+    added per-cell flag filtering to ``_generate_starter.py``;
     this test locks the ``sampler`` filter behavior at the function-level
     so future refactors can't silently regress it.
 
@@ -499,7 +499,7 @@ def test_main_help_smoke() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests P5.0a: Phase 5 schema fields + IMM sidecar helpers
+# Tests for schema fields + IMM sidecar helpers
 # ---------------------------------------------------------------------------
 
 _RECIPE_KWARGS_MINIMAL: dict[str, Any] = dict(
@@ -519,7 +519,7 @@ _RECIPE_KWARGS_MINIMAL: dict[str, Any] = dict(
 
 @pytest.mark.fast
 def test_recipe_has_phase5_fields() -> None:
-    """P5.0a: new Phase 5 fields default to the expected values."""
+    """new schema fields default to the expected values."""
     recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
 
     # inverse_mass_matrix_path defaults to None
@@ -554,7 +554,7 @@ def test_recipe_has_phase5_fields() -> None:
 
 @pytest.mark.fast
 def test_recipe_phase5_fields_save_load_roundtrip(tmp_path: Path) -> None:
-    """P5.0a: non-default Phase 5 field values round-trip through save/load."""
+    """non-default schema field values round-trip through save/load."""
     custom_gate_evidence = {
         "auto": {
             "rhat_max": 1.005,
@@ -589,7 +589,7 @@ def test_recipe_phase5_fields_save_load_roundtrip(tmp_path: Path) -> None:
 
 @pytest.mark.fast
 def test_save_imm_sidecar_and_load_roundtrip(tmp_path: Path) -> None:
-    """P5.0a: save_imm_sidecar writes .npz; load_imm_sidecar recovers the array."""
+    """save_imm_sidecar writes .npz; load_imm_sidecar recovers the array."""
     recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
     original_imm = jnp.eye(10)
 
@@ -614,7 +614,7 @@ def test_save_imm_sidecar_and_load_roundtrip(tmp_path: Path) -> None:
 
 @pytest.mark.fast
 def test_load_imm_sidecar_returns_none_when_path_unset(tmp_path: Path) -> None:
-    """P5.0a: load_imm_sidecar returns None when inverse_mass_matrix_path is None."""
+    """load_imm_sidecar returns None when inverse_mass_matrix_path is None."""
     recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
     assert recipe.inverse_mass_matrix_path is None
 
@@ -631,7 +631,7 @@ _BACKWARD_COMPAT_RECIPES = [
 @pytest.mark.fast
 @pytest.mark.parametrize("rel_path", _BACKWARD_COMPAT_RECIPES)
 def test_existing_starter_recipes_still_load(rel_path: str) -> None:
-    """P5.0a: existing committed recipes load without error and have Phase 5 defaults."""
+    """existing committed recipes load without error and have current defaults."""
     path = _STARTER_ROOT / rel_path
     assert path.exists(), f"Missing recipe: {path}"
 

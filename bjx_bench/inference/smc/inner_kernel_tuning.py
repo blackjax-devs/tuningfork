@@ -198,7 +198,7 @@ ENTRY = SMCMethod(
         "'mcmc_parameter_update_fn' (callable: (rng_key, smc_state, smc_info) "
         "-> dict[str, Array]). "
         "CRITICAL: mcmc_parameter_update_fn MUST NOT go in mcmc_parameters — "
-        "the JAX-arrays-only constraint from P5.10c (from_mcmc calls .shape on "
+        "the JAX-arrays-only constraint (from_mcmc calls .shape on "
         "every value in that dict) means callables cannot be placed there. "
         "'initial_parameter_value' is the initial parameter dict; defaults to "
         "mcmc_parameters if not supplied. "

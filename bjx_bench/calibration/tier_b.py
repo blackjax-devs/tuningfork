@@ -11,13 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier-B per-algorithm tuning via Optuna BO. Foundation layer (T2.6a).
+"""Tier-B per-algorithm tuning via Optuna BO. Foundation layer.
 
-Extended in T2.6b (mass-matrix kernels) and T2.6c (sampler-swap, MALA/RWM,
+Extended with mass-matrix kernels and sampler-swap (MALA/RWM,
 MCLMC dispatch, best_trial robustness guard).
 
 This module owns the *types* and *pure helpers* for the BO loop. The actual
-loop body (``tune_algorithm``) is implemented in T2.6b/T2.6c.
+loop body (``tune_algorithm``) is implemented in this module.
 
 The tuning-difficulty metric (companion to the headline ESS/grad)
 captures HOW HARD it was to find good HPs, not just what the optimum is.
@@ -463,7 +463,7 @@ def _run_trial(
     Notes
     -----
     Multi-chain is implemented as a Python loop over ``n_chains`` rather
-    than ``jax.vmap`` to keep complexity minimal in T2.6b.  T2.6c may add
+    than ``jax.vmap`` to keep complexity minimal; future revisions may add
     vmap-based parallelism if profiling shows it to be worthwhile.
 
     The warmup-adapted state is **reused across trials** (one warmup per
@@ -474,7 +474,7 @@ def _run_trial(
     try:
         kernel = algorithm_entry.factory(logdensity_fn, **kernel_params)
 
-        # Collect samples across n_chains (Python loop; vmap deferred to T2.6c)
+        # Collect samples across n_chains (Python loop; vmap deferred)
         chain_positions: list[dict[str, Any]] = []
         chain_grad_evals: int = 0
 
@@ -611,7 +611,7 @@ def tune_algorithm(
 ) -> TuningResult:
     """Optuna BO over ``algorithm_entry.default_hp_space``.
 
-    Architecture (T2.6b + T2.6c):
+    Architecture:
 
     1. **Warmup dispatch** (via ``_run_warmup``):
 
@@ -686,7 +686,7 @@ def tune_algorithm(
           (NUTS, HMC, Barker, MALA)
         - ``"no_warmup"`` for all remaining algorithms (RWM, etc.)
 
-        This auto-dispatch reproduces the inline behavior of the Phase 2
+        This auto-dispatch reproduces inline behaviour from earlier
         ``_run_warmup`` exactly.
 
     Returns
@@ -793,7 +793,7 @@ def tune_algorithm(
 
         # Merge: warmup IMM is fixed; trial_params override BO-tunable HPs.
         # The BO search space intentionally does NOT include
-        # inverse_mass_matrix (verified by tests in T2.2), so the merge
+        # inverse_mass_matrix (verified by tests), so the merge
         # is safe: warmup_params provides IMM; trial_params provide the rest.
         # Strip internal metadata keys (underscore-prefixed, e.g.
         # "_total_tuning_steps" from mclmc_tuning) before passing to the

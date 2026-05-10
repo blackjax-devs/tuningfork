@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the MCLMC algorithm wrapper (T2.4).
+"""Tests for the MCLMC algorithm wrapper.
 
 Covers:
 1. Registry: BASE_METHODS["mclmc"] is ENTRY; entry fields match spec.
@@ -77,10 +77,10 @@ class TestMclmcRegistry:
         assert ENTRY.target_acceptance_rate is None
 
     def test_core_phase4_algorithms_present(self) -> None:
-        """The Phase-4 core six must remain present; Phase 5+ may add more.
+        """The Phase-4 core six must remain present; more entries may be added later.
 
         Originally `test_algorithms_has_six_entries` (==6); changed to subset
-        check after P5.5 added `ghmc` and the strict-equality test became
+        check (after `ghmc` was added the strict-equality test became
         fragile by design (failed every time a sampler was added).
         """
         core_six = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}

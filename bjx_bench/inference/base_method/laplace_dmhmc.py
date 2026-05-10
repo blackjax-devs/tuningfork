@@ -133,7 +133,7 @@ ENTRY = BaseMethod(
         "Only step_size is BO-tunable; trajectory length is adapted internally. "
         "Grad cost approximation: num_integration_steps * 5 (coarse; varies per transition). "
         "extra_required_kwargs=('log_joint_fn', 'theta_init'); no_warmup raises "
-        "NotImplementedError; Phase 6 will add specialised wiring path. "
+        "NotImplementedError; a specialised wiring path is required. "
         "See sampling-book/book/algorithms/laplace_hmc_demo.md for full algorithm description."
     ),
 )

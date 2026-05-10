@@ -13,7 +13,7 @@
 # limitations under the License.
 """Tests for bjx_bench.metrics.grad_counter.total_grad_evals.
 
-The key empirical question (documented here for T2.5 handoff):
+The key empirical question (documented here):
     Does jax.vmap over a BlackJAX-style NamedTuple-of-Arrays work
     cleanly without unwrapping?
 

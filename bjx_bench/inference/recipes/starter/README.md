@@ -1,9 +1,9 @@
 # Starter Recipes
 
 This directory contains canonical, committed recipes per `(model, warmup,
-sampler)` cell. The full Phase 6 cell space spans 14 models × the registered
-warmups × the 24 base methods, scoped down by warmup–sampler compatibility
-and the supersession map in `PLAN_phase6_recipe_matrix.md`.
+sampler)` cell. The cell space spans 14 models × the registered warmups
+× the 24 base methods, scoped down by warmup–sampler compatibility and
+the supersession map.
 
 ---
 
@@ -23,8 +23,8 @@ JSON. Each recipe includes:
 - Provenance: which versions of `bjx-bench`, `blackjax`, and `jax` produced it
 
 Effort tiers measure **human + machine wall time to produce a gate-passing
-recipe**, escalated by the Statistician → TL when the auto-gate fails.  Per
-canonical-C taxonomy (locked Phase 5, see `_base.py` `Effort` docstring):
+recipe**, escalated by the Statistician → TL when the auto-gate fails.  See
+`_base.py` `Effort` docstring for the full per-tier definition:
 
 | Effort | What produced it | Wall time | When emitted |
 |---|---|---|---|

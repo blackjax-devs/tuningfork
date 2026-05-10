@@ -43,7 +43,7 @@ _STARTER_ROOT = (
 
 
 # ---------------------------------------------------------------------------
-# Tests 11–16: P3.2 — MEDIUM and HIGH constructors (require actual warmup)
+# MEDIUM and HIGH constructors (require actual warmup)
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +77,7 @@ def test_from_warmup_only_stan_window_nuts() -> None:
     assert recipe.base_method_name == "nuts"
 
     # base_method_params must include both the default step_size (loguniform
-    # 70th-pctile ≈ 0.126, P4.0 tweak) AND the warmup-adapted inverse_mass_matrix.
+    # 70th-pctile ≈ 0.126) AND the warmup-adapted inverse_mass_matrix.
     assert "step_size" in recipe.base_method_params
     assert "inverse_mass_matrix" in recipe.base_method_params
 
@@ -106,7 +106,7 @@ def test_from_warmup_only_stan_window_nuts() -> None:
 def test_from_warmup_only_mclmc_tuning_metadata() -> None:
     """from_warmup_only with mclmc_tuning threads _total_tuning_steps into calibration_budget.
 
-    P3.1 threads the ``_total_tuning_steps`` metadata key from mclmc_tuning into
+    Threading the ``_total_tuning_steps`` metadata key from mclmc_tuning into
     adapted_params with an underscore prefix.  from_warmup_only must capture it
     in calibration_budget and strip it from base_method_params.
     """
@@ -325,7 +325,7 @@ def test_render_instructions_medium_and_high_real() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests: P3.3 MEDIUM smoke (checks MEDIUM recipes exist with warmup data)
+# Tests: MEDIUM smoke (checks MEDIUM recipes exist with warmup data)
 # ---------------------------------------------------------------------------
 
 _MEDIUM_COMBOS = [
@@ -340,7 +340,7 @@ _MEDIUM_COMBOS = [
 def test_medium_recipe_exists_and_has_warmup_data(
     model_name: str, method_name: str
 ) -> None:
-    """P3.3: each (starter_model, {hmc,nuts}) has a MEDIUM recipe via stan_window
+    """each (starter_model, {hmc,nuts}) has a MEDIUM recipe via stan_window
     with non-empty warmup-adapted params and positive wall-clock."""
     path = _STARTER_ROOT / model_name / f"medium__{method_name}__stan_window.json"
     assert path.exists(), f"Missing MEDIUM recipe for {model_name} + {method_name}"

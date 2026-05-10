@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""10-dimensional isotropic standard Gaussian — Phase 1 starter model #1.
+"""10-dimensional isotropic standard Gaussian — sanity-baseline starter model.
 
 This is the sanity baseline: every sampler must produce correct results here.
 The analytic sampler returns i.i.d. draws from N(0, I_10), which are

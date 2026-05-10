@@ -32,7 +32,7 @@ Grad-count aggregation uses ``entry.grad_count_per_step`` together with
 
     n_grads = total_grad_evals(infos, entry.grad_count_per_step)
 
-``default_hp_space`` flows into Optuna's distribution constructors at T2.6.
+``default_hp_space`` flows into Optuna's distribution constructors.
 Each ``HyperparamSpace`` maps 1-to-1 to an Optuna ``suggest_*`` call:
 - ``"loguniform"`` → ``trial.suggest_float(name, low, high, log=True)``
 - ``"uniform"``    → ``trial.suggest_float(name, low, high)``
@@ -139,11 +139,11 @@ class BaseMethod:
         ``jax.vmap`` over the full chain info.
     default_hp_space
         Non-empty tuple of ``HyperparamSpace`` objects describing the
-        recommended hyperparameter search space for Optuna BO (T2.6).
+        recommended hyperparameter search space for Optuna BO.
     needs_mass_matrix
         When ``True``, the kernel requires an inverse mass matrix (or
         metric tensor) to be wired in.  The Tier-B runner will construct
-        and pass one; T2.2 documents the exact API.  Default ``False``.
+        and pass one; the exact API is documented in tests.  Default ``False``.
     target_acceptance_rate
         Optimal MH acceptance rate for this kernel, if applicable.  Used
         by window adaptation and reported in tuning results.  ``None``
@@ -183,7 +183,7 @@ class BaseMethod:
 
     The ``needs_mass_matrix`` flag signals to the Tier-B runner that it
     must construct and thread through a mass matrix (e.g. diagonal
-    estimate from warmup draws).  This is documented here for T2.2 but
+    estimate from warmup draws).  This is documented here but
     the runner wiring happens there.
     """
 
@@ -215,7 +215,7 @@ class BaseMethod:
     Examples:
       ("prior_cov", "prior_mean")        — Gaussian-prior specialists (mgrad_gaussian, elliptical_slice)
       ("proposal_distribution",)         — IRMH-family
-      ("log_joint_fn", "theta_init")     — Laplace-marginal family (P5.14b)
+      ("log_joint_fn", "theta_init")     — Laplace-marginal family
     """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})

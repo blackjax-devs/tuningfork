@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the stoch_vol model (P4.9, Block D: 503-D NCP AR(1) state-space).
+"""Tests for the stoch_vol model (503-D NCP AR(1) state-space).
 
 All tests are marked ``fast`` — no chain sampling, only structural checks.
 """

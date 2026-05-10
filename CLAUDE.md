@@ -55,17 +55,17 @@ tests/
 
 **Discipline rule**: Every test must be tagged with exactly one of `fast`, `slow`, or `e2e`. If a test needs posteriordb, add `@pytest.mark.requires_posteriordb` as a second marker.
 
-**Three test_api_pins files at root** (split by family during TASK-004 PR-4): `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
+**Three test_api_pins files at root** : `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
 
 **Mandatory for agents**:
-- Run `make clean-orphans` before any heavy test sweep. See META-014 in `/home/jp/blackjax-devs/WORKLOG.md` — orphan Python REPLs can silently consume 7+ GB.
+- Run `make clean-orphans` before any heavy test sweep. See  in `/home/jp/blackjax-devs/WORKLOG.md` — orphan Python REPLs can silently consume 7+ GB.
 - When adding a test, tag it with **exactly one** of `@pytest.mark.fast` / `@pytest.mark.slow` / `@pytest.mark.e2e`. Use module-level `pytestmark = pytest.mark.<marker>` if all tests in the file are the same kind.
 
 For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Architecture
 
-Source layout reflects Phase 5 reorganization (`registry/` → `model/`, `algorithms/` → `inference/base_method/`, warmup wrappers reorganized under `inference/warmup/`, new `inference/smc/` for the SMC family):
+Source layout (top-level subpackages of `bjx_bench/`):
 
 ```
 bjx_bench/
@@ -90,12 +90,12 @@ bjx_bench/
 │   ├── reference_compare.py
 │   └── grad_counter.py        # logdensity_fn wrapper that counts grad evals
 ├── runner/
-│   └── smc.py                 # init_particles_from_prior + run_smc helpers (P5.10e)
+│   └── smc.py                 # init_particles_from_prior + run_smc helpers
 ├── reporting/
 └── cli.py
 ```
 
-### Inventory (Phase 5 close)
+### Inventory
 
 **24 base methods** (`inference/base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
 
@@ -149,4 +149,4 @@ Per user direction (2026-05-07), Tier-A uses a **single long chain reshaped into
 
 ## Worklog
 
-`/home/jp/blackjax-devs/WORKLOG.md` is the shared external memory across all three repos (`blackjax/`, `sampling-book/`, `bjx-bench/`). All work on this repo is tracked under `[TASK-002]`.
+`/home/jp/blackjax-devs/WORKLOG.md` is the shared external memory across all three repos (`blackjax/`, `sampling-book/`, `bjx-bench/`).
