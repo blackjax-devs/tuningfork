@@ -145,6 +145,10 @@ def test_inference_namespace_imports():
     assert isinstance(MODELS, dict)
     assert len(MODELS) >= 3  # mvn_10, neals_funnel, eight_schools_ncp
     assert isinstance(BASE_METHODS, dict)
-    assert len(BASE_METHODS) == 6  # hmc, nuts, mala, barker, rwm, mclmc
+    # Core 6 from Phase 4 must still be present; Phase 5+ may add more.
+    core_six = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}
+    assert core_six <= set(
+        BASE_METHODS.keys()
+    ), f"missing core base methods: {core_six - set(BASE_METHODS.keys())}"
     assert isinstance(WARMUPS, dict)  # empty stub for Phase 2.5
     assert Warmup is not None

@@ -409,13 +409,22 @@ def _run_warmup(
             f"base_method {algorithm_entry.name!r}; "
             f"compatible_methods = {warmup.compatible_methods}"
         )
-    return warmup.runner(
+    # BO trials are intentionally single-chain — chain count is orthogonal to
+    # per-trial HP tuning.  Pass num_chains=1 explicitly so the new default
+    # num_chains=4 (P5.0c) doesn't accidentally change BO semantics.
+    # squeeze_single_chain restores the un-batched (state, params) shape that
+    # run_inference_algorithm expects.
+    from bjx_bench.inference.warmup._base import squeeze_single_chain
+
+    batched_state, batched_params = warmup.runner(
         rng_key,
         init_position,
         n_warmup,
         algorithm_entry,
         logdensity_fn=logdensity_fn,
+        num_chains=1,
     )
+    return squeeze_single_chain(batched_state, batched_params)
 
 
 def _run_trial(

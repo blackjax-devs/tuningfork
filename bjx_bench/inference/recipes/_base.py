@@ -36,12 +36,14 @@ from __future__ import annotations
 
 import datetime
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import jax
+
     from bjx_bench.inference.base_method._base import BaseMethod
     from bjx_bench.model._base import Posterior
 
@@ -49,11 +51,33 @@ __all__ = ["Effort", "Recipe"]
 
 
 class Effort(str, Enum):
-    """Calibration effort axis. Maps to user personas:
+    """Calibration effort tier — measures human+machine wall time to produce
+    a recipe that the Statistician gate approves.
 
-    LOW    — one-off analysis; default config; zero calibration time.
-    MEDIUM — standard analysis; warmup-only adaptation; ~1 minute.
-    HIGH   — production / repeated runs; full Tier-B BO tuning; ~30 min+.
+    LOW    — `_generate_starter` runs default warmup + default sampler.
+             Statistician auto-gate (`bjx_bench.calibration.statistician_gate`,
+             P5.0.5) evaluates samples (R-hat, bulk-ESS, divergence count, vs
+             ground truth where available). Recipe commits iff the gate passes
+             (or the Statistician agent overrides REVIEW to APPROVE).
+             Wall time: machine only.
+
+    MEDIUM — LOW gate failed. Manual workarounds: change random seed,
+             investigate "obvious bugs" (chain not moving, NaNs), try alternate
+             initializations (uniform(-1, 1) Stan-style, zero, model-specific).
+             Statistician re-gates. The workaround is recorded in `notes`.
+             Wall time: LOW + Statistician investigation.
+
+    HIGH   — MEDIUM gate also failed. Use a gold-standard sampler (NUTS +
+             window_adaptation) as oracle: compare initial output, run BO over
+             selected hyperparameters (warmup OR sampler), inject
+             model-specific parameters. Statistician writes up the journey in
+             `workflow`. CI consumes HIGH recipes by reading the pinned
+             scalars + `inverse_mass_matrix_path` sidecar and running the
+             BlackJAX kernel directly (no warmup re-run).
+             Wall time: MEDIUM + extra Statistician work + BO compute.
+
+    Per-cell recipe count is normally 1 (the lowest tier that passed).
+    See PLAN_bjx_bench_phase5.md § "New effort taxonomy" for details.
     """
 
     LOW = "low"
@@ -143,6 +167,43 @@ class Recipe:
     # ---- User-facing prose ----
     instructions: str
     notes: str = ""
+
+    # ---- Phase 5 fields ----
+    inverse_mass_matrix_path: str | None = None
+    # Path (relative to the recipe JSON's directory) to a .npz sidecar holding the
+    # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM
+    # > ~50 entries, or any dense IMM). HIGH recipes for high-dim models populate
+    # this; LOW/MEDIUM typically leave it None.
+
+    workflow: str = ""
+    # Long-form Bayesian-workflow narrative (markdown). HIGH recipes populate this
+    # with the journey: gold-standard comparison findings, BO trial summary,
+    # model-specific param choices. LOW/MEDIUM typically leave empty (use `notes`
+    # instead for the shorter MEDIUM workaround text).
+
+    gate_evidence: dict = field(
+        default_factory=lambda: {
+            "auto": {
+                "rhat_max": None,
+                "min_bulk_ess": None,
+                "n_divergences": None,
+                "max_abs_mean_z": None,  # None if no ground truth available
+                "verdict": "NOT_RUN",  # "PASS" | "REVIEW" | "FAIL" | "NOT_RUN"
+                "margins": {},  # auto_gate per-threshold proximity info
+            },
+            "override": {
+                "reason": "",
+                "statistician_id": "",
+                "decision": "",  # "" | "APPROVE" | "REJECT" | "ESCALATE"
+            },
+        }
+    )
+    # Phase 5 gate provenance. `auto` is populated by
+    # `bjx_bench.calibration.statistician_gate.auto_gate(samples, ...)` (P5.0.5).
+    # `override` is populated by the Statistician agent when it manually overrides
+    # the auto-gate verdict; empty fields mean no override.
+    # Schema kept as plain dict (matches existing calibration_budget /
+    # base_method_params / warmup_params convention).
 
     # ---- Provenance ----
     tuning_seed: int = 0
@@ -328,14 +389,23 @@ class Recipe:
         init_key, warmup_key = jax.random.split(rng_key, 2)
         init_position, logdensity_fn, _ = build_logdensity_fn(init_key, posterior)
 
+        # MEDIUM recipes are single-chain by design: they capture one chain's
+        # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
+        # execution happens at recipe-run time, not at recipe-build time.
+        # Pass num_chains=1 + squeeze the leading dim out of the result, mirroring
+        # the Tier-B BO-trial pattern.
+        from bjx_bench.inference.warmup._base import squeeze_single_chain
+
         t0 = time.perf_counter()
-        _state, adapted_params = warmup.runner(
+        batched_state, batched_params = warmup.runner(
             warmup_key,
             init_position,
             n_warmup,
             base_method,
             logdensity_fn=logdensity_fn,
+            num_chains=1,
         )
+        _state, adapted_params = squeeze_single_chain(batched_state, batched_params)
         elapsed = time.perf_counter() - t0
 
         # Thread underscore-prefixed metadata (e.g. "_total_tuning_steps" from
@@ -474,6 +544,72 @@ class Recipe:
         provisional = cls(**recipe_kwargs)
         recipe_kwargs["instructions"] = render_instructions(provisional)
         return cls(**recipe_kwargs)
+
+    # ── IMM sidecar helpers ───────────────────────────────────────────────────
+
+    def save_imm_sidecar(self, root: Path, imm: jax.Array) -> str:
+        """Save an inverse mass matrix as a .npz sidecar next to this recipe.
+
+        Returns the path STRING (relative to ``root``) to embed in
+        ``inverse_mass_matrix_path``. Use this from a HIGH-effort emit function
+        to persist a non-scalar IMM:
+
+            recipe = Recipe(..., inverse_mass_matrix_path=None, ...)
+            sidecar_path = recipe.save_imm_sidecar(STARTER_ROOT, adapted_imm)
+            # Then dataclasses.replace(recipe, inverse_mass_matrix_path=sidecar_path)
+            # since Recipe is frozen.
+
+        The sidecar lives at
+        ``<root>/<model>/<effort>__<sampler>__<warmup>.imm.npz``
+        so each recipe's IMM is self-contained.
+
+        Parameters
+        ----------
+        root
+            Directory under which the per-model subdirectory is created.
+        imm
+            The inverse mass matrix to persist (any shape; saved under key
+            ``"imm"`` in the compressed npz).
+
+        Returns
+        -------
+        str
+            Path relative to ``root`` that should be stored in
+            ``inverse_mass_matrix_path``.
+        """
+        import numpy as np
+
+        sidecar_dir = root / self.model_name
+        sidecar_dir.mkdir(parents=True, exist_ok=True)
+        filename = (
+            f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.imm.npz"
+        )
+        sidecar_path = sidecar_dir / filename
+        np.savez_compressed(sidecar_path, imm=np.asarray(imm))
+        return str(sidecar_path.relative_to(root))
+
+    def load_imm_sidecar(self, root: Path) -> jax.Array | None:
+        """Load the IMM sidecar if ``inverse_mass_matrix_path`` is set, else None.
+
+        Parameters
+        ----------
+        root
+            Directory relative to which ``inverse_mass_matrix_path`` is resolved.
+
+        Returns
+        -------
+        jax.Array or None
+            The inverse mass matrix as a JAX array, or ``None`` if
+            ``inverse_mass_matrix_path`` is unset.
+        """
+        if self.inverse_mass_matrix_path is None:
+            return None
+        import jax.numpy as jnp
+        import numpy as np
+
+        sidecar_path = root / self.inverse_mass_matrix_path
+        with np.load(sidecar_path) as data:
+            return jnp.asarray(data["imm"])
 
 
 # ── private helpers ───────────────────────────────────────────────────────────

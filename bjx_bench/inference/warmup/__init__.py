@@ -21,8 +21,12 @@ Phase 3 (P3.1) lands three core warmups:
 - ``no_warmup``: identity warmup returning default init state + empty params;
   compatible with all algorithms (sentinel ``"*"``).
 
-MEADS / ChEES / Pathfinder warmups land in Phase 5 alongside the VI
-integration.
+Phase 5.4 (P5.4) adds two Pathfinder-based warmups:
+- ``pathfinder``: single-path Pathfinder per chain; compatible with hmc, nuts,
+  mala, rwm, barker.  Returns per-chain L-BFGS inv-Hessian diagonal as IMM.
+- ``multipathfinder``: multi-path Pathfinder with PSIS importance resampling;
+  compatible with hmc, nuts, mala, rwm, barker.  Returns post-PSIS empirical
+  variance as the shared IMM.
 
 Usage::
 
@@ -34,14 +38,30 @@ Usage::
 """
 
 from bjx_bench.inference.warmup._base import Warmup
+from bjx_bench.inference.warmup.adjusted_mclmc_tuning import (
+    ENTRY as _adjusted_mclmc_tuning,
+)
+from bjx_bench.inference.warmup.chees import ENTRY as _chees
+from bjx_bench.inference.warmup.fullrank_vi import ENTRY as _fullrank_vi
 from bjx_bench.inference.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
+from bjx_bench.inference.warmup.meads import ENTRY as _meads
+from bjx_bench.inference.warmup.meanfield_vi import ENTRY as _meanfield_vi
+from bjx_bench.inference.warmup.multipathfinder import ENTRY as _multipathfinder
 from bjx_bench.inference.warmup.no_warmup import ENTRY as _no_warmup
+from bjx_bench.inference.warmup.pathfinder import ENTRY as _pathfinder
 from bjx_bench.inference.warmup.stan_window import ENTRY as _stan_window
 
 WARMUPS: dict[str, Warmup] = {
     _stan_window.name: _stan_window,
     _mclmc_tuning.name: _mclmc_tuning,
+    _adjusted_mclmc_tuning.name: _adjusted_mclmc_tuning,
     _no_warmup.name: _no_warmup,
+    _pathfinder.name: _pathfinder,
+    _multipathfinder.name: _multipathfinder,
+    _meads.name: _meads,
+    _chees.name: _chees,
+    _meanfield_vi.name: _meanfield_vi,
+    _fullrank_vi.name: _fullrank_vi,
 }
 
 __all__ = ["WARMUPS", "Warmup"]

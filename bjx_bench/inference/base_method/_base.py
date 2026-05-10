@@ -151,12 +151,28 @@ class BaseMethod:
     notes
         Free-form string for algorithm-specific caveats, citations, or
         implementation notes.
+    extra_required_kwargs
+        Names of kwargs the factory requires beyond ``logdensity_fn`` and the
+        HP-space items.  Empty tuple (default) = standard factory.  Non-empty =
+        specialised: the runner must inject these kwargs from ``PosteriorEntry``
+        metadata or recipe parameters before calling ``factory(...)``.
+
+        Examples::
+
+            ("prior_cov", "prior_mean")       — Gaussian-prior specialists
+                                                (mgrad_gaussian, elliptical_slice)
+            ("proposal_distribution",)         — IRMH-family
+            ("log_joint_fn", "theta_init")     — Laplace-marginal family (P5.14b)
+
+        The standard ``no_warmup`` path raises ``NotImplementedError`` for any
+        entry with a non-empty ``extra_required_kwargs``.
 
     Raises
     ------
     ValueError
-        If ``name`` is empty; if ``family`` is not one of the three
-        valid values; or if ``default_hp_space`` is empty.
+        If ``name`` is empty; if ``family`` is not one of the three valid
+        values; or if ``default_hp_space`` is empty and
+        ``extra_required_kwargs`` is also empty.
 
     Notes
     -----
@@ -188,6 +204,19 @@ class BaseMethod:
     needs_mass_matrix: bool = False
     target_acceptance_rate: float | None = None
     notes: str = ""
+    # ---- specialised: factory requires extra kwargs beyond logdensity_fn + HP-space ----
+    extra_required_kwargs: tuple[str, ...] = ()
+    """Names of kwargs the factory requires beyond logdensity_fn + HP-space items.
+
+    Empty tuple = standard factory (logdensity_fn + HP-space kwargs are sufficient).
+    Non-empty = specialised: the runner must inject these kwargs from PosteriorEntry
+    metadata or recipe parameters before calling factory(...).
+
+    Examples:
+      ("prior_cov", "prior_mean")        — Gaussian-prior specialists (mgrad_gaussian, elliptical_slice)
+      ("proposal_distribution",)         — IRMH-family
+      ("log_joint_fn", "theta_init")     — Laplace-marginal family (P5.14b)
+    """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})
 
@@ -199,8 +228,9 @@ class BaseMethod:
                 f"BaseMethod '{self.name}': family must be one of "
                 f"{sorted(self._VALID_FAMILIES)}, got '{self.family}'"
             )
-        if not self.default_hp_space:
+        if not self.default_hp_space and not self.extra_required_kwargs:
             raise ValueError(
-                f"BaseMethod '{self.name}': 'default_hp_space' must contain "
-                f"at least one HyperparamSpace entry"
+                f"BaseMethod '{self.name}': 'default_hp_space' must contain at least "
+                f"one HyperparamSpace entry, or 'extra_required_kwargs' must be non-empty "
+                f"(specialised factory that receives additional kwargs from the runner)"
             )

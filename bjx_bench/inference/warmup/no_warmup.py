@@ -23,10 +23,21 @@ This is the "zero-cost" warmup used for:
 The runner returns an empty ``adapted_params`` dict; all kernel
 hyperparameters come from the BO trial or the recipe defaults.
 
-Runner signature (uniform across all warmups)::
+Runner signature (multi-chain contract, P5.0c)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
-            *, logdensity_fn, **kwargs) -> (state, {})
+            *, logdensity_fn, num_chains: int = 4, **kwargs)
+    -> (states, {})
+
+Where:
+
+- ``rng_key`` is a single key; split internally into ``num_chains`` keys
+  (used only for MCLMC momentum initialisation; other kernels ignore it).
+- ``init_position`` is a single pytree (one chain's worth); replicated
+  across chains internally via ``_maybe_replicate`` unless the caller
+  pre-batches it (leading dim == ``num_chains``).
+- ``states`` is a batched pytree with leading dim ``num_chains``.
+- ``adapted_params`` is always ``{}`` — no adaptation was run.
 
 The ``n_warmup`` argument is accepted for interface uniformity but is
 not used — no gradient evaluations are performed.
@@ -40,8 +51,9 @@ module handles the distinction via ``base_method.name == "mclmc"``.
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 
-from bjx_bench.inference.warmup._base import Warmup
+from bjx_bench.inference.warmup._base import Warmup, _maybe_replicate
 
 __all__ = ["ENTRY"]
 
@@ -53,38 +65,51 @@ def _runner(
     base_method: Any,  # BaseMethod; not imported to avoid circular dep at module level
     *,
     logdensity_fn: Any,
+    num_chains: int = 4,
     **kwargs: Any,  # noqa: ARG001 — accepted for interface uniformity; not used
 ) -> tuple[Any, dict[str, Any]]:
-    """Initialise the kernel state using default hyperparameters; no adaptation.
+    """Initialise kernel states using default hyperparameters; no adaptation.
 
     Parameters
     ----------
     rng_key
-        JAX random key.  Used only when ``base_method.name == "mclmc"``
-        (MCLMC ``init`` needs a key for its momentum initialisation).
-        For all other kernels, the key is accepted but forwarded to init
-        via the ``rng_key`` argument only if the kernel supports it.
+        JAX random key.  Split into ``num_chains`` subkeys used only when
+        ``base_method.name == "mclmc"`` (MCLMC ``init`` needs a key for
+        its momentum initialisation).  For all other kernels, the subkeys
+        are accepted but not forwarded to ``init``.
     init_position
-        Initial unconstrained parameter dict.
+        Initial unconstrained parameter dict.  A SINGLE pytree (one chain's
+        worth).  Replicated across ``num_chains`` unless pre-batched.
     n_warmup
         Accepted for interface uniformity; ignored entirely (no adaptation runs).
     base_method
         ``BaseMethod`` entry (carries ``factory`` and ``default_hp_space``).
     logdensity_fn
         BlackJAX-compatible log-density function.
+    num_chains
+        Number of independent chains.  Default ``4``, matching Stan/NumPyro
+        convention.  The returned ``states`` has leading dim ``num_chains``
+        (never squeezed, even for ``num_chains=1``).
     **kwargs
         Accepted for interface uniformity; ignored.
 
     Returns
     -------
-    state
-        Freshly initialised kernel state.
+    states
+        Freshly initialised kernel states, batched over ``num_chains``.
+        ``states.position`` has shape ``(num_chains, d)``.
     adapted_params
         Always ``{}`` — no adaptation was run; all HPs come from defaults.
     """
-    import jax.numpy as jnp
-
     from bjx_bench.calibration.tier_b import default_params_for
+
+    if base_method.extra_required_kwargs:
+        raise NotImplementedError(
+            f"no_warmup runner cannot construct base_method "
+            f"{base_method.name!r}: factory requires extra kwargs "
+            f"{base_method.extra_required_kwargs!r} that must be supplied "
+            f"by a specialised invocation path (Phase 6 recipe-runner integration)."
+        )
 
     defaults = default_params_for(base_method)
 
@@ -100,14 +125,30 @@ def _runner(
 
     kernel = base_method.factory(logdensity_fn, **defaults)
 
+    # Replicate init_position across chains.  Pass-through if pre-batched.
+    init_positions = _maybe_replicate(init_position, num_chains)
+
+    # Split rng_key for num_chains independent momentum inits (MCLMC only).
+    chain_keys = jax.random.split(rng_key, num_chains)
+
     # MCLMC.init requires an rng_key to sample the initial unit-vector
     # momentum; all other BlackJAX kernels' init takes only a position.
     if base_method.name == "mclmc":
-        init_state = kernel.init(init_position, rng_key)
-    else:
-        init_state = kernel.init(init_position)
+        # vmap over (key, position) for MCLMC
+        @jax.vmap
+        def init_one_mclmc(k: jax.Array, x0: Any) -> Any:
+            return kernel.init(x0, k)
 
-    return init_state, {}
+        states = init_one_mclmc(chain_keys, init_positions)
+    else:
+        # vmap over position for all other kernels (key unused)
+        @jax.vmap
+        def init_one(x0: Any) -> Any:
+            return kernel.init(x0)
+
+        states = init_one(init_positions)
+
+    return states, {}
 
 
 ENTRY = Warmup(
@@ -120,6 +161,8 @@ ENTRY = Warmup(
         "Used for LOW-effort recipes, gradient-free kernels (RWM), and "
         "Tier-C warmup-isolation baselines.  "
         "MCLMC is handled specially: kernel.init(position, rng_key) rather "
-        "than kernel.init(position)."
+        "than kernel.init(position).  "
+        "P5.0c: multi-chain by default (num_chains=4 via jax.vmap); states "
+        "batched with leading dim num_chains (never squeezed)."
     ),
 )
