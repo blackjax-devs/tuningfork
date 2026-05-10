@@ -159,13 +159,23 @@ class BaseMethod:
         ``PosteriorEntry``'s prior structure and threading them through.  The
         standard ``no_warmup`` path raises ``NotImplementedError`` for these
         methods.
+    requires_proposal_distribution
+        When ``True``, the BaseMethod's factory requires a
+        ``proposal_distribution: Callable`` (and optional
+        ``proposal_logdensity_fn``) as keyword arguments in addition to
+        ``logdensity_fn``.  Used by independent-proposal samplers (e.g. IRMH;
+        P5.9).  Phase 6's recipe-runner is responsible for constructing the
+        proposal (typically from a fitted VI/Pathfinder/Laplace approximation)
+        and threading it through.  The standard ``no_warmup`` path raises
+        ``NotImplementedError`` for these methods.
 
     Raises
     ------
     ValueError
-        If ``name`` is empty; if ``family`` is not one of the three
-        valid values; or if ``default_hp_space`` is empty and
-        ``requires_prior_metadata`` is ``False``.
+        If ``name`` is empty; if ``family`` is not one of the three valid
+        values; or if ``default_hp_space`` is empty and neither
+        ``requires_prior_metadata`` nor ``requires_proposal_distribution`` is
+        ``True``.
 
     Notes
     -----
@@ -207,6 +217,16 @@ class BaseMethod:
     standard ``no_warmup`` path raises ``NotImplementedError`` for these
     methods.
     """
+    # ---- specialised: independent-proposal samplers (P5.9) ----
+    requires_proposal_distribution: bool = False
+    """When True, the BaseMethod's factory requires a ``proposal_distribution:
+    Callable`` (and optional ``proposal_logdensity_fn``) as keyword arguments
+    in addition to ``logdensity_fn``.  Used by independent-proposal samplers
+    (e.g. IRMH; P5.9).  Phase 6's recipe-runner is responsible for
+    constructing the proposal (typically from a fitted VI/Pathfinder/Laplace
+    approximation) and threading it through.  The standard ``no_warmup`` path
+    raises ``NotImplementedError`` for these methods.
+    """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})
 
@@ -218,7 +238,10 @@ class BaseMethod:
                 f"BaseMethod '{self.name}': family must be one of "
                 f"{sorted(self._VALID_FAMILIES)}, got '{self.family}'"
             )
-        if not self.default_hp_space and not self.requires_prior_metadata:
+        _specialised = (
+            self.requires_prior_metadata or self.requires_proposal_distribution
+        )
+        if not self.default_hp_space and not _specialised:
             raise ValueError(
                 f"BaseMethod '{self.name}': 'default_hp_space' must contain "
                 f"at least one HyperparamSpace entry"

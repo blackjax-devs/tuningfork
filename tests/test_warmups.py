@@ -1626,7 +1626,7 @@ class TestAdjustedMclmcTuning:
 
 
 class TestNoWarmupGuards:
-    """no_warmup._runner raises NotImplementedError for requires_prior_metadata=True methods."""
+    """no_warmup._runner raises NotImplementedError for specialised methods."""
 
     def test_no_warmup_raises_for_elliptical_slice(self) -> None:
         """elliptical_slice.requires_prior_metadata=True → no_warmup raises NotImplementedError."""
@@ -1651,6 +1651,61 @@ class TestNoWarmupGuards:
                 init_pos,
                 0,
                 _ELLIP_SLICE,
+                logdensity_fn=dummy_logdensity,
+                num_chains=1,
+            )
+
+    def test_no_warmup_raises_for_irmh(self) -> None:
+        """irmh.requires_proposal_distribution=True → no_warmup raises NotImplementedError."""
+        from bjx_bench.inference.base_method.irmh import ENTRY as _IRMH
+        from bjx_bench.inference.warmup import WARMUPS
+
+        key = jax.random.key(9002)
+        init_pos = jnp.zeros(5)
+
+        def dummy_logdensity(x):
+            return -0.5 * jnp.sum(x**2)
+
+        with pytest.raises(
+            NotImplementedError, match="independent proposal distribution"
+        ):
+            WARMUPS["no_warmup"].runner(
+                key,
+                init_pos,
+                0,
+                _IRMH,
+                logdensity_fn=dummy_logdensity,
+                num_chains=1,
+            )
+
+    def test_no_warmup_raises_for_synthetic_proposal_distribution_entry(self) -> None:
+        """Synthetic BaseMethod(requires_proposal_distribution=True) → NotImplementedError."""
+        from bjx_bench.inference.base_method._base import BaseMethod
+        from bjx_bench.inference.warmup import WARMUPS
+
+        synthetic = BaseMethod(
+            name="synthetic_irmh_like",
+            family="mcmc",
+            factory=lambda logdensity_fn, **kw: None,
+            grad_count_per_step=lambda info: 0,
+            default_hp_space=(),
+            requires_proposal_distribution=True,
+        )
+
+        key = jax.random.key(9003)
+        init_pos = jnp.zeros(5)
+
+        def dummy_logdensity(x):
+            return -0.5 * jnp.sum(x**2)
+
+        with pytest.raises(
+            NotImplementedError, match="independent proposal distribution"
+        ):
+            WARMUPS["no_warmup"].runner(
+                key,
+                init_pos,
+                0,
+                synthetic,
                 logdensity_fn=dummy_logdensity,
                 num_chains=1,
             )

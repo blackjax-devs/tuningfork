@@ -178,17 +178,46 @@ class TestBaseMethodValidation:
             _make_entry(default_hp_space=(), requires_prior_metadata=False)
 
     def test_empty_hp_space_allowed_when_requires_prior_metadata(self) -> None:
-        """Test B (new): empty HP space + requires_prior_metadata=True does NOT raise."""
+        """Test B (new P5.8): empty HP space + requires_prior_metadata=True does NOT raise."""
         entry = _make_entry(default_hp_space=(), requires_prior_metadata=True)
         assert entry.requires_prior_metadata is True
         assert entry.default_hp_space == ()
 
+    def test_empty_hp_space_allowed_when_requires_proposal_distribution(self) -> None:
+        """Test C (new P5.9): empty HP space + requires_proposal_distribution=True does NOT raise."""
+        entry = _make_entry(
+            default_hp_space=(),
+            requires_proposal_distribution=True,
+            requires_prior_metadata=False,
+        )
+        assert entry.requires_proposal_distribution is True
+        assert entry.requires_prior_metadata is False
+        assert entry.default_hp_space == ()
+
+    def test_empty_hp_space_allowed_when_both_specialised_flags_true(self) -> None:
+        """Test D (sanity): empty HP space + both flags True is allowed (OR logic)."""
+        entry = _make_entry(
+            default_hp_space=(),
+            requires_prior_metadata=True,
+            requires_proposal_distribution=True,
+        )
+        assert entry.requires_prior_metadata is True
+        assert entry.requires_proposal_distribution is True
+        assert entry.default_hp_space == ()
+
     def test_requires_prior_metadata_defaults_false(self) -> None:
-        """Test C: default of requires_prior_metadata is False on a vanilla entry."""
+        """Test E: default of requires_prior_metadata is False on a vanilla entry."""
         from bjx_bench.inference.base_method import BASE_METHODS
 
         hmc_entry = BASE_METHODS["hmc"]
         assert hmc_entry.requires_prior_metadata is False
+
+    def test_requires_proposal_distribution_defaults_false(self) -> None:
+        """Test F: default of requires_proposal_distribution is False on a vanilla entry."""
+        from bjx_bench.inference.base_method import BASE_METHODS
+
+        hmc_entry = BASE_METHODS["hmc"]
+        assert hmc_entry.requires_proposal_distribution is False
 
 
 class TestBaseMethodSmoke:
