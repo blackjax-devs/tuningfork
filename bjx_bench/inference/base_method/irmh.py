@@ -20,7 +20,7 @@ The proposal is a full ``Callable`` supplied at factory time — typically
 fitted from a VI / Pathfinder / Laplace approximation.  Unlike RWM, the
 proposal ``q(y)`` does not depend on the current state ``x``.
 
-``requires_proposal_distribution=True``: the factory requires
+``extra_required_kwargs=("proposal_distribution",)``: the factory requires
 ``proposal_distribution`` (and optionally ``proposal_logdensity_fn``) as
 keyword arguments.  The standard ``no_warmup`` path raises
 ``NotImplementedError``; Phase 6 will add the specialised wiring path.
@@ -97,14 +97,14 @@ ENTRY = BaseMethod(
     default_hp_space=(),  # truly HP-free; proposal is a full callable
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # depends entirely on proposal-vs-target overlap
-    requires_proposal_distribution=True,
+    extra_required_kwargs=("proposal_distribution",),
     notes=(
         "Independent Metropolis-Hastings (Wang et al. 2022 reference; standard textbook "
         "MH variant where the proposal q(y) is independent of current state x). The proposal "
         "is a Callable (rng_key -> position) supplied at factory time, typically fitted from "
         "a VI / Pathfinder / Laplace approximation. For non-symmetric proposals, also supply "
         "proposal_logdensity_fn. Gradient-free (grad_count_per_step=0). RWInfo carries "
-        "acceptance_rate, is_accepted, proposal. requires_proposal_distribution=True; "
+        "acceptance_rate, is_accepted, proposal. extra_required_kwargs=('proposal_distribution',); "
         "no_warmup raises NotImplementedError; Phase 6 will wire the proposal-construction "
         "path. Also used as an SMC inner kernel — the standalone wrapper here is the "
         "non-SMC entry point; the SMC integration lives in P5.10."

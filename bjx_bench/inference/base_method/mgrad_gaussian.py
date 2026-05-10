@@ -29,7 +29,7 @@ Upstream guidance: calibrate ``step_size`` so that acceptance rate ≈ 50%.
 
 Grad cost per step: 1 (``jax.value_and_grad(logdensity_fn)`` once per step).
 
-``requires_prior_metadata=True``: the ``no_warmup`` runner raises
+``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
 ``NotImplementedError`` for this method.  Phase 6 will add a specialised path.
 
 References
@@ -89,13 +89,13 @@ ENTRY = BaseMethod(
     default_hp_space=(HyperparamSpace("step_size", "loguniform", low=1e-3, high=10.0),),
     needs_mass_matrix=False,
     target_acceptance_rate=0.5,  # upstream docstring guidance
-    requires_prior_metadata=True,
+    extra_required_kwargs=("prior_cov", "prior_mean"),
     notes=(
         "Titsias 2018 marginal sampler for latent-Gaussian models q(x) ∝ exp(f(x)) * "
         "N(x; mean, cov). Uses a first-order approximation to the log-likelihood; sole "
         "tunable is delta (step_size). MarginalInfo carries (acceptance_rate, is_accepted, "
         "proposal). 1 grad/step (jax.value_and_grad inside the kernel). Upstream guidance: "
-        "target accept ≈ 0.5. requires_prior_metadata=True; no_warmup raises "
+        "target accept ≈ 0.5. extra_required_kwargs=('prior_cov', 'prior_mean'); no_warmup raises "
         "NotImplementedError; Phase 6 will add specialised path. Internally precomputes "
         "the SVD of prior_cov on every factory call — for repeated trials with the "
         "same cov, Phase 6 should cache via cov_svd kwarg if profiling shows it matters."

@@ -103,20 +103,12 @@ def _runner(
     """
     from bjx_bench.calibration.tier_b import default_params_for
 
-    if (
-        base_method.requires_prior_metadata
-        or base_method.requires_proposal_distribution
-    ):
-        flag = (
-            "Gaussian-prior metadata (prior_cov, prior_mean)"
-            if base_method.requires_prior_metadata
-            else "an independent proposal distribution (proposal_distribution)"
-        )
+    if base_method.extra_required_kwargs:
         raise NotImplementedError(
-            f"BaseMethod '{base_method.name}' requires {flag} which the no_warmup "
-            f"runner cannot supply. Use a specialised invocation path (Phase 6 "
-            f"recipe-runner integration). For unit tests, call base_method.factory "
-            f"directly with the required kwargs."
+            f"no_warmup runner cannot construct base_method "
+            f"{base_method.name!r}: factory requires extra kwargs "
+            f"{base_method.extra_required_kwargs!r} that must be supplied "
+            f"by a specialised invocation path (Phase 6 recipe-runner integration)."
         )
 
     defaults = default_params_for(base_method)

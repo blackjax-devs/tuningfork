@@ -151,31 +151,28 @@ class BaseMethod:
     notes
         Free-form string for algorithm-specific caveats, citations, or
         implementation notes.
-    requires_prior_metadata
-        When ``True``, the BaseMethod's factory requires Gaussian-prior metadata
-        (``prior_cov``, ``prior_mean``) as keyword arguments in addition to
-        ``logdensity_fn``.  Used by latent-Gaussian specialists (P5.8).  Phase 6's
-        recipe-runner is responsible for extracting these from the
-        ``PosteriorEntry``'s prior structure and threading them through.  The
-        standard ``no_warmup`` path raises ``NotImplementedError`` for these
-        methods.
-    requires_proposal_distribution
-        When ``True``, the BaseMethod's factory requires a
-        ``proposal_distribution: Callable`` (and optional
-        ``proposal_logdensity_fn``) as keyword arguments in addition to
-        ``logdensity_fn``.  Used by independent-proposal samplers (e.g. IRMH;
-        P5.9).  Phase 6's recipe-runner is responsible for constructing the
-        proposal (typically from a fitted VI/Pathfinder/Laplace approximation)
-        and threading it through.  The standard ``no_warmup`` path raises
-        ``NotImplementedError`` for these methods.
+    extra_required_kwargs
+        Names of kwargs the factory requires beyond ``logdensity_fn`` and the
+        HP-space items.  Empty tuple (default) = standard factory.  Non-empty =
+        specialised: the runner must inject these kwargs from ``PosteriorEntry``
+        metadata or recipe parameters before calling ``factory(...)``.
+
+        Examples::
+
+            ("prior_cov", "prior_mean")       — Gaussian-prior specialists
+                                                (mgrad_gaussian, elliptical_slice)
+            ("proposal_distribution",)         — IRMH-family
+            ("log_joint_fn", "theta_init")     — Laplace-marginal family (P5.14b)
+
+        The standard ``no_warmup`` path raises ``NotImplementedError`` for any
+        entry with a non-empty ``extra_required_kwargs``.
 
     Raises
     ------
     ValueError
         If ``name`` is empty; if ``family`` is not one of the three valid
-        values; or if ``default_hp_space`` is empty and neither
-        ``requires_prior_metadata`` nor ``requires_proposal_distribution`` is
-        ``True``.
+        values; or if ``default_hp_space`` is empty and
+        ``extra_required_kwargs`` is also empty.
 
     Notes
     -----
@@ -207,25 +204,18 @@ class BaseMethod:
     needs_mass_matrix: bool = False
     target_acceptance_rate: float | None = None
     notes: str = ""
-    # ---- specialised: latent-Gaussian samplers (P5.8) ----
-    requires_prior_metadata: bool = False
-    """When True, the BaseMethod's factory requires Gaussian-prior metadata
-    (``prior_cov``, ``prior_mean``) as keyword arguments in addition to
-    ``logdensity_fn``.  Used by latent-Gaussian specialists (P5.8).  Phase 6's
-    recipe-runner is responsible for extracting these from the
-    ``PosteriorEntry``'s prior structure and threading them through.  The
-    standard ``no_warmup`` path raises ``NotImplementedError`` for these
-    methods.
-    """
-    # ---- specialised: independent-proposal samplers (P5.9) ----
-    requires_proposal_distribution: bool = False
-    """When True, the BaseMethod's factory requires a ``proposal_distribution:
-    Callable`` (and optional ``proposal_logdensity_fn``) as keyword arguments
-    in addition to ``logdensity_fn``.  Used by independent-proposal samplers
-    (e.g. IRMH; P5.9).  Phase 6's recipe-runner is responsible for
-    constructing the proposal (typically from a fitted VI/Pathfinder/Laplace
-    approximation) and threading it through.  The standard ``no_warmup`` path
-    raises ``NotImplementedError`` for these methods.
+    # ---- specialised: factory requires extra kwargs beyond logdensity_fn + HP-space ----
+    extra_required_kwargs: tuple[str, ...] = ()
+    """Names of kwargs the factory requires beyond logdensity_fn + HP-space items.
+
+    Empty tuple = standard factory (logdensity_fn + HP-space kwargs are sufficient).
+    Non-empty = specialised: the runner must inject these kwargs from PosteriorEntry
+    metadata or recipe parameters before calling factory(...).
+
+    Examples:
+      ("prior_cov", "prior_mean")        — Gaussian-prior specialists (mgrad_gaussian, elliptical_slice)
+      ("proposal_distribution",)         — IRMH-family
+      ("log_joint_fn", "theta_init")     — Laplace-marginal family (P5.14b)
     """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})
@@ -238,11 +228,9 @@ class BaseMethod:
                 f"BaseMethod '{self.name}': family must be one of "
                 f"{sorted(self._VALID_FAMILIES)}, got '{self.family}'"
             )
-        _specialised = (
-            self.requires_prior_metadata or self.requires_proposal_distribution
-        )
-        if not self.default_hp_space and not _specialised:
+        if not self.default_hp_space and not self.extra_required_kwargs:
             raise ValueError(
-                f"BaseMethod '{self.name}': 'default_hp_space' must contain "
-                f"at least one HyperparamSpace entry"
+                f"BaseMethod '{self.name}': 'default_hp_space' must contain at least "
+                f"one HyperparamSpace entry, or 'extra_required_kwargs' must be non-empty "
+                f"(specialised factory that receives additional kwargs from the runner)"
             )

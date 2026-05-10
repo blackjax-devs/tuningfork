@@ -30,7 +30,7 @@ Hyperparameter-free: no BO-tunable parameters (``default_hp_space=()``).
 Gradient-free: ``grad_count_per_step=0``.
 No MH step: ``target_acceptance_rate=None`` (slice sampler always accepts).
 
-``requires_prior_metadata=True``: the ``no_warmup`` runner raises
+``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
 ``NotImplementedError`` for this method.  Phase 6 will add a specialised path.
 
 References
@@ -89,7 +89,7 @@ ENTRY = BaseMethod(
     default_hp_space=(),  # truly HP-free
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # slice sampler; no MH step
-    requires_prior_metadata=True,
+    extra_required_kwargs=("prior_cov", "prior_mean"),
     notes=(
         "Murray, Adams & MacKay 2010 elliptical slice sampler for latent-Gaussian "
         "models p(f|y) ∝ N(f; mean, cov) * likelihood(y|f). The 'logdensity_fn' "
@@ -97,7 +97,7 @@ ENTRY = BaseMethod(
         "Gaussian prior is encoded via prior_cov + prior_mean. Hyperparameter-free. "
         "Gradient-free (grad_count_per_step=0). EllipSliceInfo carries (momentum, "
         "theta, subiter); no acceptance_rate field — slice sampling always accepts "
-        "after a finite number of bracket-shrink subiters. requires_prior_metadata=True; "
+        "after a finite number of bracket-shrink subiters. extra_required_kwargs=('prior_cov', 'prior_mean'); "
         "no_warmup raises NotImplementedError; Phase 6 will add specialised path."
     ),
 )
