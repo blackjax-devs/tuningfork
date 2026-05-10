@@ -52,7 +52,11 @@ from bjx_bench.model import MODELS
 
 # Path to the committed starter recipes
 _STARTER_ROOT = (
-    Path(__file__).parent.parent / "bjx_bench" / "inference" / "recipes" / "starter"
+    Path(__file__).resolve().parents[2]
+    / "bjx_bench"
+    / "inference"
+    / "recipes"
+    / "starter"
 )
 
 
