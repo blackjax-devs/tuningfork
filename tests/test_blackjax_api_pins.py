@@ -724,3 +724,73 @@ def test_blackjax_rwinfo_rwstate_fields():
         f"BlackJAX RWState fields changed from {expected_rwstate} to {RWState._fields}. "
         f"Update tests/test_base_method_irmh.py synthetic RWState construction in grad_count tests."
     )
+
+
+# ───────────────── 11. SMC family — adaptive_tempered_smc (P5.10) ─────────────────
+
+
+def test_blackjax_adaptive_tempered_smc_factory_signature():
+    """Tripwire: blackjax.smc.adaptive_tempered.as_top_level_api must have exactly
+    {logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn, mcmc_parameters,
+    resampling_fn, target_ess, root_solver, num_mcmc_steps, extra_parameters}.
+
+    Pinned at P5.10c: bjx_bench/inference/smc/adaptive_tempered.py calls
+    blackjax.adaptive_tempered_smc(logprior_fn=..., loglikelihood_fn=...,
+    mcmc_step_fn=..., mcmc_init_fn=..., mcmc_parameters=..., resampling_fn=...,
+    target_ess=..., num_mcmc_steps=...).  If upstream renames or removes any of
+    these parameters, the wrapper's factory calls fail silently.
+
+    Note: extra_parameters is **extra_parameters (VAR_KEYWORD); it appears in
+    inspect.signature but is not a named POSITIONAL_OR_KEYWORD param.
+    """
+    import inspect
+
+    from blackjax.smc.adaptive_tempered import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected_named = {
+        "logprior_fn",
+        "loglikelihood_fn",
+        "mcmc_step_fn",
+        "mcmc_init_fn",
+        "mcmc_parameters",
+        "resampling_fn",
+        "target_ess",
+        "root_solver",
+        "num_mcmc_steps",
+    }
+    missing = expected_named - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.smc.adaptive_tempered.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/smc/adaptive_tempered.py if upstream API changed."
+    )
+    # Pin extra_parameters as VAR_KEYWORD (the **kwargs catch-all)
+    assert "extra_parameters" in sig.parameters, (
+        "blackjax.smc.adaptive_tempered.as_top_level_api lost the 'extra_parameters' "
+        "VAR_KEYWORD parameter. Update bjx_bench/inference/smc/adaptive_tempered.py."
+    )
+    import inspect as _inspect
+
+    assert sig.parameters["extra_parameters"].kind == _inspect.Parameter.VAR_KEYWORD, (
+        "blackjax.smc.adaptive_tempered.as_top_level_api: 'extra_parameters' is no longer "
+        "VAR_KEYWORD. Update bjx_bench/inference/smc/adaptive_tempered.py."
+    )
+
+
+def test_blackjax_smc_resampling_systematic_exists():
+    """Tripwire: blackjax.smc.resampling.systematic must be callable.
+
+    Pinned at P5.10c: bjx_bench/inference/smc/adaptive_tempered.py uses
+    blackjax.smc.resampling.systematic as the default resampling function.
+    If upstream renames or removes it, the wrapper silently falls back to
+    importing a non-existent name at module load time (ImportError) or
+    produces a confusing AttributeError at factory call time.
+    """
+    from blackjax.smc import resampling as _smc_resampling
+
+    assert callable(_smc_resampling.systematic), (
+        "blackjax.smc.resampling.systematic is not callable or does not exist. "
+        "Update bjx_bench/inference/smc/adaptive_tempered.py: replace 'systematic' "
+        "with the new resampling function name."
+    )

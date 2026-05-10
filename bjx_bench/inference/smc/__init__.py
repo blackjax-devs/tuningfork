@@ -19,7 +19,10 @@ SMC methods have a different factory contract from BaseMethod
 """
 
 from bjx_bench.inference.smc._base import SMCMethod
+from bjx_bench.inference.smc.adaptive_tempered import ENTRY as _adaptive_tempered
 
-SMC_METHODS: dict[str, SMCMethod] = {}
+SMC_METHODS: dict[str, SMCMethod] = {
+    _adaptive_tempered.name: _adaptive_tempered,
+}
 
 __all__ = ["SMCMethod", "SMC_METHODS"]
