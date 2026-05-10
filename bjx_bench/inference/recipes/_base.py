@@ -155,18 +155,18 @@ class Recipe:
     warmup_params
         Hyperparameters used for the warmup procedure at recipe-build time
         (e.g., ``n_warmup``, ``target_acceptance``).  Non-empty at every
-        effort tier under canonical-C — LOW always runs warmup with library
-        defaults; MEDIUM/HIGH may tune these values.
+        effort tier — LOW always runs warmup with library defaults;
+        MEDIUM/HIGH may tune these values.
     headline_metric
         ``min_bulk_ess_per_grad`` at the pinned ``(warmup_params,
         base_method_params)``.  Filled at every effort tier that produces a
         gate-passing recipe (LOW, MEDIUM, HIGH all run warmup + sampler at
-        recipe-build time under canonical-C).  ``None`` means "not yet
-        measured" — used only for in-flight scaffolding stubs.
+        recipe-build time).  ``None`` means "not yet measured" — used only
+        for in-flight scaffolding stubs.
     sample_quality
         Optional dict of quality metrics vs. reference draws
         (``{"mae_vs_reference": ..., "q05_error": ...}``); filled by the
-        Phase 6 regen pipeline once ``bjx_bench/metrics/reference_compare.py``
+        recipe-emission pipeline once ``bjx_bench/metrics/reference_compare.py``
         is wired.
     calibration_budget
         Cost summary: ``{"trials": int, "wall_seconds_estimate": float, ...}``.
@@ -238,7 +238,6 @@ class Recipe:
     instructions: str
     notes: str = ""
 
-    # ---- Phase 5 fields ----
     inverse_mass_matrix_path: str | None = None
     # Path (relative to the recipe JSON's directory) to a .npz sidecar holding the
     # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM

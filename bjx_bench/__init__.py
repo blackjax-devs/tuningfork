@@ -13,11 +13,10 @@
 # limitations under the License.
 """bjx-bench — A BlackJAX-native benchmark library for MCMC/VI/SMC samplers.
 
-See PLAN_bjx_bench.md (in the parent blackjax-devs/ directory) for the full design:
-the 14-model suite, 3-tier calibration protocol, and headline metric
-`min-bulk-ESS / total_grad_evals`.
-
-Status: Phase 0 — scaffold only. No working API yet.
+A toolkit for systematic benchmarking of 24 base methods × 10 warmup strategies
+× 6 SMC variants against a 14-model suite, with 3-tier calibration
+(Tier-A gold reference, Tier-B per-method tuning, Tier-C warmup isolation)
+and headline metric `min-bulk-ESS / total_grad_evals`.
 """
 
 __version__ = "0.0.0.dev0"

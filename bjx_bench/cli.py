@@ -11,21 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench CLI — Phase 1 + Phase 2 subcommands.
-
-Phase 1 surface:
-    bjx-bench tier-a <model> [--n N] [--seed S] [--force]
-
-Phase 2 surface:
-    bjx-bench tune <model> <algo> [--n-trials N] [--n-seeds N]
-                                  [--n-chains N] [--n-samples N]
-                                  [--n-warmup N] [--seed S]
-                                  [--sampler tpe|random] [--save PATH]
-
-Future phases will add:
-    bjx-bench warmup <model>        # Tier-C warmup-isolation cross-product
-    bjx-bench report                # leaderboard + figures
-"""
+"""bjx-bench CLI — main entry point for tier-a, tune, warmup, and leaderboard subcommands."""
 
 import argparse
 import sys
@@ -573,7 +559,7 @@ def main() -> int:
     """CLI entry point for bjx-bench."""
     parser = argparse.ArgumentParser(
         prog="bjx-bench",
-        description="BlackJAX benchmark harness — Phase 1",
+        description="BlackJAX benchmark harness",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -607,11 +593,7 @@ def main() -> int:
     # ---- warmup subcommand ----
     p_warmup = sub.add_parser(
         "warmup",
-        help=(
-            "Run warmup-only and output a (B-taxonomy) MEDIUM-effort recipe. "
-            "Note: under canonical-C taxonomy this produces a legacy artifact; "
-            "the Phase 6 regen pipeline supersedes this command."
-        ),
+        help="Run warmup-only and output a MEDIUM-effort recipe.",
     )
     p_warmup.add_argument(
         "model",
