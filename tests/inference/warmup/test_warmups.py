@@ -40,6 +40,8 @@ from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.warmup import WARMUPS, Warmup
 from bjx_bench.model import MODELS
 
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------

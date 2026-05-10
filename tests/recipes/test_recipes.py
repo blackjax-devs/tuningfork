@@ -344,6 +344,7 @@ def test_render_instructions_high_stub() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_from_warmup_only_stan_window_nuts() -> None:
     """from_warmup_only with stan_window + NUTS returns a MEDIUM recipe.
 
@@ -398,6 +399,7 @@ def test_from_warmup_only_stan_window_nuts() -> None:
     assert len(recipe.instructions) > 10
 
 
+@pytest.mark.slow
 def test_from_warmup_only_mclmc_tuning_metadata() -> None:
     """from_warmup_only with mclmc_tuning threads _total_tuning_steps into calibration_budget.
 
@@ -432,6 +434,7 @@ def test_from_warmup_only_mclmc_tuning_metadata() -> None:
     assert "L" in recipe.base_method_params
 
 
+@pytest.mark.slow
 def test_from_warmup_only_incompatible_raises() -> None:
     """from_warmup_only with an incompatible (warmup, base_method) pair raises ValueError."""
     posterior = MODELS["mvn_10"]
@@ -449,6 +452,7 @@ def test_from_warmup_only_incompatible_raises() -> None:
         )
 
 
+@pytest.mark.slow
 def test_from_tuning_result_nuts() -> None:
     """from_tuning_result produces a HIGH recipe from tune_algorithm output.
 
@@ -512,6 +516,7 @@ def test_from_tuning_result_nuts() -> None:
     assert len(recipe.instructions) > 10
 
 
+@pytest.mark.slow
 def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
     """HIGH recipe round-trips through Recipe.save / Recipe.load.
 
@@ -570,6 +575,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
     assert saved_path.name == "high__nuts__stan_window.json"
 
 
+@pytest.mark.slow
 def test_render_instructions_medium_and_high_real() -> None:
     """render_instructions on real MEDIUM and HIGH recipes returns meaningful prose."""
     from bjx_bench.calibration.tier_b import tune_algorithm
@@ -646,6 +652,7 @@ _MEDIUM_COMBOS = [
 ]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("model_name,method_name", _MEDIUM_COMBOS)
 def test_medium_recipe_exists_and_has_warmup_data(
     model_name: str, method_name: str

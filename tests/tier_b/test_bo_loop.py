@@ -46,6 +46,8 @@ from bjx_bench.calibration.tier_b import (
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.model import MODELS
 
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Shared test constants
 # ---------------------------------------------------------------------------

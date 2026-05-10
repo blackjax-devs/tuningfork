@@ -35,6 +35,8 @@ from bjx_bench.calibration.tier_a import (
 )
 from bjx_bench.model import MODELS
 
+pytestmark = pytest.mark.slow
+
 ENTRY = MODELS["eight_schools_ncp"]
 
 # Fixed seed used for the NUTS test; see module docstring for selection rationale.
