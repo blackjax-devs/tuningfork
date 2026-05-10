@@ -21,9 +21,9 @@ Covers:
 4. Posteriordb unavailable — invalid posteriordb_id → not-checked result with
    error string in failed_dims.
 
-Tests are marked ``fast`` (no MCMC chains).  The posteriordb Python client
-is available in this venv (checked at import time) but we do NOT require a
-live posteriordb database for tests 1–3; those tests use the
+Tests are marked ``slow`` and ``requires_posteriordb`` (per marker discipline).
+The posteriordb Python client is available in this venv (checked at import time)
+but we do NOT require a live posteriordb database for tests 1–3; those tests use the
 ``posteriordb_root`` argument to point at a synthetic in-memory-like path or
 monkeypatch the client.  Test 4 relies on the graceful-error path.
 """
@@ -41,7 +41,7 @@ from bjx_bench.reference._posteriordb_xcheck import (
     cross_check_against_posteriordb,
 )
 
-pytestmark = pytest.mark.fast
+pytestmark = [pytest.mark.slow, pytest.mark.requires_posteriordb]
 
 
 # ---------------------------------------------------------------------------
