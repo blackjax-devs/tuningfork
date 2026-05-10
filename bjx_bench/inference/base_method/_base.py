@@ -162,7 +162,7 @@ class BaseMethod:
             ("prior_cov", "prior_mean")       — Gaussian-prior specialists
                                                 (mgrad_gaussian, elliptical_slice)
             ("proposal_distribution",)         — IRMH-family
-            ("log_joint_fn", "theta_init")     — Laplace-marginal family (P5.14b)
+            ("log_joint_fn", "theta_init")     — Laplace-marginal family
 
         The standard ``no_warmup`` path raises ``NotImplementedError`` for any
         entry with a non-empty ``extra_required_kwargs``.

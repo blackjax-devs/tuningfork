@@ -224,7 +224,7 @@ ENTRY = BaseMethod(
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # VI is not a MH sampler
     notes=(
-        "Mean-field variational inference (MFVI) in sampler mode (P5.12). "
+        "Mean-field variational inference (MFVI) in sampler mode. "
         "The full VI optimisation loop runs inside .init via jax.lax.scan "
         "over num_optimization_steps Adam steps. Each .step call draws one "
         "sample from the fitted mean-field Gaussian (N(mu, diag(exp(rho)))). "

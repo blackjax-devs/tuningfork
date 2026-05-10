@@ -188,7 +188,7 @@ ENTRY = SMCMethod(
         "BO HP: num_mcmc_steps (int [1, 50]). Resampling default: systematic. "
         "CRITICAL inner-kernel contract: mcmc_parameters dict must contain ONLY "
         "JAX arrays — callable params (e.g. random_step for RWM) must be bound "
-        "via functools.partial at build time. See P5.10c finding in commit history. "
+        "via functools.partial at build time. "
         "Comparison: use adaptive_tempered_smc for most benchmarks (auto-schedule); "
         "use tempered_smc when you want to control or study the annealing schedule."
     ),

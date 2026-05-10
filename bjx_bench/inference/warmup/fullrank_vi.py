@@ -30,7 +30,7 @@ dual-averaging adaptation (e.g. NUTS window adaptation) or Bayesian
 optimisation to tune the step size; this warmup only provides a better
 initialisation and dense IMM than a flat prior sample.
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, step_size_default=1.0,
@@ -310,7 +310,7 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=_COMPATIBLE,
     notes=(
-        "Full-rank VI warmup (P5.12): runs a single full-rank VI "
+        "Full-rank VI warmup: runs a single full-rank VI "
         "optimisation (shared across all chains) via jax.lax.scan over "
         "num_optimization_steps Adam steps.  Draws num_chains independent "
         "initial positions from the fitted variational distribution N(mu, L@L.T) "

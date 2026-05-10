@@ -47,7 +47,7 @@ Inner kernel constraints (same as adaptive_tempered_smc):
   (e.g. random_step for RWM) must be bound via functools.partial before
   passing as mcmc_step_fn.
 
-Finding (P5.10d): ``as_top_level_api`` parameter order is positional for
+``as_top_level_api`` parameter order is positional for
   mcmc_step_fn, mcmc_init_fn, mcmc_parameters, resampling_fn, num_mcmc_steps,
   partial_logposterior_factory, update_strategy — NOT keyword-only.  The
   returned SamplingAlgorithm's init expects ``(position, num_observations)``,
@@ -180,6 +180,6 @@ ENTRY = SMCMethod(
         "Resampling default: systematic. "
         "CRITICAL inner-kernel contract: mcmc_parameters dict must contain ONLY JAX "
         "arrays — callable params (e.g. random_step for RWM) must be bound via "
-        "functools.partial at build time. See P5.10c finding in commit history."
+        "functools.partial at build time."
     ),
 )

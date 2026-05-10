@@ -35,7 +35,7 @@ Key divergences from the standard SMCMethod factory contract:
    ``(rng_key, smc_state, smc_info) -> dict[str, Array]``
    that computes the new inner-kernel parameters from the most recent particle
    cloud.  MUST NOT be placed in ``mcmc_parameters`` (which must be JAX-arrays-only
-   per the P5.10c constraint — ``from_mcmc.unshared_parameters_and_step_fn``
+   — ``from_mcmc.unshared_parameters_and_step_fn``
    calls ``.shape`` on every value in that dict).
 
 3. ``initial_parameter_value`` (required keyword arg): ``dict[str, Array]``
@@ -53,7 +53,7 @@ Inner kernel constraints (same as adaptive_tempered_smc):
   MUST be MH-based; MCLMC family excluded (microcanonical invariance broken).
   ``mcmc_parameters`` / ``initial_parameter_value`` must contain ONLY JAX arrays.
 
-Finding (P5.10d): ``smc_algorithm`` in ``build_kernel`` is called as a factory at
+``smc_algorithm`` in ``build_kernel`` is called as a factory at
   EVERY step (not just at init time) — the inner_kernel_tuning layer re-instantiates
   the underlying SMC algorithm at each kernel invocation, passing the current
   parameter_override as ``mcmc_parameters``.  This is the mechanism by which
@@ -114,7 +114,7 @@ def _factory(
         be bound via ``functools.partial`` before passing.
     mcmc_parameters
         Initial MCMC parameter dict.  Must contain ONLY JAX arrays — no
-        callables (P5.10c constraint: ``from_mcmc.unshared_parameters_and_step_fn``
+        callables (``from_mcmc.unshared_parameters_and_step_fn``
         calls ``.shape`` on every value).  If ``initial_parameter_value`` is not
         provided, this dict is also used as ``initial_parameter_value``.
     smc_algorithm

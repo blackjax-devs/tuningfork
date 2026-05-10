@@ -23,7 +23,7 @@ This is the "zero-cost" warmup used for:
 The runner returns an empty ``adapted_params`` dict; all kernel
 hyperparameters come from the BO trial or the recipe defaults.
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, num_chains: int = 4, **kwargs)
@@ -162,7 +162,7 @@ ENTRY = Warmup(
         "Tier-C warmup-isolation baselines.  "
         "MCLMC is handled specially: kernel.init(position, rng_key) rather "
         "than kernel.init(position).  "
-        "P5.0c: multi-chain by default (num_chains=4 via jax.vmap); states "
+        "multi-chain by default (num_chains=4 via jax.vmap); states "
         "batched with leading dim num_chains (never squeezed)."
     ),
 )

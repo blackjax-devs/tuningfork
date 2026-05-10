@@ -54,7 +54,7 @@ where ``AdaptationResults.parameters`` is a dict with keys:
 - ``integration_steps_fn`` — Python callable (shared; not array-broadcastable)
 - ``integration_steps_params`` — shape ``(1,)`` array
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, num_chains: int = 4,
@@ -273,6 +273,6 @@ ENTRY = Warmup(
         "to (num_chains,) shape.  numeric params (step_size, inverse_mass_matrix) are "
         "broadcast from the shared CHEES estimate to (num_chains,) / (num_chains, d). "
         "dynamic_hmc-specific; not compatible with HMC, NUTS, GHMC, or any other kernel. "
-        "P5.6: multi-chain by default (num_chains=4); target_acceptance_rate=0.651 (CHEES default)."
+        "multi-chain by default (num_chains=4); target_acceptance_rate=0.651 (CHEES default)."
     ),
 )

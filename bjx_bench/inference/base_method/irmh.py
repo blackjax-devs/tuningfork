@@ -107,6 +107,6 @@ ENTRY = BaseMethod(
         "acceptance_rate, is_accepted, proposal. extra_required_kwargs=('proposal_distribution',); "
         "no_warmup raises NotImplementedError; Phase 6 will wire the proposal-construction "
         "path. Also used as an SMC inner kernel — the standalone wrapper here is the "
-        "non-SMC entry point; the SMC integration lives in P5.10."
+        "non-SMC entry point; the SMC integration lives in the smc module."
     ),
 )

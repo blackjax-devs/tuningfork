@@ -44,7 +44,7 @@ Inner kernel constraints (same as adaptive_tempered_smc):
   Non-array params (e.g. random_step for RWM) must be bound via
   functools.partial before passing as mcmc_step_fn.
 
-Finding (P5.11): The upstream build_kernel's update_strategy parameter
+The upstream build_kernel's update_strategy parameter
   accepts a callable with signature:
     (mcmc_init_fn, logposterior_fn, mcmc_step_fn, num_mcmc_steps, n_particles)
     -> (mcmc_kernel, n_particles)
@@ -191,6 +191,6 @@ ENTRY = SMCMethod(
         "with signature (rng_key, state, logdensity_fn, **array_params). The "
         "mcmc_parameters dict must contain ONLY JAX arrays — callable params (e.g. "
         "random_step for RWM) must be bound via functools.partial at build time. "
-        "See P5.10c finding in commit history."
+        ":"
     ),
 )

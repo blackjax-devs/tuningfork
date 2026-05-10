@@ -24,7 +24,7 @@ A Pareto-k < 0.5 indicates reliable IS; k > 0.7 may indicate unreliable
 importance weights — downstream calibration code may use this to warn or
 fall back to ``pathfinder`` (single-path).
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, n_paths=None, num_samples_per_path=200,
@@ -285,7 +285,7 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=_COMPATIBLE,
     notes=(
-        "Multi-path Pathfinder warmup (P5.4): runs one multi-path Pathfinder "
+        "Multi-path Pathfinder warmup: runs one multi-path Pathfinder "
         "fit from n_paths independent starting positions (default: n_paths == "
         "num_chains).  Draws num_chains init positions from the PSIS "
         "importance-resampled mixture.  Returns the post-PSIS empirical "

@@ -13,20 +13,26 @@
 # limitations under the License.
 """bjx-bench warmup registry.
 
-Phase 3 (P3.1) lands three core warmups:
+Core warmups:
 - ``stan_window``: blackjax.window_adaptation; compatible with hmc, nuts,
   barker, mala.
 - ``mclmc_tuning``: blackjax.mclmc_find_L_and_step_size; compatible with
-  mclmc only.
+  mclmc and adjusted_mclmc variants.
 - ``no_warmup``: identity warmup returning default init state + empty params;
   compatible with all algorithms (sentinel ``"*"``).
+- ``chees``: Cholesky Eigen Exploration Sampling; compatible with dynamic_hmc.
+- ``meads``: Manifold-based geometric adaptation; compatible with ghmc.
 
-Phase 5.4 (P5.4) adds two Pathfinder-based warmups:
+Pathfinder-based warmups:
 - ``pathfinder``: single-path Pathfinder per chain; compatible with hmc, nuts,
   mala, rwm, barker.  Returns per-chain L-BFGS inv-Hessian diagonal as IMM.
 - ``multipathfinder``: multi-path Pathfinder with PSIS importance resampling;
   compatible with hmc, nuts, mala, rwm, barker.  Returns post-PSIS empirical
   variance as the shared IMM.
+
+Variational inference warmups:
+- ``meanfield_vi``: mean-field variational inference warmup.
+- ``fullrank_vi``: full-rank variational inference warmup.
 
 Usage::
 

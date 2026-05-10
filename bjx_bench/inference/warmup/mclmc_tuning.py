@@ -30,7 +30,7 @@ The third value ``total_tuning_steps`` is threaded into the returned
 ``Recipe.calibration_budget`` (Phase 3.2) can capture the actual gradient
 spend during warmup.
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, num_chains: int = 4, **kwargs)
@@ -174,7 +174,7 @@ def _runner(
         "L": adaptation_states.L,  # shape (num_chains,)
         "step_size": adaptation_states.step_size,  # shape (num_chains,)
         "inverse_mass_matrix": adaptation_states.inverse_mass_matrix,  # (num_chains, d)
-        # P3.2 will fold this into Recipe.calibration_budget
+        # will fold this into Recipe.calibration_budget
         "_total_tuning_steps": total_tuning_steps,
     }
     return states, adapted
@@ -187,9 +187,9 @@ ENTRY = Warmup(
     notes=(
         "MCLMC-specific adaptation via blackjax.mclmc_find_L_and_step_size. "
         "Finds L, step_size, and a diagonal inverse_mass_matrix jointly. "
-        "Returns _total_tuning_steps for calibration_budget accounting (P3.2). "
+        "Returns _total_tuning_steps for calibration_budget accounting. "
         "Not compatible with any other kernel (HMC/NUTS use window_adaptation).  "
-        "P5.0c: multi-chain by default (num_chains=4 via jax.vmap); per-chain "
+        "multi-chain by default (num_chains=4 via jax.vmap); per-chain "
         "L/step_size/IMM returned as (num_chains,)/(num_chains,)/(num_chains, d) "
         "arrays; _total_tuning_steps is summed across chains."
     ),

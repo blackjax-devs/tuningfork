@@ -177,7 +177,7 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
       ``low * (high / low) ** 0.7`` — biased toward the high end of the
       log-range.  For ``step_size [1e-3, 1.0]`` this gives ``0.1`` rather
       than the geometric mean ``0.032``.  Empirically closer to typical
-      BO-best step_size values observed in Phase 3 HIGH recipes (P4.0 tweak).
+      BO-best step_size values observed in practice.
     - ``"uniform"``: arithmetic midpoint ``(low + high) / 2``.
     - ``"int"``: integer midpoint ``(low + high) // 2``.  Integer division
       avoids returning a float for an integer parameter.  For even sums
@@ -208,7 +208,7 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
     if space.kind == "loguniform":
         # 70th-percentile on log-scale: low * (high/low)**0.7
         # For step_size [1e-3, 1.0]: 1e-3 * (1e3)**0.7 ≈ 0.1
-        # (P4.0 tweak; previously sqrt(low*high) = 50th-percentile ≈ 0.032)
+        # (biased toward high end; previously sqrt(low*high) = 50th-percentile ≈ 0.032)
         return space.low * (space.high / space.low) ** 0.7  # type: ignore[operator]
     elif space.kind == "uniform":
         return (space.low + space.high) / 2  # type: ignore[operator]
@@ -343,7 +343,7 @@ def _run_warmup(
 ) -> tuple[Any, dict[str, Any]]:
     """Run warmup and return (adapted_state, adapted_params).
 
-    Dispatch is via the ``WARMUPS`` registry (Phase 3, P3.1).  The
+    Dispatch is via the ``WARMUPS`` registry.  The
     ``warmup_name`` selects the warmup procedure; ``tune_algorithm``
     resolves ``None`` to the right default before calling this function.
 
@@ -411,7 +411,7 @@ def _run_warmup(
         )
     # BO trials are intentionally single-chain — chain count is orthogonal to
     # per-trial HP tuning.  Pass num_chains=1 explicitly so the new default
-    # num_chains=4 (P5.0c) doesn't accidentally change BO semantics.
+    # num_chains=4 doesn't accidentally change BO semantics.
     # squeeze_single_chain restores the un-batched (state, params) shape that
     # run_inference_algorithm expects.
     from bjx_bench.inference.warmup._base import squeeze_single_chain

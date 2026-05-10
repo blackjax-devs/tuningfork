@@ -229,7 +229,7 @@ ENTRY = BaseMethod(
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # VI is not a MH sampler
     notes=(
-        "Full-rank variational inference (FRVI) in sampler mode (P5.12). "
+        "Full-rank variational inference (FRVI) in sampler mode. "
         "The full VI optimisation loop runs inside .init via jax.lax.scan "
         "over num_optimization_steps Adam steps. Each .step call draws one "
         "sample from the fitted full-rank Gaussian (N(mu, L @ L.T) where L "

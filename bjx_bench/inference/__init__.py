@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Inference layer: base_method, warmup, recipes.
+"""Inference layer: base_method, warmup, and recipes.
 
-Phase 2.5 lands base_method (renamed from algorithms/) and warmup
-(stub from Phase 0). recipes/ is added in the follow-up spawn (3 of 4).
+Includes BlackJAX algorithm wrappers (base_method), warmup/adaptation
+procedures (warmup), and recipe generation (recipes).
 """

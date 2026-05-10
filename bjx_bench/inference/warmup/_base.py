@@ -19,7 +19,7 @@ Each Warmup wraps a BlackJAX adaptation routine into a uniform shape::
            *, logdensity_fn, num_chains: int = 4, **kwargs)
     -> (states, adapted_params)
 
-**Multi-chain runner contract** (P5.0c):
+**Multi-chain runner contract**:
 
 Parameters
 ----------
@@ -58,10 +58,10 @@ adapted_params
     Wrappers may average across chains or return per-chain values; the
     choice is documented in the wrapper's docstring.
 
-Phase 2.5 landed the Warmup dataclass stub.  Phase 3 (P3.1) adds the
-real wrapper modules (stan_window, mclmc_tuning, no_warmup) and the
-``is_compatible`` method so the registry can guard against mismatched
-pairings.  Phase 5 (P5.0c) extends the contract to multi-chain.
+The Warmup dataclass supports standard registration of warmup procedures
+(stan_window, mclmc_tuning, no_warmup, etc.) with compatibility guards
+(``is_compatible`` method) preventing mismatched warmup-sampler pairings.
+The multi-chain runner contract enables parallel warmup across multiple chains.
 """
 
 from collections.abc import Callable

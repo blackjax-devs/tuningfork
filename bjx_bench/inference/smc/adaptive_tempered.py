@@ -34,7 +34,7 @@ factory is a SamplingAlgorithm from which we extract ``.step`` and
 ``.init``; however, for RWM these are the raw blackjax kernel functions
 accessed directly.
 
-Finding (P5.10c): blackjax SMC's ``from_mcmc.unshared_parameters_and_step_fn``
+blackjax SMC's ``from_mcmc.unshared_parameters_and_step_fn``
 calls ``.shape`` on every value in ``mcmc_parameters``, so it must contain
 ONLY JAX arrays — passing a callable (like ``random_step``) in
 ``mcmc_parameters`` raises ``AttributeError: 'function' object has no
@@ -154,6 +154,6 @@ ENTRY = SMCMethod(
         "mcmc_parameters dict must contain ONLY JAX arrays — callable params (e.g. "
         "random_step for RWM) must be bound via functools.partial at build time. "
         "The factory receives inner_kernel.step/.init but these must already have "
-        "non-array params bound. See P5.10c finding in commit history."
+        "non-array params bound."
     ),
 )
