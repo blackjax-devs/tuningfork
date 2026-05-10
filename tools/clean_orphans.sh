@@ -58,15 +58,16 @@ if pgrep -f 'pytest|xdist' > /dev/null 2>&1; then
                 h="${BASH_REMATCH[1]}"
                 m="${BASH_REMATCH[2]}"
                 s="${BASH_REMATCH[3]}"
-                etime_secs=$((h * 3600 + m * 60 + s))
+                # Use base 10 to avoid octal interpretation
+                etime_secs=$((10#$h * 3600 + 10#$m * 60 + 10#$s))
             elif [[ "$etime" =~ ^([0-9]+):([0-9]+)$ ]]; then
                 # MM:SS
                 m="${BASH_REMATCH[1]}"
                 s="${BASH_REMATCH[2]}"
-                etime_secs=$((m * 60 + s))
+                etime_secs=$((10#$m * 60 + 10#$s))
             elif [[ "$etime" =~ ^[0-9]+$ ]]; then
-                # Just seconds
-                etime_secs="$etime"
+                # Just seconds (force base 10)
+                etime_secs=$((10#$etime))
             fi
 
             # Kill if older than 5 minutes (300 seconds)

@@ -13,15 +13,51 @@ This is a **sibling repo** to `blackjax/` and `sampling-book/`, not a subdir of 
 **Package manager:** [`uv`](https://docs.astral.sh/uv/) — use `uv run` instead of activating the venv.
 
 ```bash
-make install     # uv sync --group bench
-make test        # JAX_PLATFORM_NAME=cpu uv run pytest -vv tests
-make lint        # uv run pre-commit run --all-files
+make install      # uv sync --group bench
+make test         # run tests (default flow: skip e2e)
+make test-fast    # fast / structural tests only
+make test-full    # everything (merge gate)
+make lint         # uv run pre-commit run --all-files
 ```
 
 `pyproject.toml` mirrors `sampling-book/pyproject.toml` (same model-implementation deps) and adds:
 - `optuna` — Tier-B Bayesian optimization
 - `posteriordb` — Tier-A cross-check (per resolved decision: cross-check against Stan refs for shared posteriors #3 8-Schools, #6 radon, #10 IRT)
 - `pytest`, `pytest-cov`, `pre-commit`
+
+## Test Suite & Markers
+
+Tests are organized under `tests/` mirroring the source layout in `bjx_bench/`:
+
+```
+tests/
+├── inference/           # base_method, warmup, smc
+├── models/              # model-specific tests
+├── recipes/             # recipe schema + emission
+├── metrics/             # headline metric + diagnostics
+├── tier_a/, tier_b/     # certification + optimization
+├── e2e/                 # end-to-end phase-gate suite
+├── test_api_pins.py     # BlackJAX upstream contract (cross-cutting)
+└── test_registry.py     # registry checks (cross-cutting)
+```
+
+**Five markers** (registered in `conftest.py`, source of truth):
+
+| Marker | Meaning |
+|--------|---------|
+| `fast` | Pure logic / dataclass / schema (no JAX trace, <100 ms) — **inner-loop dev** |
+| `slow` | Chain-running or warmup tests (JAX-compiled, >1 s) — **default suite** |
+| `e2e` | End-to-end phase gate (multiple algorithms × models, >10 s) — **merge gate** |
+| `requires_posteriordb` | Needs posteriordb data cache; additive (combine with `slow` or `e2e`) |
+| `benchmark` | Reserved for perf benchmarks (opt-in via `-m benchmark`) |
+
+**Discipline rule**: Every test must be tagged with exactly one of `fast`, `slow`, or `e2e`. If a test needs posteriordb, add `@pytest.mark.requires_posteriordb` as a second marker.
+
+**Mandatory for agents**:
+- Run `make clean-orphans` before any heavy test sweep. See META-014 in `/home/jp/blackjax-devs/WORKLOG.md` — orphan Python REPLs can silently consume 7+ GB.
+- When adding a test, tag it with **exactly one** of `@pytest.mark.fast` / `@pytest.mark.slow` / `@pytest.mark.e2e`. Use module-level `pytestmark = pytest.mark.<marker>` if all tests in the file are the same kind.
+
+For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Architecture (per PLAN_bjx_bench.md)
 

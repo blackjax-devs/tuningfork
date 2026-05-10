@@ -46,12 +46,16 @@ BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation st
 ## Setup
 
 ```bash
-make install     # uv sync --group bench
-make test        # run tests
-make lint        # pre-commit
+make install      # uv sync --group bench
+make test         # run tests (default: skip e2e suite)
+make test-fast    # inner-loop dev (fast tests only)
+make test-full    # merge gate (everything)
+make lint         # pre-commit
 ```
 
 For GPU: `uv pip install "jax[cuda12]"` after `make install`.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a complete guide to test markers (`fast`, `slow`, `e2e`), folder layout, and adding new tests.
 
 ## License
 
