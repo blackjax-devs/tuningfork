@@ -274,7 +274,105 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
         )
 
 
-# ───────────────── 7. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+# ───────────────── 7. dynamic_hmc + CHEES (P5.6) ─────────────────
+
+
+def test_blackjax_dynamic_hmc_factory_signature():
+    """Tripwire: blackjax.dynamic_hmc inner API must accept (logdensity_fn,
+    step_size, inverse_mass_matrix); also confirm dhmc alias.
+
+    Pinned at P5.6: bjx_bench/inference/base_method/dynamic_hmc.py calls
+    blackjax.dynamic_hmc(logdensity_fn, **trial_params) where trial_params
+    includes step_size and inverse_mass_matrix (from CHEES warmup).  If
+    upstream renames or removes any of these, factory calls in the BO loop
+    fail silently.  Also confirms blackjax.dhmc is blackjax.dynamic_hmc.
+    """
+    import inspect
+
+    from blackjax.mcmc.dynamic_hmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {"logdensity_fn", "step_size", "inverse_mass_matrix"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.dynamic_hmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/dynamic_hmc.py if upstream API changed."
+    )
+    assert blackjax.dhmc is blackjax.dynamic_hmc, (
+        "blackjax.dhmc alias broken: dhmc is not dynamic_hmc. "
+        "Update bjx_bench/inference/base_method/dynamic_hmc.py alias note."
+    )
+
+
+def test_blackjax_chees_adaptation_signature():
+    """Tripwire: blackjax.chees_adaptation must accept (logdensity_fn,
+    num_chains, target_acceptance_rate) as parameters.
+
+    Pinned at P5.6: bjx_bench/inference/warmup/chees.py calls
+    blackjax.chees_adaptation(logdensity_fn, num_chains,
+    target_acceptance_rate=..., max_leapfrog_steps=...).
+    If upstream renames or removes any of these, the CHEES warmup fails.
+    """
+    import inspect
+
+    sig = inspect.signature(blackjax.chees_adaptation)
+    expected = {"logdensity_fn", "num_chains", "target_acceptance_rate"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.chees_adaptation is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/warmup/chees.py if upstream API changed."
+    )
+
+
+def test_blackjax_chees_adaptation_run_returns_2tuple():
+    """Tripwire: chees_adaptation.run() must return a 2-tuple
+    (AdaptationResults, AdaptationInfo).
+
+    Pinned at P5.6: bjx_bench/inference/warmup/chees.py unpacks the result as
+    (adaptation_results, _adaptation_info) = chees.run(...).
+    If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
+
+    Note: unlike meads_adaptation.run(), chees_adaptation.run() requires
+    step_size and optim as positional arguments.
+    """
+    import optax
+
+    chees = blackjax.chees_adaptation(
+        lambda x: -0.5 * jnp.sum(x**2),
+        num_chains=4,
+    )
+    key = jax.random.key(0)
+    optim = optax.adam(learning_rate=0.01)
+    result = chees.run(key, jnp.zeros((4, 3)), 0.1, optim, num_steps=5)
+    assert len(result) == 2, (
+        f"chees_adaptation.run() should return a 2-tuple (AdaptationResults, AdaptationInfo), "
+        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/chees.py."
+    )
+    adaptation_results, _adaptation_info = result
+    assert hasattr(adaptation_results, "state"), (
+        "AdaptationResults must have 'state' field; "
+        "update bjx_bench/inference/warmup/chees.py."
+    )
+    assert hasattr(adaptation_results, "parameters"), (
+        "AdaptationResults must have 'parameters' field; "
+        "update bjx_bench/inference/warmup/chees.py."
+    )
+    for param_key in ("step_size", "inverse_mass_matrix"):
+        assert param_key in adaptation_results.parameters, (
+            f"chees_adaptation AdaptationResults.parameters lost key {param_key!r}. "
+            f"Update bjx_bench/inference/warmup/chees.py."
+        )
+    # Callable params must also be present
+    for callable_key in ("next_random_arg_fn", "integration_steps_fn"):
+        assert callable_key in adaptation_results.parameters, (
+            f"chees_adaptation AdaptationResults.parameters lost callable key {callable_key!r}. "
+            f"Update bjx_bench/inference/warmup/chees.py."
+        )
+
+
+# ───────────────── 8. window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and

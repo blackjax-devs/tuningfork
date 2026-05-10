@@ -77,10 +77,21 @@ def _build_logdensity(posterior_entry, key):
 class TestWarmupRegistry:
     """WARMUPS registry structure tests (fast; no chain runs)."""
 
-    def test_warmups_has_six_entries(self) -> None:
-        assert (
-            len(WARMUPS) == 6
-        ), f"Expected 6 entries, got {len(WARMUPS)}: {sorted(WARMUPS)}"
+    def test_warmups_has_expected_entries(self) -> None:
+        """Subset assertion: all known warmups must be present (META-011 pattern)."""
+        expected = {
+            "stan_window",
+            "mclmc_tuning",
+            "no_warmup",
+            "pathfinder",
+            "multipathfinder",
+            "meads",
+            "chees",
+        }
+        assert expected <= set(WARMUPS.keys()), (
+            f"Missing warmup entries: {expected - set(WARMUPS.keys())}. "
+            f"Registered: {sorted(WARMUPS)}"
+        )
 
     def test_warmups_has_stan_window(self) -> None:
         assert "stan_window" in WARMUPS

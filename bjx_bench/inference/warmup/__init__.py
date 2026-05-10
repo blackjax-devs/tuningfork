@@ -38,6 +38,7 @@ Usage::
 """
 
 from bjx_bench.inference.warmup._base import Warmup
+from bjx_bench.inference.warmup.chees import ENTRY as _chees
 from bjx_bench.inference.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
 from bjx_bench.inference.warmup.meads import ENTRY as _meads
 from bjx_bench.inference.warmup.multipathfinder import ENTRY as _multipathfinder
@@ -52,6 +53,7 @@ WARMUPS: dict[str, Warmup] = {
     _pathfinder.name: _pathfinder,
     _multipathfinder.name: _multipathfinder,
     _meads.name: _meads,
+    _chees.name: _chees,
 }
 
 __all__ = ["WARMUPS", "Warmup"]
