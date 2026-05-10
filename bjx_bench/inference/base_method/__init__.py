@@ -25,6 +25,9 @@ Adding a new algorithm
 """
 
 from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
+from bjx_bench.inference.base_method.additive_step_random_walk import (
+    ENTRY as _additive_step_random_walk_entry,
+)
 from bjx_bench.inference.base_method.adjusted_mclmc import (
     ENTRY as _adjusted_mclmc_entry,
 )
@@ -53,6 +56,7 @@ from bjx_bench.inference.base_method.mgrad_gaussian import (
 )
 from bjx_bench.inference.base_method.mhmc import ENTRY as _mhmc_entry
 from bjx_bench.inference.base_method.nuts import ENTRY as _nuts_entry
+from bjx_bench.inference.base_method.orbital_hmc import ENTRY as _orbital_hmc_entry
 from bjx_bench.inference.base_method.rwm import ENTRY as _rwm_entry
 
 BASE_METHODS: dict[str, BaseMethod] = {
@@ -77,6 +81,8 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _laplace_dhmc_entry.name: _laplace_dhmc_entry,
     _laplace_mhmc_entry.name: _laplace_mhmc_entry,
     _laplace_dmhmc_entry.name: _laplace_dmhmc_entry,
+    _orbital_hmc_entry.name: _orbital_hmc_entry,
+    _additive_step_random_walk_entry.name: _additive_step_random_walk_entry,
 }
 
 __all__ = ["BaseMethod", "HyperparamSpace", "BASE_METHODS"]

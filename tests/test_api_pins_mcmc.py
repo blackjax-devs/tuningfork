@@ -847,3 +847,130 @@ def test_base_methods_contains_laplace_marginal_2x2():
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
         f"Check bjx_bench/inference/base_method/__init__.py imports."
     )
+
+
+# ───────── 13. Algorithmic specials (P5.15): orbital_hmc + additive_step_random_walk ───
+
+
+def test_blackjax_orbital_hmc_factory_signature():
+    """Tripwire: blackjax.mcmc.periodic_orbital.as_top_level_api must accept
+    {logdensity_fn, step_size, inverse_mass_matrix, period, bijection}.
+
+    Pinned at P5.15: bjx_bench/inference/base_method/orbital_hmc.py calls
+    blackjax.orbital_hmc(logdensity_fn, step_size=..., inverse_mass_matrix=...,
+    period=...).  If upstream renames or removes any of these, factory calls
+    in the BO loop fail silently.
+
+    Note: 'bijection' is a keyword-only arg defaulting to velocity_verlet.
+    The bjx_bench wrapper does not expose bijection in the HP space; the
+    default integrator is used.
+    """
+    import inspect
+
+    from blackjax.mcmc.periodic_orbital import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "logdensity_fn",
+        "step_size",
+        "inverse_mass_matrix",
+        "period",
+        "bijection",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.periodic_orbital.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/orbital_hmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_periodic_orbital_state_fields():
+    """Tripwire: PeriodicOrbitalState._fields must be
+    ('positions', 'weights', 'directions', 'logdensities', 'logdensities_grad').
+
+    Pinned at P5.15: bjx_bench/inference/base_method/orbital_hmc.py documents
+    that the state carries the FULL orbit (plural fields: positions, logdensities,
+    logdensities_grad are arrays of shape (period, D)).  If upstream renames or
+    removes fields, shape assertions in tests/inference/base_method/test_orbital_hmc.py
+    break silently.
+
+    Note: 'positions' (plural) is intentional — the state holds ALL orbit points,
+    not just the current position.  This is the key difference from standard HMC.
+    """
+    from blackjax.mcmc.periodic_orbital import PeriodicOrbitalState
+
+    expected = (
+        "positions",
+        "weights",
+        "directions",
+        "logdensities",
+        "logdensities_grad",
+    )
+    assert PeriodicOrbitalState._fields == expected, (
+        f"BlackJAX PeriodicOrbitalState fields changed from {expected} to "
+        f"{PeriodicOrbitalState._fields}. "
+        f"Update bjx_bench/inference/base_method/orbital_hmc.py notes and "
+        f"tests/inference/base_method/test_orbital_hmc.py shape assertions."
+    )
+
+
+def test_blackjax_additive_step_random_walk_is_generate_sampling_api():
+    """Tripwire: blackjax.additive_step_random_walk must be a GenerateSamplingAPI instance.
+
+    Pinned at P5.15: the upstream wraps additive_step_random_walk differently from
+    other algorithms — it uses GenerateSamplingAPI directly (line 118-122 of
+    blackjax/__init__.py) rather than generate_top_level_api_from(module).
+    If upstream refactors to a different wrapper class, the register_factory
+    convention and normal_random_walk registration break silently.
+    """
+    assert (
+        blackjax.additive_step_random_walk.__class__.__name__ == "GenerateSamplingAPI"
+    ), (
+        f"blackjax.additive_step_random_walk is not a GenerateSamplingAPI instance: "
+        f"got {blackjax.additive_step_random_walk.__class__.__name__!r}. "
+        f"Update bjx_bench/inference/base_method/additive_step_random_walk.py notes."
+    )
+    assert hasattr(blackjax.additive_step_random_walk, "register_factory"), (
+        "blackjax.additive_step_random_walk missing 'register_factory' method. "
+        "Upstream may have changed the GenerateSamplingAPI class. "
+        "Update bjx_bench/inference/base_method/additive_step_random_walk.py."
+    )
+
+
+def test_blackjax_additive_step_random_walk_has_normal_random_walk():
+    """Tripwire: blackjax.additive_step_random_walk.normal_random_walk must exist.
+
+    Pinned at P5.15: line 122 of blackjax/__init__.py calls
+    additive_step_random_walk.register_factory('normal_random_walk', normal_random_walk).
+    This registers the Gaussian special-case as a named factory on the API object.
+    If upstream removes this registration, users expecting the .normal_random_walk
+    shortcut get an AttributeError at runtime.
+    """
+    assert hasattr(blackjax.additive_step_random_walk, "normal_random_walk"), (
+        "blackjax.additive_step_random_walk.normal_random_walk is not registered. "
+        "Check line 122 of blackjax/__init__.py: register_factory call may have been removed. "
+        "Update bjx_bench/inference/base_method/additive_step_random_walk.py notes."
+    )
+    assert callable(blackjax.additive_step_random_walk.normal_random_walk), (
+        "blackjax.additive_step_random_walk.normal_random_walk is not callable. "
+        "Update bjx_bench/inference/base_method/additive_step_random_walk.py notes."
+    )
+
+
+def test_base_methods_contains_p5_15_algorithmic_specials():
+    """Tripwire: BASE_METHODS must contain both P5.15 entries.
+
+    Pinned at P5.15 (META-011 dodge: subset check, not equality, so adding
+    new algorithms doesn't break this test).  If either entry is accidentally
+    dropped from __init__.py, this fires immediately.
+    """
+    from bjx_bench.inference.base_method import BASE_METHODS
+
+    required = {"orbital_hmc", "additive_step_random_walk"}
+    missing = required - set(BASE_METHODS.keys())
+    assert not missing, (
+        f"BASE_METHODS is missing P5.15 entries: {missing}. "
+        f"Registered keys: {sorted(BASE_METHODS.keys())}. "
+        f"Check bjx_bench/inference/base_method/__init__.py imports."
+    )
