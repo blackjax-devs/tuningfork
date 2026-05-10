@@ -568,3 +568,111 @@ def test_blackjax_rwinfo_rwstate_fields():
         f"BlackJAX RWState fields changed from {expected_rwstate} to {RWState._fields}. "
         f"Update tests/test_base_method_irmh.py synthetic RWState construction in grad_count tests."
     )
+
+
+# ───────────── 11. Standard-momentum 2×2 (P5.13): mhmc + dmhmc ─────────────
+
+
+def test_blackjax_mhmc_factory_signature():
+    """Tripwire: blackjax.mhmc inner API must accept the same parameters as HMC.
+
+    Pinned at P5.13: bjx_bench/inference/base_method/mhmc.py calls
+    blackjax.mhmc(logdensity_fn, **trial_params) where trial_params includes
+    step_size, inverse_mass_matrix, and num_integration_steps.  mhmc is a
+    partial-applied HMC with multinomial_hmc_proposal; if upstream changes
+    the as_top_level_api signature, factory calls in the BO loop fail silently.
+    """
+    import inspect
+
+    from blackjax.mcmc.hmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {
+        "logdensity_fn",
+        "step_size",
+        "inverse_mass_matrix",
+        "num_integration_steps",
+    }
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.hmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/mhmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_dmhmc_factory_signature():
+    """Tripwire: blackjax.dmhmc inner API must accept the same parameters as dynamic_hmc.
+
+    Pinned at P5.13: bjx_bench/inference/base_method/dmhmc.py calls
+    blackjax.dmhmc(logdensity_fn, **trial_params) where trial_params includes
+    step_size and inverse_mass_matrix (from CHEES warmup).  dmhmc is a
+    partial-applied dynamic_hmc with multinomial_hmc_proposal; if upstream
+    changes the as_top_level_api signature, factory calls in the BO loop fail.
+    """
+    import inspect
+
+    from blackjax.mcmc.dynamic_hmc import as_top_level_api
+
+    sig = inspect.signature(as_top_level_api)
+    expected = {"logdensity_fn", "step_size", "inverse_mass_matrix"}
+    missing = expected - set(sig.parameters)
+    assert not missing, (
+        f"blackjax.mcmc.dynamic_hmc.as_top_level_api is missing parameters: {missing}. "
+        f"Current params: {list(sig.parameters)}. "
+        f"Update bjx_bench/inference/base_method/dmhmc.py if upstream API changed."
+    )
+
+
+def test_blackjax_multinomial_hmc_alias():
+    """Tripwire: blackjax.multinomial_hmc is blackjax.mhmc (backward-compat alias).
+
+    Pinned at P5.13: documented at blackjax/__init__.py; if upstream renames the
+    alias (e.g. removes multinomial_hmc or points it at a different factory),
+    this fires immediately rather than silently at runtime.
+    """
+    assert blackjax.multinomial_hmc is blackjax.mhmc, (
+        "blackjax.multinomial_hmc alias broken: multinomial_hmc is not mhmc. "
+        "Update bjx_bench/inference/base_method/mhmc.py alias note and this tripwire."
+    )
+
+
+def test_blackjax_multinomial_hmc_proposal_exists():
+    """Tripwire: blackjax.mcmc.hmc.multinomial_hmc_proposal exists and is callable.
+
+    Pinned at P5.13: mhmc and dmhmc are partial-applied HMC/DynamicHMC with
+    build_proposal=blackjax.mcmc.hmc.multinomial_hmc_proposal.  If upstream
+    renames or removes this function, the wrappers silently fall back to the
+    default proposal, changing the algorithm semantics.
+
+    IMPORTANT: blackjax.multinomial_hmc is the SamplingAPI alias (NOT the
+    proposal builder).  The proposal builder is at
+    blackjax.mcmc.hmc.multinomial_hmc_proposal (module-level function).
+    """
+    assert hasattr(blackjax.mcmc.hmc, "multinomial_hmc_proposal"), (
+        "blackjax.mcmc.hmc.multinomial_hmc_proposal does not exist. "
+        "If upstream renamed or removed the multinomial proposal builder, "
+        "update bjx_bench/inference/base_method/mhmc.py and dmhmc.py."
+    )
+    assert callable(blackjax.mcmc.hmc.multinomial_hmc_proposal), (
+        "blackjax.mcmc.hmc.multinomial_hmc_proposal is not callable. "
+        "Update bjx_bench/inference/base_method/mhmc.py and dmhmc.py."
+    )
+
+
+def test_base_methods_contains_mhmc_and_dmhmc():
+    """Tripwire: BASE_METHODS registry must contain both 'mhmc' and 'dmhmc'.
+
+    Pinned at P5.13 (META-011 dodge: subset check, not equality, so adding
+    new algorithms doesn't break this test).  If either entry is accidentally
+    dropped from __init__.py, this fires immediately.
+    """
+    from bjx_bench.inference.base_method import BASE_METHODS
+
+    required = {"mhmc", "dmhmc"}
+    missing = required - set(BASE_METHODS.keys())
+    assert not missing, (
+        f"BASE_METHODS is missing entries: {missing}. "
+        f"Registered keys: {sorted(BASE_METHODS.keys())}. "
+        f"Check bjx_bench/inference/base_method/__init__.py imports."
+    )

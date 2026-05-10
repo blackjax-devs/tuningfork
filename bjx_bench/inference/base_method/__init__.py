@@ -32,6 +32,7 @@ from bjx_bench.inference.base_method.adjusted_mclmc_dynamic import (
     ENTRY as _adjusted_mclmc_dynamic_entry,
 )
 from bjx_bench.inference.base_method.barker import ENTRY as _barker_entry
+from bjx_bench.inference.base_method.dmhmc import ENTRY as _dmhmc_entry
 from bjx_bench.inference.base_method.dynamic_hmc import ENTRY as _dynamic_hmc_entry
 from bjx_bench.inference.base_method.elliptical_slice import (
     ENTRY as _elliptical_slice_entry,
@@ -46,11 +47,13 @@ from bjx_bench.inference.base_method.meanfield_vi import ENTRY as _meanfield_vi_
 from bjx_bench.inference.base_method.mgrad_gaussian import (
     ENTRY as _mgrad_gaussian_entry,
 )
+from bjx_bench.inference.base_method.mhmc import ENTRY as _mhmc_entry
 from bjx_bench.inference.base_method.nuts import ENTRY as _nuts_entry
 from bjx_bench.inference.base_method.rwm import ENTRY as _rwm_entry
 
 BASE_METHODS: dict[str, BaseMethod] = {
     _hmc_entry.name: _hmc_entry,
+    _mhmc_entry.name: _mhmc_entry,
     _nuts_entry.name: _nuts_entry,
     _mala_entry.name: _mala_entry,
     _barker_entry.name: _barker_entry,
@@ -58,6 +61,7 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _mclmc_entry.name: _mclmc_entry,
     _ghmc_entry.name: _ghmc_entry,
     _dynamic_hmc_entry.name: _dynamic_hmc_entry,
+    _dmhmc_entry.name: _dmhmc_entry,
     _adjusted_mclmc_entry.name: _adjusted_mclmc_entry,
     _adjusted_mclmc_dynamic_entry.name: _adjusted_mclmc_dynamic_entry,
     _elliptical_slice_entry.name: _elliptical_slice_entry,
