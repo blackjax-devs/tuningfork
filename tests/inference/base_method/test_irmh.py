@@ -14,7 +14,7 @@
 """Tests for the P5.9 irmh base method registry entry.
 
 Covers:
-  1. ENTRY field correctness (name, family, requires_proposal_distribution, etc.).
+  1. ENTRY field correctness (name, family, extra_required_kwargs, etc.).
   2. default_params_for(ENTRY) returns {} (HP-free).
   3. Direct factory invocation with synthetic proposal: init + 500-step scan,
      shape preservation, acceptance_rate finite, mean acceptance > 0.
@@ -79,11 +79,11 @@ class TestIRMHEntryFields:
     def test_family(self) -> None:
         assert ENTRY.family == "mcmc"
 
-    def test_requires_proposal_distribution_true(self) -> None:
-        assert ENTRY.requires_proposal_distribution is True
+    def test_extra_required_kwargs_match(self) -> None:
+        assert ENTRY.extra_required_kwargs == ("proposal_distribution",)
 
-    def test_requires_prior_metadata_false(self) -> None:
-        assert ENTRY.requires_prior_metadata is False
+    def test_prior_cov_not_in_extra_required_kwargs(self) -> None:
+        assert "prior_cov" not in ENTRY.extra_required_kwargs
 
     def test_target_acceptance_rate_none(self) -> None:
         """IRMH has no universal optimal acceptance rate."""

@@ -14,7 +14,7 @@
 """Tests for the P5.8 mgrad_gaussian base method registry entry.
 
 Covers:
-  1. ENTRY field correctness (name, family, requires_prior_metadata, etc.).
+  1. ENTRY field correctness (name, family, extra_required_kwargs, etc.).
   2. default_params_for(ENTRY) returns {"step_size": <midpoint>}.
   3. Direct factory invocation with synthetic prior: init + 200-step scan.
   4. grad_count_per_step returns 1 (one value_and_grad per step).
@@ -68,8 +68,8 @@ class TestMgradGaussianEntryFields:
     def test_family(self) -> None:
         assert ENTRY.family == "mcmc"
 
-    def test_requires_prior_metadata_true(self) -> None:
-        assert ENTRY.requires_prior_metadata is True
+    def test_extra_required_kwargs_match(self) -> None:
+        assert ENTRY.extra_required_kwargs == ("prior_cov", "prior_mean")
 
     def test_target_acceptance_rate(self) -> None:
         """Upstream guidance: target ≈ 0.5."""

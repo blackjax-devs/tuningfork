@@ -172,52 +172,54 @@ class TestBaseMethodValidation:
         with pytest.raises(ValueError, match="family must be one of"):
             _make_entry(family="nuts")  # type: ignore[arg-type]
 
-    def test_empty_hp_space_raises_when_not_prior_metadata(self) -> None:
-        """Test A (preserved): empty HP space + requires_prior_metadata=False (default) STILL raises."""
+    def test_empty_hp_space_raises_when_extra_required_kwargs_empty(self) -> None:
+        """Test A (preserved): empty HP space + extra_required_kwargs=() (default) STILL raises."""
         with pytest.raises(ValueError, match="'default_hp_space' must contain"):
-            _make_entry(default_hp_space=(), requires_prior_metadata=False)
+            _make_entry(default_hp_space=(), extra_required_kwargs=())
 
-    def test_empty_hp_space_allowed_when_requires_prior_metadata(self) -> None:
-        """Test B (new P5.8): empty HP space + requires_prior_metadata=True does NOT raise."""
-        entry = _make_entry(default_hp_space=(), requires_prior_metadata=True)
-        assert entry.requires_prior_metadata is True
+    def test_empty_hp_space_allowed_when_extra_required_kwargs_prior(self) -> None:
+        """Test B (P5.8): empty HP space + extra_required_kwargs=('prior_cov', 'prior_mean') does NOT raise."""
+        entry = _make_entry(
+            default_hp_space=(), extra_required_kwargs=("prior_cov", "prior_mean")
+        )
+        assert entry.extra_required_kwargs == ("prior_cov", "prior_mean")
         assert entry.default_hp_space == ()
 
-    def test_empty_hp_space_allowed_when_requires_proposal_distribution(self) -> None:
-        """Test C (new P5.9): empty HP space + requires_proposal_distribution=True does NOT raise."""
+    def test_empty_hp_space_allowed_when_extra_required_kwargs_proposal(self) -> None:
+        """Test C (P5.9): empty HP space + extra_required_kwargs=('proposal_distribution',) does NOT raise."""
         entry = _make_entry(
             default_hp_space=(),
-            requires_proposal_distribution=True,
-            requires_prior_metadata=False,
+            extra_required_kwargs=("proposal_distribution",),
         )
-        assert entry.requires_proposal_distribution is True
-        assert entry.requires_prior_metadata is False
+        assert entry.extra_required_kwargs == ("proposal_distribution",)
         assert entry.default_hp_space == ()
 
-    def test_empty_hp_space_allowed_when_both_specialised_flags_true(self) -> None:
-        """Test D (sanity): empty HP space + both flags True is allowed (OR logic)."""
+    def test_empty_hp_space_allowed_when_extra_required_kwargs_multiple(self) -> None:
+        """Test D (sanity): empty HP space + multiple extra kwargs is allowed."""
         entry = _make_entry(
             default_hp_space=(),
-            requires_prior_metadata=True,
-            requires_proposal_distribution=True,
+            extra_required_kwargs=("prior_cov", "prior_mean", "proposal_distribution"),
         )
-        assert entry.requires_prior_metadata is True
-        assert entry.requires_proposal_distribution is True
+        assert entry.extra_required_kwargs == (
+            "prior_cov",
+            "prior_mean",
+            "proposal_distribution",
+        )
         assert entry.default_hp_space == ()
 
-    def test_requires_prior_metadata_defaults_false(self) -> None:
-        """Test E: default of requires_prior_metadata is False on a vanilla entry."""
+    def test_extra_required_kwargs_defaults_empty(self) -> None:
+        """Test E: default of extra_required_kwargs is () on a vanilla entry."""
         from bjx_bench.inference.base_method import BASE_METHODS
 
         hmc_entry = BASE_METHODS["hmc"]
-        assert hmc_entry.requires_prior_metadata is False
+        assert hmc_entry.extra_required_kwargs == ()
 
-    def test_requires_proposal_distribution_defaults_false(self) -> None:
-        """Test F: default of requires_proposal_distribution is False on a vanilla entry."""
+    def test_extra_required_kwargs_empty_on_standard_entry(self) -> None:
+        """Test F: a second vanilla entry also has extra_required_kwargs == ()."""
         from bjx_bench.inference.base_method import BASE_METHODS
 
         hmc_entry = BASE_METHODS["hmc"]
-        assert hmc_entry.requires_proposal_distribution is False
+        assert hmc_entry.extra_required_kwargs == ()
 
 
 class TestBaseMethodSmoke:

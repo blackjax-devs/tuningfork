@@ -1631,7 +1631,7 @@ class TestNoWarmupGuards:
     """no_warmup._runner raises NotImplementedError for specialised methods."""
 
     def test_no_warmup_raises_for_elliptical_slice(self) -> None:
-        """elliptical_slice.requires_prior_metadata=True → no_warmup raises NotImplementedError."""
+        """elliptical_slice.extra_required_kwargs non-empty → no_warmup raises NotImplementedError."""
         import pytest
 
         from bjx_bench.inference.base_method.elliptical_slice import (
@@ -1645,9 +1645,7 @@ class TestNoWarmupGuards:
         def dummy_logdensity(x):
             return -0.5 * jnp.sum(x**2)
 
-        with pytest.raises(
-            NotImplementedError, match="requires Gaussian-prior metadata"
-        ):
+        with pytest.raises(NotImplementedError, match="factory requires extra kwargs"):
             WARMUPS["no_warmup"].runner(
                 key,
                 init_pos,
@@ -1658,7 +1656,7 @@ class TestNoWarmupGuards:
             )
 
     def test_no_warmup_raises_for_irmh(self) -> None:
-        """irmh.requires_proposal_distribution=True → no_warmup raises NotImplementedError."""
+        """irmh.extra_required_kwargs non-empty → no_warmup raises NotImplementedError."""
         from bjx_bench.inference.base_method.irmh import ENTRY as _IRMH
         from bjx_bench.inference.warmup import WARMUPS
 
@@ -1668,9 +1666,7 @@ class TestNoWarmupGuards:
         def dummy_logdensity(x):
             return -0.5 * jnp.sum(x**2)
 
-        with pytest.raises(
-            NotImplementedError, match="independent proposal distribution"
-        ):
+        with pytest.raises(NotImplementedError, match="factory requires extra kwargs"):
             WARMUPS["no_warmup"].runner(
                 key,
                 init_pos,
@@ -1680,8 +1676,8 @@ class TestNoWarmupGuards:
                 num_chains=1,
             )
 
-    def test_no_warmup_raises_for_synthetic_proposal_distribution_entry(self) -> None:
-        """Synthetic BaseMethod(requires_proposal_distribution=True) → NotImplementedError."""
+    def test_no_warmup_raises_for_synthetic_extra_kwargs_entry(self) -> None:
+        """Synthetic BaseMethod(extra_required_kwargs non-empty) → NotImplementedError."""
         from bjx_bench.inference.base_method._base import BaseMethod
         from bjx_bench.inference.warmup import WARMUPS
 
@@ -1691,7 +1687,7 @@ class TestNoWarmupGuards:
             factory=lambda logdensity_fn, **kw: None,
             grad_count_per_step=lambda info: 0,
             default_hp_space=(),
-            requires_proposal_distribution=True,
+            extra_required_kwargs=("proposal_distribution",),
         )
 
         key = jax.random.key(9003)
@@ -1700,9 +1696,7 @@ class TestNoWarmupGuards:
         def dummy_logdensity(x):
             return -0.5 * jnp.sum(x**2)
 
-        with pytest.raises(
-            NotImplementedError, match="independent proposal distribution"
-        ):
+        with pytest.raises(NotImplementedError, match="factory requires extra kwargs"):
             WARMUPS["no_warmup"].runner(
                 key,
                 init_pos,
