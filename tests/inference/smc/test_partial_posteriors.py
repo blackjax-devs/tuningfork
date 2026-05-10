@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the partial_posteriors_smc SMC registry entry (P5.10d).
+"""Tests for the partial_posteriors_smc SMC registry entry.
 
 Covers:
 1. ENTRY field correctness (name, family, default_inner_method,
@@ -27,7 +27,7 @@ Covers:
 7. ENTRY compatibility metadata importable without registry registration
    (commit-1 smoke — confirm ENTRY exists and is an SMCMethod).
 
-Finding (P5.10d): init_fn signature is (particles, num_observations), NOT
+Finding: init_fn signature is (particles, num_observations), NOT
   the standard (particles,) — must pass num_observations explicitly.
   step_fn signature is (rng_key, state, data_mask) — the extra data_mask
   positional arg selects which data points to include in the next partial
@@ -87,7 +87,7 @@ def _make_partial_logposterior_factory(data):
 
 
 def _make_rwm_inner_kernel(dim: int, sigma: float) -> SamplingAlgorithm:
-    """Build a RWM inner kernel suitable for SMC (P5.10c pattern).
+    """Build a RWM inner kernel suitable for SMC.
 
     Binds the non-array random_step callable via functools.partial so that
     mcmc_parameters stays array-only (required by from_mcmc.unshared_parameters_and_step_fn).

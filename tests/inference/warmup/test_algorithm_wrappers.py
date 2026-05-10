@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the NUTS and HMC algorithm wrappers (T2.2).
+"""Tests for the NUTS and HMC algorithm wrappers.
 
 Covers:
 - Both entries are registered in BASE_METHODS under their expected names.
@@ -317,7 +317,7 @@ class TestHmcWindowAdaptation:
         """Confirm blackjax.window_adaptation works with blackjax.hmc.
 
         This verifies that the Tier-B runner can use the same warmup path for
-        HMC as for NUTS.  Empirical question #2 in T2.2 spec.
+        HMC as for NUTS.  Empirical question #2 in the design spec.
         """
         import blackjax
 

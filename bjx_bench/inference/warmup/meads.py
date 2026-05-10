@@ -35,7 +35,7 @@ Multi-chain constraint
 violated.  Recommended: use the default ``num_chains=4`` so that
 ``num_chains == num_folds``, or any multiple thereof.
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, num_chains: int = 4, num_folds: int = 4,
@@ -231,7 +231,7 @@ ENTRY = Warmup(
         "are inputs, not loop iterations.  Requires num_chains ≥ num_folds (default 4). "
         "Adapts step_size, momentum_inverse_scale, alpha, and delta jointly. "
         "GHMC-specific; not compatible with HMC, NUTS, or any other kernel. "
-        "P5.5: multi-chain by default (num_chains=4); adapted_params broadcast from "
+        "multi-chain by default (num_chains=4); adapted_params broadcast from "
         "MEADS scalar output to (num_chains,) shape for contract uniformity."
     ),
 )

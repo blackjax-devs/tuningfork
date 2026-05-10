@@ -272,7 +272,6 @@ def lotka_volterra_inverse(
 # References:
 #     Lotka, A. J. (1925). Elements of Physical Biology. Williams & Wilkins.
 #     Volterra, V. (1926). Fluctuations in the abundance of a species.
-#     PLAN_bjx_bench_phase4.md § "Block D", row P4.10 (lotka_volterra).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------
@@ -295,10 +294,9 @@ ENTRY = Posterior(
         "Lotka, A. J. (1925). Elements of Physical Biology. Williams & Wilkins.",
         "Volterra, V. (1926). Fluctuations in the Abundance of a Species considered "
         "Mathematically. Nature, 118(2972), 558–560.",
-        "PLAN_bjx_bench_phase4.md § 'Block D', row P4.10 (lotka_volterra).",
     ),
     description=(
-        "7-D Lotka-Volterra ODE inverse via ProbDiffEq (P4.10, Block D). "
+        "7-D Lotka-Volterra ODE inverse via ProbDiffEq. "
         "T=40 synthetic observations over 20 time units (~3 oscillations). "
         "True params: alpha=0.5, beta=0.05, gamma=0.5, delta=0.05, "
         "u0=10.0, v0=5.0, sigma_obs=0.5. "

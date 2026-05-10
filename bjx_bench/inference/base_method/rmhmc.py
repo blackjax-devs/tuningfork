@@ -35,7 +35,7 @@ CRITICAL — ``mass_matrix`` vs ``inverse_mass_matrix``:
   When ``mass_matrix`` is a constant array, rmhmc behaves as ordinary HMC but
   with the implicit_midpoint integrator (per upstream docstring line 40-43).
   The Riemannian metric-callable mode (``mass_matrix`` as a position-dependent
-  function) is a Phase 6 scope item via a future
+  function) is a future scope item via a future
   ``extra_required_kwargs=("mass_matrix_fn",)`` schema branch.
 
 State / Info types:
@@ -153,7 +153,7 @@ ENTRY = BaseMethod(
         "Constant-mass-matrix mode = HMC + implicit_midpoint integrator (per upstream "
         "docstring: 'simply an alias of the hmc kernel with a different choice of "
         "default integrator'). The Riemannian metric-callable mode (mass_matrix as a "
-        "position-dependent function) is Phase 6 work via a future "
+        "position-dependent function) is future work via a future "
         "extra_required_kwargs=('mass_matrix_fn',) schema branch. "
         "State/Info types: rmhmc reuses HMCState + HMCInfo (no distinct NamedTuples). "
         "HMCState._fields = ('position', 'logdensity', 'logdensity_grad'). "

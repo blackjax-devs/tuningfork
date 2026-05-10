@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.8 mgrad_gaussian base method registry entry.
+"""Tests for the mgrad_gaussian base method registry entry.
 
 Covers:
   1. ENTRY field correctness (name, family, extra_required_kwargs, etc.).
@@ -112,7 +112,7 @@ class TestMgradGaussianDefaultParams:
         assert "step_size" in params, f"Expected step_size in params, got {params!r}"
 
     def test_default_params_step_size_is_70th_percentile(self) -> None:
-        """default_value_for_space uses 70th-percentile on log-scale (P4.0 tweak):
+        """default_value_for_space uses 70th-percentile on log-scale:
         low * (high / low) ** 0.7 = 1e-3 * (1e4) ** 0.7 ≈ 0.631.
         """
         from bjx_bench.calibration.tier_b import default_params_for

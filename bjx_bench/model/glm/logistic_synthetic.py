@@ -111,7 +111,7 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
 #         exploits gradient information on a simple, well-posed target. RWM should
 #         show classical O(d^{-1/3}) step-size scaling; MALA and HMC converge faster.
 # References:
-#     PLAN_bjx_bench.md § "The 14-Model Suite", row #7 (synthetic logistic).
+#     Standard synthetic logistic regression baseline (3-D, well-posed target).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

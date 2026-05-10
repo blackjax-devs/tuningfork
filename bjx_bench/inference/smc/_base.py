@@ -57,16 +57,15 @@ class SMCMethod:
     at init time, (d) per-step extra args for some variants
     (e.g. data_mask for partial_posteriors). Forcing into BaseMethod would
     require ~5 new required factory kwargs and break the no_warmup-with-defaults
-    flow. See WORKLOG TASK-002 P5.10a for the full architectural decision.
+    flow.
 
     Compatible inner methods (statistician verdict, see WORKLOG): MH-based only.
     Excludes ``mclmc``, ``adjusted_mclmc``, ``adjusted_mclmc_dynamic``
     (microcanonical invariance broken by tempering). Default ``"rwm"``
     (statistician: "RWM/IRMH first").
 
-    Multi-chain contract: SMC does NOT follow the P5.0c multi-chain contract
-    (``num_chains=1`` convention; particles ARE the parallelism). Multi-SMC-run
-    diagnostics (split-R̂ across runs) deferred to Phase 6 if needed.
+    Multi-chain contract: SMC does NOT follow the multi-chain contract of MCMC
+    methods (``num_chains=1`` convention; particles ARE the parallelism).
 
     Inner kernel contract (important for recipe-runner integration): the
     ``factory`` receives a pre-built ``inner_kernel`` (SamplingAlgorithm) but

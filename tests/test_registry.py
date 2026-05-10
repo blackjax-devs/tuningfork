@@ -132,10 +132,10 @@ class TestEightSchoolsNCP:
 
 
 def test_inference_namespace_imports():
-    """Phase 2.5 restructure smoke: model and inference layers
+    """Restructure smoke: model and inference layers
     import cleanly and expose the expected dicts.
 
-    Pinned in commit 2 of PLAN_bjx_bench_restructure.md. If this
+     If this
     fails, the restructure has broken a public namespace.
     """
     from bjx_bench.inference.base_method import BASE_METHODS
@@ -145,10 +145,10 @@ def test_inference_namespace_imports():
     assert isinstance(MODELS, dict)
     assert len(MODELS) >= 3  # mvn_10, neals_funnel, eight_schools_ncp
     assert isinstance(BASE_METHODS, dict)
-    # Core 6 from Phase 4 must still be present; Phase 5+ may add more.
+    # Core 6 must still be present; more entries may be added later.
     core_six = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}
     assert core_six <= set(
         BASE_METHODS.keys()
     ), f"missing core base methods: {core_six - set(BASE_METHODS.keys())}"
-    assert isinstance(WARMUPS, dict)  # empty stub for Phase 2.5
+    assert isinstance(WARMUPS, dict)  # may be empty
     assert Warmup is not None

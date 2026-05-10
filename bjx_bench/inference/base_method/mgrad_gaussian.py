@@ -30,7 +30,7 @@ Upstream guidance: calibrate ``step_size`` so that acceptance rate ≈ 50%.
 Grad cost per step: 1 (``jax.value_and_grad(logdensity_fn)`` once per step).
 
 ``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
-``NotImplementedError`` for this method.  Phase 6 will add a specialised path.
+``NotImplementedError`` for this method.  a specialised path is required.
 
 References
 ----------
@@ -96,8 +96,8 @@ ENTRY = BaseMethod(
         "tunable is delta (step_size). MarginalInfo carries (acceptance_rate, is_accepted, "
         "proposal). 1 grad/step (jax.value_and_grad inside the kernel). Upstream guidance: "
         "target accept ≈ 0.5. extra_required_kwargs=('prior_cov', 'prior_mean'); no_warmup raises "
-        "NotImplementedError; Phase 6 will add specialised path. Internally precomputes "
+        "NotImplementedError; a specialised path is required. Internally precomputes "
         "the SVD of prior_cov on every factory call — for repeated trials with the "
-        "same cov, Phase 6 should cache via cov_svd kwarg if profiling shows it matters."
+        "same cov, cache via cov_svd kwarg if profiling shows it matters."
     ),
 )

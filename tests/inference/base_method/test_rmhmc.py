@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.15.5 rmhmc base method registry entry.
+"""Tests for the rmhmc base method registry entry.
 
 Covers:
   1. ENTRY field correctness (name, family, default_hp_space, etc.).
@@ -24,10 +24,10 @@ Covers:
   6. grad_count_per_step callable.
   7. HP space: step_size (loguniform), num_integration_steps (int) present.
   8. Compatibility test: rmhmc + window_adaptation end-to-end on 5-D Gaussian
-     (the key P5.15.5 test: does IMM→mass_matrix conversion let window_adaptation
+     (the key test: does IMM→mass_matrix conversion let window_adaptation
      drive rmhmc end-to-end?).
 
-Finding (P5.15.5): The IMM→mass_matrix conversion (1/imm for diagonal, linalg.inv
+Finding: The IMM→mass_matrix conversion (1/imm for diagonal, linalg.inv
 for dense) works correctly. window_adaptation drives blackjax.rmhmc directly (it
 calls algorithm.build_kernel(integrator) and passes step_size + IMM to the kernel);
 the bjx-bench factory is then applied POST-warmup to build the sampler using adapted
@@ -364,7 +364,7 @@ class TestRmhmcHpSpace:
 
 
 class TestRmhmcWindowAdaptationCompatibility:
-    """P5.15.5 compatibility test: window_adaptation + rmhmc factory end-to-end.
+    """compatibility test: window_adaptation + rmhmc factory end-to-end.
 
     Finding: window_adaptation expects a blackjax.GenerateSamplingAPI object
     (blackjax.rmhmc) as the 'algorithm' argument — it calls algorithm.build_kernel()

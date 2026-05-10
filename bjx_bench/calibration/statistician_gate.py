@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Statistician auto-gate — Stage 1 of the P5.0.5 quality pipeline.
+"""Statistician auto-gate — automated quality assessment of MCMC samples.
 
 ``auto_gate`` computes MCMC quality metrics from post-warmup chain output and
 renders a 3-band verdict (PASS / REVIEW / FAIL).  The verdict maps directly into

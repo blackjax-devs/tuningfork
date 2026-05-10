@@ -101,7 +101,7 @@ class Posterior:
     description: str = ""
     tags: tuple[
         str, ...
-    ] = ()  # for persona-2 recommendation queries (Phase 6); Phase 4 fills these as more models land
+    ] = ()  # for recommendation queries; populated as more models land
 
     # ---- derived ----
     @property

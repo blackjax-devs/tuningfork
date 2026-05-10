@@ -206,7 +206,6 @@ def irt_2pl(
 #     Baker, F.B. & Kim, S.-H. (2004). Item Response Theory: Parameter
 #         Estimation Techniques (2nd ed.). Marcel Dekker.
 #     posteriordb: https://github.com/stan-dev/posteriordb (dataset: irt_2pl).
-#     PLAN_bjx_bench_phase4.md § "Block C", row P4.8 (irt_2pl).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

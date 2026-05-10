@@ -178,7 +178,7 @@ class TestBaseMethodValidation:
             _make_entry(default_hp_space=(), extra_required_kwargs=())
 
     def test_empty_hp_space_allowed_when_extra_required_kwargs_prior(self) -> None:
-        """Test B (P5.8): empty HP space + extra_required_kwargs=('prior_cov', 'prior_mean') does NOT raise."""
+        """Test B: empty HP space + extra_required_kwargs=('prior_cov', 'prior_mean') does NOT raise."""
         entry = _make_entry(
             default_hp_space=(), extra_required_kwargs=("prior_cov", "prior_mean")
         )
@@ -186,7 +186,7 @@ class TestBaseMethodValidation:
         assert entry.default_hp_space == ()
 
     def test_empty_hp_space_allowed_when_extra_required_kwargs_proposal(self) -> None:
-        """Test C (P5.9): empty HP space + extra_required_kwargs=('proposal_distribution',) does NOT raise."""
+        """Test C: empty HP space + extra_required_kwargs=('proposal_distribution',) does NOT raise."""
         entry = _make_entry(
             default_hp_space=(),
             extra_required_kwargs=("proposal_distribution",),

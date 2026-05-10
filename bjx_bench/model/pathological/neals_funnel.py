@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Neal's funnel — Phase 1 starter model #4 (pathological geometry).
+"""Neal's funnel — pathological-geometry starter model.
 
 A 10-dimensional funnel: v ~ N(0, 3²) and theta[i] ~ N(0, exp(v)) for i=1..9.
 The geometry is strongly non-Euclidean: near v≈0 the conditional variance of

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the gp_regression model (P4.11, Block D: 203-D NCP Cholesky RBF GP).
+"""Tests for the gp_regression model (203-D NCP Cholesky RBF GP).
 
 All tests are marked ``fast`` — no chain sampling, only structural checks.
 """

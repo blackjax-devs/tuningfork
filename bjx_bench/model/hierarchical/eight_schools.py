@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Eight Schools NCP — Phase 1 starter model #3 (hierarchical).
+"""Eight Schools NCP — hierarchical starter model.
 
 Non-centred parameterisation of the classic 8-Schools model (Rubin 1981 /
 Gelman et al. BDA3 §5.5). Latent dimensionality 10 = mu(1) + tau(1) +

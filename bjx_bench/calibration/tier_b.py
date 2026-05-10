@@ -11,16 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier-B per-algorithm tuning via Optuna BO. Foundation layer (T2.6a).
+"""Tier-B per-algorithm tuning via Optuna BO. Foundation layer.
 
-Extended in T2.6b (mass-matrix kernels) and T2.6c (sampler-swap, MALA/RWM,
+Extended with mass-matrix kernels and sampler-swap (MALA/RWM,
 MCLMC dispatch, best_trial robustness guard).
 
 This module owns the *types* and *pure helpers* for the BO loop. The actual
-loop body (``tune_algorithm``) is implemented in T2.6b/T2.6c.
+loop body (``tune_algorithm``) is implemented in this module.
 
-The tuning-difficulty metric (``PLAN_bjx_bench_API_phase2.md``
-§"Tuning Difficulty Metric") is the companion to the headline ESS/grad: it
+The tuning-difficulty metric (companion to the headline ESS/grad)
 captures HOW HARD it was to find good HPs, not just what the optimum is.
 Trial 0 is special — it uses a deterministic default config (geometric mean
 for loguniform, midpoint for uniform, etc.) so "out-of-the-box" performance
@@ -79,7 +78,7 @@ __all__ = [
 class TuningDifficulty:
     """Profile of how hard it was to reach a useful HP setting.
 
-    Per ``PLAN_bjx_bench_API_phase2.md`` §"Tuning Difficulty Metric".
+    Compute tuning difficulty metric (effort required to optimize HPs).
 
     Parameters
     ----------
@@ -177,7 +176,7 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
       ``low * (high / low) ** 0.7`` — biased toward the high end of the
       log-range.  For ``step_size [1e-3, 1.0]`` this gives ``0.1`` rather
       than the geometric mean ``0.032``.  Empirically closer to typical
-      BO-best step_size values observed in Phase 3 HIGH recipes (P4.0 tweak).
+      BO-best step_size values observed in practice.
     - ``"uniform"``: arithmetic midpoint ``(low + high) / 2``.
     - ``"int"``: integer midpoint ``(low + high) // 2``.  Integer division
       avoids returning a float for an integer parameter.  For even sums
@@ -208,7 +207,7 @@ def default_value_for_space(space: HyperparamSpace) -> Any:
     if space.kind == "loguniform":
         # 70th-percentile on log-scale: low * (high/low)**0.7
         # For step_size [1e-3, 1.0]: 1e-3 * (1e3)**0.7 ≈ 0.1
-        # (P4.0 tweak; previously sqrt(low*high) = 50th-percentile ≈ 0.032)
+        # (biased toward high end; previously sqrt(low*high) = 50th-percentile ≈ 0.032)
         return space.low * (space.high / space.low) ** 0.7  # type: ignore[operator]
     elif space.kind == "uniform":
         return (space.low + space.high) / 2  # type: ignore[operator]
@@ -343,7 +342,7 @@ def _run_warmup(
 ) -> tuple[Any, dict[str, Any]]:
     """Run warmup and return (adapted_state, adapted_params).
 
-    Dispatch is via the ``WARMUPS`` registry (Phase 3, P3.1).  The
+    Dispatch is via the ``WARMUPS`` registry.  The
     ``warmup_name`` selects the warmup procedure; ``tune_algorithm``
     resolves ``None`` to the right default before calling this function.
 
@@ -411,7 +410,7 @@ def _run_warmup(
         )
     # BO trials are intentionally single-chain — chain count is orthogonal to
     # per-trial HP tuning.  Pass num_chains=1 explicitly so the new default
-    # num_chains=4 (P5.0c) doesn't accidentally change BO semantics.
+    # num_chains=4 doesn't accidentally change BO semantics.
     # squeeze_single_chain restores the un-batched (state, params) shape that
     # run_inference_algorithm expects.
     from bjx_bench.inference.warmup._base import squeeze_single_chain
@@ -464,7 +463,7 @@ def _run_trial(
     Notes
     -----
     Multi-chain is implemented as a Python loop over ``n_chains`` rather
-    than ``jax.vmap`` to keep complexity minimal in T2.6b.  T2.6c may add
+    than ``jax.vmap`` to keep complexity minimal; future revisions may add
     vmap-based parallelism if profiling shows it to be worthwhile.
 
     The warmup-adapted state is **reused across trials** (one warmup per
@@ -475,7 +474,7 @@ def _run_trial(
     try:
         kernel = algorithm_entry.factory(logdensity_fn, **kernel_params)
 
-        # Collect samples across n_chains (Python loop; vmap deferred to T2.6c)
+        # Collect samples across n_chains (Python loop; vmap deferred)
         chain_positions: list[dict[str, Any]] = []
         chain_grad_evals: int = 0
 
@@ -612,7 +611,7 @@ def tune_algorithm(
 ) -> TuningResult:
     """Optuna BO over ``algorithm_entry.default_hp_space``.
 
-    Architecture (T2.6b + T2.6c):
+    Architecture:
 
     1. **Warmup dispatch** (via ``_run_warmup``):
 
@@ -634,9 +633,7 @@ def tune_algorithm(
     3. **Sampler**: controlled by the ``sampler`` argument.  ``"tpe"``
        (default) uses ``optuna.samplers.TPESampler``; ``"random"`` uses
        ``optuna.samplers.RandomSampler``.  Both are seeded deterministically
-       from ``rng_key`` so results are reproducible.  This enables the
-       dogfood comparison described in
-       ``PLAN_bjx_bench_API_phase2.md`` §"BO library choice — rationale".
+       from ``rng_key`` so results are reproducible.
 
     4. **Optuna direction**: "maximize" (higher ``min_bulk_ess_per_grad`` is
        better).
@@ -689,7 +686,7 @@ def tune_algorithm(
           (NUTS, HMC, Barker, MALA)
         - ``"no_warmup"`` for all remaining algorithms (RWM, etc.)
 
-        This auto-dispatch reproduces the inline behavior of the Phase 2
+        This auto-dispatch reproduces inline behaviour from earlier
         ``_run_warmup`` exactly.
 
     Returns
@@ -796,7 +793,7 @@ def tune_algorithm(
 
         # Merge: warmup IMM is fixed; trial_params override BO-tunable HPs.
         # The BO search space intentionally does NOT include
-        # inverse_mass_matrix (verified by tests in T2.2), so the merge
+        # inverse_mass_matrix (verified by tests), so the merge
         # is safe: warmup_params provides IMM; trial_params provide the rest.
         # Strip internal metadata keys (underscore-prefixed, e.g.
         # "_total_tuning_steps" from mclmc_tuning) before passing to the

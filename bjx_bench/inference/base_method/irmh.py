@@ -23,7 +23,7 @@ proposal ``q(y)`` does not depend on the current state ``x``.
 ``extra_required_kwargs=("proposal_distribution",)``: the factory requires
 ``proposal_distribution`` (and optionally ``proposal_logdensity_fn``) as
 keyword arguments.  The standard ``no_warmup`` path raises
-``NotImplementedError``; Phase 6 will add the specialised wiring path.
+``NotImplementedError``; a specialised wiring path is required.
 
 Hyperparameter-free: no BO-tunable scalar HPs (``default_hp_space=()``).
 The proposal is a full callable; it cannot be reduced to a tunable scalar.
@@ -105,8 +105,8 @@ ENTRY = BaseMethod(
         "a VI / Pathfinder / Laplace approximation. For non-symmetric proposals, also supply "
         "proposal_logdensity_fn. Gradient-free (grad_count_per_step=0). RWInfo carries "
         "acceptance_rate, is_accepted, proposal. extra_required_kwargs=('proposal_distribution',); "
-        "no_warmup raises NotImplementedError; Phase 6 will wire the proposal-construction "
+        "no_warmup raises NotImplementedError; the proposal-construction "
         "path. Also used as an SMC inner kernel — the standalone wrapper here is the "
-        "non-SMC entry point; the SMC integration lives in P5.10."
+        "non-SMC entry point; the SMC integration lives in the smc module."
     ),
 )

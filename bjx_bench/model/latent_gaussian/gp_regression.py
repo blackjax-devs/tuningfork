@@ -161,7 +161,6 @@ def gp_regression(X: jnp.ndarray, y: jnp.ndarray, n: int = N_OBS) -> None:
 #         Machine Learning. MIT Press. (RW06, Chapter 2.)
 #     Betancourt, M. (2017). A Conceptual Introduction to Hamiltonian Monte Carlo.
 #         arXiv:1701.02434. (NCP geometry motivation.)
-#     PLAN_bjx_bench_phase4.md § "Block D", row P4.11 (gp_regression).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------
@@ -186,7 +185,6 @@ ENTRY = Posterior(
         "Machine Learning. MIT Press. (Chapter 2.)",
         "Betancourt, M. (2017). A Conceptual Introduction to Hamiltonian Monte Carlo. "
         "arXiv:1701.02434.",
-        "PLAN_bjx_bench_phase4.md § 'Block D', row P4.11 (gp_regression).",
     ),
     description=(
         "203-D NCP Cholesky RBF GP regression (Rasmussen & Williams 2006). "

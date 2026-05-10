@@ -34,13 +34,13 @@ __all__ = ["ENTRY"]
 # correlated chains.  NUTS / HMC with a diagonal mass matrix adapted from
 # warmup handles this better, but the curved manifold still reveals
 # step-size sensitivity.
-# Analytic preflight (Block A exception, per PLAN_bjx_bench_phase4.md):
+# Analytic preflight:
 #   No statistician preflight needed — the conditional structure is
 #   analytically tractable and the test suite verifies marginal + conditional
 #   moments exactly.
 # Reference:
-#   The parameterisation follows the description in PLAN_bjx_bench.md § "The
-#   14-Model Suite", row #5 ("Banana").  The shape is closely related to the
+#   The parameterisation follows the standard non-convex Banana test case.
+#   The shape is closely related to the
 #   Rosenbrock function used as a non-convex benchmark in optimisation.
 # ---------------------------------------------------------------------------
 # Model constants

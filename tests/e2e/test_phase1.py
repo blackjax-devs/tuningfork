@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase 1 end-to-end tests — CLI subprocess integration.
+"""End-to-end tests — CLI subprocess integration.
 
 Spawns `bjx-bench tier-a ...` as a subprocess with an isolated
 BJX_BENCH_REFERENCE_DIR pointing at a tmp_path so tests do not pollute

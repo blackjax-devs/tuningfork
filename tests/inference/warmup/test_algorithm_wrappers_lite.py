@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for MALA, Barker, and RWM algorithm wrappers (T2.3).
+"""Tests for MALA, Barker, and RWM algorithm wrappers.
 
 Covers:
 - Each entry is registered in BASE_METHODS under its expected name.
@@ -116,15 +116,15 @@ class TestAlgorithmRegistryLite:
         assert BASE_METHODS["rwm"].target_acceptance_rate == pytest.approx(0.234)
 
     def test_all_five_t23_algorithms_present(self) -> None:
-        """Sanity check: T2.3 algorithms (hmc, nuts, mala, barker, rwm) are present.
+        """Sanity check: core algorithms (hmc, nuts, mala, barker, rwm) are present.
 
-        T2.4 adds mclmc (tested in test_algorithm_wrappers_mclmc.py).
+        mclmc is tested in test_algorithm_wrappers_mclmc.py.
         This test checks inclusion only so future subtasks can extend BASE_METHODS.
         """
         required = {"hmc", "nuts", "mala", "barker", "rwm"}
         assert required.issubset(
             set(BASE_METHODS.keys())
-        ), f"Missing T2.3 algorithms: {required - set(BASE_METHODS.keys())}"
+        ), f"Missing core algorithms: {required - set(BASE_METHODS.keys())}"
 
 
 # ===========================================================================

@@ -177,7 +177,6 @@ def radon_hierarchical(
 #     Multilevel/Hierarchical Models. Cambridge University Press. Ch. 12.
 #     posteriordb: https://github.com/stan-dev/posteriordb
 #     Dataset: radon_all (J=386 counties, N=12573 observations).
-#     PLAN_bjx_bench_phase4.md § "Block C", row P4.7 (radon).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

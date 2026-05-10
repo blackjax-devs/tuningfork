@@ -11,71 +11,37 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""LOW-emit step: produce candidate recipes for the Statistician gate.
+"""Starter recipe emission — candidate generator for the Statistician gate.
 
-This script runs the **default warmup + default sampler** combination for every
-selected ``(model, warmup, sampler)`` cell and writes a candidate recipe to
-``starter/<model>/low__<sampler>__<warmup>.json``. It does NOT decide whether
-the candidate is good enough to be a committed LOW recipe — that's the
-Statistician gate (`bjx_bench.calibration.statistician_gate`, **TBD in P5.0.5**).
-
-Lineage:
-  P3.3 (Phase 3): generated 12 LOW + 6 MEDIUM starter recipes.
-  P3.4 (Phase 3): generated 6 HIGH starter recipes via Tier-B BO.
-  P4.1+ (Phase 4): added Phase 4 models to STARTER_MODEL_NAMES.
-  P5.Q5A (Phase 5, this commit): scoped down to LOW emission — `--effort`
-  flag removed. The MED/HIGH emit functions remain in this file as
-  helpers during the migration window (see `_generate_starter`'s P5
-  doc), but they're called by the Statistician-driven escalation
-  workflow, not by this script's CLI.
+This script generates candidate recipes for the conventional cells in the
+``(model, warmup, sampler)`` space — pairs where the warmup is the natural
+adaptation procedure for the sampler (see ``NATURAL_WARMUP_FOR_SAMPLER`` below).
+Each candidate is a ``Recipe`` with ``effort=Effort.LOW``; the Statistician
+auto-gate (``bjx_bench.calibration.statistician_gate``) decides whether to
+commit (PASS) or escalate to MEDIUM / HIGH.  See ``_base.py``'s ``Effort``
+docstring for the per-tier semantics.
 
 Usage
 -----
 
-The recipe space is 3-D: ``model × (warmup, sampler) × effort``. This script
-emits LOW (default-everything) candidates. Three filters compose
-intersectionally to narrow the matrix.
-
-Common patterns:
-
-  # 1. Generate LOW candidates for all (model, warmup, sampler) cells
   cd bjx-bench
   uv run python -m bjx_bench.inference.recipes._generate_starter
-
-  # 2. Regenerate LOW candidates for one model
   uv run python -m bjx_bench.inference.recipes._generate_starter --only radon
-
-  # 3. Regenerate one cell (cheapest after a tweak)
-  uv run python -m bjx_bench.inference.recipes._generate_starter \\
-      --only radon --warmup stan_window --sampler nuts
-
-  # 4. Refresh NUTS LOW candidates everywhere (after a default-HP change)
   uv run python -m bjx_bench.inference.recipes._generate_starter --sampler nuts
 
 Flag semantics:
   - ``--only <m>``    restrict to one model (must be in STARTER_MODEL_NAMES)
-  - ``--warmup <w>``  restrict to one warmup; valid: "no_warmup", "stan_window"
-  - ``--sampler <s>`` restrict to one base method; valid:
-                      "hmc", "nuts", "mala", "barker", "rwm", "mclmc"
+  - ``--warmup <w>``  restrict to one warmup (``"no_warmup"`` or ``"stan_window"``)
+  - ``--sampler <s>`` restrict to one base method
 
 The script is idempotent: re-running overwrites existing files with fresh
-provenance timestamps. Compute: seconds-to-minutes per cell depending on
-the warmup; LOW emission is the cheap baseline.
+provenance timestamps.
 
-MED/HIGH note
--------------
+MEDIUM / HIGH escalation
+------------------------
 
-Under the gate-driven Phase 5 framing, MEDIUM and HIGH recipes are produced
-by a **Statistician escalation workflow**, not by direct CLI invocation:
-
-  - LOW candidate fails auto-gate → TL spawns Statistician for MEDIUM
-    (manual workarounds: seed change, init change, "obvious bug" fixes).
-  - MEDIUM also fails → Statistician escalates to HIGH (gold-standard
-    sampler comparison + BO + model-specific param injection).
-
-The ``emit_medium_recipes`` and ``emit_high_recipes`` functions stay in this
-file as helpers the Statistician can call during escalation; they are NOT
-exposed via the CLI.
+The ``emit_medium_recipes`` and ``emit_high_recipes`` functions are helpers
+the Statistician can call during escalation; they are NOT exposed via the CLI.
 """
 
 import time
@@ -89,18 +55,15 @@ from bjx_bench.inference.recipes._base import Recipe
 from bjx_bench.inference.warmup import WARMUPS
 from bjx_bench.model import MODELS
 
-# Starter models: Phase 2.5 seed set + Phase 4 models as they land.
-# P4.1 adds ill_cond_50 (Block A: 50-D ill-conditioned Gaussian, κ≈1000).
-# P4.2 adds banana (Block A: 2-D banana/Rosenbrock-style, curved manifold).
-# P4.3 adds gmm_25 (Block A: 2-D 25-mode Gaussian mixture on a 5x5 grid).
-# P4.4 adds logistic_synthetic (Block B: 3-D logistic regression on 2-D bicluster).
-# P4.5 adds german_credit (Block B: 26-D logistic regression on real UCI German Credit data).
-# P4.6 adds horseshoe (Block B: 204-D Finnish horseshoe sparse linear regression, NCP).
-# P4.7 adds radon (Block C: 391-D NCP hierarchical, posteriordb radon_all).
-# P4.8 adds irt_2pl (Block C: 144-D NCP IRT 2PL, J=100 I=20, no posteriordb xcheck).
-# P4.9 adds stoch_vol (Block D: 503-D NCP AR(1) state-space, KSC 1998).
-# P4.10 adds lotka_volterra (Block D: 7-D ODE inverse via ProbDiffEq).
-# P4.11 adds gp_regression (Block D: 203-D Cholesky-NCP joint GP, FINAL P4 model).
+# Starter model suite: 14 models covering different dimensionalities and geometry types.
+# Models are organized by complexity:
+# - Simple Gaussians: mvn_10, ill_cond_50 (ill-conditioned)
+# - Nonlinear: neals_funnel, banana, eight_schools_ncp
+# - Discrete mixture: gmm_25 (25-mode Gaussian mixture)
+# - Logistic regression: logistic_synthetic, german_credit
+# - High-dimensional: horseshoe (204-D), radon (391-D), irt_2pl (144-D)
+# - State-space: stoch_vol (503-D)
+# - Differential equations: lotka_volterra (7-D), gp_regression (203-D)
 STARTER_MODEL_NAMES = [
     "mvn_10",
     "ill_cond_50",
@@ -118,11 +81,52 @@ STARTER_MODEL_NAMES = [
     "gp_regression",
 ]
 
-# All 6 algorithms (Phase 3: MALA/Barker/RWM/MCLMC added; LOW only)
+# All 6 base methods used in starter recipes
 ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc"]
 
-# Only nuts and hmc support stan_window warmup in starter recipes (Phase 3 scope)
+# Only nuts and hmc used for MEDIUM warmup-only recipes (stan_window compatibility)
 MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
+
+# ---------------------------------------------------------------------------
+# Conventional pairing map
+# ---------------------------------------------------------------------------
+# The "natural" warmup for each base method — the warmup that the BlackJAX
+# community / literature pairs with that sampler by default.  Under the
+# Effort taxonomy (see _base.py), LOW recipes operate on these conventional
+# pairings; MEDIUM recipes explore unconventional but technically-possible
+# combinations (e.g., stan_window + mala, stan_window + rmhmc); HIGH recipes
+# add oracle-tuned warmup HPs and model-specific injection.
+NATURAL_WARMUP_FOR_SAMPLER: dict[str, str] = {
+    # Window-adaptation family (stan_window's compatible_methods)
+    "hmc": "stan_window",
+    "nuts": "stan_window",
+    "mhmc": "stan_window",
+    "barker": "stan_window",
+    "mala": "stan_window",
+    "rmhmc": "stan_window",
+    # MCLMC family
+    "mclmc": "mclmc_tuning",
+    "adjusted_mclmc": "adjusted_mclmc_tuning",
+    "adjusted_mclmc_dynamic": "adjusted_mclmc_tuning",
+    # Multi-chain adaptation
+    "ghmc": "meads",
+    "dynamic_hmc": "chees",
+    "dmhmc": "chees",
+    # Gradient-free / specialised — no canonical warmup
+    "rwm": "no_warmup",
+    "irmh": "no_warmup",
+    "additive_step_random_walk": "no_warmup",
+    "elliptical_slice": "no_warmup",
+    "mgrad_gaussian": "no_warmup",
+    "orbital_hmc": "no_warmup",
+    "laplace_hmc": "no_warmup",
+    "laplace_dhmc": "no_warmup",
+    "laplace_mhmc": "no_warmup",
+    "laplace_dmhmc": "no_warmup",
+    # VI as base method (the warmup *is* the optimization; no separate warmup)
+    "meanfield_vi": "no_warmup",
+    "fullrank_vi": "no_warmup",
+}
 
 # Root of the starter/ directory (relative to this file)
 _STARTER_ROOT = Path(__file__).parent / "starter"
@@ -133,10 +137,13 @@ def emit_low_recipes(
     model_names: list[str] | None = None,
     sampler: str | None = None,
 ) -> list[Path]:
-    """Emit LOW recipes for every (model, base_method) combination.
+    """Emit LOW-effort candidate recipes with default sampler configuration.
 
-    Idempotent — overwrites existing low__*.json files in place.
-    Each recipe uses ``no_warmup`` (identity warmup) and default hyperparameters.
+    Creates starter recipes with library defaults; candidates are evaluated by
+    the Statistician auto-gate (``bjx_bench.calibration.statistician_gate``)
+    to determine if they pass or require escalation to MEDIUM/HIGH.
+
+    Idempotent — overwrites existing ``low__*.json`` files in place.
 
     Parameters
     ----------
@@ -187,13 +194,17 @@ def emit_medium_recipes(
     model_names: list[str] | None = None,
     sampler: str | None = None,
 ) -> list[Path]:
-    """Emit MEDIUM recipes for stan_window-compatible algorithms.
+    """Emit MEDIUM-effort candidate recipes using stan_window warmup adaptation.
+
+    Runs warmup with stan_window adaptation to produce tuned step-size and
+    inverse-mass-matrix; these candidates are evaluated by the Statistician
+    auto-gate to assess improvement over LOW baselines.
 
     Idempotent: re-running overwrites with deterministic content (same seed → same key).
 
-    Compatibility is limited by WARMUPS["stan_window"].compatible_methods,
-    which is ("hmc", "nuts", "barker", "mala").  For Phase 3 scope, only
-    nuts and hmc get MEDIUM recipes; the others (barker, mala) are deferred.
+    Compatibility is limited by WARMUPS["stan_window"].compatible_methods
+    to samplers that support window adaptation (hmc, nuts, barker, mala).
+    MEDIUM recipes are emitted for nuts and hmc in the starter set.
 
     Parameters
     ----------
@@ -260,15 +271,19 @@ def emit_high_recipes(
     model_names: list[str] | None = None,
     sampler: str | None = None,
 ) -> list[Path]:
-    """Emit HIGH recipes via Tier-B BO for stan_window-compatible algorithms.
+    """Emit HIGH-effort candidate recipes using Bayesian optimization over sampler hyperparameters.
 
-    Runs ``tune_algorithm`` at ``n_trials=20`` (starter default per
-    PLAN_bjx_bench_phase3.md; production recipes use 50).  Converts each
-    ``TuningResult`` to a HIGH ``Recipe`` via ``Recipe.from_tuning_result``.
+    Runs Tier-B Bayesian optimization (via ``tune_algorithm``) to search for
+    improved sampler hyperparameters with stan_window warmup; the result is
+    a HIGH-effort recipe with tuned parameters and difficulty profile.
+    Candidates are evaluated by the Statistician auto-gate to assess whether
+    the extra optimization effort improved the headline metric.
 
-    Compatibility is limited to ``nuts`` and ``hmc`` for Phase 3 scope
-    (the other 4 algorithms get LOW recipes only; their HIGH recipes land
-    in Phase 4 alongside the new models).
+    Runs ``tune_algorithm`` at ``n_trials=20`` (starter default; production
+    recipes use 50).  Converts each ``TuningResult`` to a HIGH ``Recipe``
+    via ``Recipe.from_tuning_result``.
+
+    Compatibility is limited to ``nuts`` and ``hmc`` in the starter set.
 
     Parameters
     ----------
@@ -345,20 +360,14 @@ def emit_high_recipes(
 
 
 def main() -> None:
-    """LOW-emit step: produce candidate recipes for the Statistician gate.
+    """Emit candidate recipes for the Statistician auto-gate.
 
     See the module docstring for the full Usage section.  Three filter flags
     (``--only``, ``--warmup``, ``--sampler``) compose intersectionally; each
     defaults to "all" and narrows the matrix when set.
 
-    P5.Q5A removed the ``--effort`` flag because effort is gate-driven, not
-    something the script chooses (only LOW candidates are emitted here;
-    MEDIUM and HIGH come from a Statistician escalation workflow).
-
-    Phase 3 (P3.3 + P3.4): 18 LOW + 6 MEDIUM + 6 HIGH = 30 starter recipes
-    for the 3 original models.
-    Phase 4 (P4.1+): adds ill_cond_50 and subsequent models as they land.
-    Phase 5 (P5.Q5A): scoped to LOW emission; ``--effort`` removed.
+    Effort is gate-driven: only LOW candidates are emitted here by default;
+    MEDIUM and HIGH recipes come from Statistician escalation workflows.
     """
     import argparse
 
@@ -367,10 +376,11 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Emit LOW candidate recipes (default warmup + default sampler).  "
-            "All three filters compose; each defaults to 'all'.  "
-            "MEDIUM/HIGH recipes come from a Statistician escalation workflow, "
-            "not from this CLI."
+            "Emit candidate recipes (LOW=default config, "
+            "MEDIUM=warmup-tuned, HIGH=BO-optimized).  All three filters "
+            "compose; each defaults to 'all'.  MEDIUM/HIGH recipes come from "
+            "Statistician escalation workflows when LOW gate fails or "
+            "exploration of unconventional pairings is needed."
         )
     )
     parser.add_argument(
@@ -455,7 +465,7 @@ def main() -> None:
     print(
         f"\n✓ Emitted {len(no_warmup_paths)} no_warmup + "
         f"{len(stan_window_paths)} stan_window = {total} LOW candidates.  "
-        f"Next: Statistician gate (P5.0.5)."
+        f"Next: Statistician gate."
     )
 
 

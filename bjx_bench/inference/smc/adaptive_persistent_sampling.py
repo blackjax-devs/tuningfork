@@ -25,12 +25,12 @@ Step-signature contract (standard 2-arg — same as adaptive_tempered_smc):
     ``step_fn(rng_key, state)``  — 2-arg, kernel computes lmbda internally
   This IS the standard bjx-bench step signature.
 
-META-004 NOTE (docstring vs actual arity drift):
+Note (docstring vs actual arity drift):
   The upstream ``adaptive_persistent_sampling.as_top_level_api`` docstring
   (at time of pinning) incorrectly states the step signature as
   ``(rng_key, state, lmbda)`` — 3-arg — mirroring persistent_sampling.
   The actual ``step_fn`` defined in the source is 2-arg ``(rng_key, state)``.
-  This is a known docstring/implementation mismatch (META-004 candidate #8).
+  This is a known docstring/implementation mismatch (candidate #8).
   The tripwire in tests/test_api_pins_smc.py pins BOTH the docstring text AND
   the actual arity so future docstring fixes don't accidentally widen the
   call site in bjx-bench.
@@ -149,7 +149,7 @@ def _factory(
     The step_fn has the STANDARD 2-arg signature ``(rng_key, state)`` — the
     kernel computes lmbda internally via root-solving. This differs from
     persistent_sampling_smc which requires a 3-arg step ``(rng_key, state,
-    lmbda)``. See META-004 note in module docstring regarding the upstream
+    lmbda)``. See note in module docstring regarding the upstream
     docstring/implementation mismatch.
     """
     if resampling_fn is None:
@@ -194,7 +194,7 @@ ENTRY = SMCMethod(
         "construction to pre-allocate arrays of shape "
         "(max_iterations + 1, num_particles). The inference loop should break "
         "if this limit is exceeded; no internal check is performed. "
-        "META-004 NOTE: upstream docstring incorrectly states step signature as "
+        "Note: upstream docstring incorrectly states step signature as "
         "(rng_key, state, lmbda) — the actual step is 2-arg (rng_key, state). "
         "Pinned in tests/test_api_pins_smc.py section 13. "
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
@@ -205,6 +205,6 @@ ENTRY = SMCMethod(
         "Resampling default: systematic. "
         "CRITICAL inner-kernel contract: mcmc_parameters dict must contain ONLY "
         "JAX arrays — callable params (e.g. random_step for RWM) must be bound "
-        "via functools.partial at build time. See P5.10c finding in commit history."
+        "via functools.partial at build time."
     ),
 )

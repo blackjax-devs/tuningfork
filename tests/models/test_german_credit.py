@@ -25,7 +25,7 @@ Tests
 7.  Posterior dim matches parameter count after build_logdensity_fn (26).
 8.  Sampling test: 500-sample NUTS smoke; ≥70% of beta coefficients have the
     same sign as the sklearn-LogisticRegression MLE (catches label-swap /
-    likelihood misspecification bugs — per P4.4 retro-checkpoint precedent).
+    likelihood misspecification bugs — per retro-checkpoint precedent).
 
 Notes
 -----
@@ -198,7 +198,7 @@ def test_posterior_signs_via_short_nuts() -> None:
     signs matching the sklearn-LogisticRegression MLE. Catches label-swap and
     likelihood misspecification bugs.
 
-    Per P4.4 retro-checkpoint precedent (statistician review 2026-05-08):
+    Per retro-checkpoint precedent (statistician review 2026-05-08):
     this sampling test catches bugs that structural tests (tests 1-7) cannot.
     NOT marked @pytest.mark.fast — runs MCMC.
     """

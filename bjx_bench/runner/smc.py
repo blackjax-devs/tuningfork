@@ -14,7 +14,7 @@
 """SMC runner helpers: particle initialisation + drive-to-convergence loop.
 
 These utilities form the bridge between the SMC method registry
-(``bjx_bench/inference/smc/``) and the recipe layer (Phase 6).  They are
+(``bjx_bench/inference/smc/``) and the recipe layer.  They are
 deliberately pure functions with no global state and no side effects, and
 are fully JIT-compatible.
 
@@ -26,12 +26,11 @@ Public API
     Drive an SMC step kernel until tempering reaches ``lambda_target`` or
     ``max_steps`` is exhausted.
 
-Finding (P5.10e): blackjax TemperedSMCState uses field name
-``tempering_param`` (NOT ``lmbda``).  The while_loop termination check
-and history recording use ``state.tempering_param``.  Detection of
-adaptive_tempered_smc uses ``hasattr(state, 'tempering_param')``
-(present on TemperedSMCState; absent on PartialPosteriorsSMCState and
-any inner_kernel_tuning wrapped state).
+TemperedSMCState uses field name ``tempering_param`` (NOT ``lmbda``).
+The while_loop termination check and history recording use
+``state.tempering_param``.  Detection of adaptive_tempered_smc uses
+``hasattr(state, 'tempering_param')`` (present on TemperedSMCState;
+absent on PartialPosteriorsSMCState and any inner_kernel_tuning wrapped state).
 """
 
 from collections.abc import Callable
@@ -59,9 +58,8 @@ def init_particles_from_prior(
 
         prior_sample_fn = lambda key, n: prior_dist.sample(key, (n,))
 
-    ``PosteriorEntry`` will gain a ``sample_initial_particles`` method in
-    Phase 6 (per WORKLOG TASK-002 P5.10a).  Until then, the test suite and
-    recipe builders construct ``prior_sample_fn`` explicitly.
+    The test suite and recipe builders construct ``prior_sample_fn``
+    explicitly from the posterior's prior distribution.
 
     Parameters
     ----------

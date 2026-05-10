@@ -159,7 +159,7 @@ ENTRY = BaseMethod(
         "Use for hierarchical models with latent Gaussian theta and hyperparameters phi "
         "where direct sampling of (theta, phi) jointly suffers from funnel geometry. "
         "extra_required_kwargs=('log_joint_fn', 'theta_init'); no_warmup raises "
-        "NotImplementedError; Phase 6 will add specialised wiring path. "
+        "NotImplementedError; a specialised wiring path is required. "
         "See sampling-book/book/algorithms/laplace_hmc_demo.md for full algorithm description."
     ),
 )

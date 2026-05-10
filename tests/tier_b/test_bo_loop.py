@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for the Tier-B BO loop body (T2.6b).
+"""Integration tests for the Tier-B BO loop body.
 
 Tests the actual ``tune_algorithm`` implementation for mass-matrix gradient
 kernels (NUTS, HMC).  The NotImplementedError paths for MALA and MCLMC are
@@ -22,7 +22,7 @@ Test parameters chosen to keep total runtime < 60s on CPU:
 - n_trials=3: enough to exercise BO improvement without being slow
 - n_seeds=1, n_chains=1: keeps the test matrix simple; structure is correct
 
-Empirical findings (T2.6b, written after first successful run):
+Empirical findings (recorded after the first successful run):
 1. Window adaptation at n_warmup=200 on MVN-10: observed in test output.
 2. Per-trial JIT compile: each trial with a new concrete step_size value
    may trigger a fresh JAX JIT compilation.  The per-trial wall-time is
@@ -303,14 +303,14 @@ class TestTuningDifficultyInvariants:
 
 
 # ---------------------------------------------------------------------------
-# 5. MALA dispatch: T2.6c wired these paths — smoke-check they run
+# MALA dispatch: these paths are wired — smoke-check they run
 # ---------------------------------------------------------------------------
 
 
 class TestMalaDispatchWired:
     """Sanity check: tune_algorithm no longer raises NotImplementedError for MALA.
 
-    T2.6b had these as NotImplementedError tests.  T2.6c wires MALA/RWM
+    These were previously NotImplementedError tests; the dispatch now wires MALA/RWM
     dispatch (no warmup), so these tests confirm the dispatch is active.
     Full coverage lives in tests/test_tier_b_dispatch.py.
     """
@@ -332,14 +332,14 @@ class TestMalaDispatchWired:
 
 
 # ---------------------------------------------------------------------------
-# 6. MCLMC dispatch: T2.6c wired these paths — smoke-check they run
+# MCLMC dispatch: these paths are wired — smoke-check they run
 # ---------------------------------------------------------------------------
 
 
 class TestMclmcDispatchWired:
     """Sanity check: tune_algorithm no longer raises NotImplementedError for MCLMC.
 
-    T2.6b had these as NotImplementedError tests.  T2.6c wires MCLMC dispatch
+    These were previously NotImplementedError tests; the dispatch now wires MCLMC dispatch
     via mclmc_find_L_and_step_size, so these tests confirm the dispatch is
     active.  Full coverage lives in tests/test_tier_b_dispatch.py.
     """

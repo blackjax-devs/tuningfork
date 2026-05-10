@@ -25,7 +25,7 @@ dual-averaging adaptation (e.g. NUTS's window adaptation) or Bayesian
 optimisation to tune the step size; this warmup only provides a better
 initialisation than a flat prior sample.
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, step_size_default=1.0,
@@ -269,7 +269,7 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=_COMPATIBLE,
     notes=(
-        "Single-path Pathfinder warmup (P5.4): runs one independent L-BFGS "
+        "Single-path Pathfinder warmup: runs one independent L-BFGS "
         "Pathfinder optimisation per chain via jax.vmap.  Draws one init "
         "position from each chain's variational surrogate and returns the "
         "per-chain L-BFGS inverse-Hessian diagonal (alpha) as the "

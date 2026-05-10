@@ -1,27 +1,40 @@
 # Starter Recipes
 
-This directory contains canonical, committed recipes for the 3 starter benchmark
-models (`mvn_10`, `neals_funnel`, `eight_schools_ncp`).
+This directory contains canonical, committed recipes per `(model, warmup,
+sampler)` cell. The cell space spans 14 models × the registered warmups
+× the 24 base methods, scoped down by warmup–sampler compatibility and
+the supersession map.
 
 ---
 
 ## What is a Recipe?
 
-A **Recipe** is a pinned `(model, base_method, warmup)` configuration stored as
+A **Recipe** is a pinned `(model, warmup, sampler)` configuration stored as
 JSON. Each recipe includes:
 
 - The sampler name and its pinned hyperparameters
-- The warmup procedure used (or `"no_warmup"` for LOW-effort recipes)
-- User-facing instructions for copy-pasting into analysis code
+- The warmup procedure used and its hyperparameters (LOW always runs warmup
+  at recipe-build time — `no_warmup` is the warmup name only for cells where
+  there is no canonical adaptation, e.g., gradient-free RWM/IRMH or specialised
+  Laplace-marginal samplers)
+- The Statistician auto-gate verdict (`gate_evidence.auto`) and any manual
+  override (`gate_evidence.override`)
+- User-facing instructions auto-templated from the pinned fields
 - Provenance: which versions of `bjx-bench`, `blackjax`, and `jax` produced it
 
-Recipes serve three user personas:
+Effort tiers measure **human + machine wall time to produce a gate-passing
+recipe**, escalated by the Statistician → TL when the auto-gate fails.  See
+`_base.py` `Effort` docstring for the full per-tier definition:
 
-| Effort | Persona | Calibration cost | When to use |
-|--------|---------|-----------------|-------------|
-| `low`  | One-off analyst | Zero (default HPs) | Exploratory work, prototyping |
-| `medium` | Standard analysis | ~1 min (warmup only) | Routine analysis needing adapted step size |
-| `high` | Production / repeated runs | ~30+ min (Tier-B BO) | Where ESS/grad matters and time is available |
+| Effort | What produced it | Wall time | When emitted |
+|---|---|---|---|
+| `low` | Conventional `(warmup, sampler)` pairing with library defaults; auto-gate passed at first emit | machine-only | Cell is in the *conventional combinations* set (e.g., `stan_window` + `nuts`, `mclmc_tuning` + `mclmc`) and defaults work |
+| `medium` | Statistician investigation: either (a) LOW gate failure → seed/init/bug-fix workaround, or (b) explores a technically-possible-but-unconventional pairing (e.g., `stan_window` + `mala`, `stan_window` + `rmhmc`) | LOW + Statistician investigation | LOW failed, or the cell is non-canonical |
+| `high` | Oracle (NUTS+window_adaptation) comparison + BO over warmup hyperparameters + model-specific param injection; the full journey is recorded in `workflow` | MEDIUM + extra Statistician work + BO compute | LOW and MEDIUM both failed |
+
+**Per-cell recipe count is normally 1** (the lowest tier that passed).  Edge
+case: a single cell can carry multiple recipes if LOW passes but is unstable
+across seeds, or if extra effort yields better ESS/grad.
 
 ---
 
@@ -34,23 +47,16 @@ Recipes serve three user personas:
 Examples:
 
 ```
-low__nuts__no_warmup.json
-medium__nuts__stan_window.json
-high__hmc__stan_window.json
+low__nuts__stan_window.json
+low__mclmc__mclmc_tuning.json
+medium__mala__stan_window.json    # unconventional pairing → MEDIUM
+high__nuts__stan_window.json      # only emitted when LOW + MEDIUM failed
 ```
 
----
-
-## Current Contents (Phase 2.5, Commit 3 of 4)
-
-This directory currently holds **6 LOW-effort recipes** only:
-
-- 3 starter models × 2 algorithms (`hmc`, `nuts`) × `low` = 6 JSON files
-
-MEDIUM and HIGH recipes are deferred to a follow-up spawn. They require:
-
-- MEDIUM: running `stan_window` warmup (~1 min per recipe × 6 = ~6 min)
-- HIGH: running Tier-B BO with 50+ trials (~5–30 min per recipe × 6 = ~30–180 min)
+The warmup is determined by the cell, not by the effort.  `low__nuts__no_warmup.json`
+would only appear if the LOW emit pipeline deliberately tested the no-warmup
+variant of NUTS (and that's not a conventional combination — usually it would
+fall under MEDIUM as an exploration of an unconventional pairing).
 
 ---
 
@@ -77,5 +83,4 @@ Regenerate whenever:
 ## Schema Reference
 
 See `bjx_bench/inference/recipes/_base.py` for the full `Recipe` dataclass
-definition and `PLAN_bjx_bench_restructure.md` § "Recipe schema" for the
-design rationale.
+definition and design rationale.

@@ -31,7 +31,7 @@ Gradient-free: ``grad_count_per_step=0``.
 No MH step: ``target_acceptance_rate=None`` (slice sampler always accepts).
 
 ``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
-``NotImplementedError`` for this method.  Phase 6 will add a specialised path.
+``NotImplementedError`` for this method; a specialised wiring path is required.
 
 References
 ----------
@@ -98,6 +98,6 @@ ENTRY = BaseMethod(
         "Gradient-free (grad_count_per_step=0). EllipSliceInfo carries (momentum, "
         "theta, subiter); no acceptance_rate field — slice sampling always accepts "
         "after a finite number of bracket-shrink subiters. extra_required_kwargs=('prior_cov', 'prior_mean'); "
-        "no_warmup raises NotImplementedError; Phase 6 will add specialised path."
+        "no_warmup raises NotImplementedError; a specialised wiring path is required."
     ),
 )

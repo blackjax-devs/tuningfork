@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.7 adjusted_mclmc_dynamic base method registry entry.
+"""Tests for the adjusted_mclmc_dynamic base method registry entry.
 
 Covers:
   1. adjusted_mclmc_dynamic entry fields: name, family, needs_mass_matrix,

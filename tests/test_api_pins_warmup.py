@@ -31,9 +31,9 @@ pytestmark = pytest.mark.fast
 
 # ───────────────── 5. pathfinder / multipathfinder callable + return shapes ─────────────────
 def test_blackjax_pathfinder_callable():
-    """P5.4 tripwire: if upstream pathfinder API changes its callable signature, fail fast.
+    """Tripwire: if upstream pathfinder API changes its callable signature, fail fast.
 
-    Pinned at P5.4: bjx_bench/inference/warmup/pathfinder.py calls
+    Pinned tripwire: bjx_bench/inference/warmup/pathfinder.py calls
     blackjax.pathfinder.approximate(rng_key, logdensity_fn, position, num_samples)
     and expects a 2-tuple (PathfinderState, PathfinderInfo) back.
     """
@@ -66,9 +66,9 @@ def test_blackjax_pathfinder_callable():
 
 
 def test_blackjax_multipathfinder_callable():
-    """P5.4 tripwire: if upstream multipathfinder API changes, fail fast.
+    """Tripwire: if upstream multipathfinder API changes, fail fast.
 
-    Pinned at P5.4: bjx_bench/inference/warmup/multipathfinder.py calls
+    Pinned tripwire: bjx_bench/inference/warmup/multipathfinder.py calls
     blackjax.multipathfinder(logdensity_fn).init(key, positions, num_samples)
     and expects a 2-tuple (MultipathfinderState, PathfinderInfo) back.
     psis_weights(state) must return a 2-tuple (log_weights, pareto_k).
@@ -109,7 +109,7 @@ def test_blackjax_meads_adaptation_signature():
     """Tripwire: blackjax.meads_adaptation must accept (logdensity_fn,
     num_chains, num_folds) as parameters.
 
-    Pinned at P5.5: bjx_bench/inference/warmup/meads.py calls
+    Pinned tripwire: bjx_bench/inference/warmup/meads.py calls
     blackjax.meads_adaptation(logdensity_fn, num_chains, num_folds=num_folds, ...).
     If upstream renames or removes any of these, the MEADS warmup fails.
     """
@@ -129,7 +129,7 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
     """Tripwire: meads_adaptation.run() must return a 2-tuple
     (AdaptationResults, AdaptationInfo).
 
-    Pinned at P5.5: bjx_bench/inference/warmup/meads.py unpacks the result as
+    Pinned tripwire: bjx_bench/inference/warmup/meads.py unpacks the result as
     (adaptation_results, _adaptation_info) = meads.run(...).
     If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
     """
@@ -162,9 +162,9 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
 
 # ───────────────── window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
-    """Pinned in T2.6b: bjx_bench/calibration/tier_b.py:_run_warmup uses
+    """Pinned tripwire: bjx_bench/calibration/tier_b.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
-    structurally for MALA in T2.6c, even though MALA's needs_mass_matrix=False
+    structurally for MALA, even though MALA's needs_mass_matrix=False
     — sanity check). Verifies the construction path stays valid.
     """
 
@@ -186,11 +186,11 @@ def test_window_adaptation_constructs_for_supported_kernels():
             ) from exc
 
 
-# ───────────────── P5.12 meanfield_vi + fullrank_vi state/info field pins ─────────────────
+# ───────────────── meanfield_vi + fullrank_vi state/info field pins ─────────────────
 
 
 def test_mfvi_state_fields():
-    """P5.12 tripwire: pin MFVIState._fields.
+    """Tripwire: pin MFVIState._fields.
 
     bjx_bench/inference/base_method/meanfield_vi.py and
     bjx_bench/inference/warmup/meanfield_vi.py depend on MFVIState having
@@ -207,7 +207,7 @@ def test_mfvi_state_fields():
 
 
 def test_mfvi_info_fields():
-    """P5.12 tripwire: pin MFVIInfo._fields.
+    """Tripwire: pin MFVIInfo._fields.
 
     bjx_bench wrappers expect MFVIInfo to have exactly ('elbo',).
     """
@@ -220,7 +220,7 @@ def test_mfvi_info_fields():
 
 
 def test_frvi_state_fields():
-    """P5.12 tripwire: pin FRVIState._fields.
+    """Tripwire: pin FRVIState._fields.
 
     bjx_bench/inference/base_method/fullrank_vi.py and
     bjx_bench/inference/warmup/fullrank_vi.py depend on FRVIState having
@@ -237,7 +237,7 @@ def test_frvi_state_fields():
 
 
 def test_frvi_info_fields():
-    """P5.12 tripwire: pin FRVIInfo._fields.
+    """Tripwire: pin FRVIInfo._fields.
 
     bjx_bench wrappers expect FRVIInfo to have exactly ('elbo',).
     """
@@ -250,7 +250,7 @@ def test_frvi_info_fields():
 
 
 def test_meanfield_vi_as_top_level_api_signature():
-    """P5.12 tripwire: pin meanfield_vi.as_top_level_api signature.
+    """Tripwire: pin meanfield_vi.as_top_level_api signature.
 
     The wrapper relies on as_top_level_api accepting
     (logdensity_fn, optimizer, num_samples, objective, stl_estimator).
@@ -278,7 +278,7 @@ def test_meanfield_vi_as_top_level_api_signature():
 
 
 def test_fullrank_vi_as_top_level_api_signature():
-    """P5.12 tripwire: pin fullrank_vi.as_top_level_api signature.
+    """Tripwire: pin fullrank_vi.as_top_level_api signature.
 
     The wrapper relies on as_top_level_api accepting
     (logdensity_fn, optimizer, num_samples, objective, stl_estimator).

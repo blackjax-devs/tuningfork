@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the lotka_volterra ODE inverse model (P4.10, Block D).
+"""Tests for the lotka_volterra ODE inverse model.
 
 All tests are marked ``fast`` — they run the ProbDiffEq solver exactly once
 (test_logdensity_finite) or perform pure data/shape assertions. The solver

@@ -29,14 +29,14 @@ The 3-tuple returned by ``blackjax.adjusted_mclmc_find_L_and_step_size`` is::
     (IntegratorState, MCLMCAdaptationState, total_num_tuning_integrator_steps)
 
 where ``MCLMCAdaptationState._fields = ('L', 'step_size', 'inverse_mass_matrix')``.
-This mirrors the vanilla ``mclmc_find_L_and_step_size`` META-004 A.1 pattern.
+This mirrors the vanilla ``mclmc_find_L_and_step_size``  A.1 pattern.
 
 The third value ``total_tuning_steps`` is threaded into the returned
 ``adapted_params`` dict under the key ``"_total_tuning_steps"`` so
-``Recipe.calibration_budget`` (Phase 3.2) can capture the actual gradient
+``Recipe.calibration_budget`` can capture the actual gradient
 spend during warmup.
 
-Runner signature (multi-chain contract, P5.0c)::
+Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, num_chains: int = 4, target: float = 0.9, **kwargs)
@@ -184,9 +184,9 @@ ENTRY = Warmup(
         "Finds L, step_size, and a diagonal inverse_mass_matrix jointly. "
         "Uses static adjusted_mclmc kernel for tuning (adapter is integrator-agnostic). "
         "Canonical target acceptance rate: 0.9 (per upstream adjusted-MCLMC tests). "
-        "Returns _total_tuning_steps for calibration_budget accounting (P3.2). "
+        "Returns _total_tuning_steps for calibration_budget accounting. "
         "Compatible with both adjusted_mclmc (static) and adjusted_mclmc_dynamic (random N). "
-        "P5.0c: multi-chain by default (num_chains=4 via jax.vmap); per-chain "
+        "multi-chain by default (num_chains=4 via jax.vmap); per-chain "
         "L/step_size/IMM returned as (num_chains,)/(num_chains,)/(num_chains, d) "
         "arrays; _total_tuning_steps is a Python int (chain-0 value, same across chains)."
     ),

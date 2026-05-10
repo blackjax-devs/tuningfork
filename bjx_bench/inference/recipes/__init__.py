@@ -13,8 +13,7 @@
 # limitations under the License.
 """bjx-bench recipes: pinned configurations per (model, base_method, effort).
 
-See PLAN_bjx_bench_restructure.md § "Recipe schema" and PLAN_bjx_bench_API_phase2.md
-§ "Tuning Difficulty Metric" for the design.
+See _base.py for the recipe schema and effort tier definitions.
 """
 
 from bjx_bench.inference.recipes._base import Effort, Recipe

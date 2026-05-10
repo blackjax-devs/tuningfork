@@ -49,7 +49,7 @@ Override precedence: function-arg > env-var > default.
 
 Concurrent-writer safety
 ------------------------
-Phase 1 assumes no concurrent writers.  ``.npz`` files are written atomically
+This module assumes no concurrent writers.  ``.npz`` files are written atomically
 on POSIX (write to temp, rename).  ``json`` files use the same pattern.
 """
 

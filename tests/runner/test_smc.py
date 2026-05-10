@@ -11,18 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.runner.smc (P5.10e).
+"""Tests for bjx_bench.runner.smc.
 
 Covers runner contract: shapes, JIT compatibility, termination conditions.
-Intentionally minimal — does NOT audit MCMC accuracy (Phase 6 work).
+Intentionally minimal — does NOT audit MCMC accuracy.
 
-Finding (P5.10e): blackjax TemperedSMCState uses field 'tempering_param'
+Finding: blackjax TemperedSMCState uses field 'tempering_param'
 (NOT 'lmbda'). The runner detects adaptive_tempered via
 hasattr(state, 'tempering_param'). The while_loop history buffer is
 pre-allocated at max_steps; the returned 'lmbda' key in the history dict
 holds the tempering_param series.
 
-Finding (P5.10e): partial_posteriors_smc step_fn(key, state, data_mask)
+Finding: partial_posteriors_smc step_fn(key, state, data_mask)
 requires a data_mask argument. The runner's _run_smc_scan calls
 smc_step_fn(subkey, state) so the caller MUST pre-bind data_mask via
 functools.partial. For the step_through_data test we pre-bind a full
@@ -64,7 +64,7 @@ def _loglikelihood_fn(x):
 
 
 def _make_rwm_inner_kernel(dim: int, sigma: float = 0.5) -> SamplingAlgorithm:
-    """RWM inner kernel suitable for SMC (P5.10c pattern).
+    """RWM inner kernel suitable for SMC.
 
     Binds non-array random_step callable via functools.partial so that
     mcmc_parameters stays array-only (required by blackjax SMC layer).

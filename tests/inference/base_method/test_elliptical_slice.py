@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the P5.8 elliptical_slice base method registry entry.
+"""Tests for the elliptical_slice base method registry entry.
 
 Covers:
   1. ENTRY field correctness (name, family, extra_required_kwargs, etc.).

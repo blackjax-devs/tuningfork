@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.calibration.tier_b foundation layer (T2.6a).
+"""Tests for bjx_bench.calibration.tier_b foundation layer.
 
 Covers:
 - ``default_value_for_space``: one test per kind (loguniform, uniform, int,
@@ -22,7 +22,7 @@ Covers:
 - ``optuna_distributions_for``: on HMC entry, both keys present with correct
   distribution types.
 - ``TuningDifficulty`` and ``TuningResult`` construction and invariants.
-- ``tune_algorithm`` stub: raises NotImplementedError with T2.6b mention.
+- ``tune_algorithm`` stub: raises NotImplementedError with mention.
 - Optuna integration smoke: enqueue default params, ask study, verify round-trip.
 
 Empirical findings documented here:
@@ -87,7 +87,7 @@ class TestDefaultValueForSpace:
     def test_loguniform(self) -> None:
         """70th-percentile on log-scale: low * (high/low)**0.7.
 
-        For [1e-3, 1.0]: 1e-3 * 1000**0.7 ≈ 0.1259 (P4.0 tweak from sqrt).
+        For [1e-3, 1.0]: 1e-3 * 1000**0.7 ≈ 0.1259 (adjusted from sqrt).
         """
         space = HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0)
         result = default_value_for_space(space)
@@ -180,7 +180,7 @@ class TestDefaultParamsFor:
         }, f"Unexpected keys: {set(params.keys())}"
 
     def test_hmc_step_size_value(self) -> None:
-        """step_size default = 1e-3 * 1000**0.7 (70th-percentile on log-scale, P4.0)."""
+        """step_size default = 1e-3 * 1000**0.7 (70th-percentile on log-scale)."""
         params = default_params_for(HMC_ENTRY)
         expected = 1e-3 * (1.0 / 1e-3) ** 0.7
         assert params["step_size"] == pytest.approx(expected, rel=1e-9)
@@ -545,10 +545,10 @@ class TestTuningResultConstruction:
 
 
 # ---------------------------------------------------------------------------
-# 6. tune_algorithm stub (T2.6a tests — retired in T2.6b)
+# tune_algorithm stub (retired)
 # ---------------------------------------------------------------------------
 # The three stub tests that verified tune_algorithm raised NotImplementedError
-# with a "T2.6b" message have been REMOVED here.  T2.6b replaces the stub
+# with a stub-related message have been REMOVED here.  The implementation replaces the stub
 # body with the real Optuna BO loop; those tests were specifically exercising
 # the now-obsolete stub.  The new behaviour (real BO loop, NotImplementedError
 # only for non-MM kernels) is covered by tests/test_tier_b_bo_loop.py.
@@ -566,7 +566,7 @@ class TestOptunaIntegrationSmoke:
     ``study.enqueue_trial(params)`` guarantees the enqueued params are
     used in the *next* ``study.ask()`` or the next ``study.optimize()``
     call.  The first completed trial in ``study.trials`` therefore holds
-    the enqueued params exactly.  This pins the T2.6b convention: the BO
+    the enqueued params exactly.  This pins the convention: the BO
     loop injects default params via ``enqueue_trial`` before calling
     ``optimize``, so ``study.trials[0].params == default_params_for(entry)``.
     """
@@ -611,7 +611,7 @@ class TestOptunaIntegrationSmoke:
     def test_enqueue_round_trip_ask(self) -> None:
         """study.ask() after enqueue_trial returns a trial with the enqueued params.
 
-        This is the lower-level API used by T2.6b's loop.
+        This is the lower-level API used by the BO loop.
         Optuna's frozen-trial → add-trial path is NOT tested here because
         it requires an already-completed trial; we test the more common
         ask-then-tell path instead.
