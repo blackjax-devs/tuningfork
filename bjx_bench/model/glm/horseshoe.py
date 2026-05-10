@@ -167,7 +167,6 @@ def horseshoe_regression(
 #     Electronic Journal of Statistics, 11(2), 5018-5051.
 #     BlackJAX upstream reference: blackjax/tests/test_benchmarks.py @ 2eb62abb
 #     (function make_horseshoe_logdensity).
-#     PLAN_bjx_bench_phase4.md § "Block B", row P4.6 (horseshoe).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------

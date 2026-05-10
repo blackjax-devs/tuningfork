@@ -48,8 +48,7 @@ and ``"inverse_mass_matrix"`` on successful adaptation.  When
 (stacked to ``(num_chains, d)`` in the output).  When ``False`` the
 per-chain IMM has shape ``(d, d)`` (stacked to ``(num_chains, d, d)``).
 HIGH-effort recipes that adapt a dense or large-diagonal IMM should
-persist it via ``Recipe.save_imm_sidecar`` rather than inlining (see
-P5.0a IMM sidecar helpers).
+persist it via ``Recipe.save_imm_sidecar`` rather than inlining.
 
 If the ``base_method`` has a BO-tunable HP that is NOT step_size or
 inverse_mass_matrix (e.g. ``num_integration_steps`` for HMC), the

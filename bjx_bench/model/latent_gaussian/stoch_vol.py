@@ -167,7 +167,6 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
 #     Kim, S., Shephard, N., & Chib, S. (1998). Stochastic Volatility:
 #         Likelihood Inference and Comparison with ARCH Models. Review of
 #         Economic Studies, 65(3), 361–393.
-#     PLAN_bjx_bench_phase4.md § "Block D", row P4.9 (stoch_vol).
 # ---------------------------------------------------------------------------
 # Registry entry
 # ---------------------------------------------------------------------------
