@@ -154,7 +154,7 @@ class BaseMethod:
     extra_required_kwargs
         Names of kwargs the factory requires beyond ``logdensity_fn`` and the
         HP-space items.  Empty tuple (default) = standard factory.  Non-empty =
-        specialised: the runner must inject these kwargs from ``PosteriorEntry``
+        specialised: the runner must inject these kwargs from ``Posterior``
         metadata or recipe parameters before calling ``factory(...)``.
 
         Examples::
@@ -209,7 +209,7 @@ class BaseMethod:
     """Names of kwargs the factory requires beyond logdensity_fn + HP-space items.
 
     Empty tuple = standard factory (logdensity_fn + HP-space kwargs are sufficient).
-    Non-empty = specialised: the runner must inject these kwargs from PosteriorEntry
+    Non-empty = specialised: the runner must inject these kwargs from Posterior
     metadata or recipe parameters before calling factory(...).
 
     Examples:

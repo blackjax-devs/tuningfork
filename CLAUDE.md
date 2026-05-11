@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`tuningfork` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. Phase 6 (recipe building under auto-gate) is next; the active plan is `../PLAN_phase6_recipe_matrix.md` (statistician-authored, 8-table colour-coded effort matrix + supersession map).
+`tuningfork` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. The recipe generation phase is now active; the active plan is [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md) (statistician-authored, 8-table colour-coded effort matrix + supersession map). The library will be open-sourced once the initial set of recipes lands.
 
 Architecture decisions: 14-model suite, calibration protocol (certified reference draws as ground truth, BO over hyperparameters, warmup-only execution), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history + frozen design snapshots (Phases 1-5 plans, audits, retrospectives) live under `../archive/bjx-bench/`.
 
@@ -72,7 +72,7 @@ Source layout (top-level subpackages of `tuningfork/`):
 
 ```
 tuningfork/
-├── model/                     # 14 PosteriorEntry definitions + MODELS registry
+├── model/                     # 14 Posterior definitions + MODELS registry
 ├── inference/
 │   ├── base_method/           # 24 wrappers — see ENTRIES list below
 │   ├── warmup/                # 10 warmup wrappers — see ENTRIES list below
@@ -107,7 +107,7 @@ tuningfork/
 
 ### Specialised factories (`extra_required_kwargs`)
 
-Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, inverse_mass_matrix, ...)` shape — schema field `BaseMethod.extra_required_kwargs: tuple[str, ...]` declares them so the recipe runner can inject from `PosteriorEntry` metadata at call time. Currently:
+Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, inverse_mass_matrix, ...)` shape — schema field `BaseMethod.extra_required_kwargs: tuple[str, ...]` declares them so the recipe runner can inject from `Posterior` metadata at call time. Currently:
 
 | Method | Extra required kwargs |
 |---|---|
