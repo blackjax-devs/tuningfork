@@ -1,10 +1,10 @@
-# bjx-bench
+# tuningfork
 
 A BlackJAX-native benchmark library for comparing MCMC, VI, and SMC sampling algorithms — modeled after [`inference-gym`](https://pypi.org/project/inference-gym/) and [`posteriordb`](https://github.com/stan-dev/posteriordb), but designed around **calibrated, gradient-counted comparisons** over a curated 14-model suite.
 
 ## Why
 
-BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation strategies. None are currently benchmarked together with calibrated configurations, gradient-budget accounting, or posteriordb-style certified reference draws. `bjx-bench` answers questions like:
+BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation strategies. None are currently benchmarked together with calibrated configurations, gradient-budget accounting, or posteriordb-style certified reference draws. `tuningfork` answers questions like:
 
 - *"What is the best calibrated HMC config for Neal's funnel, and how many leapfrog steps does it cost per effective sample?"*
 - *"Does Pathfinder→HMC dominate Stan-window→HMC on hierarchical models, or only on well-conditioned ones?"*
@@ -12,7 +12,7 @@ BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation st
 
 ## Status
 
-**Phase 0 — scaffold only.** No working code yet. See [`PLAN_bjx_bench.md`](../PLAN_bjx_bench.md) (in the parent `blackjax-devs/` directory) for the full design.
+**Phase 0 — scaffold only.** No working code yet. See the plan document (in the parent `blackjax-devs/` directory) for the full design.
 
 ## Suite (14 models)
 
