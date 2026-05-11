@@ -27,7 +27,7 @@ specialised samplers each receive a tailored plot suite.
 :tags: [parameters]
 
 # Papermill parameter cell
-RECIPE_PATH: str = "tuningfork/inference/recipes/starter/mvn_10/low__nuts__no_warmup.json"
+RECIPE_PATH: str = "tests/recipes/_smoke_recipes/eight_schools_ncp/groundtruth__nuts__stan_window.json"
 QUICK_MODE: bool = True  # If True, use N_SAMPLES_QUICK; if False, use N_SAMPLES_FULL
 N_SAMPLES_QUICK: int = 1000
 N_SAMPLES_FULL: int = 4000
@@ -329,11 +329,20 @@ else:
     recipe_params = recipe.base_method_params or {}
     base_params = {**adapted_params, **recipe_params}
 
-    # For stan_window the per-chain IMM is shape (N_CHAINS, d) — average to (d,).
+    # IMM coercion. Three cases reach this point:
+    #   (a) from stan_window warmup.runner: a JAX Array shape (N_CHAINS, d) — mean to (d,).
+    #   (b) from recipe.base_method_params after JSON load: a Python list (1-D for d≤50,
+    #       per Recipe._to_jsonable + save_imm_sidecar threshold). Coerce to jax.Array.
+    #   (c) from the no_warmup fallback below: jnp.ones(n) — already a jax.Array.
+    # Case (b) is exercised by GROUNDTRUTH recipes (first non-no_warmup recipes with
+    # populated IMM); pre-Phase-0 LOW/MEDIUM recipes mostly used no_warmup and hit (c).
+    # The previous version only assigned back when ndim==2, so case (b) silently kept
+    # the list and the downstream `jnp.sqrt(IMM)` in NUTS metrics raised TypeError.
     if "inverse_mass_matrix" in base_params:
         imm = jnp.asarray(base_params["inverse_mass_matrix"])
         if imm.ndim == 2:  # (N_CHAINS, d) → (d,)
-            base_params = {**base_params, "inverse_mass_matrix": imm.mean(axis=0)}
+            imm = imm.mean(axis=0)
+        base_params = {**base_params, "inverse_mass_matrix": imm}
 
     # If the kernel needs a mass matrix but none is present (e.g. no_warmup with a
     # recipe that stores only step_size), inject a diagonal identity preconditioner.
