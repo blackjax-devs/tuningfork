@@ -38,8 +38,11 @@ tests/
 ├── recipes/             # recipe schema + emission
 ├── metrics/             # headline metric + diagnostics
 ├── reference/, tuning/  # reference certification + BO tuning
-├── e2e/                 # end-to-end phase-gate suite
-├── test_api_pins.py     # BlackJAX upstream contract (cross-cutting)
+├── runner/              # SMC runner helpers
+├── e2e/                 # end-to-end gate suite
+├── test_api_pins_mcmc.py     # BlackJAX MCMC kernel contracts
+├── test_api_pins_warmup.py   # BlackJAX warmup + adapter contracts
+├── test_api_pins_smc.py      # BlackJAX SMC contracts
 └── test_registry.py     # registry checks (cross-cutting)
 ```
 
@@ -55,7 +58,7 @@ tests/
 
 **Discipline rule**: Every test must be tagged with exactly one of `fast`, `slow`, or `e2e`. If a test needs posteriordb, add `@pytest.mark.requires_posteriordb` as a second marker.
 
-**Three test_api_pins files at root** : `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
+**Three `test_api_pins_*.py` files at root** — split by sampler family: `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
 
 **Mandatory for agents**:
 - Run `make clean-orphans` before any heavy test sweep — orphan Python REPLs can silently consume 7+ GB. The underlying script lives at `~/claude-config/tools/clean_orphans.sh` (cross-repo); override the path with `CLAUDE_CONFIG_DIR` if needed.
@@ -87,13 +90,11 @@ bjx_bench/
 │   └── statistician_gate.py          # auto-gate (R̂/ESS/divergences/max_abs_mean_z)
 ├── metrics/
 │   ├── headline.py            # min-bulk-ESS / total_grad_evals
-│   ├── diagnostics.py
-│   ├── reference_compare.py
 │   └── grad_counter.py        # logdensity_fn wrapper that counts grad evals
 ├── runner/
 │   └── smc.py                 # init_particles_from_prior + run_smc helpers
-├── reporting/
-└── cli.py
+├── reporting/                 # (placeholder; no submodules yet)
+└── cli.py                     # bjx-bench reference / warmup / tune subcommands
 ```
 
 ### Inventory
