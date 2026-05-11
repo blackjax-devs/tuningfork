@@ -79,6 +79,7 @@ __all__ = [
     "get_reference_summaries",
     "get_adaptation_params",
     "try_load_cached_draws",
+    "try_load_cached_chain_stats",
     "DEFAULT_CACHE_DIR",
 ]
 
@@ -135,6 +136,10 @@ def _adaptation_path(name: str, cache_dir: Path) -> Path:
     return cache_dir / "adaptation" / f"{name}.json"
 
 
+def _chain_stats_path(name: str, cache_dir: Path) -> Path:
+    return cache_dir / "chain_stats" / f"{name}.npz"
+
+
 def _atomic_write_json(path: Path, data: dict) -> None:
     """Write JSON atomically via a temp file + rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,6 +149,24 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         json.dump(data, fh, indent=2)
         tmp = Path(fh.name)
     tmp.replace(path)
+
+
+def _write_chain_stats(
+    name: str,
+    chain_stats: dict[str, np.ndarray],
+    cache_dir: Path,
+) -> None:
+    """Write per-step chain_stats from a NUTS run to chain_stats/<name>.npz.
+
+    chain_stats persistence is informational/diagnostic — written even on
+    certification failure so the statistician can inspect the failed chain
+    without re-running. The .npz is gitignored; the directory exists in
+    the repo as a .gitkeep placeholder.
+    """
+    _atomic_write_npz(
+        _chain_stats_path(name, cache_dir),
+        {k: np.asarray(v) for k, v in chain_stats.items()},
+    )
 
 
 def _atomic_write_npz(path: Path, draws_dict: dict[str, np.ndarray]) -> None:
@@ -228,6 +251,7 @@ def _write_artifacts(
     metadata: dict,
     cache_dir: Path,
     adaptation_params: AdaptationParams | None = None,
+    chain_stats: dict[str, np.ndarray] | None = None,
 ) -> None:
     """Write all artifacts atomically."""
     # draws
@@ -251,6 +275,9 @@ def _write_artifacts(
             "num_leapfrog_median": int(adaptation_params.num_leapfrog_median),
         }
         _atomic_write_json(_adaptation_path(entry.name, cache_dir), adapt_dict)
+    # chain_stats (NUTS path only — diagnostic, not gate-bearing; gitignored)
+    if chain_stats is not None:
+        _write_chain_stats(entry.name, chain_stats, cache_dir)
 
 
 def _build_metadata(
@@ -310,11 +337,24 @@ def _regenerate_nuts(
     n_warmup: int = 5_000,
     n_chunks: int = 10,
     target_acceptance: float = 0.80,
-) -> tuple[dict[str, jax.Array], Summaries, dict, AdaptationParams]:
-    """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt)."""
+) -> tuple[
+    dict[str, jax.Array],
+    Summaries,
+    dict,
+    AdaptationParams,
+    dict[str, np.ndarray],
+]:
+    """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt, chain_stats).
+
+    `chain_stats` is the dict of per-step NUTS diagnostics (num_integration_steps,
+    energy, is_divergent, acceptance_rate, plus other NUTSInfo._fields). On
+    CertificationError from `certify_reference_nuts`, the exception carries
+    chain_stats and the caller persists it via `_write_chain_stats` before
+    re-raising — diagnostic data survives the failure path.
+    """
     from tuningfork.calibration.certify_reference import certify_reference_nuts
 
-    draws, summaries, adaptation_params, cert, _ = certify_reference_nuts(
+    draws, summaries, adaptation_params, cert, chain_stats = certify_reference_nuts(
         entry,
         rng_key,
         n_warmup=n_warmup,
@@ -329,7 +369,7 @@ def _regenerate_nuts(
         "num_divergences": int(cert.num_divergences),
         "e_bfmi": float(cert.e_bfmi),
     }
-    return draws, summaries, cert_dict, adaptation_params
+    return draws, summaries, cert_dict, adaptation_params, chain_stats
 
 
 # ---------------------------------------------------------------------------
@@ -403,24 +443,49 @@ def get_reference_draws(
 
     seed = 0  # best-effort; actual key encodes the seed
     adaptation_params = None
+    chain_stats: dict[str, np.ndarray] | None = None
 
     if entry.reference_method == ReferenceMethod.ANALYTIC:
         draws, summaries, cert_dict = _regenerate_analytic(entry, n, rng_key)
     else:
-        draws, summaries, cert_dict, adaptation_params = _regenerate_nuts(
-            entry,
-            n,
-            rng_key,
-            n_warmup=n_warmup,
-            n_chunks=n_chunks,
-            target_acceptance=target_acceptance,
-        )
+        # NUTS path: wrap _regenerate_nuts so we persist chain_stats even on
+        # certification failure (CertificationError carries chain_stats per
+        # decision doc 2026-05-11-phase0-reference-protocol-refinements § 3).
+        from tuningfork.calibration.certify_reference import CertificationError
+
+        try:
+            (
+                draws,
+                summaries,
+                cert_dict,
+                adaptation_params,
+                chain_stats,
+            ) = _regenerate_nuts(
+                entry,
+                n,
+                rng_key,
+                n_warmup=n_warmup,
+                n_chunks=n_chunks,
+                target_acceptance=target_acceptance,
+            )
+        except CertificationError as exc:
+            # Failure path: persist chain_stats for statistician diagnosis,
+            # then re-raise so caller knows cert failed.
+            if exc.chain_stats is not None:
+                _write_chain_stats(entry.name, exc.chain_stats, effective_dir)
+            raise
 
     metadata = _build_metadata(
         entry, draws, seed, current_version, current_sha, cert_dict
     )
     _write_artifacts(
-        entry, draws, summaries, metadata, effective_dir, adaptation_params
+        entry,
+        draws,
+        summaries,
+        metadata,
+        effective_dir,
+        adaptation_params,
+        chain_stats,
     )
 
     return draws
@@ -472,6 +537,41 @@ def try_load_cached_draws(
     if n is None:
         return {k: jnp.array(data[k]) for k in data.files}
     return {k: jnp.array(data[k][:n]) for k in data.files}
+
+
+def try_load_cached_chain_stats(
+    entry: Posterior,
+    *,
+    cache_dir: Path | None = None,
+) -> dict[str, np.ndarray] | None:
+    """Load per-step chain_stats from cache, or return None on miss.
+
+    chain_stats are diagnostic-only (not gate-bearing); this function does NOT
+    apply the metadata-validity check used by `try_load_cached_draws`. The
+    file at ``chain_stats/<name>.npz`` is returned as-is if it exists. This
+    is intentional: chain_stats may be written even when cert fails
+    (CertificationError path persists them for statistician diagnosis), so
+    the metadata stamp may not be cert-passed even though chain_stats exist.
+
+    Parameters
+    ----------
+    entry : Posterior
+    cache_dir : Path | None
+
+    Returns
+    -------
+    dict[str, np.ndarray] or None
+        Mapping per-step field name → array of shape ``(n_samples,)`` on cache
+        hit; None on miss. Fields typically include `num_integration_steps`,
+        `energy`, `is_divergent`, `acceptance_rate`, and other NUTSInfo
+        fields exposed by BlackJAX.
+    """
+    effective_dir = _resolve_cache_dir(cache_dir)
+    path = _chain_stats_path(entry.name, effective_dir)
+    if not path.exists():
+        return None
+    data = np.load(str(path))
+    return {k: np.asarray(data[k]) for k in data.files}
 
 
 def get_reference_summaries(
