@@ -314,7 +314,7 @@ def _regenerate_nuts(
     """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt)."""
     from tuningfork.calibration.certify_reference import certify_reference_nuts
 
-    draws, summaries, adaptation_params, cert = certify_reference_nuts(
+    draws, summaries, adaptation_params, cert, _ = certify_reference_nuts(
         entry,
         rng_key,
         n_warmup=n_warmup,

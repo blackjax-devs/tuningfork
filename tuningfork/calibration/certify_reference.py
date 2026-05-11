@@ -35,6 +35,7 @@ from pathlib import Path
 import blackjax
 import jax
 import jax.numpy as jnp
+import numpy as np
 from blackjax.util import run_inference_algorithm
 
 from tuningfork.calibration._summary import Summaries, compute_summaries
@@ -99,13 +100,23 @@ class CertificationResult:
 class CertificationError(RuntimeError):
     """Raised when a Path-B run fails the reference-certification gate.
 
-    Carries ``cert: CertificationResult`` so the caller can log the failure
-    and decide to re-run with more samples or a different seed.
+    Carries ``cert: CertificationResult``, ``adaptation: AdaptationParams | None``,
+    and ``chain_stats: dict[str, np.ndarray] | None`` so the caller can log the
+    failure, log diagnostic data, and decide to re-run with more samples or a
+    different seed.
     """
 
-    def __init__(self, message: str, cert: CertificationResult) -> None:
+    def __init__(
+        self,
+        message: str,
+        cert: CertificationResult,
+        adaptation: "AdaptationParams | None" = None,
+        chain_stats: "dict[str, np.ndarray] | None" = None,
+    ) -> None:
         super().__init__(message)
         self.cert = cert
+        self.adaptation = adaptation
+        self.chain_stats = chain_stats
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +152,7 @@ def certify_reference_nuts(
     Summaries,
     AdaptationParams,
     CertificationResult,
+    dict[str, np.ndarray],
 ]:
     """Run long single-chain NUTS and certify the reference draws.
 
@@ -169,13 +181,19 @@ def certify_reference_nuts(
         Tuned step size and mass matrix from warmup.
     cert
         Certification result (passed/failed + diagnostics).
+    chain_stats
+        Dict mapping per-step diagnostic field names to arrays of shape
+        ``(n_samples,)``, including ``num_integration_steps``, ``energy``,
+        ``is_divergent``, ``acceptance_rate``, and any other fields
+        exposed by BlackJAX's NUTSInfo NamedTuple.
 
     Raises
     ------
     ValueError
         If ``entry.reference_method != NUTS``.
     CertificationError
-        If any certification gate fails.
+        If any certification gate fails. The exception carries ``adaptation``
+        and ``chain_stats`` from the run for diagnostician inspection.
     """
     if entry.reference_method != ReferenceMethod.NUTS:
         raise ValueError(
@@ -225,6 +243,25 @@ def certify_reference_nuts(
 
     # E-BFMI
     e_bfmi_val = float(_compute_e_bfmi(energy))
+
+    # --- Extract all chain_stats from infos ---
+    # Iterate over all NUTSInfo._fields and extract array-valued fields
+    chain_stats: dict[str, np.ndarray] = {}
+    for field_name in infos._fields:
+        field_val = getattr(infos, field_name)
+        # Skip dicts and other non-array types
+        if isinstance(field_val, dict):
+            continue
+        # Only store array-like fields; skip nested NamedTuples or non-array fields
+        try:
+            arr = np.asarray(field_val)
+            # Skip object arrays that aren't truly homogeneous
+            if arr.dtype == object:
+                continue
+            chain_stats[field_name] = arr
+        except (ValueError, TypeError):
+            # Skip fields that can't be converted to arrays
+            pass
 
     # Reshape to (n_chunks, chunk_size, *site_shape) for split-R̂ and ESS
     chunk_size = n_samples // n_chunks
@@ -279,6 +316,8 @@ def certify_reference_nuts(
             f"num_divergences={num_divergences}, "
             f"e_bfmi={e_bfmi_val:.4f}",
             cert,
+            adaptation=adaptation,
+            chain_stats=chain_stats,
         )
 
     summaries = compute_summaries(draws)
@@ -310,4 +349,4 @@ def certify_reference_nuts(
         xcheck_dir.mkdir(parents=True, exist_ok=True)
         xcheck.save(xcheck_dir / f"{entry.name}.json")
 
-    return draws, summaries, adaptation, cert
+    return draws, summaries, adaptation, cert, chain_stats
