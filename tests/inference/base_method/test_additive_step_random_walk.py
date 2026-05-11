@@ -28,8 +28,8 @@ import jax.numpy as jnp
 import pytest
 from blackjax.mcmc.random_walk import RWState
 
-from bjx_bench.inference.base_method.additive_step_random_walk import ENTRY
 from tests.fixtures import mvn_5d_logdensity
+from tuningfork.inference.base_method.additive_step_random_walk import ENTRY
 
 pytestmark = pytest.mark.slow
 
@@ -186,7 +186,7 @@ class TestAddStepRwNoWarmupSchema:
         """no_warmup._runner raises NotImplementedError for any entry with
         non-empty extra_required_kwargs.  This proves schema integration.
         """
-        from bjx_bench.inference.warmup.no_warmup import _runner
+        from tuningfork.inference.warmup.no_warmup import _runner
 
         with pytest.raises(NotImplementedError, match="extra kwargs"):
             _runner(
@@ -200,7 +200,7 @@ class TestAddStepRwNoWarmupSchema:
 
     def test_no_warmup_error_mentions_method_name(self) -> None:
         """NotImplementedError message mentions the algorithm name."""
-        from bjx_bench.inference.warmup.no_warmup import _runner
+        from tuningfork.inference.warmup.no_warmup import _runner
 
         with pytest.raises(NotImplementedError, match="additive_step_random_walk"):
             _runner(

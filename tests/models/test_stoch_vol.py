@@ -21,8 +21,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.model.latent_gaussian.stoch_vol import ENTRY, RETURNS, T_LENGTH
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.model.latent_gaussian.stoch_vol import ENTRY, RETURNS, T_LENGTH
 
 pytestmark = pytest.mark.fast
 

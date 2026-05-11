@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.metrics.reference_compare.compute_sample_quality.
+"""Tests for tuningfork.metrics.reference_compare.compute_sample_quality.
 
 Five invariant classes:
   1. Dict-of-dicts input vs single-array input — both code paths exercised.
@@ -28,7 +28,7 @@ import warnings
 import numpy as np
 import pytest
 
-from bjx_bench.metrics.reference_compare import compute_sample_quality
+from tuningfork.metrics.reference_compare import compute_sample_quality
 
 pytestmark = pytest.mark.fast
 

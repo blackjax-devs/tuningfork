@@ -43,7 +43,7 @@ import jax.numpy as jnp
 import pytest
 from blackjax.base import SamplingAlgorithm
 
-from bjx_bench.inference.smc.adaptive_persistent_sampling import ENTRY
+from tuningfork.inference.smc.adaptive_persistent_sampling import ENTRY
 
 pytestmark = pytest.mark.slow
 

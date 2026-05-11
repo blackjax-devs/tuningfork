@@ -47,8 +47,8 @@ import pytest
 from blackjax.diagnostics import effective_sample_size, potential_scale_reduction
 from blackjax.mcmc.hmc import HMCState
 
-from bjx_bench.inference.base_method.rmhmc import ENTRY
 from tests.fixtures import mvn_5d_init, mvn_5d_logdensity
+from tuningfork.inference.base_method.rmhmc import ENTRY
 
 pytestmark = pytest.mark.slow
 

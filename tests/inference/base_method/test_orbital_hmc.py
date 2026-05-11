@@ -29,8 +29,8 @@ import jax.numpy as jnp
 import pytest
 from blackjax.mcmc.periodic_orbital import PeriodicOrbitalState
 
-from bjx_bench.inference.base_method.orbital_hmc import ENTRY
 from tests.fixtures import mvn_5d_init, mvn_5d_logdensity
+from tuningfork.inference.base_method.orbital_hmc import ENTRY
 
 pytestmark = pytest.mark.slow
 

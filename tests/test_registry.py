@@ -24,7 +24,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.model import MODELS, ReferenceMethod, build_logdensity_fn
+from tuningfork.model import MODELS, ReferenceMethod, build_logdensity_fn
 
 pytestmark = pytest.mark.fast
 
@@ -138,9 +138,9 @@ def test_inference_namespace_imports():
      If this
     fails, the restructure has broken a public namespace.
     """
-    from bjx_bench.inference.base_method import BASE_METHODS
-    from bjx_bench.inference.warmup import WARMUPS, Warmup
-    from bjx_bench.model import MODELS
+    from tuningfork.inference.base_method import BASE_METHODS
+    from tuningfork.inference.warmup import WARMUPS, Warmup
+    from tuningfork.model import MODELS
 
     assert isinstance(MODELS, dict)
     assert len(MODELS) >= 3  # mvn_10, neals_funnel, eight_schools_ncp

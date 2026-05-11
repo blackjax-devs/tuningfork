@@ -24,7 +24,7 @@ Provenance:
     Seed: jax.random.key(20260508).
 
 Output:
-    bjx_bench/data/stoch_vol_returns.npy  — float32 array of shape (500,)
+    tuningfork/data/stoch_vol_returns.npy  — float32 array of shape (500,)
 
 Usage:
     cd bjx-bench
@@ -43,7 +43,7 @@ PHI_TRUE: float = 0.95
 SIGMA_TRUE: float = 0.25
 T: int = 500
 
-_OUT = Path(__file__).parent.parent / "bjx_bench" / "data" / "stoch_vol_returns.npy"
+_OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "stoch_vol_returns.npy"
 
 
 def simulate(

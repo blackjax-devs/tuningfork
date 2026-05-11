@@ -28,7 +28,7 @@ import jax.numpy as jnp
 import pytest
 from blackjax.mcmc.random_walk import RWInfo, RWState
 
-from bjx_bench.inference.base_method.irmh import ENTRY
+from tuningfork.inference.base_method.irmh import ENTRY
 
 pytestmark = pytest.mark.fast
 
@@ -112,7 +112,7 @@ class TestIRMHDefaultParams:
     """default_params_for(ENTRY) returns an empty dict (HP-free)."""
 
     def test_default_params_empty(self) -> None:
-        from bjx_bench.calibration.tune import default_params_for
+        from tuningfork.calibration.tune import default_params_for
 
         params = default_params_for(ENTRY)
         assert params == {}, f"Expected empty dict, got {params!r}"

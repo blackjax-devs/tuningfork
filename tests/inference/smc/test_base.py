@@ -28,8 +28,8 @@ Covers:
 
 import pytest
 
-from bjx_bench.inference.base_method._base import HyperparamSpace
-from bjx_bench.inference.smc._base import SMCMethod
+from tuningfork.inference.base_method._base import HyperparamSpace
+from tuningfork.inference.smc._base import SMCMethod
 
 pytestmark = pytest.mark.fast
 

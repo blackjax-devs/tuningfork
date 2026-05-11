@@ -54,7 +54,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.calibration.statistician_gate import (
+from tuningfork.calibration.statistician_gate import (
     DEFAULT_THRESHOLDS,
     AutoGateVerdict,
     auto_gate,

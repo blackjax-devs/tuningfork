@@ -25,10 +25,10 @@ Provenance:
     cross-check available; Tier-A uses Long-NUTS self-check only.
 
 Output CSV:
-    bjx_bench/data/irt_2pl.csv — 2000-row long-format table with columns:
+    tuningfork/data/irt_2pl.csv — 2000-row long-format table with columns:
         student_id (0-indexed, 0..99), item_id (0-indexed, 0..19), response (0/1).
 
-    The loader in bjx_bench/model/hierarchical/irt_2pl.py reshapes the CSV
+    The loader in tuningfork/model/hierarchical/irt_2pl.py reshapes the CSV
     into a (J=100, I=20) 2-D JAX array RESPONSE[j, i].
 
 Usage:
@@ -48,7 +48,7 @@ _URL = (
     "posterior_database/data/data/irt_2pl.json.zip"
 )
 
-_OUT = Path(__file__).parent.parent / "bjx_bench" / "data" / "irt_2pl.csv"
+_OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "irt_2pl.csv"
 
 
 def main() -> None:

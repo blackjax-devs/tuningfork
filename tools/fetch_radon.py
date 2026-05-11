@@ -39,7 +39,7 @@ _URL = (
     "posterior_database/data/data/radon_all.json.zip"
 )
 
-_OUT = Path(__file__).parent.parent / "bjx_bench" / "data" / "radon.csv"
+_OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "radon.csv"
 
 
 def main() -> None:

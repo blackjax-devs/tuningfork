@@ -26,16 +26,16 @@ from typing import Any
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tune import default_params_for
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.recipes import Effort, Recipe
-from bjx_bench.inference.recipes._instructions import render_instructions
-from bjx_bench.model import MODELS
+from tuningfork.calibration.tune import default_params_for
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.recipes import Effort, Recipe
+from tuningfork.inference.recipes._instructions import render_instructions
+from tuningfork.model import MODELS
 
 # Path to the committed starter recipes
 _STARTER_ROOT = (
     Path(__file__).resolve().parents[2]
-    / "bjx_bench"
+    / "tuningfork"
     / "inference"
     / "recipes"
     / "starter"
@@ -441,7 +441,7 @@ def test_emit_low_recipes_sampler_filter(tmp_path: Path, monkeypatch) -> None:
     clobber committed recipes. Only tests LOW because it's deterministic
     and zero-cost (no MCMC).
     """
-    from bjx_bench.inference.recipes import _generate_starter
+    from tuningfork.inference.recipes import _generate_starter
 
     monkeypatch.setattr(_generate_starter, "_STARTER_ROOT", tmp_path)
     paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"], sampler="nuts")
@@ -454,7 +454,7 @@ def test_emit_low_recipes_no_filter_emits_all_methods(
     tmp_path: Path, monkeypatch
 ) -> None:
     """emit_low_recipes() with no sampler filter emits all 6 algos for the model."""
-    from bjx_bench.inference.recipes import _generate_starter
+    from tuningfork.inference.recipes import _generate_starter
 
     monkeypatch.setattr(_generate_starter, "_STARTER_ROOT", tmp_path)
     paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"])
@@ -469,7 +469,7 @@ def test_main_rejects_unknown_model(monkeypatch) -> None:
     """`--only <unknown>` raises SystemExit."""
     import sys
 
-    from bjx_bench.inference.recipes import _generate_starter
+    from tuningfork.inference.recipes import _generate_starter
 
     monkeypatch.setattr(
         sys,
@@ -485,7 +485,7 @@ def test_main_help_smoke() -> None:
     """`--help` exits with status 0 and prints flag descriptions."""
     import sys
 
-    from bjx_bench.inference.recipes import _generate_starter
+    from tuningfork.inference.recipes import _generate_starter
 
     saved_argv = sys.argv
     try:

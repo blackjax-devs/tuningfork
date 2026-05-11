@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tripwire tests for BlackJAX warmup/adaptation API shapes that bjx_bench relies on.
+"""Tripwire tests for BlackJAX warmup/adaptation API shapes that tuningfork relies on.
 
 These are defensive: if BlackJAX upstream changes the return-tuple shape or
 function signatures of any adaptation we depend on, these tests fire with a
@@ -33,17 +33,17 @@ pytestmark = pytest.mark.fast
 def test_blackjax_pathfinder_callable():
     """Tripwire: if upstream pathfinder API changes its callable signature, fail fast.
 
-    Pinned tripwire: bjx_bench/inference/warmup/pathfinder.py calls
+    Pinned tripwire: tuningfork/inference/warmup/pathfinder.py calls
     blackjax.pathfinder.approximate(rng_key, logdensity_fn, position, num_samples)
     and expects a 2-tuple (PathfinderState, PathfinderInfo) back.
     """
     assert callable(blackjax.pathfinder.approximate), (
         "blackjax.pathfinder.approximate must be callable; "
-        "update bjx_bench/inference/warmup/pathfinder.py if API changed."
+        "update tuningfork/inference/warmup/pathfinder.py if API changed."
     )
     assert callable(blackjax.pathfinder.sample), (
         "blackjax.pathfinder.sample must be callable; "
-        "update bjx_bench/inference/warmup/pathfinder.py if API changed."
+        "update tuningfork/inference/warmup/pathfinder.py if API changed."
     )
 
     def logdensity_fn(x):
@@ -55,27 +55,27 @@ def test_blackjax_pathfinder_callable():
     )
     assert len(result) == 2, (
         f"blackjax.pathfinder.approximate should return a 2-tuple (state, info), "
-        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/pathfinder.py."
+        f"got {len(result)}-tuple. Update tuningfork/inference/warmup/pathfinder.py."
     )
     pf_state, _pf_info = result
     for field in ("elbo", "position", "grad_position", "alpha", "beta", "gamma"):
         assert hasattr(pf_state, field), (
             f"PathfinderState lost field {field!r}. "
-            f"Update bjx_bench/inference/warmup/pathfinder.py."
+            f"Update tuningfork/inference/warmup/pathfinder.py."
         )
 
 
 def test_blackjax_multipathfinder_callable():
     """Tripwire: if upstream multipathfinder API changes, fail fast.
 
-    Pinned tripwire: bjx_bench/inference/warmup/multipathfinder.py calls
+    Pinned tripwire: tuningfork/inference/warmup/multipathfinder.py calls
     blackjax.multipathfinder(logdensity_fn).init(key, positions, num_samples)
     and expects a 2-tuple (MultipathfinderState, PathfinderInfo) back.
     psis_weights(state) must return a 2-tuple (log_weights, pareto_k).
     """
     assert callable(blackjax.multipathfinder), (
         "blackjax.multipathfinder must be callable; "
-        "update bjx_bench/inference/warmup/multipathfinder.py if API changed."
+        "update tuningfork/inference/warmup/multipathfinder.py if API changed."
     )
 
     from blackjax.vi.multipathfinder import psis_weights
@@ -88,20 +88,20 @@ def test_blackjax_multipathfinder_callable():
     result = mpf.init(key, jnp.zeros((2, 3)), num_samples=5)
     assert len(result) == 2, (
         f"multipathfinder.init should return a 2-tuple (state, info), "
-        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/multipathfinder.py."
+        f"got {len(result)}-tuple. Update tuningfork/inference/warmup/multipathfinder.py."
     )
     mpf_state, _info = result
     for field in ("path_states", "samples", "logp", "logq"):
         assert hasattr(mpf_state, field), (
             f"MultipathfinderState lost field {field!r}. "
-            f"Update bjx_bench/inference/warmup/multipathfinder.py."
+            f"Update tuningfork/inference/warmup/multipathfinder.py."
         )
 
     # psis_weights must return 2-tuple (log_weights, pareto_k)
     pw_result = psis_weights(mpf_state)
     assert len(pw_result) == 2, (
         f"psis_weights should return a 2-tuple (log_weights, pareto_k), "
-        f"got {len(pw_result)}-tuple. Update bjx_bench/inference/warmup/multipathfinder.py."
+        f"got {len(pw_result)}-tuple. Update tuningfork/inference/warmup/multipathfinder.py."
     )
 
 
@@ -109,7 +109,7 @@ def test_blackjax_meads_adaptation_signature():
     """Tripwire: blackjax.meads_adaptation must accept (logdensity_fn,
     num_chains, num_folds) as parameters.
 
-    Pinned tripwire: bjx_bench/inference/warmup/meads.py calls
+    Pinned tripwire: tuningfork/inference/warmup/meads.py calls
     blackjax.meads_adaptation(logdensity_fn, num_chains, num_folds=num_folds, ...).
     If upstream renames or removes any of these, the MEADS warmup fails.
     """
@@ -121,7 +121,7 @@ def test_blackjax_meads_adaptation_signature():
     assert not missing, (
         f"blackjax.meads_adaptation is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update bjx_bench/inference/warmup/meads.py if upstream API changed."
+        f"Update tuningfork/inference/warmup/meads.py if upstream API changed."
     )
 
 
@@ -129,7 +129,7 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
     """Tripwire: meads_adaptation.run() must return a 2-tuple
     (AdaptationResults, AdaptationInfo).
 
-    Pinned tripwire: bjx_bench/inference/warmup/meads.py unpacks the result as
+    Pinned tripwire: tuningfork/inference/warmup/meads.py unpacks the result as
     (adaptation_results, _adaptation_info) = meads.run(...).
     If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
     """
@@ -142,27 +142,27 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
     result = meads.run(key, jnp.zeros((4, 3)), num_steps=5)
     assert len(result) == 2, (
         f"meads_adaptation.run() should return a 2-tuple (AdaptationResults, AdaptationInfo), "
-        f"got {len(result)}-tuple. Update bjx_bench/inference/warmup/meads.py."
+        f"got {len(result)}-tuple. Update tuningfork/inference/warmup/meads.py."
     )
     adaptation_results, _adaptation_info = result
     assert hasattr(adaptation_results, "state"), (
         "AdaptationResults must have 'state' field; "
-        "update bjx_bench/inference/warmup/meads.py."
+        "update tuningfork/inference/warmup/meads.py."
     )
     assert hasattr(adaptation_results, "parameters"), (
         "AdaptationResults must have 'parameters' field; "
-        "update bjx_bench/inference/warmup/meads.py."
+        "update tuningfork/inference/warmup/meads.py."
     )
     for param_key in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
         assert param_key in adaptation_results.parameters, (
             f"meads_adaptation AdaptationResults.parameters lost key {param_key!r}. "
-            f"Update bjx_bench/inference/warmup/meads.py."
+            f"Update tuningfork/inference/warmup/meads.py."
         )
 
 
 # ───────────────── window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
-    """Pinned tripwire: bjx_bench/calibration/tune.py:_run_warmup uses
+    """Pinned tripwire: tuningfork/calibration/tune.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
     structurally for MALA, even though MALA's needs_mass_matrix=False
     — sanity check). Verifies the construction path stays valid.
@@ -192,8 +192,8 @@ def test_window_adaptation_constructs_for_supported_kernels():
 def test_mfvi_state_fields():
     """Tripwire: pin MFVIState._fields.
 
-    bjx_bench/inference/base_method/meanfield_vi.py and
-    bjx_bench/inference/warmup/meanfield_vi.py depend on MFVIState having
+    tuningfork/inference/base_method/meanfield_vi.py and
+    tuningfork/inference/warmup/meanfield_vi.py depend on MFVIState having
     fields ('mu', 'rho', 'opt_state').  If upstream renames or reorders
     these, the wrappers break silently.
     """
@@ -201,29 +201,29 @@ def test_mfvi_state_fields():
 
     assert MFVIState._fields == ("mu", "rho", "opt_state"), (
         f"MFVIState._fields changed: {MFVIState._fields}. "
-        f"Update bjx_bench/inference/base_method/meanfield_vi.py and "
-        f"bjx_bench/inference/warmup/meanfield_vi.py."
+        f"Update tuningfork/inference/base_method/meanfield_vi.py and "
+        f"tuningfork/inference/warmup/meanfield_vi.py."
     )
 
 
 def test_mfvi_info_fields():
     """Tripwire: pin MFVIInfo._fields.
 
-    bjx_bench wrappers expect MFVIInfo to have exactly ('elbo',).
+    tuningfork wrappers expect MFVIInfo to have exactly ('elbo',).
     """
     from blackjax.vi.meanfield_vi import MFVIInfo
 
     assert MFVIInfo._fields == ("elbo",), (
         f"MFVIInfo._fields changed: {MFVIInfo._fields}. "
-        f"Update bjx_bench/inference/base_method/meanfield_vi.py."
+        f"Update tuningfork/inference/base_method/meanfield_vi.py."
     )
 
 
 def test_frvi_state_fields():
     """Tripwire: pin FRVIState._fields.
 
-    bjx_bench/inference/base_method/fullrank_vi.py and
-    bjx_bench/inference/warmup/fullrank_vi.py depend on FRVIState having
+    tuningfork/inference/base_method/fullrank_vi.py and
+    tuningfork/inference/warmup/fullrank_vi.py depend on FRVIState having
     fields ('mu', 'chol_params', 'opt_state').  If upstream renames or
     reorders these, the wrappers break silently.
     """
@@ -231,21 +231,21 @@ def test_frvi_state_fields():
 
     assert FRVIState._fields == ("mu", "chol_params", "opt_state"), (
         f"FRVIState._fields changed: {FRVIState._fields}. "
-        f"Update bjx_bench/inference/base_method/fullrank_vi.py and "
-        f"bjx_bench/inference/warmup/fullrank_vi.py."
+        f"Update tuningfork/inference/base_method/fullrank_vi.py and "
+        f"tuningfork/inference/warmup/fullrank_vi.py."
     )
 
 
 def test_frvi_info_fields():
     """Tripwire: pin FRVIInfo._fields.
 
-    bjx_bench wrappers expect FRVIInfo to have exactly ('elbo',).
+    tuningfork wrappers expect FRVIInfo to have exactly ('elbo',).
     """
     from blackjax.vi.fullrank_vi import FRVIInfo
 
     assert FRVIInfo._fields == ("elbo",), (
         f"FRVIInfo._fields changed: {FRVIInfo._fields}. "
-        f"Update bjx_bench/inference/base_method/fullrank_vi.py."
+        f"Update tuningfork/inference/base_method/fullrank_vi.py."
     )
 
 
@@ -273,7 +273,7 @@ def test_meanfield_vi_as_top_level_api_signature():
     assert not missing, (
         f"meanfield_vi.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update bjx_bench/inference/base_method/meanfield_vi.py."
+        f"Update tuningfork/inference/base_method/meanfield_vi.py."
     )
 
 
@@ -301,5 +301,5 @@ def test_fullrank_vi_as_top_level_api_signature():
     assert not missing, (
         f"fullrank_vi.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update bjx_bench/inference/base_method/fullrank_vi.py."
+        f"Update tuningfork/inference/base_method/fullrank_vi.py."
     )

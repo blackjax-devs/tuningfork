@@ -33,8 +33,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.model.hierarchical.irt_2pl import (
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.model.hierarchical.irt_2pl import (
     DIM,
     ENTRY,
     N_ITEMS,

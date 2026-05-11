@@ -41,7 +41,7 @@ import pytest
 from blackjax.base import SamplingAlgorithm
 from blackjax.smc.tempered import TemperedSMCState
 
-from bjx_bench.inference.smc.tempered import ENTRY
+from tuningfork.inference.smc.tempered import ENTRY
 
 pytestmark = pytest.mark.slow
 

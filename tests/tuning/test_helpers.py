@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.calibration.tune (BO tuning).
+"""Tests for tuningfork.calibration.tune (BO tuning).
 
 Covers:
 - ``default_value_for_space``: one test per kind (loguniform, uniform, int,
@@ -52,7 +52,7 @@ import optuna
 import optuna.distributions as D
 import pytest
 
-from bjx_bench.calibration.tune import (
+from tuningfork.calibration.tune import (
     TuningDifficulty,
     TuningResult,
     default_params_for,
@@ -60,8 +60,8 @@ from bjx_bench.calibration.tune import (
     optuna_distribution_for_space,
     optuna_distributions_for,
 )
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.base_method._base import BaseMethod, HyperparamSpace
 
 pytestmark = pytest.mark.fast
 

@@ -19,8 +19,8 @@ import numpyro
 import numpyro.distributions as dist
 import pytest
 
-from bjx_bench.model._base import Posterior
-from bjx_bench.model._numpyro import build_logdensity_fn
+from tuningfork.model._base import Posterior
+from tuningfork.model._numpyro import build_logdensity_fn
 
 pytestmark = pytest.mark.fast
 

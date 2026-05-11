@@ -37,7 +37,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as stats
 import pytest
 
-from bjx_bench.inference.base_method.laplace_dmhmc import ENTRY
+from tuningfork.inference.base_method.laplace_dmhmc import ENTRY
 
 pytestmark = pytest.mark.slow
 
@@ -262,7 +262,7 @@ class TestLaplaceDMHMCNoWarmup:
     """Proves the extra_required_kwargs schema is wired: no_warmup raises NotImplementedError."""
 
     def test_no_warmup_raises_not_implemented(self) -> None:
-        from bjx_bench.inference.warmup.no_warmup import _runner
+        from tuningfork.inference.warmup.no_warmup import _runner
 
         with pytest.raises(NotImplementedError, match="extra kwargs"):
             _runner(

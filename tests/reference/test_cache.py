@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the reference cache I/O layer (bjx_bench.reference._io).
+"""Tests for the reference cache I/O layer (tuningfork.reference._io).
 
 Tests:
 - Round-trip write/load returns same draws.
@@ -29,8 +29,8 @@ import jax
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS
-from bjx_bench.reference._io import (
+from tuningfork.model import MODELS
+from tuningfork.reference._io import (
     _atomic_write_json,
     _atomic_write_npz,
     _metadata_path,

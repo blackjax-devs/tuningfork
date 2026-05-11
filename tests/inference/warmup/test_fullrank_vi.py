@@ -34,8 +34,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.warmup.fullrank_vi import ENTRY
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.warmup.fullrank_vi import ENTRY
 
 pytestmark = pytest.mark.slow
 

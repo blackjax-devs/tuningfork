@@ -31,8 +31,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.model.hierarchical.radon import (
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.model.hierarchical.radon import (
     COUNTY_IDX,
     DIM,
     ENTRY,

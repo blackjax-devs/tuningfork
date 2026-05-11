@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.runner.smc.
+"""Tests for tuningfork.runner.smc.
 
 Covers runner contract: shapes, JIT compatibility, termination conditions.
 Intentionally minimal — does NOT audit MCMC accuracy.
@@ -41,7 +41,7 @@ import pytest
 from blackjax.base import SamplingAlgorithm
 from blackjax.smc import resampling as _resampling
 
-from bjx_bench.runner.smc import init_particles_from_prior, run_smc
+from tuningfork.runner.smc import init_particles_from_prior, run_smc
 
 pytestmark = pytest.mark.slow
 
