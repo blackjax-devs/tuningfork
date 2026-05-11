@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `bjx-bench` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. Phase 6 (recipe building under auto-gate) is next; the active plan is `../PLAN_phase6_recipe_matrix.md` (statistician-authored, 8-table colour-coded effort matrix + supersession map).
 
-Architecture decisions: 14-model suite, 3-tier calibration protocol (Tier-A gold ref / Tier-B per-algorithm tuning / Tier-C warmup-isolated), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history + frozen design snapshots (Phases 1-5 plans, audits, retrospectives) live under `../archive/bjx-bench/`.
+Architecture decisions: 14-model suite, calibration protocol (certified reference draws as ground truth, BO over hyperparameters, warmup-only execution), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history + frozen design snapshots (Phases 1-5 plans, audits, retrospectives) live under `../archive/bjx-bench/`.
 
 This is a **sibling repo** to `blackjax/` and `sampling-book/`, not a subdir of either. Heavy deps (Optuna, datasets, plotting) live here so `blackjax/` core stays light.
 
@@ -23,8 +23,8 @@ make lint         # uv run pre-commit run --all-files
 ```
 
 `pyproject.toml` mirrors `sampling-book/pyproject.toml` (same model-implementation deps) and adds:
-- `optuna` — Tier-B Bayesian optimization
-- `posteriordb` — Tier-A cross-check (per resolved decision: cross-check against Stan refs for shared posteriors #3 8-Schools, #6 radon, #10 IRT)
+- `optuna` — Bayesian optimization for hyperparameter tuning
+- `posteriordb` — reference cross-check (per resolved decision: cross-check against Stan refs for shared posteriors #3 8-Schools, #6 radon, #10 IRT)
 - `pytest`, `pytest-cov`, `pre-commit`
 
 ## Test Suite & Markers
@@ -37,7 +37,7 @@ tests/
 ├── models/              # model-specific tests
 ├── recipes/             # recipe schema + emission
 ├── metrics/             # headline metric + diagnostics
-├── tier_a/, tier_b/     # certification + optimization
+├── reference/, tuning/  # reference certification + BO tuning
 ├── e2e/                 # end-to-end phase-gate suite
 ├── test_api_pins.py     # BlackJAX upstream contract (cross-cutting)
 └── test_registry.py     # registry checks (cross-cutting)
@@ -58,7 +58,7 @@ tests/
 **Three test_api_pins files at root** : `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
 
 **Mandatory for agents**:
-- Run `make clean-orphans` before any heavy test sweep. See  in `/home/jp/blackjax-devs/WORKLOG.md` — orphan Python REPLs can silently consume 7+ GB.
+- Run `make clean-orphans` before any heavy test sweep — orphan Python REPLs can silently consume 7+ GB. The underlying script lives at `~/claude-config/tools/clean_orphans.sh` (cross-repo); override the path with `CLAUDE_CONFIG_DIR` if needed.
 - When adding a test, tag it with **exactly one** of `@pytest.mark.fast` / `@pytest.mark.slow` / `@pytest.mark.e2e`. Use module-level `pytestmark = pytest.mark.<marker>` if all tests in the file are the same kind.
 
 For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
@@ -75,15 +75,16 @@ bjx_bench/
 │   ├── warmup/                # 10 warmup wrappers — see ENTRIES list below
 │   └── smc/                   # 6 SMC method wrappers — see ENTRIES list below
 ├── data/                      # raw datasets + generation scripts
-├── reference/                 # Tier-A artifacts
+├── reference/                 # reference artifacts
 │   ├── draws/                 # *.npz (gitignored; 100k-sample chains)
 │   ├── summaries/             # *.json (mean, std, 5%, 95%)
 │   ├── adaptation/            # *.json (step_size*, IMM*, num_leapfrog*)
 │   └── posteriordb_xcheck/    # discrepancy reports
 ├── calibration/
-│   ├── tier_a.py              # 1×100k NUTS, 10-chunk split-R̂ certifier
-│   ├── tier_b.py              # Optuna BO loop
-│   └── targets.py             # acceptance-rate / energy-error objectives
+│   ├── certify_reference.py        # 1×100k NUTS, 10-chunk split-R̂ certifier
+│   ├── certify_reference_analytic.py  # analytic-path certifier
+│   ├── tune.py                       # Optuna BO loop
+│   └── statistician_gate.py          # auto-gate (R̂/ESS/divergences/max_abs_mean_z)
 ├── metrics/
 │   ├── headline.py            # min-bulk-ESS / total_grad_evals
 │   ├── diagnostics.py
@@ -137,9 +138,9 @@ Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, in
 - Only commit `.md` files (MyST/Jupytext format). Never commit `.ipynb`.
 - Convert with: `jupytext notebooks/foo.md --to notebook` (for editing) and `jupytext notebooks/foo.ipynb --to myst` (before committing).
 
-## Reference: Tier-A protocol (the load-bearing decision)
+## Reference protocol (the load-bearing decision)
 
-Per user direction (2026-05-07), Tier-A uses a **single long chain reshaped into chunks** rather than multi-chain × shorter:
+Per user direction (2026-05-07), the reference-draws protocol uses a **single long chain reshaped into chunks** rather than multi-chain × shorter:
 
 - Default: 1 chain × 5,000 warmup × 100,000 post-warmup samples (NUTS + Stan window adaptation).
 - Reshape into 10 contiguous chunks of 10,000 → rank-normalized split-R̂ (Vehtari et al. 2021).

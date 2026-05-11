@@ -132,7 +132,7 @@ def _runner(
         ``"inverse_mass_matrix"`` has shape ``(num_chains, d)`` for diagonal
         or ``(num_chains, d, d)`` for dense.
     """
-    from bjx_bench.calibration.tier_b import default_value_for_space
+    from bjx_bench.calibration.tune import default_value_for_space
 
     target = target_acceptance_rate or base_method.target_acceptance_rate or 0.80
 

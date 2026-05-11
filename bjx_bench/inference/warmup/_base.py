@@ -36,7 +36,7 @@ num_chains
     Number of independent chains.  Default ``4``, matching Stan/NumPyro
     convention.  v2-P0 will study the chain-count/accuracy tradeoff per
     sampler; for now 4 is locked.  Pass ``num_chains=1`` explicitly when
-    single-chain semantics are required (e.g., Tier-B BO trials, which
+    single-chain semantics are required (e.g., BO tuning trials, which
     are intentionally single-chain — chain count is orthogonal to HP tuning).
 
 Returns
@@ -109,7 +109,7 @@ def squeeze_single_chain(
 
     Use this in callers that ran a warmup with ``num_chains=1`` and need the
     un-batched ``(state, params)`` shape that the rest of the codebase expects
-    (e.g. Tier-B BO trials, MEDIUM-effort recipe builders, single-chain demos).
+    (e.g. BO tuning trials, MEDIUM-effort recipe builders, single-chain demos).
 
     Behaviour
     ---------

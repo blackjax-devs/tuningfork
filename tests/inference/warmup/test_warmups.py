@@ -35,7 +35,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tier_b import _run_warmup, tune_algorithm
+from bjx_bench.calibration.tune import _run_warmup, tune_algorithm
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.warmup import WARMUPS, Warmup
 from bjx_bench.model import MODELS

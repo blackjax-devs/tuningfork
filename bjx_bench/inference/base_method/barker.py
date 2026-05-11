@@ -24,9 +24,9 @@ via the Barker function).  Optimal target acceptance rate ≈ 0.40
 
 Note on ``inverse_mass_matrix``: ``blackjax.barker`` accepts
 ``inverse_mass_matrix=None`` (identity metric) or an explicit array.  In
-Tier-B, the BO trial passes only ``step_size``; the mass matrix is either
+BO tuning, the BO trial passes only ``step_size``; the mass matrix is either
 left as ``None`` (identity) or supplied by the warmup adaptation.
-``needs_mass_matrix=True`` signals the Tier-B runner to thread one through.
+``needs_mass_matrix=True`` signals the BO tuning runner to thread one through.
 """
 
 import blackjax
@@ -48,6 +48,6 @@ ENTRY = BaseMethod(
         "Livingstone & Zanella '22 optimal accept ≈ 0.40. "
         "Constant 1 grad/step. inverse_mass_matrix from warmup adaptation "
         "(defaults to identity/None if no warmup). BO tunes step_size only; "
-        "IMM is passed separately by the Tier-B runner."
+        "IMM is passed separately by the BO tuning runner."
     ),
 )

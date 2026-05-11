@@ -151,8 +151,8 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
 #         Committed as bjx_bench/data/stoch_vol_returns.npy (float32, shape (500,)).
 #     posteriordb_id = None:
 #         No upstream stochastic-volatility posterior with reference draws exists.
-#         Tier-A uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.
-#     Tier-A budget:
+#         reference-certification uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.
+#     reference-certification budget:
 #         In-spawn verification: n_warmup=2000, n_samples=20000, 4 chains.
 #         Production cache: n_warmup=5000, n_samples=100000.
 #         (Escalated from radon's 1k/1k due to AR(1) autocorrelation; phi=0.95

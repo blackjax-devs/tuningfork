@@ -165,7 +165,7 @@ def test_from_tuning_result_nuts() -> None:
     - difficulty dict contains expected keys
     - n_trials_completed matches n_trials arg
     """
-    from bjx_bench.calibration.tier_b import tune_algorithm
+    from bjx_bench.calibration.tune import tune_algorithm
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
@@ -227,7 +227,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
     - inverse_mass_matrix (list[float]) in base_method_params round-trips.
     - difficulty dict (nested Python primitives) round-trips without JSON errors.
     """
-    from bjx_bench.calibration.tier_b import tune_algorithm
+    from bjx_bench.calibration.tune import tune_algorithm
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
@@ -281,7 +281,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
 @pytest.mark.slow
 def test_render_instructions_medium_and_high_real() -> None:
     """render_instructions on real MEDIUM and HIGH recipes returns meaningful prose."""
-    from bjx_bench.calibration.tier_b import tune_algorithm
+    from bjx_bench.calibration.tune import tune_algorithm
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]

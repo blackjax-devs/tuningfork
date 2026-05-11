@@ -206,7 +206,7 @@ def test_posterior_recovers_correct_signs_via_short_nuts() -> None:
     rng_key = jax.random.key(0)
     init_position, logdensity_fn, _ = build_logdensity_fn(rng_key, ENTRY)
 
-    # Short NUTS run — enough to check signs but not full Tier-A
+    # Short NUTS run — enough to check signs but not full reference-certification
     warmup = blackjax.window_adaptation(
         blackjax.nuts, logdensity_fn, target_acceptance_rate=0.80
     )

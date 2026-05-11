@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier-B per-algorithm tuning via Optuna BO. Foundation layer.
+"""per-algorithm BO tuning via Optuna BO. Foundation layer.
 
 Extended with mass-matrix kernels and sampler-swap (MALA/RWM,
 MCLMC dispatch, best_trial robustness guard).
@@ -122,7 +122,7 @@ class TuningDifficulty:
 
 @dataclass(frozen=True)
 class TuningResult:
-    """Outcome of one Tier-B ``tune_algorithm`` run.
+    """Outcome of one BO tuning ``tune_algorithm`` run.
 
     Parameters
     ----------

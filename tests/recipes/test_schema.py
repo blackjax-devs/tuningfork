@@ -26,7 +26,7 @@ from typing import Any
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tier_b import default_params_for
+from bjx_bench.calibration.tune import default_params_for
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.recipes import Effort, Recipe
 from bjx_bench.inference.recipes._instructions import render_instructions
@@ -375,7 +375,7 @@ _EXPECTED_DIFFICULTY_KEYS = (
 @pytest.mark.fast
 @pytest.mark.parametrize("model_name,method_name", _HIGH_COMBOS)
 def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -> None:
-    """each (starter_model, {hmc,nuts}) has a HIGH recipe via Tier-B BO
+    """each (starter_model, {hmc,nuts}) has a HIGH recipe via BO tuning
     at n_trials=20 with a valid headline_metric and TuningDifficulty profile."""
     path = _STARTER_ROOT / model_name / f"high__{method_name}__stan_window.json"
     assert (

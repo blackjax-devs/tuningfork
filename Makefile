@@ -1,4 +1,4 @@
-.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans tier-a tune
+.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans
 
 install:
 	uv sync --group bench
@@ -27,9 +27,12 @@ test-full:
 	$(MAKE) clean-orphans
 	JAX_PLATFORM_NAME=cpu uv run pytest tests -n 2
 
-# META-014: kill orphan Python REPLs and stale pytest workers
+# Kill orphan Python REPLs and stale pytest workers (memory hygiene before sweeps).
+# The script lives in claude-config (cross-repo tool); CLAUDE_CONFIG_DIR can override
+# the default ~/claude-config location.
+CLAUDE_CONFIG_DIR ?= $(HOME)/claude-config
 clean-orphans:
-	@bash tools/clean_orphans.sh
+	@bash $(CLAUDE_CONFIG_DIR)/tools/clean_orphans.sh
 
 lint:
 	uv run pre-commit run --all-files
@@ -37,15 +40,3 @@ lint:
 clean:
 	rm -rf .pytest_cache __pycache__ */__pycache__ */*/__pycache__ .venv
 	find . -name "*.pyc" -delete
-
-# Convenience entry points (Phase 6 wires up the real CLI)
-tier-a:
-	@echo "usage: make tier-a MODEL=<name>"
-	@echo "(Phase 1 will implement: bjx-bench tier-a $(MODEL))"
-
-tune:
-	@echo "usage: make tune MODEL=<name> ALGO=<name>"
-	@echo "(Phase 2 will implement: bjx-bench tune $(MODEL) $(ALGO))"
-
-claude-perms-audit:
-	uv run python tools/claude_perms_audit.py

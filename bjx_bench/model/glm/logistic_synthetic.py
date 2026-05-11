@@ -81,7 +81,7 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
 #       NUTS divergences. The revised design gives ~92% accuracy with genuine
 #       misclassifications and a finite, well-conditioned MLE — the correct
 #       regime for a "well-conditioned baseline GLM."
-#     - n_warmup=1000 for in-spawn Tier-A. The 3-D well-conditioned posterior
+#     - n_warmup=1000 for in-spawn reference-certification. The 3-D well-conditioned posterior
 #       adapts quickly; 5000 would be wasteful at this scale.
 #     Provenance:
 #         The swe sub-agent's spawn prompt asked it to obtain a Template-A

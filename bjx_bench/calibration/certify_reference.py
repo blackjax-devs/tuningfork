@@ -11,13 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier-A NUTS path (Path B) — long single-chain NUTS reference certification.
+"""long-NUTS reference-certification path (Path B) — long single-chain NUTS reference certification.
 
 Runs 1 chain × n_warmup warmup × n_samples post-warmup NUTS steps using
 BlackJAX's window adaptation (Stan-style).  Reshapes into n_chunks contiguous
 chunks for rank-normalised split-R̂ and bulk-ESS diagnostics.
 
-Certification gate (Tier-A):
+Certification gate (reference-certification):
     - rank-normalised split-R̂ ≤ 1.01
     - min per-chunk bulk-ESS > 400
     - num_divergences == 0
@@ -53,7 +53,7 @@ __all__ = [
 class AdaptationParams:
     """Tuned NUTS parameters from window adaptation warmup.
 
-    Used as informative priors (not optima) for Tier-B search ranges.
+    Used as informative priors (not optima) for BO tuning search ranges.
 
     Parameters
     ----------
@@ -73,7 +73,7 @@ class AdaptationParams:
 
 @dataclass(frozen=True)
 class CertificationResult:
-    """Diagnostic summary from a Tier-A NUTS run.
+    """Diagnostic summary from a long-NUTS reference-certification run.
 
     Parameters
     ----------
@@ -97,7 +97,7 @@ class CertificationResult:
 
 
 class CertificationError(RuntimeError):
-    """Raised when a Path-B run fails the Tier-A gate.
+    """Raised when a Path-B run fails the reference-certification gate.
 
     Carries ``cert: CertificationResult`` so the caller can log the failure
     and decide to re-run with more samples or a different seed.
@@ -109,7 +109,7 @@ class CertificationError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# Gate thresholds (per Tier-A protocol in CLAUDE.md)
+# Gate thresholds (per reference-certification protocol in CLAUDE.md)
 # ---------------------------------------------------------------------------
 _RHAT_THRESHOLD = 1.01
 _MIN_CHUNK_ESS = 400.0
@@ -273,7 +273,7 @@ def certify_reference_nuts(
 
     if not passed:
         raise CertificationError(
-            f"Tier-A certification failed for {entry.name!r}: "
+            f"reference-certification certification failed for {entry.name!r}: "
             f"split_rhat_max={split_rhat_max:.4f}, "
             f"min_chunk_bulk_ess={min_chunk_bulk_ess:.1f}, "
             f"num_divergences={num_divergences}, "

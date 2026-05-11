@@ -92,7 +92,7 @@ class TestEllipSliceDefaultParams:
     """default_params_for(ENTRY) returns an empty dict (HP-free)."""
 
     def test_default_params_empty(self) -> None:
-        from bjx_bench.calibration.tier_b import default_params_for
+        from bjx_bench.calibration.tune import default_params_for
 
         params = default_params_for(ENTRY)
         assert params == {}, f"Expected empty dict, got {params!r}"

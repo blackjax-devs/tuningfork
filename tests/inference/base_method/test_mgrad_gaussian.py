@@ -106,7 +106,7 @@ class TestMgradGaussianDefaultParams:
     """default_params_for(ENTRY) returns {step_size: geometric midpoint of [1e-3, 10]}."""
 
     def test_default_params_has_step_size(self) -> None:
-        from bjx_bench.calibration.tier_b import default_params_for
+        from bjx_bench.calibration.tune import default_params_for
 
         params = default_params_for(ENTRY)
         assert "step_size" in params, f"Expected step_size in params, got {params!r}"
@@ -115,7 +115,7 @@ class TestMgradGaussianDefaultParams:
         """default_value_for_space uses 70th-percentile on log-scale:
         low * (high / low) ** 0.7 = 1e-3 * (1e4) ** 0.7 ≈ 0.631.
         """
-        from bjx_bench.calibration.tier_b import default_params_for
+        from bjx_bench.calibration.tune import default_params_for
 
         params = default_params_for(ENTRY)
         expected = 1e-3 * (10.0 / 1e-3) ** 0.7

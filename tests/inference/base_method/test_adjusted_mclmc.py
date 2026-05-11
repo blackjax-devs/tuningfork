@@ -27,7 +27,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tier_b import default_params_for
+from bjx_bench.calibration.tune import default_params_for
 from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY
 from bjx_bench.model import MODELS
 

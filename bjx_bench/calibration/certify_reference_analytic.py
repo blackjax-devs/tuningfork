@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier-A analytic path (Path A) — certify reference draws for analytic models.
+"""analytic reference-certification path (Path A) — certify reference draws for analytic models.
 
 For models with a known closed-form posterior, we sample directly from the
 analytic distribution.  Validation is done by comparing empirical moments to

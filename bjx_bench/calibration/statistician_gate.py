@@ -282,7 +282,7 @@ def _samples_to_multichain(
     layout (ndim ≥ 2 for scalar params, ndim ≥ 3 for vector params), the
     dict is returned as-is.  Otherwise (single-chain layout with shape
     ``(n_samples, *event_shape)``), the samples are reshaped into ``n_chunks``
-    contiguous segments following the Tier-A split-R̂ protocol.
+    contiguous segments following the reference-certification split-R̂ protocol.
 
     Parameters
     ----------

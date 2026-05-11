@@ -29,7 +29,7 @@ __all__ = ["ReferenceMethod", "Posterior"]
 
 
 class ReferenceMethod(str, Enum):
-    """How the Tier-A reference draws are produced for a given posterior."""
+    """How the reference draws are produced for a given posterior."""
 
     ANALYTIC = "analytic"
     NUTS = "nuts"
@@ -91,7 +91,7 @@ class Posterior:
     model_args: tuple[Any, ...] = ()
     model_kwargs: dict[str, Any] = field(default_factory=dict)
 
-    # ---- Tier-A reference path ----
+    # ---- reference path ----
     # Exactly one of (analytic_sampler, needs_long_nuts) determines the path.
     analytic_sampler: Callable[[Array, int], dict[str, Array]] | None = None
 

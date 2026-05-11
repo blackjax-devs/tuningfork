@@ -66,7 +66,7 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
 
 # Design notes (German Credit is a follow-on GLM variant):
 #     - German Credit follows the same prior structure as logistic_synthetic.
-#     - n_warmup=2000 for in-spawn Tier-A (higher than logistic_synthetic's 1000
+#     - n_warmup=2000 for in-spawn reference-certification (higher than logistic_synthetic's 1000
 #       because dim is ~8× larger; 25-D posterior needs more warmup for window
 #       adaptation to converge; in practice 2000 steps suffices per a-priori
 #       expectation for a well-conditioned logistic regression at this scale).

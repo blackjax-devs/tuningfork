@@ -13,8 +13,11 @@
 # limitations under the License.
 """Calibration modules for bjx-bench.
 
-Tier-A: gold reference generation and certification.
-    - ``tier_a_analytic``: analytic path (Path A).
-    - ``tier_a``: long-NUTS path (Path B).
+Reference-draw certification, BO tuning, and the Statistician auto-gate.
+
+    - ``certify_reference_analytic``: analytic-sampler certifier (Path A).
+    - ``certify_reference``: long-NUTS certifier (Path B).
+    - ``tune``: Optuna BO over sampler / warmup hyperparameters.
+    - ``statistician_gate``: auto-gate verdict from sample diagnostics.
     - ``_summary``: Summaries dataclass + compute_summaries helper.
 """

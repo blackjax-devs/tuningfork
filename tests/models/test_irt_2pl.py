@@ -25,7 +25,7 @@ Notes
 -----
 All tests are @pytest.mark.fast (no MCMC).
 posteriordb_id is explicitly None: 'irt_2pl-irt_2pl' has no reference posterior
-draws upstream. Tier-A uses Long-NUTS self-check only.
+draws upstream. reference-certification uses Long-NUTS self-check only.
 """
 
 import jax
@@ -109,7 +109,7 @@ def test_posteriordb_id_none() -> None:
 
     'irt_2pl-irt_2pl' has reference_posterior_name: null in posteriordb metadata.
     There are no Stan reference draws available for cross-checking.
-    Tier-A uses Long-NUTS self-check (split-R̂) only.
+    reference-certification uses Long-NUTS self-check (split-R̂) only.
     """
     assert (
         MODELS["irt_2pl"].posteriordb_id is None

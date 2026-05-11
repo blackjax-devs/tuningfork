@@ -14,7 +14,7 @@
 """NumPyro helper for building BlackJAX-ready log-density functions.
 
 This is the single helper used by every Path-B (long-NUTS) reference run and by
-every Tier-B / Tier-C run that needs ``logdensity_fn``.
+every BO tuning / warmup-only run that needs ``logdensity_fn``.
 
 Pinned upstream API (NumPyro 0.21.0):
     ``initialize_model`` returns
