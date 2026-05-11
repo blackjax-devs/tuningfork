@@ -30,8 +30,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.model.glm.logistic_synthetic import DIM, ENTRY, X_DATA, Y_DATA
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.model.glm.logistic_synthetic import DIM, ENTRY, X_DATA, Y_DATA
 
 pytestmark = pytest.mark.fast
 
@@ -70,8 +70,8 @@ def test_dim_class_tags() -> None:
 def test_data_is_deterministic() -> None:
     """X_DATA and Y_DATA must be deterministic: same values on every import."""
     # Re-import to check stability — same module object, but we verify values
-    from bjx_bench.model.glm.logistic_synthetic import X_DATA as x2
-    from bjx_bench.model.glm.logistic_synthetic import Y_DATA as y2
+    from tuningfork.model.glm.logistic_synthetic import X_DATA as x2
+    from tuningfork.model.glm.logistic_synthetic import Y_DATA as y2
 
     assert np.array_equal(np.asarray(X_DATA), np.asarray(x2)), "X_DATA not stable"
     assert np.array_equal(np.asarray(Y_DATA), np.asarray(y2)), "Y_DATA not stable"

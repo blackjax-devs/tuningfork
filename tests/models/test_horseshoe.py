@@ -33,8 +33,8 @@ import jax.scipy.stats as stats
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.model.glm.horseshoe import (
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.model.glm.horseshoe import (
     _X_JAX,
     _Y_JAX,
     BETA_TRUE,

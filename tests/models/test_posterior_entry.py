@@ -19,7 +19,7 @@ import numpyro
 import numpyro.distributions as dist
 import pytest
 
-from bjx_bench.model._base import Posterior, ReferenceMethod
+from tuningfork.model._base import Posterior, ReferenceMethod
 
 pytestmark = pytest.mark.fast
 

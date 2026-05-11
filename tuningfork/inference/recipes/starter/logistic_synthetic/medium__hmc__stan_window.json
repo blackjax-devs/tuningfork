@@ -1,0 +1,33 @@
+{
+  "model_name": "logistic_synthetic",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.4427497088909149,
+    "num_integration_steps": 64,
+    "inverse_mass_matrix": [
+      0.6649039387702942,
+      0.9714428186416626,
+      1.5836620330810547
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 1000
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.3802233469905332,
+    "n_warmup": 1000
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (stan_window adaptation). To use:\n  ```python\n  warmup = blackjax.window_adaptation(blackjax.hmc, logdensity_fn, **{'n_warmup': 1000})\n  (state, params), _ = warmup.run(rng_key, init_position, 1000)\n  kernel = blackjax.hmc(logdensity_fn, **params)\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: None.\nWarmup wall time: ~0 s.",
+  "notes": "",
+  "tuning_seed": 3240281728,
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T13:55:46Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
+}

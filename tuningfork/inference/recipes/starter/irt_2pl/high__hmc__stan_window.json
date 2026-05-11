@@ -1,0 +1,35 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.0738729159038507,
+    "num_integration_steps": 41
+  },
+  "warmup_params": {},
+  "headline_metric": 0.006079889601096511,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 209.27509120700415,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 0.0004588160227285698,
+    "best_score": 0.006079889601096511,
+    "threshold_score": 0.0030399448005482554,
+    "default_works": false,
+    "n_trials_to_threshold": 7,
+    "n_trials_to_best": 19,
+    "wall_seconds_to_threshold": 91.96406666599796,
+    "wall_seconds_to_best": 209.27509120700415
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune irt_2pl hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0738729159038507, 'num_integration_steps': 41}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0061.\nTotal calibration time: ~3 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T18:08:03Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
+}

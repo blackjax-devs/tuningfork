@@ -27,13 +27,13 @@ min_chunk_bulk_ess ≈ 554, 0 divergences, e_bfmi ≈ 0.97.
 import jax
 import pytest
 
-from bjx_bench.calibration._summary import Summaries
-from bjx_bench.calibration.certify_reference import (
+from tuningfork.calibration._summary import Summaries
+from tuningfork.calibration.certify_reference import (
     AdaptationParams,
     CertificationResult,
     certify_reference_nuts,
 )
-from bjx_bench.model import MODELS
+from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.slow
 

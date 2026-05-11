@@ -42,8 +42,8 @@ import jax.numpy as jnp
 import pytest
 from blackjax.base import SamplingAlgorithm
 
-from bjx_bench.inference.smc._base import SMCMethod
-from bjx_bench.inference.smc.partial_posteriors import ENTRY
+from tuningfork.inference.smc._base import SMCMethod
+from tuningfork.inference.smc.partial_posteriors import ENTRY
 
 pytestmark = pytest.mark.fast
 

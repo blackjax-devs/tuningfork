@@ -1,0 +1,35 @@
+{
+  "model_name": "eight_schools_ncp",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.8463441640699834,
+    "num_integration_steps": 2
+  },
+  "warmup_params": {},
+  "headline_metric": 0.09938796237111092,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 39.59462353499839,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 0.0011160183348692954,
+    "best_score": 0.09938796237111092,
+    "threshold_score": 0.04969398118555546,
+    "default_works": false,
+    "n_trials_to_threshold": 10,
+    "n_trials_to_best": 11,
+    "wall_seconds_to_threshold": 36.306326660997,
+    "wall_seconds_to_best": 39.59462353499839
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune eight_schools_ncp hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.8463441640699834, 'num_integration_steps': 2}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0994.\nTotal calibration time: ~0 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T14:06:15Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
+}

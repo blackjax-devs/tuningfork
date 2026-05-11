@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""End-to-end tests — `bjx-bench tune` CLI subprocess integration.
+"""End-to-end tests — `tuningfork tune` CLI subprocess integration.
 
-Spawns ``bjx-bench tune <model> <algo> ...`` as a subprocess with an isolated
-``BJX_BENCH_REFERENCE_DIR`` pointing at a ``tmp_path`` so tests do not pollute
+Spawns ``tuningfork tune <model> <algo> ...`` as a subprocess with an isolated
+``TUNINGFORK_REFERENCE_DIR`` pointing at a ``tmp_path`` so tests do not pollute
 the committed reference cache or each other.
 
 Five tests:
@@ -43,10 +43,10 @@ def _run_tune(
     timeout: int = 180,
     check: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run ``uv run bjx-bench tune <args>`` with an isolated reference dir."""
-    env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+    """Run ``uv run tuningfork tune <args>`` with an isolated reference dir."""
+    env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
-        ["uv", "run", "bjx-bench", "tune", *args],
+        ["uv", "run", "tuningfork", "tune", *args],
         env=env,
         capture_output=True,
         text=True,
@@ -58,7 +58,7 @@ def _run_tune(
 
 @pytest.mark.e2e
 class TestTuneCLI:
-    """Integration tests for ``bjx-bench tune``."""
+    """Integration tests for ``tuningfork tune``."""
 
     def test_nuts_mvn_smoke(self, tmp_path: Path) -> None:
         """NUTS on MVN-10 with n_trials=3 must exit 0 and print summary keys."""

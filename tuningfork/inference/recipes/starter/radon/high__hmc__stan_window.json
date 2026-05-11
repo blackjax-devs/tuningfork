@@ -1,0 +1,35 @@
+{
+  "model_name": "radon",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.3413855479759733,
+    "num_integration_steps": 5
+  },
+  "warmup_params": {},
+  "headline_metric": 0.007679176749661565,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 221.46524379498442,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 7.401423499686643e-05,
+    "best_score": 0.007679176749661565,
+    "threshold_score": 0.0038395883748307824,
+    "default_works": false,
+    "n_trials_to_threshold": 14,
+    "n_trials_to_best": 14,
+    "wall_seconds_to_threshold": 221.46524379498442,
+    "wall_seconds_to_best": 221.46524379498442
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune radon hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.3413855479759733, 'num_integration_steps': 5}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0077.\nTotal calibration time: ~3 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T17:29:08Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
+}

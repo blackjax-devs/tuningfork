@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import pytest
 from blackjax.mcmc.elliptical_slice import EllipSliceState
 
-from bjx_bench.inference.base_method.elliptical_slice import ENTRY
+from tuningfork.inference.base_method.elliptical_slice import ENTRY
 
 pytestmark = pytest.mark.fast
 
@@ -92,7 +92,7 @@ class TestEllipSliceDefaultParams:
     """default_params_for(ENTRY) returns an empty dict (HP-free)."""
 
     def test_default_params_empty(self) -> None:
-        from bjx_bench.calibration.tune import default_params_for
+        from tuningfork.calibration.tune import default_params_for
 
         params = default_params_for(ENTRY)
         assert params == {}, f"Expected empty dict, got {params!r}"

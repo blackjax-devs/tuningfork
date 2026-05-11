@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 
-from bjx_bench.inference.base_method.meanfield_vi import ENTRY, MFVISamplerState
+from tuningfork.inference.base_method.meanfield_vi import ENTRY, MFVISamplerState
 
 pytestmark = pytest.mark.slow
 

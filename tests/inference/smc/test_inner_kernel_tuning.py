@@ -45,8 +45,8 @@ import pytest
 from blackjax.base import SamplingAlgorithm
 from blackjax.smc.inner_kernel_tuning import StateWithParameterOverride
 
-from bjx_bench.inference.smc._base import SMCMethod
-from bjx_bench.inference.smc.inner_kernel_tuning import ENTRY
+from tuningfork.inference.smc._base import SMCMethod
+from tuningfork.inference.smc.inner_kernel_tuning import ENTRY
 
 pytestmark = pytest.mark.fast
 

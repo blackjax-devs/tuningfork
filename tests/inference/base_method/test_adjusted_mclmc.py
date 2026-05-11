@@ -27,9 +27,9 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tune import default_params_for
-from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY
-from bjx_bench.model import MODELS
+from tuningfork.calibration.tune import default_params_for
+from tuningfork.inference.base_method.adjusted_mclmc import ENTRY
+from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.fast
 
@@ -44,7 +44,7 @@ _RNG_KEY = jax.random.key(_SEED)
 
 
 def _build_logdensity(posterior_entry, key):
-    from bjx_bench.model._numpyro import build_logdensity_fn
+    from tuningfork.model._numpyro import build_logdensity_fn
 
     init_position, logdensity_fn, _ = build_logdensity_fn(key, posterior_entry)
     return init_position, logdensity_fn

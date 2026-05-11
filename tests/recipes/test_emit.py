@@ -26,16 +26,16 @@ from pathlib import Path
 import jax
 import pytest
 
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.recipes import Effort, Recipe
-from bjx_bench.inference.recipes._instructions import render_instructions
-from bjx_bench.inference.warmup import WARMUPS
-from bjx_bench.model import MODELS
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.recipes import Effort, Recipe
+from tuningfork.inference.recipes._instructions import render_instructions
+from tuningfork.inference.warmup import WARMUPS
+from tuningfork.model import MODELS
 
 # Path to the committed starter recipes
 _STARTER_ROOT = (
     Path(__file__).resolve().parents[2]
-    / "bjx_bench"
+    / "tuningfork"
     / "inference"
     / "recipes"
     / "starter"
@@ -165,7 +165,7 @@ def test_from_tuning_result_nuts() -> None:
     - difficulty dict contains expected keys
     - n_trials_completed matches n_trials arg
     """
-    from bjx_bench.calibration.tune import tune_algorithm
+    from tuningfork.calibration.tune import tune_algorithm
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
@@ -227,7 +227,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
     - inverse_mass_matrix (list[float]) in base_method_params round-trips.
     - difficulty dict (nested Python primitives) round-trips without JSON errors.
     """
-    from bjx_bench.calibration.tune import tune_algorithm
+    from tuningfork.calibration.tune import tune_algorithm
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
@@ -281,7 +281,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
 @pytest.mark.slow
 def test_render_instructions_medium_and_high_real() -> None:
     """render_instructions on real MEDIUM and HIGH recipes returns meaningful prose."""
-    from bjx_bench.calibration.tune import tune_algorithm
+    from tuningfork.calibration.tune import tune_algorithm
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]

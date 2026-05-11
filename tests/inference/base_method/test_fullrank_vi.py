@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 
-from bjx_bench.inference.base_method.fullrank_vi import ENTRY, FRVISamplerState
+from tuningfork.inference.base_method.fullrank_vi import ENTRY, FRVISamplerState
 
 pytestmark = pytest.mark.slow
 

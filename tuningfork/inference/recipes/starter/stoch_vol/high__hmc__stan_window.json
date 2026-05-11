@@ -1,0 +1,35 @@
+{
+  "model_name": "stoch_vol",
+  "base_method_name": "hmc",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.09335822367901782,
+    "num_integration_steps": 16
+  },
+  "warmup_params": {},
+  "headline_metric": 0.008714143186807632,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 18.511309877008898,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 2.7213647626922466e-05,
+    "best_score": 0.008714143186807632,
+    "threshold_score": 0.004357071593403816,
+    "default_works": false,
+    "n_trials_to_threshold": 2,
+    "n_trials_to_best": 2,
+    "wall_seconds_to_threshold": 18.511309877008898,
+    "wall_seconds_to_best": 18.511309877008898
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune stoch_vol hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.09335822367901782, 'num_integration_steps': 16}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0087.\nTotal calibration time: ~0 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T18:39:27Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
+}

@@ -23,8 +23,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.model.ode.lotka_volterra import (
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.model.ode.lotka_volterra import (
     MU_TRUE,
     OBSERVATION_TIMES,
     OBSERVATIONS,

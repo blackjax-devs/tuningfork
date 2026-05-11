@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.metrics.grad_counter.total_grad_evals.
+"""Tests for tuningfork.metrics.grad_counter.total_grad_evals.
 
 The key empirical question (documented here):
     Does jax.vmap over a BlackJAX-style NamedTuple-of-Arrays work
@@ -33,7 +33,7 @@ from typing import NamedTuple
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.metrics.grad_counter import total_grad_evals
+from tuningfork.metrics.grad_counter import total_grad_evals
 
 pytestmark = pytest.mark.fast
 

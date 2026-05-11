@@ -32,8 +32,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS, ReferenceMethod, build_logdensity_fn
-from bjx_bench.model.pathological.banana import DIM, ENTRY, SIGMA_X1
+from tuningfork.model import MODELS, ReferenceMethod, build_logdensity_fn
+from tuningfork.model.pathological.banana import DIM, ENTRY, SIGMA_X1
 
 pytestmark = pytest.mark.fast
 

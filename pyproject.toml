@@ -3,7 +3,7 @@ requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bjx-bench"
+name = "tuningfork"
 authors = [{name = "The Blackjax team"}]
 description = "Benchmark library for BlackJAX MCMC/VI/SMC algorithms — calibrated, gradient-counted comparisons across a curated 14-model suite."
 requires-python = ">=3.11"
@@ -41,7 +41,7 @@ bench = [
     "scikit-learn",
     "seaborn",
     "tfp-nightly[jax]",
-    # bjx-bench-specific additions
+    # tuningfork-specific additions
     "optuna",                   # Tier-B Bayesian optimization over hyperparameters
     "posteriordb",              # Tier-A cross-check against Stan reference draws (#3, #6, #10)
     "pytest",
@@ -51,7 +51,7 @@ bench = [
 ]
 
 [project.urls]
-homepage = "https://github.com/blackjax-devs/bjx-bench"
+homepage = "https://github.com/blackjax-devs/tuningfork"
 
 [project.license]
 text = "Apache-2.0"
@@ -62,17 +62,17 @@ file = "README.md"
 content-type = "text/markdown"
 
 [project.scripts]
-bjx-bench = "bjx_bench.cli:main"
+tuningfork = "tuningfork.cli:main"
 
 [tool.setuptools]
 platforms = ["Linux", "Mac OS-X", "Unix"]
 
 [tool.setuptools.packages.find]
-include = ["bjx_bench*"]
+include = ["tuningfork*"]
 exclude = ["tests", "tests.*", "notebooks", "notebooks.*", "results", "results.*"]
 
 [tool.setuptools_scm]
-write_to = "bjx_bench/_version.py"
+write_to = "tuningfork/_version.py"
 
 [tool.isort]
 profile = "black"

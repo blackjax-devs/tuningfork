@@ -1,0 +1,34 @@
+{
+  "model_name": "stoch_vol",
+  "base_method_name": "nuts",
+  "warmup_name": "stan_window",
+  "effort": "high",
+  "base_method_params": {
+    "step_size": 0.11552230068798776
+  },
+  "warmup_params": {},
+  "headline_metric": 0.008299467153847218,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 20,
+    "wall_seconds_estimate": 51.72698959198897,
+    "n_seeds": 2
+  },
+  "difficulty": {
+    "default_score": 0.001040614180965349,
+    "best_score": 0.008299467153847218,
+    "threshold_score": 0.004149733576923609,
+    "default_works": false,
+    "n_trials_to_threshold": 3,
+    "n_trials_to_best": 3,
+    "wall_seconds_to_threshold": 51.72698959198897,
+    "wall_seconds_to_best": 51.72698959198897
+  },
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune stoch_vol nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.11552230068798776}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0083.\nTotal calibration time: ~0 min.",
+  "notes": "",
+  "tuning_seed": 0,
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-08T18:37:15Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
+}

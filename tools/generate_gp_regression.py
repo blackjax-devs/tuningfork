@@ -26,13 +26,13 @@ Provenance:
     Seed: jax.random.PRNGKey(42).
 
 Output:
-    bjx_bench/data/gp_regression.npz  — dict with:
+    tuningfork/data/gp_regression.npz  — dict with:
         X       : float32 array of shape (200,)  — inputs in [0, 1]
         y       : float32 array of shape (200,)  — noisy observations
         f_true  : float32 array of shape (200,)  — noiseless ground-truth
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/generate_gp_regression.py
 """
 
@@ -46,7 +46,7 @@ import numpy as np
 TRUE_NOISE_SCALE: float = 0.1
 N: int = 200
 
-_OUT = Path(__file__).parent.parent / "bjx_bench" / "data" / "gp_regression.npz"
+_OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "gp_regression.npz"
 
 
 def simulate(

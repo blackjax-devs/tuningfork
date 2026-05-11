@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`bjx-bench` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. Phase 6 (recipe building under auto-gate) is next; the active plan is `../PLAN_phase6_recipe_matrix.md` (statistician-authored, 8-table colour-coded effort matrix + supersession map).
+`tuningfork` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. Phase 6 (recipe building under auto-gate) is next; the active plan is `../PLAN_phase6_recipe_matrix.md` (statistician-authored, 8-table colour-coded effort matrix + supersession map).
 
 Architecture decisions: 14-model suite, calibration protocol (certified reference draws as ground truth, BO over hyperparameters, warmup-only execution), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history + frozen design snapshots (Phases 1-5 plans, audits, retrospectives) live under `../archive/bjx-bench/`.
 
@@ -29,7 +29,7 @@ make lint         # uv run pre-commit run --all-files
 
 ## Test Suite & Markers
 
-Tests are organized under `tests/` mirroring the source layout in `bjx_bench/`:
+Tests are organized under `tests/` mirroring the source layout in `tuningfork/`:
 
 ```
 tests/
@@ -68,10 +68,10 @@ For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Architecture
 
-Source layout (top-level subpackages of `bjx_bench/`):
+Source layout (top-level subpackages of `tuningfork/`):
 
 ```
-bjx_bench/
+tuningfork/
 ├── model/                     # 14 PosteriorEntry definitions + MODELS registry
 ├── inference/
 │   ├── base_method/           # 24 wrappers — see ENTRIES list below
@@ -94,7 +94,7 @@ bjx_bench/
 ├── runner/
 │   └── smc.py                 # init_particles_from_prior + run_smc helpers
 ├── reporting/                 # (placeholder; no submodules yet)
-└── cli.py                     # bjx-bench reference / warmup / tune subcommands
+└── cli.py                     # tuningfork reference / warmup / tune subcommands
 ```
 
 ### Inventory
@@ -151,4 +151,4 @@ Per user direction (2026-05-07), the reference-draws protocol uses a **single lo
 
 ## Worklog
 
-`/home/jp/blackjax-devs/WORKLOG.md` is the shared external memory across all three repos (`blackjax/`, `sampling-book/`, `bjx-bench/`).
+`/home/jp/blackjax-devs/WORKLOG.md` is the shared external memory across all three repos (`blackjax/`, `sampling-book/`, `tuningfork/`).

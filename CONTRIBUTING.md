@@ -1,10 +1,10 @@
-# Contributing to bjx-bench
+# Contributing to tuningfork
 
-This document outlines the conventions for developing and testing `bjx-bench`.
+This document outlines the conventions for developing and testing `tuningfork`.
 
 ## Test Layout
 
-Tests mirror the source structure under `bjx_bench/`:
+Tests mirror the source structure under `tuningfork/`:
 
 ```
 tests/
@@ -125,15 +125,15 @@ For minor test changes (adding a marker, adjusting an assertion), one-line commi
 
 | Component | Module Path | Tests Location |
 |-----------|-------------|-----------------|
-| Algorithm wrappers (HMC, NUTS, MALA, etc.) | `bjx_bench/inference/` | `tests/inference/base_method/`, `tests/inference/warmup/` |
-| Warmup strategies (Stan window, Pathfinder, etc.) | `bjx_bench/inference/warmup/` | `tests/inference/warmup/` |
-| SMC variants | `bjx_bench/inference/smc/` | `tests/inference/smc/` |
-| Models (MVN, funnel, horseshoe, etc.) | `bjx_bench/registry/` | `tests/models/` |
-| Recipe schema and emission | `bjx_bench/recipes/` | `tests/recipes/` |
-| Metrics (headline, diagnostics) | `bjx_bench/metrics/` | `tests/metrics/` |
-| Tier-A certification | `bjx_bench/calibration/tier_a.py` | `tests/tier_a/` |
-| Tier-B Bayesian optimization | `bjx_bench/calibration/tier_b.py` | `tests/tier_b/` |
-| Reference cache + xcheck | `bjx_bench/reference/` | `tests/reference/` |
+| Algorithm wrappers (HMC, NUTS, MALA, etc.) | `tuningfork/inference/` | `tests/inference/base_method/`, `tests/inference/warmup/` |
+| Warmup strategies (Stan window, Pathfinder, etc.) | `tuningfork/inference/warmup/` | `tests/inference/warmup/` |
+| SMC variants | `tuningfork/inference/smc/` | `tests/inference/smc/` |
+| Models (MVN, funnel, horseshoe, etc.) | `tuningfork/registry/` | `tests/models/` |
+| Recipe schema and emission | `tuningfork/recipes/` | `tests/recipes/` |
+| Metrics (headline, diagnostics) | `tuningfork/metrics/` | `tests/metrics/` |
+| Tier-A certification | `tuningfork/calibration/certify_reference.py` | `tests/reference/` |
+| Tier-B Bayesian optimization | `tuningfork/calibration/tune.py` | `tests/tuning/` |
+| Reference cache + xcheck | `tuningfork/reference/` | `tests/reference/` |
 
 ## Testing Before Commit
 

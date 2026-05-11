@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""End-to-end tests — `bjx-bench warmup` CLI subprocess integration.
+"""End-to-end tests — `tuningfork warmup` CLI subprocess integration.
 
-Spawns ``bjx-bench warmup <model> <algo> ...`` as a subprocess with an isolated
-``BJX_BENCH_REFERENCE_DIR`` pointing at a ``tmp_path`` so tests do not pollute
+Spawns ``tuningfork warmup <model> <algo> ...`` as a subprocess with an isolated
+``TUNINGFORK_REFERENCE_DIR`` pointing at a ``tmp_path`` so tests do not pollute
 the committed reference cache or each other.
 
 Four tests:
@@ -44,10 +44,10 @@ def _run_warmup(
     timeout: int = 120,
     check: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run ``uv run bjx-bench warmup <args>`` with an isolated reference dir."""
-    env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+    """Run ``uv run tuningfork warmup <args>`` with an isolated reference dir."""
+    env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
-        ["uv", "run", "bjx-bench", "warmup", *args],
+        ["uv", "run", "tuningfork", "warmup", *args],
         env=env,
         capture_output=True,
         text=True,
@@ -59,7 +59,7 @@ def _run_warmup(
 
 @pytest.mark.e2e
 class TestWarmupCLI:
-    """Integration tests for ``bjx-bench warmup``."""
+    """Integration tests for ``tuningfork warmup``."""
 
     def test_nuts_mvn_smoke(self, tmp_path: Path) -> None:
         """NUTS on MVN-10 with n_warmup=200 must exit 0 and print summary keys."""
@@ -196,10 +196,10 @@ def _run_leaderboard(
     timeout: int = 60,
     check: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run ``uv run bjx-bench leaderboard <args>``."""
-    env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+    """Run ``uv run tuningfork leaderboard <args>``."""
+    env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
-        ["uv", "run", "bjx-bench", "leaderboard", *args],
+        ["uv", "run", "tuningfork", "leaderboard", *args],
         env=env,
         capture_output=True,
         text=True,
@@ -211,10 +211,10 @@ def _run_leaderboard(
 
 @pytest.mark.e2e
 class TestLeaderboardCLI:
-    """Integration tests for ``bjx-bench leaderboard``."""
+    """Integration tests for ``tuningfork leaderboard``."""
 
     def test_leaderboard_mvn_10_markdown(self, tmp_path: Path) -> None:
-        """bjx-bench leaderboard mvn_10 must exit 0 and print markdown table."""
+        """tuningfork leaderboard mvn_10 must exit 0 and print markdown table."""
         result = _run_leaderboard(["mvn_10"], tmp_path)
         assert (
             result.returncode == 0
@@ -237,7 +237,7 @@ class TestLeaderboardCLI:
         ), f"Expected at least 2 data rows in markdown table, got {len(table_lines)} table lines:\n{stdout}"
 
     def test_leaderboard_mvn_10_effort_high(self, tmp_path: Path) -> None:
-        """bjx-bench leaderboard mvn_10 --effort high must filter to HIGH-only rows."""
+        """tuningfork leaderboard mvn_10 --effort high must filter to HIGH-only rows."""
         result = _run_leaderboard(["mvn_10", "--effort", "high"], tmp_path)
         assert (
             result.returncode == 0
@@ -264,7 +264,7 @@ class TestLeaderboardCLI:
             ), f"Expected 'high' in effort column, got '{effort_col}' in line:\n{line}"
 
     def test_leaderboard_mvn_10_json_format(self, tmp_path: Path) -> None:
-        """bjx-bench leaderboard mvn_10 --format json must output JSON list."""
+        """tuningfork leaderboard mvn_10 --format json must output JSON list."""
         result = _run_leaderboard(["mvn_10", "--format", "json"], tmp_path)
         assert (
             result.returncode == 0
@@ -284,7 +284,7 @@ class TestLeaderboardCLI:
             assert "headline_metric" in item
 
     def test_leaderboard_bad_model_exits_2(self, tmp_path: Path) -> None:
-        """bjx-bench leaderboard does_not_exist must exit 2 and mention model in stderr."""
+        """tuningfork leaderboard does_not_exist must exit 2 and mention model in stderr."""
         result = _run_leaderboard(["does_not_exist"], tmp_path)
         assert (
             result.returncode == 2

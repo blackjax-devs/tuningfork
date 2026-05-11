@@ -25,9 +25,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bjx_bench.calibration._summary import Summaries
-from bjx_bench.calibration.certify_reference_analytic import certify_reference_analytic
-from bjx_bench.model import MODELS
+from tuningfork.calibration._summary import Summaries
+from tuningfork.calibration.certify_reference_analytic import certify_reference_analytic
+from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.slow
 

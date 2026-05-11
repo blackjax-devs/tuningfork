@@ -28,14 +28,14 @@ Provenance:
     Seed: jax.random.key(1234).
 
 Output:
-    bjx_bench/data/lotka_volterra.npz — compressed numpy array with:
+    tuningfork/data/lotka_volterra.npz — compressed numpy array with:
         observations: float32 array of shape (40, 2) — [prey, predator]
         observation_times: float32 array of shape (40,)
         alpha_true, beta_true, gamma_true, delta_true,
         u0_true, v0_true, sigma_obs_true: scalar float32
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/generate_lotka_volterra.py
 """
 
@@ -58,7 +58,7 @@ SIGMA_OBS_TRUE: float = 0.5
 T_OBS: int = 40
 T_END: float = 20.0
 
-_OUT = Path(__file__).parent.parent / "bjx_bench" / "data" / "lotka_volterra.npz"
+_OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "lotka_volterra.npz"
 
 
 def lotka_volterra_vf(

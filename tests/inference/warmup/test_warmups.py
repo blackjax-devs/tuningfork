@@ -35,10 +35,10 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tune import _run_warmup, tune_algorithm
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.warmup import WARMUPS, Warmup
-from bjx_bench.model import MODELS
+from tuningfork.calibration.tune import _run_warmup, tune_algorithm
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.warmup import WARMUPS, Warmup
+from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.slow
 
@@ -65,7 +65,7 @@ _RNG_KEY = jax.random.key(_SEED)
 
 
 def _build_logdensity(posterior_entry, key):
-    from bjx_bench.model._numpyro import build_logdensity_fn
+    from tuningfork.model._numpyro import build_logdensity_fn
 
     init_position, logdensity_fn, _ = build_logdensity_fn(key, posterior_entry)
     return init_position, logdensity_fn
@@ -881,7 +881,7 @@ class TestPathfinderMultiChain:
     """
 
     def _run(self, seed: int, num_chains: int, **kw):
-        from bjx_bench.inference.warmup.pathfinder import ENTRY
+        from tuningfork.inference.warmup.pathfinder import ENTRY
 
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -897,7 +897,7 @@ class TestPathfinderMultiChain:
 
     def test_default_num_chains_equals_4(self) -> None:
         """Default num_chains=4: position leading dim == 4."""
-        from bjx_bench.inference.warmup.pathfinder import ENTRY
+        from tuningfork.inference.warmup.pathfinder import ENTRY
 
         key = jax.random.key(4001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -927,7 +927,7 @@ class TestPathfinderMultiChain:
 
     def test_pre_batched_init_position_passes_through(self) -> None:
         """Pre-batched init_position (leading dim == num_chains) is not double-broadcast."""
-        from bjx_bench.inference.warmup.pathfinder import ENTRY
+        from tuningfork.inference.warmup.pathfinder import ENTRY
 
         num_chains = 4
         key = jax.random.key(4003)
@@ -979,7 +979,7 @@ class TestPathfinderMultiChain:
 
     def test_compatibility_check_raises_for_mclmc(self) -> None:
         """is_compatible('mclmc') returns False; runner raises ValueError for mclmc."""
-        from bjx_bench.inference.warmup.pathfinder import ENTRY
+        from tuningfork.inference.warmup.pathfinder import ENTRY
 
         assert not ENTRY.is_compatible(
             "mclmc"
@@ -1012,7 +1012,7 @@ class TestMultiPathfinderMultiChain:
     """
 
     def _run(self, seed: int, num_chains: int, **kw):
-        from bjx_bench.inference.warmup.multipathfinder import ENTRY
+        from tuningfork.inference.warmup.multipathfinder import ENTRY
 
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1028,7 +1028,7 @@ class TestMultiPathfinderMultiChain:
 
     def test_default_num_chains_equals_4(self) -> None:
         """Default num_chains=4: position leading dim == 4."""
-        from bjx_bench.inference.warmup.multipathfinder import ENTRY
+        from tuningfork.inference.warmup.multipathfinder import ENTRY
 
         key = jax.random.key(5001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1058,7 +1058,7 @@ class TestMultiPathfinderMultiChain:
 
     def test_pre_batched_init_position_passes_through(self) -> None:
         """Pre-batched init_position (leading dim == n_paths) passes through."""
-        from bjx_bench.inference.warmup.multipathfinder import ENTRY
+        from tuningfork.inference.warmup.multipathfinder import ENTRY
 
         n_paths = 4
         num_chains = 4
@@ -1121,7 +1121,7 @@ class TestMultiPathfinderMultiChain:
 
     def test_compatibility_check_raises_for_mclmc(self) -> None:
         """is_compatible('mclmc') returns False; runner raises ValueError for mclmc."""
-        from bjx_bench.inference.warmup.multipathfinder import ENTRY
+        from tuningfork.inference.warmup.multipathfinder import ENTRY
 
         assert not ENTRY.is_compatible(
             "mclmc"
@@ -1158,7 +1158,7 @@ class TestMeadsMultiChain:
     """
 
     def _run(self, seed: int, num_chains: int, **kw):
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1174,7 +1174,7 @@ class TestMeadsMultiChain:
 
     def test_default_num_chains_equals_4_meets_num_folds_4(self) -> None:
         """num_chains=4 == num_folds=4 (default): should not raise; shapes correct."""
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         key = jax.random.key(6001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1194,7 +1194,7 @@ class TestMeadsMultiChain:
 
     def test_num_chains_below_num_folds_raises(self) -> None:
         """num_chains=2 < num_folds=4 must raise ValueError."""
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         key = jax.random.key(6002)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1224,7 +1224,7 @@ class TestMeadsMultiChain:
 
     def test_pre_batched_init_position_passes_through(self) -> None:
         """Pre-batched init_position (leading dim == num_chains) passes through verbatim."""
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         num_chains = 4
         key = jax.random.key(6004)
@@ -1261,7 +1261,7 @@ class TestMeadsMultiChain:
 
     def test_compatibility_check_raises_for_nuts(self) -> None:
         """MEADS is GHMC-only; is_compatible('nuts') must return False."""
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         assert not ENTRY.is_compatible(
             "nuts"
@@ -1269,17 +1269,17 @@ class TestMeadsMultiChain:
 
     def test_meads_is_compatible_with_ghmc(self) -> None:
         """is_compatible('ghmc') returns True."""
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         assert ENTRY.is_compatible("ghmc"), "meads must be compatible with ghmc"
 
     def test_meads_not_compatible_with_hmc(self) -> None:
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         assert not ENTRY.is_compatible("hmc"), "meads should not be compatible with hmc"
 
     def test_meads_not_compatible_with_mclmc(self) -> None:
-        from bjx_bench.inference.warmup.meads import ENTRY
+        from tuningfork.inference.warmup.meads import ENTRY
 
         assert not ENTRY.is_compatible(
             "mclmc"
@@ -1309,7 +1309,7 @@ class TestCheesMultiChain:
     """
 
     def _run(self, seed: int, num_chains: int, **kw):
-        from bjx_bench.inference.warmup.chees import ENTRY
+        from tuningfork.inference.warmup.chees import ENTRY
 
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1325,7 +1325,7 @@ class TestCheesMultiChain:
 
     def test_default_num_chains_equals_4(self) -> None:
         """Default num_chains=4: position leading dim == 4."""
-        from bjx_bench.inference.warmup.chees import ENTRY
+        from tuningfork.inference.warmup.chees import ENTRY
 
         key = jax.random.key(7001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1358,7 +1358,7 @@ class TestCheesMultiChain:
 
     def test_pre_batched_init_position_passes_through(self) -> None:
         """Pre-batched init_position (leading dim == num_chains) passes through verbatim."""
-        from bjx_bench.inference.warmup.chees import ENTRY
+        from tuningfork.inference.warmup.chees import ENTRY
 
         num_chains = 4
         key = jax.random.key(7003)
@@ -1435,7 +1435,7 @@ class TestCheesMultiChain:
 
     def test_compatibility_check_raises_for_nuts(self) -> None:
         """CHEES is dynamic_hmc-only; is_compatible('nuts') must return False."""
-        from bjx_bench.inference.warmup.chees import ENTRY
+        from tuningfork.inference.warmup.chees import ENTRY
 
         assert not ENTRY.is_compatible(
             "nuts"
@@ -1443,7 +1443,7 @@ class TestCheesMultiChain:
 
     def test_compatibility_check_raises_for_hmc(self) -> None:
         """CHEES is for dynamic_hmc, not fixed-L HMC; is_compatible('hmc') must return False."""
-        from bjx_bench.inference.warmup.chees import ENTRY
+        from tuningfork.inference.warmup.chees import ENTRY
 
         assert not ENTRY.is_compatible(
             "hmc"
@@ -1451,7 +1451,7 @@ class TestCheesMultiChain:
 
     def test_chees_is_compatible_with_dynamic_hmc(self) -> None:
         """is_compatible('dynamic_hmc') returns True."""
-        from bjx_bench.inference.warmup.chees import ENTRY
+        from tuningfork.inference.warmup.chees import ENTRY
 
         assert ENTRY.is_compatible(
             "dynamic_hmc"
@@ -1479,45 +1479,45 @@ class TestAdjustedMclmcTuning:
 
     def test_adjusted_mclmc_tuning_entry_importable(self) -> None:
         """adjusted_mclmc_tuning ENTRY is importable as a Warmup instance."""
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert isinstance(ENTRY, Warmup), f"ENTRY is not a Warmup: {type(ENTRY)}"
         assert ENTRY.name == "adjusted_mclmc_tuning"
 
     def test_adjusted_mclmc_tuning_is_warmup_instance(self) -> None:
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert isinstance(ENTRY, Warmup)
 
     def test_adjusted_mclmc_tuning_name_matches_key(self) -> None:
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert ENTRY.name == "adjusted_mclmc_tuning"
 
     def test_compatible_with_adjusted_mclmc(self) -> None:
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert ENTRY.is_compatible("adjusted_mclmc")
 
     def test_compatible_with_adjusted_mclmc_dynamic(self) -> None:
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert ENTRY.is_compatible("adjusted_mclmc_dynamic")
 
     def test_not_compatible_with_nuts(self) -> None:
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert not ENTRY.is_compatible("nuts")
 
     def test_not_compatible_with_mclmc(self) -> None:
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         assert not ENTRY.is_compatible("mclmc")
 
     def test_single_chain_signature_adjusted_mclmc(self) -> None:
         """Single-chain run on 5-D MVN with adjusted_mclmc."""
-        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         key = jax.random.key(8001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1543,8 +1543,8 @@ class TestAdjustedMclmcTuning:
         ), f"_total_tuning_steps missing; keys={list(params)}"
 
     def test_single_chain_L_and_step_size_positive(self) -> None:
-        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         key = jax.random.key(8002)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1565,8 +1565,8 @@ class TestAdjustedMclmcTuning:
 
     def test_multi_chain_3_shape(self) -> None:
         """num_chains=3: L/step_size shape (3,), IMM shape (3, d)."""
-        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         key = jax.random.key(8003)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1600,8 +1600,8 @@ class TestAdjustedMclmcTuning:
         assert imm.shape == (3, d), f"Expected IMM.shape=(3, {d}), got {imm.shape}"
 
     def test_total_tuning_steps_is_python_int(self) -> None:
-        from bjx_bench.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
-        from bjx_bench.inference.warmup.adjusted_mclmc_tuning import ENTRY
+        from tuningfork.inference.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
+        from tuningfork.inference.warmup.adjusted_mclmc_tuning import ENTRY
 
         key = jax.random.key(8004)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
@@ -1634,10 +1634,10 @@ class TestNoWarmupGuards:
         """elliptical_slice.extra_required_kwargs non-empty → no_warmup raises NotImplementedError."""
         import pytest
 
-        from bjx_bench.inference.base_method.elliptical_slice import (
+        from tuningfork.inference.base_method.elliptical_slice import (
             ENTRY as _ELLIP_SLICE,
         )
-        from bjx_bench.inference.warmup import WARMUPS
+        from tuningfork.inference.warmup import WARMUPS
 
         key = jax.random.key(9001)
         init_pos = jnp.zeros(5)
@@ -1657,8 +1657,8 @@ class TestNoWarmupGuards:
 
     def test_no_warmup_raises_for_irmh(self) -> None:
         """irmh.extra_required_kwargs non-empty → no_warmup raises NotImplementedError."""
-        from bjx_bench.inference.base_method.irmh import ENTRY as _IRMH
-        from bjx_bench.inference.warmup import WARMUPS
+        from tuningfork.inference.base_method.irmh import ENTRY as _IRMH
+        from tuningfork.inference.warmup import WARMUPS
 
         key = jax.random.key(9002)
         init_pos = jnp.zeros(5)
@@ -1678,8 +1678,8 @@ class TestNoWarmupGuards:
 
     def test_no_warmup_raises_for_synthetic_extra_kwargs_entry(self) -> None:
         """Synthetic BaseMethod(extra_required_kwargs non-empty) → NotImplementedError."""
-        from bjx_bench.inference.base_method._base import BaseMethod
-        from bjx_bench.inference.warmup import WARMUPS
+        from tuningfork.inference.base_method._base import BaseMethod
+        from tuningfork.inference.warmup import WARMUPS
 
         synthetic = BaseMethod(
             name="synthetic_irmh_like",

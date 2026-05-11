@@ -20,8 +20,8 @@ results/cache/
 
 # Tier-A reference draws are large — gitignore by default; commit a small
 # canonical subset by force-add when finalizing a release.
-bjx_bench/reference/draws/*.npz
-bjx_bench/reference/draws/*.npy
+tuningfork/reference/draws/*.npz
+tuningfork/reference/draws/*.npy
 
 # OS / editor
 .DS_Store

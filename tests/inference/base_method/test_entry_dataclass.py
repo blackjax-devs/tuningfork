@@ -25,7 +25,7 @@ Covers:
 
 import pytest
 
-from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.inference.base_method._base import BaseMethod, HyperparamSpace
 
 pytestmark = pytest.mark.fast
 
@@ -209,14 +209,14 @@ class TestBaseMethodValidation:
 
     def test_extra_required_kwargs_defaults_empty(self) -> None:
         """Test E: default of extra_required_kwargs is () on a vanilla entry."""
-        from bjx_bench.inference.base_method import BASE_METHODS
+        from tuningfork.inference.base_method import BASE_METHODS
 
         hmc_entry = BASE_METHODS["hmc"]
         assert hmc_entry.extra_required_kwargs == ()
 
     def test_extra_required_kwargs_empty_on_standard_entry(self) -> None:
         """Test F: a second vanilla entry also has extra_required_kwargs == ()."""
-        from bjx_bench.inference.base_method import BASE_METHODS
+        from tuningfork.inference.base_method import BASE_METHODS
 
         hmc_entry = BASE_METHODS["hmc"]
         assert hmc_entry.extra_required_kwargs == ()

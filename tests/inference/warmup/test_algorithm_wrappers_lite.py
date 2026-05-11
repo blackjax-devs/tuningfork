@@ -31,8 +31,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.base_method._base import BaseMethod, HyperparamSpace
 
 pytestmark = pytest.mark.slow
 

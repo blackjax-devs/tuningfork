@@ -11,13 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the reference cache I/O layer (bjx_bench.reference._io).
+"""Tests for the reference cache I/O layer (tuningfork.reference._io).
 
 Tests:
 - Round-trip write/load returns same draws.
 - SHA mismatch triggers regeneration.
 - Smaller num_samples than requested triggers regeneration.
-- BJX_BENCH_REFERENCE_DIR env override works.
+- TUNINGFORK_REFERENCE_DIR env override works.
 - get_reference_summaries loads from JSON.
 - get_adaptation_params raises ValueError for analytic models.
 """
@@ -29,8 +29,8 @@ import jax
 import numpy as np
 import pytest
 
-from bjx_bench.model import MODELS
-from bjx_bench.reference._io import (
+from tuningfork.model import MODELS
+from tuningfork.reference._io import (
     _atomic_write_json,
     _atomic_write_npz,
     _metadata_path,
@@ -156,7 +156,7 @@ class TestCacheInvalidation:
         meta_path = _metadata_path("mvn_10", tmp_path)
         with meta_path.open() as fh:
             meta = json.load(fh)
-        meta["bjx_bench_version"] = "99.99.99"
+        meta["tuningfork_version"] = "99.99.99"
         _atomic_write_json(meta_path, meta)
 
         # Should regenerate
@@ -167,18 +167,18 @@ class TestCacheInvalidation:
 
 
 class TestEnvOverride:
-    """BJX_BENCH_REFERENCE_DIR env variable override."""
+    """TUNINGFORK_REFERENCE_DIR env variable override."""
 
     def test_env_override_works(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("BJX_BENCH_REFERENCE_DIR", str(tmp_path))
+        monkeypatch.setenv("TUNINGFORK_REFERENCE_DIR", str(tmp_path))
         key = jax.random.key(50)
         # cache_dir=None → should read from env
         draws = get_reference_draws(MVN_ENTRY, n=N_SMALL, rng_key=key)
         assert draws["x"].shape == (N_SMALL, 10)
         assert (tmp_path / "draws" / "mvn_10.npz").exists()
-        monkeypatch.delenv("BJX_BENCH_REFERENCE_DIR")
+        monkeypatch.delenv("TUNINGFORK_REFERENCE_DIR")
 
     def test_explicit_cache_dir_overrides_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -186,7 +186,7 @@ class TestEnvOverride:
         alt_dir = tmp_path / "alt"
         alt_dir.mkdir()
         # Set env to something different
-        monkeypatch.setenv("BJX_BENCH_REFERENCE_DIR", str(tmp_path / "from_env"))
+        monkeypatch.setenv("TUNINGFORK_REFERENCE_DIR", str(tmp_path / "from_env"))
         key = jax.random.key(51)
         draws = get_reference_draws(
             MVN_ENTRY, n=N_SMALL, rng_key=key, cache_dir=alt_dir
@@ -194,7 +194,7 @@ class TestEnvOverride:
         assert draws["x"].shape == (N_SMALL, 10)
         # artifact written in alt_dir, not env dir
         assert (alt_dir / "draws" / "mvn_10.npz").exists()
-        monkeypatch.delenv("BJX_BENCH_REFERENCE_DIR")
+        monkeypatch.delenv("TUNINGFORK_REFERENCE_DIR")
 
 
 class TestSummariesAndAdaptation:

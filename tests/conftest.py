@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Pytest configuration for bjx-bench tests.
+"""Pytest configuration for tuningfork tests.
 
 Registers pytest markers for test classification:
 - ``fast``: pure-logic tests that do not run a chain or warmup; use ``pytest -m fast`` for inner-loop iteration

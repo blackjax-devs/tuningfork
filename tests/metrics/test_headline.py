@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.metrics.headline.min_bulk_ess_per_grad.
+"""Tests for tuningfork.metrics.headline.min_bulk_ess_per_grad.
 
 Empirical questions answered here (confirmed via test output):
 
@@ -36,8 +36,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.metrics.grad_counter import total_grad_evals
-from bjx_bench.metrics.headline import min_bulk_ess_per_grad
+from tuningfork.metrics.grad_counter import total_grad_evals
+from tuningfork.metrics.headline import min_bulk_ess_per_grad
 
 pytestmark = pytest.mark.fast
 
