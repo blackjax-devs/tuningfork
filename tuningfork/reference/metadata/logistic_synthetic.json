@@ -1,0 +1,16 @@
+{
+  "name": "logistic_synthetic",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-11T20:02:52Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 0.9999746680259705,
+    "min_chunk_bulk_ess": 4061.474609375,
+    "num_divergences": 0,
+    "e_bfmi": 0.9753085374832153
+  }
+}

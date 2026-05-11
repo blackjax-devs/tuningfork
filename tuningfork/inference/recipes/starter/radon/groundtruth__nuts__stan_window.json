@@ -1,0 +1,48 @@
+{
+  "model_name": "radon",
+  "base_method_name": "nuts",
+  "warmup_name": "stan_window",
+  "effort": "groundtruth",
+  "base_method_params": {
+    "step_size": 0.21159759163856506,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "warmup_params": {
+    "n_warmup": 5000,
+    "n_chunks": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 73.1122911410057,
+    "n_warmup": 5000,
+    "n_samples": 40000
+  },
+  "difficulty": null,
+  "instructions": "**Ground-truth reference recipe** for `radon`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.8). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/draws/radon.npz` (gitignored \u2014 40000 samples \u00d7 dim=390). Load via:\n\n    from tuningfork.reference._io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['radon'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
+  "notes": "",
+  "inverse_mass_matrix_path": "radon/groundtruth__nuts__stan_window.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0007851123809814,
+      "min_bulk_ess": 719.571044921875,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {}
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 42,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-11T20:00:55Z"
+}
