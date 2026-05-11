@@ -30,11 +30,11 @@ Covers:
 Finding: The IMM→mass_matrix conversion (1/imm for diagonal, linalg.inv
 for dense) works correctly. window_adaptation drives blackjax.rmhmc directly (it
 calls algorithm.build_kernel(integrator) and passes step_size + IMM to the kernel);
-the bjx-bench factory is then applied POST-warmup to build the sampler using adapted
+the tuningfork factory is then applied POST-warmup to build the sampler using adapted
 params. This is the correct composition: window_adaptation → adapted params (step_size,
-IMM) → bjx-bench factory (converts IMM→mass_matrix) → sampling.
+IMM) → tuningfork factory (converts IMM→mass_matrix) → sampling.
 
-Note: window_adaptation does NOT accept the bjx-bench factory shape directly —
+Note: window_adaptation does NOT accept the tuningfork factory shape directly —
 it expects a blackjax.GenerateSamplingAPI object (like blackjax.rmhmc). The test
 drives warmup via blackjax.rmhmc directly, then applies the factory to build the
 sampler. This friction is documented in the wrapper's notes field.
@@ -368,12 +368,12 @@ class TestRmhmcWindowAdaptationCompatibility:
 
     Finding: window_adaptation expects a blackjax.GenerateSamplingAPI object
     (blackjax.rmhmc) as the 'algorithm' argument — it calls algorithm.build_kernel()
-    internally.  The bjx-bench factory wrapper cannot be passed directly to
+    internally.  The tuningfork factory wrapper cannot be passed directly to
     window_adaptation.
 
     Composition:
       1. Run window_adaptation(blackjax.rmhmc, ...) → adapted (step_size, IMM).
-      2. Apply bjx-bench factory with adapted params (converts IMM→mass_matrix).
+      2. Apply tuningfork factory with adapted params (converts IMM→mass_matrix).
       3. Run 500 sampling steps with the factory-built sampler.
       4. Assert: min ESS > 100, R-hat < 1.05, no NaN, mean within atol=0.2.
 
@@ -416,7 +416,7 @@ class TestRmhmcWindowAdaptationCompatibility:
         ), f"Adapted step_size must be positive, got {adapted_step_size}"
         assert jnp.all(jnp.isfinite(adapted_imm)), "Adapted IMM must be finite"
 
-        # Step 2: Build sampler via bjx-bench factory with adapted params.
+        # Step 2: Build sampler via tuningfork factory with adapted params.
         # The factory converts IMM → mass_matrix internally.
         algo = ENTRY.factory(
             mvn_5d_logdensity,

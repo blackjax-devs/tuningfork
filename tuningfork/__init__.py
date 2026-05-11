@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench — A BlackJAX-native benchmark library for MCMC/VI/SMC samplers.
+"""tuningfork — A BlackJAX-native benchmark library for MCMC/VI/SMC samplers.
 
 A toolkit for systematic benchmarking of 24 base methods × 10 warmup strategies
 × 6 SMC variants against a 14-model suite, with 3-tier calibration

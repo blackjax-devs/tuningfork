@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Headline metric for bjx-bench: min bulk-ESS per gradient evaluation.
+"""Headline metric for tuningfork: min bulk-ESS per gradient evaluation.
 
 The metric an algorithm developer chases:
 

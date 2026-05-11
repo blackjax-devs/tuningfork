@@ -15,7 +15,7 @@
 
 These are defensive: if BlackJAX upstream changes the return-tuple shape or
 NamedTuple fields of any SMC algorithm we depend on, these tests fire with a
-clear message pointing at the file in bjx-bench that needs an update.
+clear message pointing at the file in tuningfork that needs an update.
 
 Includes sections: 11 (adaptive_tempered_smc), 12 (partial_posteriors_smc +
 inner_kernel_tuning).
@@ -332,7 +332,7 @@ def test_blackjax_adaptive_persistent_sampling_step_arity_is_two_arg():
     incorrectly states.
 
     Pinned tripwire: tuningfork/inference/smc/adaptive_persistent_sampling.py
-    wraps the 2-arg step_fn as a standard bjx-bench step (step_kwargs_schema=()).
+    wraps the 2-arg step_fn as a standard tuningfork step (step_kwargs_schema=()).
     If upstream silently changes step_fn to 3-arg, our wrapper would silently
     drop the lmbda arg, producing incorrect (delta=0) tempering.
 

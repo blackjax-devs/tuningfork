@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Laplace-marginal multinomial HMC (static trajectory) entry for the bjx-bench registry.
+"""Laplace-marginal multinomial HMC (static trajectory) entry for the tuningfork registry.
 
 Wraps ``blackjax.laplace_mhmc`` (``blackjax/mcmc/laplace_hmc.py`` with
-``build_proposal=multinomial_hmc_proposal``) for the bjx-bench algorithm registry.
+``build_proposal=multinomial_hmc_proposal``) for the tuningfork algorithm registry.
 
 This is identical to ``laplace_hmc`` except the M-H endpoint proposal is replaced
 by multinomial sampling over the full trajectory (Betancourt 2017 §A.2).  This

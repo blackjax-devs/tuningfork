@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Gaussian baseline models for the bjx-bench suite.
+"""Gaussian baseline models for the tuningfork suite.
 
 Well-conditioned and ill-conditioned multivariate normal posteriors
 used as baseline test cases for sampler evaluation.

@@ -13,7 +13,7 @@
 # limitations under the License.
 """End-to-end tests — CLI subprocess integration.
 
-Spawns `bjx-bench reference ...` as a subprocess with an isolated
+Spawns `tuningfork reference ...` as a subprocess with an isolated
 BJX_BENCH_REFERENCE_DIR pointing at a tmp_path so tests do not pollute
 the committed reference cache.
 
@@ -38,10 +38,10 @@ def _run_cli(
     tmp_path: Path,
     timeout: int = 120,
 ) -> subprocess.CompletedProcess:
-    """Run `uv run bjx-bench <args>` with an isolated reference dir."""
+    """Run `uv run tuningfork <args>` with an isolated reference dir."""
     env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
-        ["uv", "run", "bjx-bench", *args],
+        ["uv", "run", "tuningfork", *args],
         env=env,
         capture_output=True,
         text=True,
@@ -53,7 +53,7 @@ def _run_cli(
 
 @pytest.mark.e2e
 class TestTierACLI:
-    """Integration tests for `bjx-bench reference`."""
+    """Integration tests for `tuningfork reference`."""
 
     def test_mvn_populates_cache(self, tmp_path: Path) -> None:
         """First run: cache should be populated."""
@@ -113,7 +113,7 @@ class TestTierACLI:
         """Unknown model name must exit with code 1."""
         env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
         proc = subprocess.run(
-            ["uv", "run", "bjx-bench", "reference", "no_such_model"],
+            ["uv", "run", "tuningfork", "reference", "no_such_model"],
             env=env,
             capture_output=True,
             text=True,

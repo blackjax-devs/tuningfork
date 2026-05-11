@@ -32,7 +32,7 @@ Output:
         f_true  : float32 array of shape (200,)  — noiseless ground-truth
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/generate_gp_regression.py
 """
 

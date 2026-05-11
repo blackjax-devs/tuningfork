@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Base types for the bjx-bench algorithm registry.
+"""Base types for the tuningfork algorithm registry.
 
 Every sampling algorithm exposed to the benchmark is described by a single
 ``BaseMethod`` frozen dataclass.  Whether the sampler is a gradient-free

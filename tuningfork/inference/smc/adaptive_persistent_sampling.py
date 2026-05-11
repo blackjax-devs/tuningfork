@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""adaptive_persistent_sampling_smc wrapper for the bjx-bench SMC registry.
+"""adaptive_persistent_sampling_smc wrapper for the tuningfork SMC registry.
 
 Wraps blackjax.smc.adaptive_persistent_sampling.as_top_level_api which
 implements the Adaptive Persistent Sampling algorithm from Karamanis et al.
@@ -23,7 +23,7 @@ effective sample size (target_ess).
 Step-signature contract (standard 2-arg — same as adaptive_tempered_smc):
   The returned SamplingAlgorithm's step_fn has signature:
     ``step_fn(rng_key, state)``  — 2-arg, kernel computes lmbda internally
-  This IS the standard bjx-bench step signature.
+  This IS the standard tuningfork step signature.
 
 Note (docstring vs actual arity drift):
   The upstream ``adaptive_persistent_sampling.as_top_level_api`` docstring
@@ -33,7 +33,7 @@ Note (docstring vs actual arity drift):
   This is a known docstring/implementation mismatch (candidate #8).
   The tripwire in tests/test_api_pins_smc.py pins BOTH the docstring text AND
   the actual arity so future docstring fixes don't accidentally widen the
-  call site in bjx-bench.
+  call site in tuningfork.
 
 Memory preallocation constraint:
   Adaptive Persistent Sampling requires ``max_iterations: int`` at

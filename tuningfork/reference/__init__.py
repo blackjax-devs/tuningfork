@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Reference cache layer for bjx-bench.
+"""Reference cache layer for tuningfork.
 
 The only module callers (CLI, runner, tests) should import is
 ``tuningfork.reference._io``:

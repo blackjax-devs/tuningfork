@@ -15,7 +15,7 @@
 
 These are defensive: if BlackJAX upstream changes the return-tuple shape or
 NamedTuple fields of any MCMC kernel/adaptation we depend on, these tests fire
-with a clear message pointing at the file in bjx-bench that needs an update.
+with a clear message pointing at the file in tuningfork that needs an update.
 
 Includes sections: 1 (MCLMC), 2 (MCLMCInfo), 3 (MCLMCAdaptationState),
 4 (HMCInfo/NUTSInfo), 6 (GHMC), 7 (dynamic_hmc), 8 (adjusted_mclmc),
@@ -986,7 +986,7 @@ def test_blackjax_rmhmc_factory_signature():
     Pinned tripwire: tuningfork/inference/base_method/rmhmc.py calls
     blackjax.rmhmc(logdensity_fn, step_size=..., mass_matrix=...,
     num_integration_steps=...).  The CRITICAL parameter is 'mass_matrix'
-    (NOT 'inverse_mass_matrix' -- the bjx-bench factory converts IMM to
+    (NOT 'inverse_mass_matrix' -- the tuningfork factory converts IMM to
     mass_matrix at the boundary).  If upstream renames this parameter,
     factory calls will fail silently.
     """
@@ -1007,14 +1007,14 @@ def test_blackjax_rmhmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.rmhmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"CRITICAL: if 'mass_matrix' is renamed, the bjx-bench IMM->mass_matrix "
+        f"CRITICAL: if 'mass_matrix' is renamed, the tuningfork IMM->mass_matrix "
         f"conversion in tuningfork/inference/base_method/rmhmc.py will break. "
         f"Update the wrapper accordingly."
     )
     # Verify 'inverse_mass_matrix' is NOT a parameter (would indicate API change).
     assert "inverse_mass_matrix" not in sig.parameters, (
         "'inverse_mass_matrix' appeared in rmhmc.as_top_level_api signature. "
-        "If upstream switched to IMM convention, the bjx-bench wrapper's "
+        "If upstream switched to IMM convention, the tuningfork wrapper's "
         "IMM->mass_matrix conversion is now double-inverting. "
         "Update tuningfork/inference/base_method/rmhmc.py."
     )

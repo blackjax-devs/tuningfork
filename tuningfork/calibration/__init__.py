@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Calibration modules for bjx-bench.
+"""Calibration modules for tuningfork.
 
 Reference-draw certification, BO tuning, and the Statistician auto-gate.
 

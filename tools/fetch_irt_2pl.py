@@ -32,7 +32,7 @@ Output CSV:
     into a (J=100, I=20) 2-D JAX array RESPONSE[j, i].
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/fetch_irt_2pl.py
 """
 
@@ -53,7 +53,7 @@ _OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "irt_2pl.csv"
 
 def main() -> None:
     print(f"Fetching {_URL} ...")
-    req = urllib.request.Request(_URL, headers={"User-Agent": "bjx-bench/1.0"})
+    req = urllib.request.Request(_URL, headers={"User-Agent": "tuningfork/1.0"})
     zipped = urllib.request.urlopen(req).read()
 
     with zipfile.ZipFile(io.BytesIO(zipped)) as zf:

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Multinomial HMC (mhmc) algorithm entry for the bjx-bench algorithm registry.
+"""Multinomial HMC (mhmc) algorithm entry for the tuningfork algorithm registry.
 
 Fixed-L Hamiltonian Monte Carlo with **multinomial trajectory proposal**.  Both
 ``step_size`` and ``num_integration_steps`` are BO-tunable;

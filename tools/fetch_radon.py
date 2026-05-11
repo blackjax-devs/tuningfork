@@ -23,7 +23,7 @@ Provenance:
             log_radon, log_uppm (log uranium ppm per observation).
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/fetch_radon.py
 """
 
@@ -44,7 +44,7 @@ _OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "radon.csv"
 
 def main() -> None:
     print(f"Fetching {_URL} ...")
-    req = urllib.request.Request(_URL, headers={"User-Agent": "bjx-bench/1.0"})
+    req = urllib.request.Request(_URL, headers={"User-Agent": "tuningfork/1.0"})
     zipped = urllib.request.urlopen(req).read()
 
     with zipfile.ZipFile(io.BytesIO(zipped)) as zf:

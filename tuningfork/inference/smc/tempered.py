@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""tempered_smc wrapper for the bjx-bench SMC registry.
+"""tempered_smc wrapper for the tuningfork SMC registry.
 
 Wraps ``blackjax.smc.tempered.as_top_level_api`` which implements the
 non-adaptive (fixed-schedule) Tempered SMC algorithm.  Unlike

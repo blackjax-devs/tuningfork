@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Barker algorithm entry for the bjx-bench algorithm registry.
+"""Barker algorithm entry for the tuningfork algorithm registry.
 
 Barker proposal MCMC (Livingstone & Zanella 2022).  Uses a gradient-based
 proposal with a sigmoid accept/reject step.  ``step_size`` is BO-tunable;

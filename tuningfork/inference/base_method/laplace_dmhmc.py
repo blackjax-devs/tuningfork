@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Laplace-marginal dynamic multinomial HMC entry for the bjx-bench registry.
+"""Laplace-marginal dynamic multinomial HMC entry for the tuningfork registry.
 
 Wraps ``blackjax.laplace_dmhmc`` (``blackjax/mcmc/laplace_dynamic_hmc.py``
-with ``build_proposal=multinomial_hmc_proposal``) for the bjx-bench algorithm
+with ``build_proposal=multinomial_hmc_proposal``) for the tuningfork algorithm
 registry.
 
 This is the combination of both dynamic trajectory length (quasi-random step

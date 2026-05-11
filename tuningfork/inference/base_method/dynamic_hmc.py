@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Dynamic HMC (also known as ``dhmc``) algorithm entry for the bjx-bench
+"""Dynamic HMC (also known as ``dhmc``) algorithm entry for the tuningfork
 algorithm registry.
 
 Dynamic HMC (Hoffman et al. 2022, "Tuning-Free Generalized Hamiltonian Monte

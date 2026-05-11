@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""RWM (Random-Walk Metropolis) algorithm entry for the bjx-bench algorithm registry.
+"""RWM (Random-Walk Metropolis) algorithm entry for the tuningfork algorithm registry.
 
 Wraps ``blackjax.rmh`` with an isotropic Gaussian proposal parameterized by
 ``sigma`` (the proposal standard deviation).  Since ``blackjax.rmh`` expects a

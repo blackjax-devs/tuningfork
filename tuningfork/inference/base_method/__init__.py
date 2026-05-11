@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench algorithm registry.
+"""tuningfork algorithm registry.
 
 ``BASE_METHODS`` maps algorithm name strings to ``BaseMethod`` instances.
 The runner, Optuna BO loop, and CLI all iterate over this dict to discover

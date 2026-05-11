@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Elliptical Slice Sampler algorithm entry for the bjx-bench algorithm registry.
+"""Elliptical Slice Sampler algorithm entry for the tuningfork algorithm registry.
 
 Wraps ``blackjax.elliptical_slice`` (Murray, Adams & MacKay 2010) for
 latent-Gaussian models of the form::

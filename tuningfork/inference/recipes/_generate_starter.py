@@ -24,7 +24,7 @@ docstring for the per-tier semantics.
 Usage
 -----
 
-  cd bjx-bench
+  cd tuningfork
   uv run python -m tuningfork.inference.recipes._generate_starter
   uv run python -m tuningfork.inference.recipes._generate_starter --only radon
   uv run python -m tuningfork.inference.recipes._generate_starter --sampler nuts

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""persistent_sampling_smc wrapper for the bjx-bench SMC registry.
+"""persistent_sampling_smc wrapper for the tuningfork SMC registry.
 
 Wraps blackjax.smc.persistent_sampling.as_top_level_api which implements
 the Persistent Sampling algorithm from Karamanis et al. 2025. This method
@@ -22,7 +22,7 @@ estimates at the cost of higher memory usage.
 Step-signature contract (IMPORTANT — differs from adaptive_tempered_smc):
   The returned SamplingAlgorithm's step_fn has signature:
     ``step_fn(rng_key, state, lmbda)``  — 3-arg, caller must provide lmbda
-  This is a NON-STANDARD step signature for bjx-bench SMC methods; the
+  This is a NON-STANDARD step signature for tuningfork SMC methods; the
   recipe-runner must supply lmbda at each SMC step.  Tracked in
   ``step_kwargs_schema = ("lmbda",)``.
 

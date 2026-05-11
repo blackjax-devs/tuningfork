@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""inner_kernel_tuning SMC wrapper for the bjx-bench SMC registry.
+"""inner_kernel_tuning SMC wrapper for the tuningfork SMC registry.
 
 Wraps blackjax.smc.inner_kernel_tuning.as_top_level_api, which is a meta-SMC
 algorithm that adapts the inner-kernel parameters (e.g. step_size) across SMC

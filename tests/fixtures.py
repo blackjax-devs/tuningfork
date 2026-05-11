@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared test fixtures and utilities for bjx-bench tests.
+"""Shared test fixtures and utilities for tuningfork tests.
 
 This module provides:
 - RNG key generation helpers (make_rng, rng_key parametrized fixture)
@@ -31,7 +31,7 @@ def make_rng(seed: int = 42) -> jax.Array:
     ----------
     seed
         Integer seed for reproducibility. Default 42 is the convention
-        across bjx-bench (see certify_reference.py, tune.py).
+        across tuningfork (see certify_reference.py, tune.py).
 
     Returns
     -------

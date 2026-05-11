@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""adaptive_tempered_smc wrapper for the bjx-bench SMC registry.
+"""adaptive_tempered_smc wrapper for the tuningfork SMC registry.
 
 Wraps blackjax.adaptive_tempered_smc which adapts the temperature
 schedule based on a target effective sample size (target_ess) at each

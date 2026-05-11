@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Laplace-marginal dynamic HMC (binomial proposal) entry for the bjx-bench registry.
+"""Laplace-marginal dynamic HMC (binomial proposal) entry for the tuningfork registry.
 
 Wraps ``blackjax.laplace_dhmc`` (``blackjax/mcmc/laplace_dynamic_hmc.py``) for
-the bjx-bench algorithm registry.  Combines the Laplace marginalisation of
+the tuningfork algorithm registry.  Combines the Laplace marginalisation of
 :mod:`~blackjax.mcmc.laplace_hmc` with the quasi-random integration-step
 schedule of :mod:`~blackjax.mcmc.dynamic_hmc`.
 

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Model registry for bjx-bench.
+"""Model registry for tuningfork.
 
 ``MODELS`` maps model name strings to ``Posterior`` instances.  Every
 model file in the sub-packages exposes a module-level ``ENTRY`` constant; this

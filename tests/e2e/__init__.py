@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""End-to-end phase gate tests for bjx-bench.
+"""End-to-end phase gate tests for tuningfork.
 
 Full workflow tests covering reference certification, recipe generation,
 and Statistician gate evaluation across multiple algorithms and models.

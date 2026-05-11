@@ -27,7 +27,7 @@ Output:
     tuningfork/data/stoch_vol_returns.npy  — float32 array of shape (500,)
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/generate_stoch_vol.py
 """
 

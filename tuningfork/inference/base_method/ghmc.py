@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """GHMC (Generalized HMC / persistent-momentum HMC) algorithm entry for the
-bjx-bench algorithm registry.
+tuningfork algorithm registry.
 
 Generalized HMC (Horowitz 1991; Sohl-Dickstein et al. 2014) extends standard
 HMC with a **momentum persistence** parameter ``alpha``.  At each step, the

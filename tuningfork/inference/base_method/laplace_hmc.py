@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Laplace-marginal HMC (static trajectory) entry for the bjx-bench registry.
+"""Laplace-marginal HMC (static trajectory) entry for the tuningfork registry.
 
 Wraps ``blackjax.laplace_hmc`` (``blackjax/mcmc/laplace_hmc.py``) for the
-bjx-bench algorithm registry.  This is HMC on the Laplace-approximated marginal
+tuningfork algorithm registry.  This is HMC on the Laplace-approximated marginal
 log-density of a hierarchical model, integrating out latent variables ``theta``
 via L-BFGS at each leapfrog step, with gradients w.r.t. ``phi`` computed via the
 implicit function theorem.

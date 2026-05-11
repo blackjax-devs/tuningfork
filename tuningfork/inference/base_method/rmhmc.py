@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""RMHMC algorithm entry for the bjx-bench algorithm registry.
+"""RMHMC algorithm entry for the tuningfork algorithm registry.
 
 Wraps ``blackjax.rmhmc`` (``blackjax.mcmc.rmhmc.as_top_level_api``).
 
@@ -26,7 +26,7 @@ num_integration_steps, *, divergence_threshold=1000, integrator=implicit_midpoin
 
 CRITICAL — ``mass_matrix`` vs ``inverse_mass_matrix``:
   The rmhmc upstream takes ``mass_matrix`` (NOT ``inverse_mass_matrix``).
-  The bjx-bench runner and ``window_adaptation`` both produce an
+  The tuningfork runner and ``window_adaptation`` both produce an
   ``inverse_mass_matrix``.  This wrapper converts at the factory boundary:
 
   - Diagonal case (1-D array): ``mass_matrix = 1.0 / inverse_mass_matrix``

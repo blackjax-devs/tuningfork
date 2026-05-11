@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Orbital HMC algorithm entry for the bjx-bench algorithm registry.
+"""Orbital HMC algorithm entry for the tuningfork algorithm registry.
 
 Wraps ``blackjax.orbital_hmc`` (``blackjax.mcmc.periodic_orbital.as_top_level_api``).
 

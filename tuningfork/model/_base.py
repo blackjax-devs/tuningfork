@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Base types for the bjx-bench model registry.
+"""Base types for the tuningfork model registry.
 
 Every benchmark posterior is described by a single ``Posterior`` dataclass.
 Whether a model is a one-line analytic Gaussian or a full hierarchical NumPyro

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench warmup registry.
+"""tuningfork warmup registry.
 
 Core warmups:
 - ``stan_window``: blackjax.window_adaptation; compatible with hmc, nuts,

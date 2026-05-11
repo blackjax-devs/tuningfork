@@ -15,7 +15,7 @@
 
 These are defensive: if BlackJAX upstream changes the return-tuple shape or
 function signatures of any adaptation we depend on, these tests fire with a
-clear message pointing at the file in bjx-bench that needs an update.
+clear message pointing at the file in tuningfork that needs an update.
 
 Includes sections: 5 (pathfinder / multipathfinder), and the unnumbered
 window_adaptation section (for HMC/NUTS/Barker/MALA).

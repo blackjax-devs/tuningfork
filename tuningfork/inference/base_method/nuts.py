@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NUTS algorithm entry for the bjx-bench algorithm registry.
+"""NUTS algorithm entry for the tuningfork algorithm registry.
 
 NUTS (No-U-Turn Sampler) is the default reference sampler in BlackJAX.
 The only BO-tunable hyperparameter is ``step_size``; the

@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Mean-field VI sampler-mode base method entry for bjx-bench.
+"""Mean-field VI sampler-mode base method entry for tuningfork.
 
 Wraps ``blackjax.vi.meanfield_vi`` as a dual-mode entry compatible with the
-bjx-bench runner contract.  The "sampler-mode" here means the full VI
+tuningfork runner contract.  The "sampler-mode" here means the full VI
 optimisation loop runs inside ``init`` (via ``jax.lax.scan``), storing the
 final variational state in a wrapper ``MFVISamplerState``.  Each subsequent
 ``step(rng_key, state)`` call draws **one** sample from the fitted variational

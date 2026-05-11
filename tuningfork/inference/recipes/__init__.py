@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench recipes: pinned configurations per (model, base_method, effort).
+"""tuningfork recipes: pinned configurations per (model, base_method, effort).
 
 See _base.py for the recipe schema and effort tier definitions.
 """

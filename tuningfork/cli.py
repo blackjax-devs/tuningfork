@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench CLI — main entry point for reference, tune, warmup, and leaderboard subcommands."""
+"""tuningfork CLI — main entry point for reference, tune, warmup, and leaderboard subcommands."""
 
 import argparse
 import sys
@@ -72,7 +72,7 @@ def _cmd_reference(args: argparse.Namespace) -> int:
     # Summary table
     col_w = 22
     print()
-    print("bjx-bench reference summary")
+    print("tuningfork reference summary")
     print("=" * 55)
     print(f"{'model':<{col_w}} {entry.name}")
     print(f"{'class':<{col_w}} {entry.class_}")
@@ -238,7 +238,7 @@ def _cmd_warmup(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------ #
     print()
     print(
-        f"bjx-bench warmup  model={args.model}  algo={args.algo}  "
+        f"tuningfork warmup  model={args.model}  algo={args.algo}  "
         f"warmup={args.warmup}  n_warmup={args.n_warmup}  seed={args.seed}"
     )
     print()
@@ -488,7 +488,7 @@ def _cmd_tune(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------ #
     print()
     print(
-        f"bjx-bench tune  model={args.model}  algo={args.algo}"
+        f"tuningfork tune  model={args.model}  algo={args.algo}"
         f"  sampler={args.sampler}  n_trials={args.n_trials}  seed={args.seed}"
     )
     print()
@@ -556,9 +556,9 @@ def _cmd_tune(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    """CLI entry point for bjx-bench."""
+    """CLI entry point for tuningfork."""
     parser = argparse.ArgumentParser(
-        prog="bjx-bench",
+        prog="tuningfork",
         description="BlackJAX benchmark harness",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)

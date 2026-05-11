@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""MALA algorithm entry for the bjx-bench algorithm registry.
+"""MALA algorithm entry for the tuningfork algorithm registry.
 
 Metropolis-Adjusted Langevin Algorithm.  Only ``step_size`` is BO-tunable;
 no mass matrix is needed (MALA uses a fixed isotropic metric).

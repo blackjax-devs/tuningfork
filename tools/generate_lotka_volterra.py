@@ -35,7 +35,7 @@ Output:
         u0_true, v0_true, sigma_obs_true: scalar float32
 
 Usage:
-    cd bjx-bench
+    cd tuningfork
     uv run python tools/generate_lotka_volterra.py
 """
 

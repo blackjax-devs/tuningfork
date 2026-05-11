@@ -20,7 +20,7 @@ JSON. Each recipe includes:
 - The Statistician auto-gate verdict (`gate_evidence.auto`) and any manual
   override (`gate_evidence.override`)
 - User-facing instructions auto-templated from the pinned fields
-- Provenance: which versions of `bjx-bench`, `blackjax`, and `jax` produced it
+- Provenance: which versions of `tuningfork`, `blackjax`, and `jax` produced it
 
 Effort tiers measure **human + machine wall time to produce a gate-passing
 recipe**, escalated by the Statistician → TL when the auto-gate fails.  See
@@ -66,11 +66,11 @@ Run the generator script from the `bjx-bench/` project root:
 
 ```bash
 cd bjx-bench
-uv run python bjx_bench/inference/recipes/_generate_starter.py
+uv run python tuningfork/inference/recipes/_generate_starter.py
 ```
 
 This re-stamps all LOW-effort recipes against the current installed versions
-of `bjx-bench`, `blackjax`, and `jax`. The script is idempotent — it
+of `tuningfork`, `blackjax`, and `jax`. The script is idempotent — it
 overwrites existing files with fresh provenance timestamps.
 
 Regenerate whenever:

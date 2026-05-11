@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Load-or-generate reference cache for bjx-bench.
+"""Load-or-generate reference cache for tuningfork.
 
 This is the only module the runner and CLI call.  It owns the cache contract:
 given a ``Posterior`` and a requested sample count, it either loads a
@@ -27,7 +27,7 @@ Cache layout (relative to ``cache_dir``, default ``tuningfork/reference/``):
 Stamp fields (``metadata/<name>.json``):
 
     tuningfork_version  str   installed package version
-    code_sha           str   git HEAD SHA of bjx-bench repo, or "untracked"
+    code_sha           str   git HEAD SHA of tuningfork repo, or "untracked"
     generator          str   "analytic" | "long_nuts"
     num_samples        int   number of samples stored
     seed               int   RNG seed used
@@ -100,7 +100,7 @@ def _resolve_cache_dir(cache_dir: Path | None) -> Path:
 
 
 def _get_code_sha(cache_dir: Path) -> str:
-    """Return git HEAD SHA of the bjx-bench repo, or 'untracked'."""
+    """Return git HEAD SHA of the tuningfork repo, or 'untracked'."""
     # Walk up from the package file to find the repo root
     repo_root = Path(__file__).parent.parent.parent
     try:

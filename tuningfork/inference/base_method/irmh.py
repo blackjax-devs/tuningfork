@@ -14,7 +14,7 @@
 """IRMH (Independent Random-Walk Metropolis-Hastings) algorithm entry.
 
 Wraps ``blackjax.irmh`` (``blackjax.mcmc.random_walk.irmh_as_top_level_api``)
-for the bjx-bench algorithm registry.
+for the tuningfork algorithm registry.
 
 The proposal is a full ``Callable`` supplied at factory time — typically
 fitted from a VI / Pathfinder / Laplace approximation.  Unlike RWM, the
