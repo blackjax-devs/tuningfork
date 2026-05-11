@@ -11,11 +11,11 @@ kernelspec:
   name: python3
 ---
 
-# Recipe Diagnostics Notebook (P6.0b)
+# Recipe Diagnostics Notebook
 
 This notebook loads a Recipe by ID, runs the model + warmup + sampler end-to-end,
 and renders a family-aware diagnostic battery with ArviZ plots. It serves two purposes:
-(1) development-time sanity check during Phase 6 recipe building; (2) investigation
+(1) development-time sanity check during recipe-generation builds; (2) investigation
 aid for any cell already flagged Yellow or Red in the recipe matrix.
 
 The diagnostics are family-aware: gradient MH-corrected, MCLMC, SMC, VI, and
@@ -500,12 +500,12 @@ else:
 # Reference comparison (conditional on reference availability)
 try:
     from tuningfork.metrics import reference_compare  # noqa: F401
-    print("reference_compare module available (P6.0a merged)")
+    print("reference_compare module available")
     print("TODO: Implement Section 3 reference comparison panel")
 except ImportError:
     print(
         "Reference comparison unavailable — "
-        "`tuningfork/metrics/reference_compare.py` not yet merged (blocked on P6.0a)."
+        "`tuningfork/metrics/reference_compare.py` not yet available in the editable install."
     )
 ```
 
@@ -557,7 +557,7 @@ if recipe.effort in (Effort.MEDIUM, Effort.HIGH):
     print(f"  Model: {recipe.model_name}")
     print(f"  Sampler: {recipe.base_method_name}")
     print("  (Specific investigation plots depend on model+sampler combination)")
-    print("  TODO: Implement per-model investigation panels (P6.1+)")
+    print("  TODO: Implement per-model investigation panels (Recipe Phase 1+)")
 else:
     print(
         f"Investigation Mode disabled (effort={recipe.effort.value}; "

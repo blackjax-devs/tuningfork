@@ -20,7 +20,7 @@ BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategie
 
 ## Status
 
-**Phase 6 — recipe building under auto-gate.** Phase 5 (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 10 warmups × 6 SMC variants × 14 models. P6.0 prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Phase 6.1 onward emits per-cell `Recipe` artifacts that pass the auto-gate.
+**Recipe generation phase.** Phase 5 (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 10 warmups × 6 SMC variants × 14 models. Recipe-generation prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Recipe Phase 1 onward emits per-cell `Recipe` artifacts that pass the auto-gate. The library will be open-sourced once the initial set of recipes lands.
 
 ## Suite (14 models)
 
@@ -39,13 +39,13 @@ BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategie
 | 11 | 25-mode Gaussian mixture | 2 | Multimodal |
 | 12 | Stochastic volatility | 503 | Latent-Gaussian / state-space |
 | 13 | Lotka–Volterra ODE inverse | 7 | Nonlinear, expensive likelihood |
-| 14 | GP regression (1D) | ~200 | Latent-Gaussian (latent GPs not yet marginalised — Phase 6.7 probe) |
+| 14 | GP regression (1D) | ~200 | Latent-Gaussian (latent GPs not yet marginalised — Recipe Phase 7 probe) |
 
-## Phase 6 recipe matrix (excerpt)
+## Recipe matrix (excerpt)
 
-The statistician-drafted recipe matrix (full version in `PLAN_phase6_recipe_matrix.md` at the parent `blackjax-devs/` directory) assigns a per-cell colour verdict across the full inventory. Legend: **G** = LOW effort (library defaults pass the auto-gate at first emit), **Y** = MEDIUM (one statistician-led workaround recovers), **R** = HIGH (full Bayesian-workflow investigation) OR hard-excluded category.
+The statistician-drafted recipe matrix (full version in [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md)) assigns a per-cell colour verdict across the full inventory. Legend: **G** = LOW effort (library defaults pass the auto-gate at first emit), **Y** = MEDIUM (one statistician-led workaround recovers), **R** = HIGH (full Bayesian-workflow investigation) OR hard-excluded category.
 
-The canonical baseline table — `stan_window` warmup × NUTS-family samplers — is the Phase 6.1 build target:
+The canonical baseline table — `stan_window` warmup × NUTS-family samplers — is the Recipe Phase 1 build target:
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -56,7 +56,7 @@ The canonical baseline table — `stan_window` warmup × NUTS-family samplers �
 | stan_window + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
 | stan_window + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
 
-Gaps in Table 1 are filled by other warmup families: **MCLMC + `mclmc_tuning`** is green on `stoch_vol` (d=503) — the canonical case where NUTS `default_works=False` (Phase 6.2 target). **SMC + `adaptive_tempered`** is green on `gmm_25` — the only viable path for the 25-mode mixture, since any single-chain gradient sampler gets trapped (Phase 6.5 target).
+Gaps in Table 1 are filled by other warmup families: **MCLMC + `mclmc_tuning`** is green on `stoch_vol` (d=503) — the canonical case where NUTS `default_works=False` (Recipe Phase 2 target). **SMC + `adaptive_tempered`** is green on `gmm_25` — the only viable path for the 25-mode mixture, since any single-chain gradient sampler gets trapped (Recipe Phase 5 target).
 
 ### Cell-count summary
 
@@ -68,7 +68,7 @@ Across all 8 sub-tables (24 base methods × 10 warmups × 14 models, plus 6 SMC 
 | 🟡 MEDIUM (Yellow) | ~180 | statistician investigation: seed/init/bug-fix workaround OR unconventional pairing (e.g., `stan_window + mala`) |
 | 🔴 HIGH / hard-excluded (Red) | ~420 | dominated by 8 exclusion categories: multimodal × single-chain gradient, VI × pathological, Laplace × non-Gaussian-latent, `no_warmup` × high-d, MCLMC inside SMC, `rmhmc` without callable metric, `fullrank_vi` warmup at d>30, elliptical/mgrad outside Gaussian-prior models |
 
-The full 8-table matrix, supersession map (e.g., `adaptive_tempered_smc` strictly dominates `tempered_smc`), and hard-exclusion category definitions live in `PLAN_phase6_recipe_matrix.md`.
+The full 8-table matrix, supersession map (e.g., `adaptive_tempered_smc` strictly dominates `tempered_smc`), and hard-exclusion category definitions live in [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md).
 
 ## Calibration pipeline
 
