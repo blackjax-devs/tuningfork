@@ -11,6 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Helper functions for running MCMC and SMC samplers during benchmarking.
+
+Particle initialization and SMC runner utilities for executing
+baseline configurations on the model suite.
+"""
+
 from bjx_bench.runner.smc import init_particles_from_prior, run_smc
 
 __all__ = ["init_particles_from_prior", "run_smc"]
