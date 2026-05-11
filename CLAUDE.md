@@ -58,7 +58,7 @@ tests/
 **Three test_api_pins files at root** : `test_api_pins_mcmc.py` (MCMC base methods), `test_api_pins_warmup.py` (warmups + adapter contracts), `test_api_pins_smc.py` (SMC family). Append new tripwires to the right family file; do not create a single `test_api_pins.py`.
 
 **Mandatory for agents**:
-- Run `make clean-orphans` before any heavy test sweep. See  in `/home/jp/blackjax-devs/WORKLOG.md` — orphan Python REPLs can silently consume 7+ GB.
+- Run `make clean-orphans` before any heavy test sweep — orphan Python REPLs can silently consume 7+ GB. The underlying script lives at `~/claude-config/tools/clean_orphans.sh` (cross-repo); override the path with `CLAUDE_CONFIG_DIR` if needed.
 - When adding a test, tag it with **exactly one** of `@pytest.mark.fast` / `@pytest.mark.slow` / `@pytest.mark.e2e`. Use module-level `pytestmark = pytest.mark.<marker>` if all tests in the file are the same kind.
 
 For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
