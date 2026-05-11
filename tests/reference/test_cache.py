@@ -156,7 +156,7 @@ class TestCacheInvalidation:
         meta_path = _metadata_path("mvn_10", tmp_path)
         with meta_path.open() as fh:
             meta = json.load(fh)
-        meta["bjx_bench_version"] = "99.99.99"
+        meta["tuningfork_version"] = "99.99.99"
         _atomic_write_json(meta_path, meta)
 
         # Should regenerate

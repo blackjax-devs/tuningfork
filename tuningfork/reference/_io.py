@@ -26,7 +26,7 @@ Cache layout (relative to ``cache_dir``, default ``tuningfork/reference/``):
 
 Stamp fields (``metadata/<name>.json``):
 
-    bjx_bench_version  str   installed package version
+    tuningfork_version  str   installed package version
     code_sha           str   git HEAD SHA of bjx-bench repo, or "untracked"
     generator          str   "analytic" | "long_nuts"
     num_samples        int   number of samples stored
@@ -170,7 +170,7 @@ def _load_metadata(name: str, cache_dir: Path) -> dict | None:
 
 def _cache_is_valid(meta: dict, n: int, current_version: str, current_sha: str) -> bool:
     """Return True iff the cached artifact satisfies all validity conditions."""
-    if meta.get("bjx_bench_version") != current_version:
+    if meta.get("tuningfork_version") != current_version:
         return False
     if meta.get("code_sha") != current_sha:
         return False
@@ -264,7 +264,7 @@ def _build_metadata(
     n = next(iter(draws.values())).shape[0]
     return {
         "name": entry.name,
-        "bjx_bench_version": current_version,
+        "tuningfork_version": current_version,
         "code_sha": current_sha,
         "generator": entry.reference_method.value,
         "num_samples": n,
@@ -353,7 +353,7 @@ def get_reference_draws(
     Resolution order:
 
     1. If not force_regenerate AND a valid cache stamp exists AND
-       stamp.bjx_bench_version == current AND stamp.code_sha == current AND
+       stamp.tuningfork_version == current AND stamp.code_sha == current AND
        stamp.num_samples >= n AND stamp.certification.passed:
          → load draws from cache; slice to first n along sample axis.
     2. Else regenerate:

@@ -80,7 +80,7 @@ def test_recipe_construct_and_frozen() -> None:
         instructions="test instructions",
         notes="",
         tuning_seed=0,
-        bjx_bench_version="0.0.0.dev0",
+        tuningfork_version="0.0.0.dev0",
         blackjax_version="1.0.0",
         jax_version="0.4.0",
         timestamp_utc="2026-01-01T00:00:00Z",
@@ -183,7 +183,7 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.instructions == recipe.instructions
     assert loaded.notes == recipe.notes
     assert loaded.tuning_seed == recipe.tuning_seed
-    assert loaded.bjx_bench_version == recipe.bjx_bench_version
+    assert loaded.tuningfork_version == recipe.tuningfork_version
     assert loaded.blackjax_version == recipe.blackjax_version
     assert loaded.jax_version == recipe.jax_version
     assert loaded.timestamp_utc == recipe.timestamp_utc
@@ -288,7 +288,7 @@ def test_render_instructions_medium_stub() -> None:
         difficulty=None,
         instructions="",
         tuning_seed=0,
-        bjx_bench_version="0.0.0.dev0",
+        tuningfork_version="0.0.0.dev0",
         blackjax_version="1.0.0",
         jax_version="0.4.0",
         timestamp_utc="2026-01-01T00:00:00Z",
@@ -315,7 +315,7 @@ def test_render_instructions_high_stub() -> None:
         difficulty=None,
         instructions="",
         tuning_seed=42,
-        bjx_bench_version="0.0.0.dev0",
+        tuningfork_version="0.0.0.dev0",
         blackjax_version="1.0.0",
         jax_version="0.4.0",
         timestamp_utc="2026-01-01T00:00:00Z",

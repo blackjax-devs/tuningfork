@@ -49,7 +49,7 @@ from pathlib import Path
 
 import jax
 
-from tuningfork._version import __version__ as _bjx_bench_version
+from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.inference.base_method import BASE_METHODS
 from tuningfork.inference.recipes._base import Recipe
 from tuningfork.inference.warmup import WARMUPS
@@ -173,7 +173,7 @@ def emit_low_recipes(
             recipe = Recipe.from_default_config(
                 posterior,
                 base_method,
-                bjx_bench_version=_bjx_bench_version,
+                tuningfork_version=_tuningfork_version,
             )
             path = recipe.save(_STARTER_ROOT)
             generated.append(path)
@@ -252,7 +252,7 @@ def emit_medium_recipes(
                 stan_window,
                 n_warmup=n_warmup,
                 rng_key=key,
-                bjx_bench_version=_bjx_bench_version,
+                tuningfork_version=_tuningfork_version,
             )
             path = recipe.save(_STARTER_ROOT)
             generated.append(path)
@@ -346,7 +346,7 @@ def emit_high_recipes(
                 posterior=posterior,
                 base_method=base_method,
                 warmup=stan_window,
-                bjx_bench_version=_bjx_bench_version,
+                tuningfork_version=_tuningfork_version,
             )
             path = recipe.save(_STARTER_ROOT)
             generated.append(path)

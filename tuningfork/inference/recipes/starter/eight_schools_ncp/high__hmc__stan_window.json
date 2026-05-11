@@ -28,8 +28,8 @@
   "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune eight_schools_ncp hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.8463441640699834, 'num_integration_steps': 2}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0994.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
-  "bjx_bench_version": "0.1.dev31+gb89de29f8.d20260508",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-08T14:06:15Z"
+  "timestamp_utc": "2026-05-08T14:06:15Z",
+  "tuningfork_version": "0.1.dev31+gb89de29f8.d20260508"
 }

@@ -185,7 +185,7 @@ class Recipe:
         Random seed used during recipe-build time MCMC.  ``0`` for legacy
         ``from_default_config`` no-MCMC stubs; nonzero for any tier that
         actually ran warmup + sampler.
-    bjx_bench_version
+    tuningfork_version
         ``tuningfork.__version__`` at generation time.
     blackjax_version
         ``blackjax.__version__`` at generation time.
@@ -276,7 +276,7 @@ class Recipe:
 
     # ---- Provenance ----
     tuning_seed: int = 0
-    bjx_bench_version: str = "0.0.0.dev0"
+    tuningfork_version: str = "0.0.0.dev0"
     blackjax_version: str = ""
     jax_version: str = ""
     timestamp_utc: str = ""
@@ -335,7 +335,7 @@ class Recipe:
         posterior: Posterior,
         base_method: BaseMethod,
         *,
-        bjx_bench_version: str = "0.0.0.dev0",
+        tuningfork_version: str = "0.0.0.dev0",
     ) -> Recipe:
         """Build a placeholder LOW Recipe stamped with default sampler params; no MCMC runs.
 
@@ -353,7 +353,7 @@ class Recipe:
             The target posterior describing the benchmark model.
         base_method
             The sampling algorithm whose default HP space seeds the recipe.
-        bjx_bench_version
+        tuningfork_version
             Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
 
         Returns
@@ -382,7 +382,7 @@ class Recipe:
             instructions="",  # rendered below after provisional construction
             notes="",
             tuning_seed=0,
-            bjx_bench_version=bjx_bench_version,
+            tuningfork_version=tuningfork_version,
             blackjax_version=_get_blackjax_version(),
             jax_version=_get_jax_version(),
             timestamp_utc=_now_utc_iso(),
@@ -403,7 +403,7 @@ class Recipe:
         *,
         n_warmup: int = 1000,
         rng_key: Any,  # jax.Array
-        bjx_bench_version: str = "0.0.0.dev0",
+        tuningfork_version: str = "0.0.0.dev0",
     ) -> Recipe:
         """Build a Recipe by running ONLY the warmup (no post-warmup sampler chain).
 
@@ -429,7 +429,7 @@ class Recipe:
             Number of warmup adaptation steps.
         rng_key
             JAX random key for both model initialization and warmup.
-        bjx_bench_version
+        tuningfork_version
             Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
 
         Returns
@@ -525,7 +525,7 @@ class Recipe:
             instructions="",  # rendered below after provisional construction
             notes="",
             tuning_seed=tuning_seed,
-            bjx_bench_version=bjx_bench_version,
+            tuningfork_version=tuningfork_version,
             blackjax_version=_get_blackjax_version(),
             jax_version=_get_jax_version(),
             timestamp_utc=_now_utc_iso(),
@@ -542,7 +542,7 @@ class Recipe:
         posterior: Posterior,
         base_method: BaseMethod,
         warmup: Any,  # Warmup; imported inline
-        bjx_bench_version: str = "0.0.0.dev0",
+        tuningfork_version: str = "0.0.0.dev0",
     ) -> Recipe:
         """Build a HIGH Recipe by wrapping a BO tuning outcome.
 
@@ -560,7 +560,7 @@ class Recipe:
             The sampling algorithm (used for base_method_name provenance).
         warmup
             A ``Warmup`` instance recording which warmup ran during the BO study.
-        bjx_bench_version
+        tuningfork_version
             Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
 
         Returns
@@ -609,7 +609,7 @@ class Recipe:
             instructions="",  # rendered below after provisional construction
             notes="",
             tuning_seed=0,
-            bjx_bench_version=bjx_bench_version,
+            tuningfork_version=tuningfork_version,
             blackjax_version=_get_blackjax_version(),
             jax_version=_get_jax_version(),
             timestamp_utc=_now_utc_iso(),
