@@ -12,7 +12,7 @@ Borges's *Garden of Forking Paths* (1941) gave Gelman & Loken ([2013][gl2013]) a
 
 ## Why
 
-BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation strategies. None are currently benchmarked together with calibrated configurations, gradient-budget accounting, or posteriordb-style certified reference draws. `tuningfork` answers questions like:
+BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategies, and 6 SMC variants. None are currently benchmarked together with calibrated configurations, gradient-budget accounting, or posteriordb-style certified reference draws. `tuningfork` answers questions like:
 
 - *"What is the best calibrated HMC config for Neal's funnel, and how many leapfrog steps does it cost per effective sample?"*
 - *"Does Pathfinder→HMC dominate Stan-window→HMC on hierarchical models, or only on well-conditioned ones?"*
@@ -20,7 +20,7 @@ BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation st
 
 ## Status
 
-**Phase 0 — scaffold only.** No working code yet. See the plan document (in the parent `blackjax-devs/` directory) for the full design.
+**Phase 6 — recipe building under auto-gate.** Phase 5 (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 10 warmups × 6 SMC variants × 14 models. P6.0 prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Phase 6.1 onward emits per-cell `Recipe` artifacts that pass the auto-gate.
 
 ## Suite (14 models)
 
@@ -30,22 +30,26 @@ BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation st
 | 2 | Ill-conditioned correlated Gaussian | 50 | Ill-conditioned (κ≈1000) |
 | 3 | Eight Schools (NCP) | 10 | Hierarchical |
 | 4 | Neal's Funnel | 10 | Funnel |
-| 5 | Banana (Rosenbrock) | 2–10 | Curved manifold |
-| 6 | Radon hierarchical | ~170 | Hierarchical+funnel |
+| 5 | Banana (Rosenbrock) | 2 | Curved manifold |
+| 6 | Radon hierarchical | 390 | Hierarchical+funnel |
 | 7 | Synthetic logistic regression | 3 | GLM baseline |
-| 8 | German Credit logistic regression | 25 | GLM real data |
-| 9 | Sparse horseshoe linear regression | 103 | Sparse / heavy-tailed |
-| 10 | IRT (2PL) | ~230 | Hierarchical, scale-identifiability |
+| 8 | German Credit logistic regression | 26 | GLM real data |
+| 9 | Sparse horseshoe linear regression | 204 | Sparse / heavy-tailed |
+| 10 | IRT (2PL) | 144 | Hierarchical, scale-identifiability |
 | 11 | 25-mode Gaussian mixture | 2 | Multimodal |
-| 12 | Stochastic volatility | ~500 | Latent-Gaussian / state-space |
-| 13 | Lotka–Volterra ODE inverse | 4 | Nonlinear, expensive likelihood |
-| 14 | GP regression (1D) | ~200 | Latent-Gaussian |
+| 12 | Stochastic volatility | 503 | Latent-Gaussian / state-space |
+| 13 | Lotka–Volterra ODE inverse | 7 | Nonlinear, expensive likelihood |
+| 14 | GP regression (1D) | ~200 | Latent-Gaussian (latent GPs not yet marginalised — Phase 6.7 probe) |
 
-## Calibration tiers
+## Calibration pipeline
 
-- **reference-certification — Gold reference draws**: 1 chain × 100 000 samples (NUTS + Stan window adaptation), reshape into 10 chunks for split-R̂. Multimodal exception for #11 (parallel-tempered SMC + multi-restart).
-- **BO tuning — Per-algorithm tuning**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
-- **warmup-only — Warmup isolated**: cross-product of (Stan-window, MEADS, ChEES, Pathfinder, MCLMC tuning, no-op) × samplers.
+Recipe construction draws on three building blocks under `tuningfork/calibration/`:
+
+- **`certify_reference.py` — Gold reference draws**: 1 chain × 100 000 samples (NUTS + Stan window adaptation), reshaped into 10 chunks for rank-normalized split-R̂ (Vehtari et al. 2021). Multimodal exception for `gmm_25` (parallel-tempered SMC + multi-restart with mode-coverage check).
+- **`tune.py` — Hyperparameter optimization**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
+- **`statistician_gate.py` — Auto-gate**: pre-committed thresholds (R̂ < 1.01, min bulk-ESS ≥ 400, divergences = 0, `max_abs_mean_z` < 2) that every recipe must clear before emission. Thresholds are fixed before sampling — see "The garden of forking paths" above.
+
+The `Recipe.effort` field (`tuningfork/inference/recipes/_base.py`) records the resulting cost class: LOW (defaults pass at first emit), MEDIUM (single statistician-led workaround), HIGH (full Bayesian-workflow investigation).
 
 ## Headline metric
 
