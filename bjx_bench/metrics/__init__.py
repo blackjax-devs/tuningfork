@@ -16,3 +16,7 @@
 Headline metric, quality comparisons, and diagnostics for evaluating sampler
 configurations against certified reference draws.
 """
+
+from bjx_bench.metrics.reference_compare import compute_sample_quality
+
+__all__ = ["compute_sample_quality"]
