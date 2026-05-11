@@ -31,7 +31,7 @@ Constructor helpers:
   - ``Recipe.from_warmup_only(posterior, base_method, warmup, ...)`` —
     runs the warmup, captures the adapted ``(step_size, IMM)``, returns a
     Recipe with the adapted params.
-  - ``Recipe.from_tuning_result(tuning_result, ...)`` — wraps a Tier-B BO
+  - ``Recipe.from_tuning_result(tuning_result, ...)`` — wraps a BO tuning
     outcome (best params + difficulty profile) into a Recipe.
 """
 
@@ -63,7 +63,7 @@ class Effort(str, Enum):
              defines the conventional pairing per sampler.  The Statistician
              auto-gate (``bjx_bench.calibration.statistician_gate``) evaluates
              the resulting samples on R̂ / bulk-ESS / divergence count and
-             against the Tier-A reference where available (``max_abs_mean_z``,
+             against the reference where available (``max_abs_mean_z``,
              ``sample_quality``).  Recipe commits at LOW iff the gate passes
              (or the Statistician overrides REVIEW to APPROVE).
              Wall time: machine only (warmup + sampling on the run host).
@@ -466,7 +466,7 @@ class Recipe:
         # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
         # execution happens at recipe-run time, not at recipe-build time.
         # Pass num_chains=1 + squeeze the leading dim out of the result, mirroring
-        # the Tier-B BO-trial pattern.
+        # the BO tuning-trial pattern.
         from bjx_bench.inference.warmup._base import squeeze_single_chain
 
         t0 = time.perf_counter()
@@ -544,7 +544,7 @@ class Recipe:
         warmup: Any,  # Warmup; imported inline
         bjx_bench_version: str = "0.0.0.dev0",
     ) -> Recipe:
-        """Build a HIGH Recipe by wrapping a Tier-B BO outcome.
+        """Build a HIGH Recipe by wrapping a BO tuning outcome.
 
         The ``TuningResult`` already carries ``best_params``, ``best_score``,
         and ``difficulty``; this constructor stamps provenance, serialises the

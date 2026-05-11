@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for the Tier-B BO loop body.
+"""Integration tests for the BO tuning loop body.
 
 Tests the actual ``tune_algorithm`` implementation for mass-matrix gradient
 kernels (NUTS, HMC).  The NotImplementedError paths for MALA and MCLMC are

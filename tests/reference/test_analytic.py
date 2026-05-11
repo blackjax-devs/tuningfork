@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the Tier-A analytic certifier (Path A).
+"""Tests for the reference-certification analytic certifier (Path A).
 
 Checks:
 - certify_reference_analytic returns (draws, Summaries) with correct shapes.

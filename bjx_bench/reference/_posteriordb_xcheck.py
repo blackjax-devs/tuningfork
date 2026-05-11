@@ -159,7 +159,7 @@ def cross_check_against_posteriordb(
 
     Loads reference draws from the posteriordb Python client and compares
     per-dim mean and std against our computed summaries.  Designed to be
-    called AFTER the Tier-A gate passes (i.e., the model is already
+    called AFTER the reference-certification gate passes (i.e., the model is already
     certified); discrepancies are findings, not failures.
 
     Parameters

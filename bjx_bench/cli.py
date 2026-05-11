@@ -631,7 +631,7 @@ def main() -> int:
     # ---- tune subcommand ----
     p_tune = sub.add_parser(
         "tune",
-        help="Find best hyperparameters via Optuna Tier-B BO loop",
+        help="Find best hyperparameters via Optuna BO tuning loop",
     )
     p_tune.add_argument(
         "model",

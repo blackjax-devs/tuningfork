@@ -316,7 +316,7 @@ class TestHmcWindowAdaptation:
     def test_window_adaptation_hmc_runs(self) -> None:
         """Confirm blackjax.window_adaptation works with blackjax.hmc.
 
-        This verifies that the Tier-B runner can use the same warmup path for
+        This verifies that the BO tuning runner can use the same warmup path for
         HMC as for NUTS.  Empirical question #2 in the design spec.
         """
         import blackjax

@@ -17,7 +17,7 @@ This is the "zero-cost" warmup used for:
 
 - **LOW-effort recipes**: skip adaptation entirely; use default hyperparameters.
 - **Gradient-free kernels** (RWM): no warmup is meaningful or needed.
-- **Tier-C warmup-isolation runs** where the researcher wants to measure
+- **warmup-only-isolation runs** where the researcher wants to measure
   raw kernel performance before any adaptation overhead.
 
 The runner returns an empty ``adapted_params`` dict; all kernel
@@ -159,7 +159,7 @@ ENTRY = Warmup(
         "Identity warmup: returns the kernel's init state with default params "
         "and an empty adapted_params dict.  Zero gradient evaluations.  "
         "Used for LOW-effort recipes, gradient-free kernels (RWM), and "
-        "Tier-C warmup-isolation baselines.  "
+        "warmup-only-isolation baselines.  "
         "MCLMC is handled specially: kernel.init(position, rng_key) rather "
         "than kernel.init(position).  "
         "multi-chain by default (num_chains=4 via jax.vmap); states "

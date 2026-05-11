@@ -142,7 +142,7 @@ class BaseMethod:
         recommended hyperparameter search space for Optuna BO.
     needs_mass_matrix
         When ``True``, the kernel requires an inverse mass matrix (or
-        metric tensor) to be wired in.  The Tier-B runner will construct
+        metric tensor) to be wired in.  The BO tuning runner will construct
         and pass one; the exact API is documented in tests.  Default ``False``.
     target_acceptance_rate
         Optimal MH acceptance rate for this kernel, if applicable.  Used
@@ -181,7 +181,7 @@ class BaseMethod:
     algorithm-specific logic (grad cost, HP space) is carried as
     callable/data fields, not subclass overrides.
 
-    The ``needs_mass_matrix`` flag signals to the Tier-B runner that it
+    The ``needs_mass_matrix`` flag signals to the BO tuning runner that it
     must construct and thread through a mass matrix (e.g. diagonal
     estimate from warmup draws).  This is documented here but
     the runner wiring happens there.

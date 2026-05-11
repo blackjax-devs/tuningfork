@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the Tier-A NUTS path (Path B) — 8-Schools NCP.
+"""Tests for the long-NUTS reference-certification path (Path B) — 8-Schools NCP.
 
 Runs certify_reference_nuts with small parameters to keep the test fast
 (~30s on CPU):
@@ -142,7 +142,7 @@ class TestCertifyNutsInterface:
 
 
 class TestCertifyNutsPassesGate:
-    """8-Schools NCP must pass Tier-A certification at small params (seed=42).
+    """8-Schools NCP must pass reference-certification certification at small params (seed=42).
 
     Gate thresholds (from certify_reference.py):
         split_rhat_max <= 1.01
@@ -168,7 +168,7 @@ class TestCertifyNutsPassesGate:
             n_chunks=N_CHUNKS,
         )
         assert cert.passed, (
-            f"8-Schools NCP failed Tier-A certification at seed={NUTS_SEED}: "
+            f"8-Schools NCP failed reference-certification certification at seed={NUTS_SEED}: "
             f"split_rhat_max={cert.split_rhat_max:.4f}, "
             f"min_chunk_bulk_ess={cert.min_chunk_bulk_ess:.1f}, "
             f"num_divergences={cert.num_divergences}, "

@@ -265,7 +265,7 @@ def lotka_volterra_inverse(
 #     posteriordb_id = None:
 #         Stan's lotka_volterra uses a different solver/likelihood structure.
 #         No upstream cross-check available.
-#     Tier-A budget:
+#     reference-certification budget:
 #         In-spawn verification: n_warmup=500, n_samples=500, 4 chains.
 #         (Lighter than radon/stoch_vol — 7-D but each likelihood call = ODE solve.)
 #         Production cache: n_warmup=1000, n_samples=10000.

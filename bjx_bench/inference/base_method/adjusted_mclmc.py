@@ -21,7 +21,7 @@ The BO hyperparameter space is ``(step_size, L)`` — matching vanilla MCLMC —
 but the upstream factory does not accept ``L`` directly.  Instead, the number
 of integration steps is derived as ``N = max(1, round(L / step_size))``, and
 ``integration_steps_params=(N,)`` is passed to the upstream factory.  This
-translation is trace-safe because Tier-B BO supplies concrete float trial
+translation is trace-safe because BO tuning supplies concrete float trial
 values (never traced JAX scalars) as HP trial arguments.
 
 Grad cost: the default integrator (isokinetic_mclachlan, a palindromic
@@ -72,7 +72,7 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     blackjax.SamplingAlgorithm
         Object with ``.init`` and ``.step`` methods.
     """
-    # Tier-B BO supplies concrete float trial values; trace-safe.
+    # BO tuning supplies concrete float trial values; trace-safe.
     n_steps = max(1, int(round(float(L) / float(step_size))))
     return blackjax.adjusted_mclmc(
         logdensity_fn,

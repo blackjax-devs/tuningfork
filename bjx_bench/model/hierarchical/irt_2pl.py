@@ -189,11 +189,11 @@ def irt_2pl(
 #         Generated via tools/fetch_irt_2pl.py; committed as bjx_bench/data/irt_2pl.csv
 #     posteriordb_id = None:
 #         'irt_2pl-irt_2pl' has reference_posterior_name: null (no reference draws).
-#         Tier-A uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.
+#         reference-certification uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.
 #     Stan model reference:
 #         https://raw.githubusercontent.com/stan-dev/posteriordb/master/
 #         posterior_database/models/stan/irt_2pl.stan
-#     Tier-A budget:
+#     reference-certification budget:
 #         In-spawn verification: n_warmup=1000, n_samples=2000, 4 chains.
 #         Production cache: n_warmup=2000, n_samples=20000.
 #     Discrimination claim:

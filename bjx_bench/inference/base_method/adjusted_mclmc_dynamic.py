@@ -81,7 +81,7 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     blackjax.SamplingAlgorithm
         Object with ``.init`` (requires ``rng_key``) and ``.step`` methods.
     """
-    # Tier-B BO supplies concrete float trial values; trace-safe.
+    # BO tuning supplies concrete float trial values; trace-safe.
     avg = max(1.0, float(L) / float(step_size))
     return blackjax.adjusted_mclmc_dynamic(
         logdensity_fn,

@@ -35,9 +35,9 @@ BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation st
 
 ## Calibration tiers
 
-- **Tier-A — Gold reference draws**: 1 chain × 100 000 samples (NUTS + Stan window adaptation), reshape into 10 chunks for split-R̂. Multimodal exception for #11 (parallel-tempered SMC + multi-restart).
-- **Tier-B — Per-algorithm tuning**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
-- **Tier-C — Warmup isolated**: cross-product of (Stan-window, MEADS, ChEES, Pathfinder, MCLMC tuning, no-op) × samplers.
+- **reference-certification — Gold reference draws**: 1 chain × 100 000 samples (NUTS + Stan window adaptation), reshape into 10 chunks for split-R̂. Multimodal exception for #11 (parallel-tempered SMC + multi-restart).
+- **BO tuning — Per-algorithm tuning**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
+- **warmup-only — Warmup isolated**: cross-product of (Stan-window, MEADS, ChEES, Pathfinder, MCLMC tuning, no-op) × samplers.
 
 ## Headline metric
 

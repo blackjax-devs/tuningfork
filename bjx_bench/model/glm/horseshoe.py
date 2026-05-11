@@ -153,7 +153,7 @@ def horseshoe_regression(
 #         Sparsity: 5% Bernoulli (~5 active features).
 #         Nonzero coefficients ~ N(10, 1) — large signal pierces regularised shrinkage.
 #         sigma_obs = 1.0.
-#     Tier-A budget:
+#     reference-certification budget:
 #         In-spawn verification: n_warmup=2000, n_samples=2000.
 #         Production cache: n_warmup=2000, n_samples=20000.
 #     Discrimination claim:

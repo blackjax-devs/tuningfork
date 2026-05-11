@@ -273,7 +273,7 @@ def emit_high_recipes(
 ) -> list[Path]:
     """Emit HIGH-effort candidate recipes using Bayesian optimization over sampler hyperparameters.
 
-    Runs Tier-B Bayesian optimization (via ``tune_algorithm``) to search for
+    Runs BO tuning Bayesian optimization (via ``tune_algorithm``) to search for
     improved sampler hyperparameters with stan_window warmup; the result is
     a HIGH-effort recipe with tuned parameters and difficulty profile.
     Candidates are evaluated by the Statistician auto-gate to assess whether
