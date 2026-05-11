@@ -18,10 +18,16 @@ uv.lock
 results/runs/
 results/cache/
 
-# Tier-A reference draws are large — gitignore by default; commit a small
+# Reference draws are large — gitignored by default; commit a small
 # canonical subset by force-add when finalizing a release.
 tuningfork/reference/draws/*.npz
 tuningfork/reference/draws/*.npy
+
+# Per-step chain_stats from NUTS cert runs — diagnostic-only, ~1–2 MB per
+# model. Written on every cert run (incl. failed runs, for statistician
+# inspection). See worklog/decisions/2026-05-11-phase0-reference-protocol-
+# refinements.md § 3.
+tuningfork/reference/chain_stats/*.npz
 
 # OS / editor
 .DS_Store
