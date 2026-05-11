@@ -25,7 +25,7 @@
     "wall_seconds_to_threshold": 10.753922825009795,
     "wall_seconds_to_best": 53.29591398302
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune german_credit hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0302381094809089, 'num_integration_steps': 81}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0084.\nTotal calibration time: ~0 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune german_credit hmc --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.0302381094809089, 'num_integration_steps': 81}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0084.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
   "blackjax_version": "1.6.dev68+g820718a91",

@@ -62,10 +62,10 @@ fall under MEDIUM as an exploration of an unconventional pairing).
 
 ## How to Regenerate
 
-Run the generator script from the `bjx-bench/` project root:
+Run the generator script from the `tuningfork/` project root:
 
 ```bash
-cd bjx-bench
+cd tuningfork
 uv run python tuningfork/inference/recipes/_generate_starter.py
 ```
 
@@ -82,5 +82,5 @@ Regenerate whenever:
 
 ## Schema Reference
 
-See `bjx_bench/inference/recipes/_base.py` for the full `Recipe` dataclass
+See `tuningfork/inference/recipes/_base.py` for the full `Recipe` dataclass
 definition and design rationale.

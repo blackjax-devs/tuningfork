@@ -14,7 +14,7 @@
 """End-to-end tests — `tuningfork warmup` CLI subprocess integration.
 
 Spawns ``tuningfork warmup <model> <algo> ...`` as a subprocess with an isolated
-``BJX_BENCH_REFERENCE_DIR`` pointing at a ``tmp_path`` so tests do not pollute
+``TUNINGFORK_REFERENCE_DIR`` pointing at a ``tmp_path`` so tests do not pollute
 the committed reference cache or each other.
 
 Four tests:
@@ -45,7 +45,7 @@ def _run_warmup(
     check: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run ``uv run tuningfork warmup <args>`` with an isolated reference dir."""
-    env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+    env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
         ["uv", "run", "tuningfork", "warmup", *args],
         env=env,
@@ -197,7 +197,7 @@ def _run_leaderboard(
     check: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run ``uv run tuningfork leaderboard <args>``."""
-    env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+    env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
         ["uv", "run", "tuningfork", "leaderboard", *args],
         env=env,

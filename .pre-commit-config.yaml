@@ -1,4 +1,4 @@
-# Lint stack for bjx-bench. Versions bumped from sampling-book's 2022-era pins
+# Lint stack for tuningfork. Versions bumped from sampling-book's 2022-era pins
 # so they install cleanly on Python 3.13. Tools and ignore lists kept identical
 # in spirit to sampling-book/blackjax for cross-repo consistency.
 repos:

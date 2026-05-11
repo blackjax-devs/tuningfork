@@ -24,7 +24,7 @@
     "wall_seconds_to_threshold": 28.300488632987253,
     "wall_seconds_to_best": 62.21327900898177
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune eight_schools_ncp nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.9425427436944651}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0675.\nTotal calibration time: ~1 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune eight_schools_ncp nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.9425427436944651}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0675.\nTotal calibration time: ~1 min.",
   "notes": "",
   "tuning_seed": 0,
   "blackjax_version": "1.6.dev68+g820718a91",

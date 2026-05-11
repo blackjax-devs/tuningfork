@@ -14,7 +14,7 @@
 """End-to-end tests — CLI subprocess integration.
 
 Spawns `tuningfork reference ...` as a subprocess with an isolated
-BJX_BENCH_REFERENCE_DIR pointing at a tmp_path so tests do not pollute
+TUNINGFORK_REFERENCE_DIR pointing at a tmp_path so tests do not pollute
 the committed reference cache.
 
 Cache validity note: the CLI's _get_code_sha() reads git HEAD, so within a
@@ -39,7 +39,7 @@ def _run_cli(
     timeout: int = 120,
 ) -> subprocess.CompletedProcess:
     """Run `uv run tuningfork <args>` with an isolated reference dir."""
-    env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+    env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
     return subprocess.run(
         ["uv", "run", "tuningfork", *args],
         env=env,
@@ -111,7 +111,7 @@ class TestTierACLI:
 
     def test_unknown_model_exits_nonzero(self, tmp_path: Path) -> None:
         """Unknown model name must exit with code 1."""
-        env = {**os.environ, "BJX_BENCH_REFERENCE_DIR": str(tmp_path)}
+        env = {**os.environ, "TUNINGFORK_REFERENCE_DIR": str(tmp_path)}
         proc = subprocess.run(
             ["uv", "run", "tuningfork", "reference", "no_such_model"],
             env=env,

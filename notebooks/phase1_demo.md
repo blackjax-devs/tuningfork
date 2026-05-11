@@ -11,14 +11,14 @@ kernelspec:
   name: python3
 ---
 
-# bjx-bench Phase 1 Demo: Tier-A Reference Generation
+# tuningfork Phase 1 Demo: Tier-A Reference Generation
 
-`bjx-bench` is a BlackJAX-native benchmark library for MCMC/VI/SMC samplers. Its
+`tuningfork` is a BlackJAX-native benchmark library for MCMC/VI/SMC samplers. Its
 goal is a reproducible, certified reference suite for 14 posterior models — from
 simple Gaussians to Lotka-Volterra ODEs — together with a fair comparison harness
 using `min-bulk-ESS / total_grad_evals` as the headline metric. The full design lives
-in [`../PLAN_bjx_bench.md`](../PLAN_bjx_bench.md); the Phase 1 API specification
-is in [`../PLAN_bjx_bench_API.md`](../PLAN_bjx_bench_API.md).
+in [`../PLAN_tuningfork.md`](../PLAN_tuningfork.md); the Phase 1 API specification
+is in [`../PLAN_tuningfork_API.md`](../PLAN_tuningfork_API.md).
 
 This notebook walks through Tier-A reference generation for the three Phase 1 starter
 models: MVN-10 (analytic), Neal's Funnel (analytic), and 8-Schools NCP (long-NUTS).
@@ -41,8 +41,8 @@ import numpy as np
 
 # Point the cache at a fresh temp dir so this notebook is self-contained
 # and does not pollute the committed reference directory.
-_DEMO_CACHE = Path(tempfile.mkdtemp(prefix="bjx_bench_demo_"))
-os.environ["BJX_BENCH_REFERENCE_DIR"] = str(_DEMO_CACHE)
+_DEMO_CACHE = Path(tempfile.mkdtemp(prefix="tuningfork_demo_"))
+os.environ["TUNINGFORK_REFERENCE_DIR"] = str(_DEMO_CACHE)
 
 plt.rcParams["axes.spines.right"] = False
 plt.rcParams["axes.spines.top"] = False
@@ -50,8 +50,8 @@ plt.rcParams["figure.figsize"] = (7, 4)
 ```
 
 ```{code-cell} ipython3
-from bjx_bench.registry import REGISTRY
-from bjx_bench.reference._io import get_reference_draws, get_reference_summaries
+from tuningfork.registry import REGISTRY
+from tuningfork.reference._io import get_reference_draws, get_reference_summaries
 
 print("Registry models:", list(REGISTRY.keys()))
 ```
@@ -174,7 +174,7 @@ print(f"  reference_method={entry_schools.reference_method.value}")
 ```
 
 ```{code-cell} ipython3
-from bjx_bench.calibration.tier_a import certify_reference_nuts
+from tuningfork.calibration.tier_a import certify_reference_nuts
 
 key_schools = jax.random.key(42)
 
@@ -203,7 +203,7 @@ The draws are in **unconstrained** space. To recover the constrained `mu` and
 `tau` we use the `postprocess_fn` from `build_logdensity_fn`:
 
 ```{code-cell} ipython3
-from bjx_bench.registry._numpyro import build_logdensity_fn
+from tuningfork.registry._numpyro import build_logdensity_fn
 
 key_pp = jax.random.key(99)
 _, _, postprocess_fn = build_logdensity_fn(key_pp, entry_schools)
@@ -276,7 +276,7 @@ if time_warm > 0:
     print(f"Speedup:                 ~{time_cold/time_warm:.0f}x")
 ```
 
-The stamp written to `metadata/<name>.json` records the `bjx_bench` version, the
+The stamp written to `metadata/<name>.json` records the `tuningfork` version, the
 repo git SHA, the generator path, and the certification result. Any version bump
 invalidates all caches (conservative Phase 1 policy; Phase 2 may add per-model SHA
 tracking).
@@ -360,7 +360,7 @@ MALA. The grad cost is fixed and does not require reading `info`.
 ### Q4. PyTree shape after `run_inference_algorithm`
 
 Confirmed empirically in `tests/test_tier_a_nuts.py` and by reading
-`bjx_bench/calibration/tier_a.py`.
+`tuningfork/calibration/tier_a.py`.
 
 After:
 ```python
@@ -387,13 +387,13 @@ This shape is verified in `tests/test_tier_a_nuts.py:TestCertifyNutsInterface.te
 
 ### Q5. Cache invalidation granularity
 
-Phase 1 takes the **conservative approach**: any `bjx_bench` version bump
+Phase 1 takes the **conservative approach**: any `tuningfork` version bump
 invalidates ALL cached artifacts, not just those whose model code changed.
 
-The check is in `bjx_bench/reference/_io.py:_cache_is_valid`:
+The check is in `tuningfork/reference/_io.py:_cache_is_valid`:
 
 ```python
-if meta.get("bjx_bench_version") != current_version:
+if meta.get("tuningfork_version") != current_version:
     return False
 if meta.get("code_sha") != current_sha:
     return False
@@ -411,9 +411,9 @@ other's caches.
 
 ### Q6. Concurrent-writer safety
 
-Phase 1 **assumes no concurrent `bjx-bench tier-a <model>` invocations on the same
+Phase 1 **assumes no concurrent `tuningfork tier-a <model>` invocations on the same
 model**. The assumption is documented in the module docstring of
-`bjx_bench/reference/_io.py`.
+`tuningfork/reference/_io.py`.
 
 `_atomic_write_npz` and `_atomic_write_json` both write to a temporary file and
 then call `tmp.replace(path)` (a POSIX atomic rename). A single writer is therefore
@@ -427,4 +427,4 @@ writer B.
 
 For Phase 1 (single-user, local-disk benchmarks) this is acceptable. Phase 2
 should add a `.lock` file (e.g. via `fcntl.flock`) around the generate-and-write
-block if parallel `bjx-bench` invocations become part of the workflow.
+block if parallel `tuningfork` invocations become part of the workflow.

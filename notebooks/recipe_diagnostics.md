@@ -27,7 +27,7 @@ specialised samplers each receive a tailored plot suite.
 :tags: [parameters]
 
 # Papermill parameter cell
-RECIPE_PATH: str = "bjx_bench/inference/recipes/starter/mvn_10/low__nuts__no_warmup.json"
+RECIPE_PATH: str = "tuningfork/inference/recipes/starter/mvn_10/low__nuts__no_warmup.json"
 QUICK_MODE: bool = True  # If True, use N_SAMPLES_QUICK; if False, use N_SAMPLES_FULL
 N_SAMPLES_QUICK: int = 1000
 N_SAMPLES_FULL: int = 4000
@@ -45,12 +45,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from bjx_bench.inference.recipes._base import Effort, Recipe
-from bjx_bench.model import MODELS, build_logdensity_fn
-from bjx_bench.inference.base_method import BASE_METHODS
-from bjx_bench.inference.warmup import WARMUPS
-from bjx_bench.calibration.statistician_gate import auto_gate
-from bjx_bench.diagnostics import (
+from tuningfork.inference.recipes._base import Effort, Recipe
+from tuningfork.model import MODELS, build_logdensity_fn
+from tuningfork.inference.base_method import BASE_METHODS
+from tuningfork.inference.warmup import WARMUPS
+from tuningfork.calibration.statistician_gate import auto_gate
+from tuningfork.diagnostics import (
     FAMILY_A_SAMPLERS,
     FAMILY_B_SAMPLERS,
     FAMILY_C_SAMPLERS,
@@ -77,15 +77,15 @@ print(f"RECIPE_PATH: {RECIPE_PATH}, QUICK_MODE: {QUICK_MODE}")
 ```{code-cell} ipython3
 # Resolve recipe path.
 # jupytext --execute always sets the kernel cwd to /tmp regardless of the notebook's
-# location.  We derive the bjx-bench root from the installed bjx_bench package path
+# location.  We derive the tuningfork root from the installed tuningfork package path
 # (works for editable installs) and also try cwd / cwd.parent as fallbacks.
-import bjx_bench as _bjx_bench_mod
+import tuningfork as _tuningfork_mod
 
-_BJX_BENCH_ROOT = Path(_bjx_bench_mod.__file__).parent.parent  # bjx_bench/ -> bjx-bench/
+_TUNINGFORK_ROOT = Path(_tuningfork_mod.__file__).parent.parent  # tuningfork/ -> tuningfork/
 
 recipe_path = Path(RECIPE_PATH)
 if not recipe_path.exists():
-    _search_roots = [_BJX_BENCH_ROOT, Path.cwd(), Path.cwd().parent]
+    _search_roots = [_TUNINGFORK_ROOT, Path.cwd(), Path.cwd().parent]
     try:
         _search_roots.insert(0, Path(__file__).parent.parent)
     except NameError:
@@ -98,9 +98,9 @@ if not recipe_path.exists():
 
 if not recipe_path.exists():
     raise FileNotFoundError(
-        f"Recipe file not found at {RECIPE_PATH!r} (tried {_BJX_BENCH_ROOT} and cwd). "
+        f"Recipe file not found at {RECIPE_PATH!r} (tried {_TUNINGFORK_ROOT} and cwd). "
         "Check RECIPE_PATH parameter; starter recipes live under "
-        "bjx_bench/inference/recipes/starter/<model>/<effort>__<sampler>__<warmup>.json"
+        "tuningfork/inference/recipes/starter/<model>/<effort>__<sampler>__<warmup>.json"
     )
 
 print(f"Loading recipe from: {recipe_path}")
@@ -115,7 +115,7 @@ metadata_rows = [
     ["Headline Metric", str(recipe.headline_metric) if recipe.headline_metric is not None else "Not measured"],
     ["Auto-gate Verdict (stored)", recipe.gate_evidence.get("auto", {}).get("verdict", "NOT_RUN")],
     ["Tuning Seed", str(recipe.tuning_seed)],
-    ["bjx-bench Version", recipe.bjx_bench_version],
+    ["tuningfork Version", recipe.tuningfork_version],
 ]
 
 metadata_df = pd.DataFrame(metadata_rows, columns=["Property", "Value"])
@@ -155,7 +155,7 @@ else:
 # Real warmup + sampler run
 # ---------------------------------------------------------------------------
 # Dispatch logic:
-#   Family C (SMC)  → bjx_bench.runner.smc.run_smc
+#   Family C (SMC)  → tuningfork.runner.smc.run_smc
 #   Family D (VI)   → run VI then sample from surrogate posterior
 #   Family A/B/E    → warmup.runner + jax.lax.scan + jax.vmap
 #
@@ -176,8 +176,8 @@ if sampler_name in FAMILY_C_SAMPLERS:
     # -----------------------------------------------------------------------
     # Family C: SMC
     # -----------------------------------------------------------------------
-    from bjx_bench.inference.smc import SMC_METHODS
-    from bjx_bench.runner.smc import init_particles_from_prior, run_smc
+    from tuningfork.inference.smc import SMC_METHODS
+    from tuningfork.runner.smc import init_particles_from_prior, run_smc
 
     smc_entry = SMC_METHODS[sampler_name]
 
@@ -499,13 +499,13 @@ else:
 ```{code-cell} ipython3
 # Reference comparison (conditional on reference availability)
 try:
-    from bjx_bench.metrics import reference_compare  # noqa: F401
+    from tuningfork.metrics import reference_compare  # noqa: F401
     print("reference_compare module available (P6.0a merged)")
     print("TODO: Implement Section 3 reference comparison panel")
 except ImportError:
     print(
         "Reference comparison unavailable — "
-        "`bjx_bench/metrics/reference_compare.py` not yet merged (blocked on P6.0a)."
+        "`tuningfork/metrics/reference_compare.py` not yet merged (blocked on P6.0a)."
     )
 ```
 

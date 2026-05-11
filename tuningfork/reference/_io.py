@@ -44,7 +44,7 @@ Resolution order for ``get_reference_draws``::
 
 Environment variable
 --------------------
-``BJX_BENCH_REFERENCE_DIR`` overrides ``DEFAULT_CACHE_DIR``.
+``TUNINGFORK_REFERENCE_DIR`` overrides ``DEFAULT_CACHE_DIR``.
 Override precedence: function-arg > env-var > default.
 
 Concurrent-writer safety
@@ -93,7 +93,7 @@ def _resolve_cache_dir(cache_dir: Path | None) -> Path:
     """Return effective cache dir: arg > env-var > default."""
     if cache_dir is not None:
         return cache_dir
-    env = os.environ.get("BJX_BENCH_REFERENCE_DIR")
+    env = os.environ.get("TUNINGFORK_REFERENCE_DIR")
     if env:
         return Path(env)
     return DEFAULT_CACHE_DIR

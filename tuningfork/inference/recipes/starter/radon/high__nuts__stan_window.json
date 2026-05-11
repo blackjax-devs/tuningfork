@@ -24,7 +24,7 @@
     "wall_seconds_to_threshold": 32.378540139005054,
     "wall_seconds_to_best": 32.378540139005054
   },
-  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  bjx-bench tune radon nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.38246290493380847}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0136.\nTotal calibration time: ~0 min.",
+  "instructions": "**High-effort recipe** (Tier-B BO-tuned). To reproduce:\n  ```bash\n  tuningfork tune radon nuts --n-trials 20 --seed 0\n  ```\nPinned config from 20 trials, seed 0:\n  base_method_params: {'step_size': 0.38246290493380847}\n  warmup_params:      {}\nExpected `min-bulk-ESS / total_grad_evals`: 0.0136.\nTotal calibration time: ~0 min.",
   "notes": "",
   "tuning_seed": 0,
   "blackjax_version": "1.6.dev68+g820718a91",
