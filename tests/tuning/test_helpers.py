@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for bjx_bench.calibration.tier_b foundation layer.
+"""Tests for bjx_bench.calibration.tune (BO tuning).
 
 Covers:
 - ``default_value_for_space``: one test per kind (loguniform, uniform, int,

@@ -37,7 +37,7 @@ tests/
 ├── models/              # model-specific tests
 ├── recipes/             # recipe schema + emission
 ├── metrics/             # headline metric + diagnostics
-├── tier_a/, tier_b/     # certification + optimization
+├── reference/, tuning/  # reference certification + BO tuning
 ├── e2e/                 # end-to-end phase-gate suite
 ├── test_api_pins.py     # BlackJAX upstream contract (cross-cutting)
 └── test_registry.py     # registry checks (cross-cutting)

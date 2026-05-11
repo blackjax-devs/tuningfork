@@ -553,7 +553,7 @@ class Recipe:
         Parameters
         ----------
         tuning_result
-            A ``TuningResult`` from ``bjx_bench.calibration.tier_b.tune_algorithm``.
+            A ``TuningResult`` from ``bjx_bench.calibration.tune.tune_algorithm``.
         posterior
             The target posterior (used for model_name provenance).
         base_method

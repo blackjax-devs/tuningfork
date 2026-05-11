@@ -47,7 +47,7 @@ def test_mclmc_find_L_and_step_size_returns_3_tuple():
         return -0.5 * jnp.sum(x["x"] ** 2)
 
     key = jax.random.key(0)
-    # Build the kernel and state following tier_b.py:_run_warmup line 417-419
+    # Build the kernel and state following tune.py:_run_warmup
     default_kwargs = {"L": 1.0, "step_size": 0.1}
     kernel = blackjax.mclmc(logdensity_fn, **default_kwargs)
     init_state = kernel.init({"x": jnp.zeros(5)}, key)
