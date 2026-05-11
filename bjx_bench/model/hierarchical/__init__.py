@@ -11,3 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Hierarchical and multilevel model posteriors.
+
+Eight Schools non-centered parameterization, Radon exposure model,
+and item-response theory (2PL) models with scale-identifiability challenges.
+"""

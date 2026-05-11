@@ -11,3 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Generalized linear model (logistic regression) benchmarks.
+
+Synthetic and real-world logistic regression posteriors including
+sparse and high-dimensional variants.
+"""

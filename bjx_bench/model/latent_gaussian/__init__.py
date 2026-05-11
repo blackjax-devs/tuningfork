@@ -11,3 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Latent Gaussian models with structured covariances.
+
+State-space models (stochastic volatility) and spatial models (Gaussian
+process regression) requiring specialized adaptation strategies.
+"""

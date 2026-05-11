@@ -11,3 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Bayesian inference for ordinary differential equations.
+
+Lotka–Volterra predator–prey model with expensive likelihood evaluation
+from ODE solver integration.
+"""
