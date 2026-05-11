@@ -11,15 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""bjx-bench CLI — main entry point for tier-a, tune, warmup, and leaderboard subcommands."""
+"""bjx-bench CLI — main entry point for reference, tune, warmup, and leaderboard subcommands."""
 
 import argparse
 import sys
 import time
 
 
-def _cmd_tier_a(args: argparse.Namespace) -> int:
-    """Handle the `tier-a` subcommand."""
+def _cmd_reference(args: argparse.Namespace) -> int:
+    """Handle the `reference` subcommand."""
     import jax
 
     from bjx_bench.model import MODELS
@@ -72,7 +72,7 @@ def _cmd_tier_a(args: argparse.Namespace) -> int:
     # Summary table
     col_w = 22
     print()
-    print("bjx-bench tier-a summary")
+    print("bjx-bench reference summary")
     print("=" * 55)
     print(f"{'model':<{col_w}} {entry.name}")
     print(f"{'class':<{col_w}} {entry.class_}")
@@ -563,28 +563,28 @@ def main() -> int:
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # ---- tier-a subcommand ----
-    p_tier_a = sub.add_parser(
-        "tier-a",
-        help="Generate or load Tier-A reference draws",
+    # ---- reference subcommand ----
+    p_reference = sub.add_parser(
+        "reference",
+        help="Generate or load certified reference draws",
     )
-    p_tier_a.add_argument(
+    p_reference.add_argument(
         "model",
         help="Model name, e.g. mvn_10, eight_schools_ncp",
     )
-    p_tier_a.add_argument(
+    p_reference.add_argument(
         "--n",
         type=int,
         default=100_000,
         help="Number of reference draws (default: 100000)",
     )
-    p_tier_a.add_argument(
+    p_reference.add_argument(
         "--seed",
         type=int,
         default=0,
         help="RNG seed (default: 0)",
     )
-    p_tier_a.add_argument(
+    p_reference.add_argument(
         "--force",
         action="store_true",
         help="Force regeneration even if cache is valid",
@@ -718,8 +718,8 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-    if args.cmd == "tier-a":
-        return _cmd_tier_a(args)
+    if args.cmd == "reference":
+        return _cmd_reference(args)
     if args.cmd == "warmup":
         return _cmd_warmup(args)
     if args.cmd == "tune":

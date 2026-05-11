@@ -31,7 +31,7 @@ def make_rng(seed: int = 42) -> jax.Array:
     ----------
     seed
         Integer seed for reproducibility. Default 42 is the convention
-        across bjx-bench (see tier_a.py, tier_b.py).
+        across bjx-bench (see certify_reference.py, tune.py).
 
     Returns
     -------

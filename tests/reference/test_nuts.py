@@ -144,7 +144,7 @@ class TestCertifyNutsInterface:
 class TestCertifyNutsPassesGate:
     """8-Schools NCP must pass Tier-A certification at small params (seed=42).
 
-    Gate thresholds (from tier_a.py):
+    Gate thresholds (from certify_reference.py):
         split_rhat_max <= 1.01
         min_chunk_bulk_ess >= 400
         num_divergences == 0
