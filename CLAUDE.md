@@ -72,7 +72,7 @@ Source layout (top-level subpackages of `tuningfork/`):
 
 ```
 tuningfork/
-├── model/                     # 14 PosteriorEntry definitions + MODELS registry
+├── model/                     # 14 Posterior definitions + MODELS registry
 ├── inference/
 │   ├── base_method/           # 24 wrappers — see ENTRIES list below
 │   ├── warmup/                # 10 warmup wrappers — see ENTRIES list below
@@ -107,7 +107,7 @@ tuningfork/
 
 ### Specialised factories (`extra_required_kwargs`)
 
-Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, inverse_mass_matrix, ...)` shape — schema field `BaseMethod.extra_required_kwargs: tuple[str, ...]` declares them so the recipe runner can inject from `PosteriorEntry` metadata at call time. Currently:
+Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, inverse_mass_matrix, ...)` shape — schema field `BaseMethod.extra_required_kwargs: tuple[str, ...]` declares them so the recipe runner can inject from `Posterior` metadata at call time. Currently:
 
 | Method | Extra required kwargs |
 |---|---|

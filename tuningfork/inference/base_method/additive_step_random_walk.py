@@ -98,6 +98,6 @@ ENTRY = BaseMethod(
         "Gradient-free (grad_count_per_step=0). RWInfo carries acceptance_rate, is_accepted, proposal. "
         "Note: blackjax.additive_step_random_walk is a GenerateSamplingAPI instance with a registered "
         "normal_random_walk factory (line 122 of blackjax/__init__.py) for the Gaussian special case. "
-        "The runner should supply proposal_generator from PosteriorEntry metadata or recipe parameters."
+        "The runner should supply proposal_generator from Posterior metadata or recipe parameters."
     ),
 )
