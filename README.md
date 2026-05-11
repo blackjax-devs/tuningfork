@@ -2,6 +2,14 @@
 
 A BlackJAX-native benchmark library for comparing MCMC, VI, and SMC sampling algorithms — modeled after [`inference-gym`](https://pypi.org/project/inference-gym/) and [`posteriordb`](https://github.com/stan-dev/posteriordb), but designed around **calibrated, gradient-counted comparisons** over a curated 14-model suite.
 
+## The garden of forking paths
+
+Borges's *Garden of Forking Paths* (1941) gave Gelman & Loken ([2013][gl2013]) a metaphor for one of the subtler problems in applied statistics: even without conscious p-hacking, the implicit multiple-comparison cost of contingent analysis choices produces results that look principled but are not reproducible. MCMC tuning has its own garden — every choice in the (warmup, sampler, step-size, mass matrix, seed, parameterization) tuple is a fork. A sampler that "works" on a model often works because the practitioner walked far enough into the garden to find a path that did, not because the path itself was principled.
+
+`tuningfork` maps the garden. Each cell in the 24 × 10 × 14 (base methods × warmups × models) inventory is an explicit fork; every recipe records the seed, adapted parameters, and auto-gate verdict that certified it. The `Effort` taxonomy makes the cost of a fork visible — LOW means library defaults pass the auto-gate at first emit, MEDIUM means a single statistician-led workaround was required, HIGH means a full Bayesian-workflow investigation. And the auto-gate criteria (R̂ < 1.01, min bulk-ESS ≥ 400, zero divergences) are committed *before* sampling, so a recipe's verdict cannot be retroactively redefined. The canonical definitions live in `tuningfork/inference/recipes/_base.py` (Effort enum) and `tuningfork/calibration/statistician_gate.py` (auto-gate).
+
+[gl2013]: https://sites.stat.columbia.edu/gelman/research/unpublished/p_hacking.pdf
+
 ## Why
 
 BlackJAX has 16+ MCMC kernels, 6 VI methods, 6 SMC variants, and 8 adaptation strategies. None are currently benchmarked together with calibrated configurations, gradient-budget accounting, or posteriordb-style certified reference draws. `tuningfork` answers questions like:
