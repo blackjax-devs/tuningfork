@@ -94,6 +94,23 @@ Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
 Total calibration time: ~{calibration_minutes} min (warmup + BO + Statistician).\
 """
 
+_GROUNDTRUTH_TEMPLATE = """\
+**Ground-truth reference recipe** for `{model_name}`. Sampled via a single long NUTS \
+chain (1×{n_samples} post-warmup, {n_warmup}-step Stan window adaptation, \
+target_acceptance={target_acceptance}). Certified to split-R̂ ≤ 1.01, min per-chunk \
+bulk-ESS ≥ 400, 0 divergences, E-BFMI ≥ 0.3 across {n_chunks} contiguous chunks.
+
+The samples themselves live at `tuningfork/reference/draws/{model_name}.npz` \
+(gitignored — {n_samples} samples × dim={dim}). Load via:
+
+    from tuningfork.reference._io import get_reference_draws
+    from tuningfork.model import MODELS
+    draws = get_reference_draws(MODELS['{model_name}'])
+
+Or, via the diagnostics notebook, set RECIPE_PATH to this recipe and the \
+notebook's load-or-run path will short-circuit to the cache.\
+"""
+
 
 def render_instructions(recipe: Recipe) -> str:
     """Render the per-effort prose template for a recipe.
@@ -151,6 +168,27 @@ def render_instructions(recipe: Recipe) -> str:
             calibration_minutes=int(
                 recipe.calibration_budget.get("wall_seconds_estimate", 0) / 60
             ),
+        )
+
+    if effort == Effort.GROUNDTRUTH:
+        n_warmup = recipe.calibration_budget.get("n_warmup", "?")
+        n_samples = recipe.calibration_budget.get("n_samples", "?")
+        n_chunks = recipe.warmup_params.get("n_chunks", "?")
+        target_acceptance = recipe.warmup_params.get("target_acceptance", "?")
+        # Attempt to look up dim from the model registry; fall back to "?"
+        try:
+            from tuningfork.model import MODELS
+
+            dim = MODELS[recipe.model_name].dim if recipe.model_name in MODELS else "?"
+        except Exception:  # noqa: BLE001
+            dim = "?"
+        return _GROUNDTRUTH_TEMPLATE.format(
+            model_name=recipe.model_name,
+            n_samples=n_samples,
+            n_warmup=n_warmup,
+            target_acceptance=target_acceptance,
+            n_chunks=n_chunks,
+            dim=dim,
         )
 
     # Unreachable if Effort enum is exhaustive — defensive fallback.

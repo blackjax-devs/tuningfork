@@ -78,6 +78,7 @@ __all__ = [
     "get_reference_draws",
     "get_reference_summaries",
     "get_adaptation_params",
+    "try_load_cached_draws",
     "DEFAULT_CACHE_DIR",
 ]
 
@@ -423,6 +424,54 @@ def get_reference_draws(
     )
 
     return draws
+
+
+def try_load_cached_draws(
+    entry: Posterior,
+    n: int | None = None,
+    *,
+    cache_dir: Path | None = None,
+) -> dict[str, jax.Array] | None:
+    """Load reference draws from cache, or return None on miss.
+
+    Mirrors ``get_reference_draws`` validity logic but never regenerates.
+    Useful when the caller wants to short-circuit on cache hit but defer
+    regeneration to a different code path (e.g., a notebook).
+
+    Parameters
+    ----------
+    entry : Posterior
+    n : int | None
+        If None, load all available samples (no slicing). If int, load first
+        ``n`` samples; cache hit requires stamp.num_samples >= n.
+    cache_dir : Path | None
+
+    Returns
+    -------
+    dict[str, jax.Array] or None
+        Draws dict on cache hit, None on miss.
+    """
+    effective_dir = _resolve_cache_dir(cache_dir)
+    current_version = _current_version()
+    current_sha = _get_code_sha(effective_dir)
+
+    meta = _load_metadata(entry.name, effective_dir)
+    if meta is None:
+        return None
+
+    # Determine n for validity check
+    check_n = n if n is not None else meta.get("num_samples", 0)
+    if not _cache_is_valid(meta, check_n, current_version, current_sha):
+        return None
+
+    draws_path = _draws_path(entry.name, effective_dir)
+    if not draws_path.exists():
+        return None
+
+    data = np.load(str(draws_path))
+    if n is None:
+        return {k: jnp.array(data[k]) for k in data.files}
+    return {k: jnp.array(data[k][:n]) for k in data.files}
 
 
 def get_reference_summaries(
