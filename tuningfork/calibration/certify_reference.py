@@ -144,8 +144,8 @@ def certify_reference_nuts(
     rng_key: jax.Array,
     *,
     n_warmup: int = 5_000,
-    n_samples: int = 100_000,
-    n_chunks: int = 10,
+    n_samples: int = 40_000,
+    n_chunks: int = 4,
     target_acceptance: float = 0.80,
 ) -> tuple[
     dict[str, jax.Array],

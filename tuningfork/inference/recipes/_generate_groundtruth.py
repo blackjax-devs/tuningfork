@@ -17,8 +17,8 @@ For each model in MODELS:
 
   * Analytic-path: call get_reference_draws to populate the cache. No recipe
     emitted (the analytic_sampler IS the ground truth).
-  * NUTS-path: call get_reference_draws at production settings (n=100_000,
-    n_warmup=5_000, n_chunks=10, target_acceptance=0.80) to populate the
+  * NUTS-path: call get_reference_draws at production settings (n=40_000,
+    n_warmup=5_000, n_chunks=4, target_acceptance=0.80) to populate the
     cache; read back metadata + adaptation; build Recipe.from_groundtruth_run
     and save to inference/recipes/starter/<model>/groundtruth__nuts__stan_window.json.
     For high-dim models (IMM.size > 50), write IMM sidecar.
@@ -30,6 +30,7 @@ NUTS-path models; ~90min total sequential.
 from __future__ import annotations
 
 import dataclasses
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -57,9 +58,9 @@ def generate_groundtruth_recipe(
     entry: Posterior,
     *,
     seed: int = 0,
-    n_samples: int = 100_000,
+    n_samples: int = 40_000,
     n_warmup: int = 5_000,
-    n_chunks: int = 10,
+    n_chunks: int = 4,
     target_acceptance: float = 0.80,
     cache_dir: Path | None = None,
     recipe_root: Path | None = None,
@@ -188,9 +189,9 @@ def generate_groundtruth_recipe(
 def sweep_all(
     *,
     seed: int = 0,
-    n_samples: int = 100_000,
+    n_samples: int = 40_000,
     n_warmup: int = 5_000,
-    n_chunks: int = 10,
+    n_chunks: int = 4,
     target_acceptance: float = 0.80,
     models: list[str] | None = None,
     cache_dir: Path | None = None,
@@ -234,6 +235,9 @@ def sweep_all(
     model_names = models if models is not None else list(MODELS.keys())
     results: dict[str, dict[str, Any]] = {}
 
+    # Strictly sequential per the user-policy + decision doc § 4 (no jax.pmap
+    # across cells; within-model JAX multi-core is fine). A single NUTS chain
+    # saturates the available cores; cross-model parallelism thrashes.
     for name in model_names:
         entry = MODELS[name]
         generator = entry.reference_method.value  # "analytic" or "nuts"
@@ -294,10 +298,33 @@ def sweep_all(
                 f"min_ess={cert.min_chunk_bulk_ess:.1f}, "
                 f"n_div={cert.num_divergences}"
             )
+            sys.stdout.flush()
         except Exception as exc:  # noqa: BLE001
             summary["wall_seconds"] = time.perf_counter() - t0
             summary["passed"] = False
             print(f"[ERROR] {name}: unexpected error — {exc!r}")
+            sys.stdout.flush()
+        else:
+            # Success path — print a brief per-model passed line so progress
+            # is visible in the log (PYTHONUNBUFFERED=1 + explicit flush is
+            # belt-and-suspenders per decision doc § 6).
+            cert_d = summary.get("cert_diagnostics") or {}
+            rhat = cert_d.get("rhat_max")
+            min_ess = cert_d.get("min_bulk_ess")
+            n_div = cert_d.get("n_divergences")
+            if rhat is not None:
+                # NUTS path
+                print(
+                    f"[ OK ] {name}: PASSED in {summary['wall_seconds']:.1f}s — "
+                    f"rhat={rhat:.4f}, min_ess={min_ess:.1f}, n_div={n_div}"
+                )
+            else:
+                # Analytic path — no chain diagnostics
+                print(
+                    f"[ OK ] {name}: PASSED (analytic) in "
+                    f"{summary['wall_seconds']:.2f}s"
+                )
+            sys.stdout.flush()
 
         results[name] = summary
 

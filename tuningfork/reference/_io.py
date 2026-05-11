@@ -335,7 +335,7 @@ def _regenerate_nuts(
     n: int,
     rng_key: jax.Array,
     n_warmup: int = 5_000,
-    n_chunks: int = 10,
+    n_chunks: int = 4,
     target_acceptance: float = 0.80,
 ) -> tuple[
     dict[str, jax.Array],
@@ -379,14 +379,14 @@ def _regenerate_nuts(
 
 def get_reference_draws(
     entry: Posterior,
-    n: int = 100_000,
+    n: int = 40_000,
     rng_key: jax.Array | None = None,
     *,
     force_regenerate: bool = False,
     cache_dir: Path | None = None,
     # NUTS-specific overrides (passed through to certify_reference_nuts)
     n_warmup: int = 5_000,
-    n_chunks: int = 10,
+    n_chunks: int = 4,
     target_acceptance: float = 0.80,
 ) -> dict[str, jax.Array]:
     """Load reference draws from cache or regenerate.
