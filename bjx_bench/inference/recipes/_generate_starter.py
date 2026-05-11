@@ -304,7 +304,7 @@ def emit_high_recipes(
     -------
     List of Path objects pointing to written JSON files.
     """
-    from bjx_bench.calibration.tier_b import tune_algorithm
+    from bjx_bench.calibration.tune import tune_algorithm
 
     stan_window = WARMUPS["stan_window"]
     generated: list[Path] = []

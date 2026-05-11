@@ -363,7 +363,7 @@ class Recipe:
             ``headline_metric=None``, and ``base_method_params`` from
             ``default_params_for(base_method)``.
         """
-        from bjx_bench.calibration.tier_b import default_params_for
+        from bjx_bench.calibration.tune import default_params_for
         from bjx_bench.inference.recipes._instructions import render_instructions
 
         params = default_params_for(base_method)
@@ -448,7 +448,7 @@ class Recipe:
 
         import jax
 
-        from bjx_bench.calibration.tier_b import default_params_for
+        from bjx_bench.calibration.tune import default_params_for
         from bjx_bench.inference.recipes._instructions import render_instructions
         from bjx_bench.model._numpyro import build_logdensity_fn
 

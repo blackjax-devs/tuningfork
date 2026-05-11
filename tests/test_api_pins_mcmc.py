@@ -36,7 +36,7 @@ pytestmark = pytest.mark.fast
 
 # ───────── 1. mclmc_find_L_and_step_size return shape ─────────
 def test_mclmc_find_L_and_step_size_returns_3_tuple():
-    """Pinned tripwire: bjx_bench/calibration/tier_b.py:_run_warmup unpacks
+    """Pinned tripwire: bjx_bench/calibration/tune.py:_run_warmup unpacks
     (state, params, _n_tuning_steps). If BlackJAX changes this to a 2-tuple
     (matching its docstring) or a different shape, the unpack fails opaquely.
 
@@ -63,7 +63,7 @@ def test_mclmc_find_L_and_step_size_returns_3_tuple():
     )
     assert len(result) == 3, (
         f"BlackJAX changed mclmc_find_L_and_step_size return arity from 3 to {len(result)}. "
-        f"Update bjx_bench/calibration/tier_b.py:_run_warmup unpack accordingly."
+        f"Update bjx_bench/calibration/tune.py:_run_warmup unpack accordingly."
     )
 
 
@@ -83,7 +83,7 @@ def test_mclmc_info_fields():
 
 # ───────────────── 3. MCLMCAdaptationState fields (params dict) ─────────────────
 def test_mclmc_adaptation_state_fields():
-    """Pinned tripwire: bjx_bench/calibration/tier_b.py treats the warmup
+    """Pinned tripwire: bjx_bench/calibration/tune.py treats the warmup
     output as a dict-like with at least step_size and L. If BlackJAX renames
     or removes either, our trial-params merge silently misbehaves.
     """
@@ -91,7 +91,7 @@ def test_mclmc_adaptation_state_fields():
     for name in ("step_size", "L", "inverse_mass_matrix"):
         assert name in fields, (
             f"MCLMCAdaptationState lost field {name!r}. Current fields: {fields}. "
-            f"Update bjx_bench/calibration/tier_b.py:_run_warmup."
+            f"Update bjx_bench/calibration/tune.py:_run_warmup."
         )
 
 

@@ -52,7 +52,7 @@ import optuna
 import optuna.distributions as D
 import pytest
 
-from bjx_bench.calibration.tier_b import (
+from bjx_bench.calibration.tune import (
     TuningDifficulty,
     TuningResult,
     default_params_for,

@@ -101,7 +101,7 @@ def _runner(
     adapted_params
         Always ``{}`` — no adaptation was run; all HPs come from defaults.
     """
-    from bjx_bench.calibration.tier_b import default_params_for
+    from bjx_bench.calibration.tune import default_params_for
 
     if base_method.extra_required_kwargs:
         raise NotImplementedError(

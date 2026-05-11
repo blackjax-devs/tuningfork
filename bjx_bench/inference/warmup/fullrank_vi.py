@@ -277,7 +277,7 @@ def _runner(
     if base_method.needs_mass_matrix:
         init_defaults["inverse_mass_matrix"] = jnp.ones(d)
 
-    from bjx_bench.calibration.tier_b import default_value_for_space
+    from bjx_bench.calibration.tune import default_value_for_space
 
     for space in base_method.default_hp_space:
         if space.name not in ("step_size", "inverse_mass_matrix"):

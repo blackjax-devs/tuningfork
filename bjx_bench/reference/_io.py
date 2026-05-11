@@ -72,7 +72,7 @@ from bjx_bench.model._base import Posterior, ReferenceMethod
 
 if TYPE_CHECKING:
     from bjx_bench.calibration._summary import Summaries
-    from bjx_bench.calibration.tier_a import AdaptationParams
+    from bjx_bench.calibration.certify_reference import AdaptationParams
 
 __all__ = [
     "get_reference_draws",
@@ -287,7 +287,9 @@ def _regenerate_analytic(
     rng_key: jax.Array,
 ) -> tuple[dict[str, jax.Array], Summaries, dict]:
     """Path A: analytic sampler.  Returns (draws, summaries, cert_dict)."""
-    from bjx_bench.calibration.tier_a_analytic import certify_reference_analytic
+    from bjx_bench.calibration.certify_reference_analytic import (
+        certify_reference_analytic,
+    )
 
     draws, summaries = certify_reference_analytic(entry, n, rng_key)
     cert_dict = {
@@ -309,7 +311,7 @@ def _regenerate_nuts(
     target_acceptance: float = 0.80,
 ) -> tuple[dict[str, jax.Array], Summaries, dict, AdaptationParams]:
     """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt)."""
-    from bjx_bench.calibration.tier_a import certify_reference_nuts
+    from bjx_bench.calibration.certify_reference import certify_reference_nuts
 
     draws, summaries, adaptation_params, cert = certify_reference_nuts(
         entry,
@@ -508,7 +510,7 @@ def get_adaptation_params(
     FileNotFoundError
         If no adaptation params are cached for this model.
     """
-    from bjx_bench.calibration.tier_a import AdaptationParams
+    from bjx_bench.calibration.certify_reference import AdaptationParams
 
     if entry.reference_method == ReferenceMethod.ANALYTIC:
         raise ValueError(

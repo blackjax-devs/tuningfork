@@ -28,7 +28,7 @@ import jax.numpy as jnp
 import pytest
 from blackjax.mcmc.adjusted_mclmc_dynamic import make_random_trajectory_length_fn
 
-from bjx_bench.calibration.tier_b import default_params_for
+from bjx_bench.calibration.tune import default_params_for
 from bjx_bench.inference.base_method.adjusted_mclmc_dynamic import ENTRY
 from bjx_bench.model import MODELS
 

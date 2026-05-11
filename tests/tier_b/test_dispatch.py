@@ -30,11 +30,7 @@ from unittest.mock import patch
 import jax
 import pytest
 
-from bjx_bench.calibration.tier_b import (
-    TuningResult,
-    default_params_for,
-    tune_algorithm,
-)
+from bjx_bench.calibration.tune import TuningResult, default_params_for, tune_algorithm
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.model import MODELS
 
@@ -358,9 +354,9 @@ class TestBestTrialFallback:
 
     def test_fallback_to_trial_zero_params(self) -> None:
         """Monkeypatch _run_trial to always return -inf."""
-        from bjx_bench.calibration import tier_b
+        from bjx_bench.calibration import tune
 
-        with patch.object(tier_b, "_run_trial", return_value=float("-inf")):
+        with patch.object(tune, "_run_trial", return_value=float("-inf")):
             result = tune_algorithm(
                 _MVN_ENTRY,
                 _NUTS_ENTRY,
@@ -388,9 +384,9 @@ class TestBestTrialFallback:
 
     def test_result_does_not_raise_when_all_diverge(self) -> None:
         """Confirm no ValueError is raised from study.best_trial."""
-        from bjx_bench.calibration import tier_b
+        from bjx_bench.calibration import tune
 
-        with patch.object(tier_b, "_run_trial", return_value=float("-inf")):
+        with patch.object(tune, "_run_trial", return_value=float("-inf")):
             # Should complete without raising ValueError
             result = tune_algorithm(
                 _MVN_ENTRY,

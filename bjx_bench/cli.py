@@ -498,7 +498,7 @@ def _cmd_tune(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------ #
     import jax
 
-    from bjx_bench.calibration.tier_b import tune_algorithm
+    from bjx_bench.calibration.tune import tune_algorithm
 
     rng_key = jax.random.key(args.seed)
     t0 = time.monotonic()

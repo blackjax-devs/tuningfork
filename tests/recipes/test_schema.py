@@ -26,7 +26,7 @@ from typing import Any
 import jax.numpy as jnp
 import pytest
 
-from bjx_bench.calibration.tier_b import default_params_for
+from bjx_bench.calibration.tune import default_params_for
 from bjx_bench.inference.base_method import BASE_METHODS
 from bjx_bench.inference.recipes import Effort, Recipe
 from bjx_bench.inference.recipes._instructions import render_instructions

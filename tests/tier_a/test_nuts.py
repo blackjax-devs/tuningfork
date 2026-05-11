@@ -28,7 +28,7 @@ import jax
 import pytest
 
 from bjx_bench.calibration._summary import Summaries
-from bjx_bench.calibration.tier_a import (
+from bjx_bench.calibration.certify_reference import (
     AdaptationParams,
     CertificationResult,
     certify_reference_nuts,

@@ -162,7 +162,7 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
 
 # ───────────────── window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
 def test_window_adaptation_constructs_for_supported_kernels():
-    """Pinned tripwire: bjx_bench/calibration/tier_b.py:_run_warmup uses
+    """Pinned tripwire: bjx_bench/calibration/tune.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
     structurally for MALA, even though MALA's needs_mass_matrix=False
     — sanity check). Verifies the construction path stays valid.

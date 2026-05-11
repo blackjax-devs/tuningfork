@@ -117,7 +117,7 @@ def _runner(
             "_total_tuning_steps"   : int — total gradient evals across all
                                             chains (for Recipe.calibration_budget)
     """
-    from bjx_bench.calibration.tier_b import default_params_for
+    from bjx_bench.calibration.tune import default_params_for
 
     # Split rng_key: num_chains init_keys + num_chains warmup_keys
     all_keys = jax.random.split(rng_key, 2 * num_chains)
