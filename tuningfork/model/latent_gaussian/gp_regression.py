@@ -11,7 +11,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Gaussian process regression — 203-D NCP Cholesky parameterization (RBF kernel, n=200 points)."""
+"""Gaussian process regression — 203-D NCP Cholesky parameterization (RBF kernel, n=200 points).
+
+REQUIRES JAX_ENABLE_X64=1 at cert time.
+
+The dense 200-pt RBF kernel matrix is near-singular at typical lengthscales
+(off-diagonal entries routinely exceed 0.6 for points within a few lengthscales
+of each other). At float32 precision (~1e-7), the original ``JITTER=1e-6`` was
+below the precision floor, so ``cholesky(K + jitter*I)`` produced NaN
+gradients silently. NUTS's dual averaging then adapted ``step_size`` to a
+microscopic value (~3e-6) that avoided the NaN, and the chain never escaped
+the prior basin during warmup — producing what looked like statistically-clean
+samples but were actually stuck-at-init chunks of the same neighborhood.
+
+The fix (TL + 3-init probe, 2026-05-12): switch to float64 + ``JITTER=1e-4``.
+Under float64 + larger jitter, all three test inits (true-value, zero,
+uniform(-1,1)) converged to the same posterior in 200 warmup steps:
+adapted ``noise_scale`` within 14% of the true 0.10, IMM condition number
+1500–3500× (vs uniform 1× under float32), step_size 5–6e-3 (1000× larger
+than float32), RMSE-to-truth 0.025–0.030 (well below noise=0.1). Production
+cert wall projection: ~2–4 hours, not ~50 hours.
+
+See worklog/lessons/case-studies/gp_regression/2026-05-12-float32-precision-cholesky-trap.md
+for the full diagnosis (probe data + interpretation).
+"""
 
 from pathlib import Path
 
@@ -42,21 +65,37 @@ N_OBS: int = 200
 #:   log_lengthscale(1) + log_kernel_scale(1) + log_noise_scale(1) + f_raw(200)
 DIM: int = 3 + N_OBS  # = 203
 
-#: Jitter added to kernel diagonal for numerical stability
-JITTER: float = 1e-6
+#: Jitter added to kernel diagonal for numerical stability.
+#: BUMPED 2026-05-12 from 1e-6 → 1e-4. Combined with the new
+#: ``requires_x64=True`` flag, this guarantees Cholesky stability at all
+#: hyperparameter values the chain might visit during warmup. The previous
+#: 1e-6 was below float32 precision and silently destabilized the chain
+#: (see module docstring).
+JITTER: float = 1e-4
 
 #: Path to committed .npz data file
 _NPZ_PATH: Path = Path(__file__).parent.parent.parent / "data" / "gp_regression.npz"
 
 # ---------------------------------------------------------------------------
-# Load synthetic data (shape: (200,), float32)
+# Load synthetic data
 # ---------------------------------------------------------------------------
-
+# Dtype selection: this module sets ``requires_x64=True`` on its ENTRY (see
+# bottom of file), so cert runs MUST set ``JAX_ENABLE_X64=1`` before the
+# first jax import. We read the runtime config here:
+#   - At cert time (x64=True): X_DATA, Y_DATA, F_TRUE load as float64,
+#     matching the precision required for stable dense-Cholesky on the
+#     n=200 RBF kernel.
+#   - At test-import time (x64 typically False): they load as float32. The
+#     model is *not* invoked at import; the cert assertion in
+#     certify_reference_nuts catches any actual cert attempt without x64.
+#     This avoids triggering JAX's "dtype not available" UserWarning during
+#     pytest collection (which is treated as an error in CI).
+_dtype = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 _data = np.load(_NPZ_PATH)
 
-X_DATA: jnp.ndarray = jnp.array(_data["X"], dtype=jnp.float32)
-Y_DATA: jnp.ndarray = jnp.array(_data["y"], dtype=jnp.float32)
-F_TRUE: jnp.ndarray = jnp.array(_data["f_true"], dtype=jnp.float32)
+X_DATA: jnp.ndarray = jnp.array(_data["X"], dtype=_dtype)
+Y_DATA: jnp.ndarray = jnp.array(_data["y"], dtype=_dtype)
+F_TRUE: jnp.ndarray = jnp.array(_data["f_true"], dtype=_dtype)
 
 # Validate shapes
 assert X_DATA.shape == (N_OBS,), f"Expected X_DATA shape ({N_OBS},), got {X_DATA.shape}"
@@ -193,6 +232,11 @@ ENTRY = Posterior(
         "Priors: log_lengthscale~N(0,1), log_kernel_scale~N(0,1), "
         "log_noise_scale~N(-2,1), f_raw~N(0,I)^200 (NCP Cholesky). "
         "posteriordb_id=None (no upstream reference draws; Long-NUTS self-check). "
-        "Dim=203: log_lengthscale(1)+log_kernel_scale(1)+log_noise_scale(1)+f_raw(200)."
+        "Dim=203: log_lengthscale(1)+log_kernel_scale(1)+log_noise_scale(1)+f_raw(200). "
+        "REQUIRES JAX_ENABLE_X64=1 at cert time (see model file docstring)."
     ),
+    # Per-model precision exception: dense 200-pt RBF Cholesky is unstable in
+    # float32 with the original jitter=1e-6. The fix is x64 + jitter=1e-4
+    # (see module docstring for the diagnosis and 3-init probe data).
+    requires_x64=True,
 )

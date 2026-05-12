@@ -219,6 +219,17 @@ def certify_reference_nuts(
             "call certify_reference_analytic instead."
         )
 
+    # Per-model x64 requirement (e.g. gp_regression's dense Cholesky cannot
+    # be evaluated stably in float32). Raise a clear error rather than silently
+    # producing NaN-corrupted gradients.
+    if entry.requires_x64 and not jax.config.read("jax_enable_x64"):
+        raise RuntimeError(
+            f"Model {entry.name!r} requires float64 (Posterior.requires_x64=True) "
+            "but JAX is running in float32 mode. Set the environment variable "
+            "JAX_ENABLE_X64=1 BEFORE the first jax import (e.g. at the top of "
+            "your runner script or via the shell) and retry."
+        )
+
     rng_key_init, rng_key_warmup, rng_key_sample = jax.random.split(rng_key, 3)
 
     # --- Build logdensity_fn ---
