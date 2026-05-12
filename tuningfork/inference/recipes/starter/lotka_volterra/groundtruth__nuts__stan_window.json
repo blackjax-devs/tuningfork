@@ -1,0 +1,57 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "nuts",
+  "warmup_name": "stan_window",
+  "effort": "groundtruth",
+  "base_method_params": {
+    "step_size": 0.035842686891555786,
+    "inverse_mass_matrix": [
+      0.0010985607514157891,
+      0.0009753986960276961,
+      0.000976269890088588,
+      0.0011294481810182333,
+      0.007241849321871996,
+      0.000258312706137076,
+      0.0005646698409691453
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 5000,
+    "n_chunks": 4,
+    "target_acceptance": 0.99,
+    "max_num_doublings": 10
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 513.3510520830168,
+    "n_warmup": 5000,
+    "n_samples": 40000
+  },
+  "difficulty": null,
+  "instructions": "**Ground-truth reference recipe** for `lotka_volterra`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.99). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/draws/lotka_volterra.npz` (gitignored \u2014 40000 samples \u00d7 dim=7). Load via:\n\n    from tuningfork.reference._io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['lotka_volterra'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
+  "notes": "",
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0003998279571533,
+      "min_bulk_ess": 2363.37158203125,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {}
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 42,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-12T04:59:38Z"
+}
