@@ -238,4 +238,17 @@ ENTRY = Posterior(
         "posteriordb_id=None (no upstream reference draws; Long-NUTS self-check). "
         "Dim=503: mu(1)+phi(1)+log_sigma(1)+h_raw(500)."
     ),
+    # Per-model divergence-rate override: 0.005 (= 0.5%, vs the global 0.1%).
+    # Justification (TL ↔ user, 2026-05-12): under the canonical NUTS + stan_window
+    # cert (n_warmup=5000, n_samples=40000, ta=0.99, max_num_doublings=15, seed=42),
+    # stoch_vol produces ~105 divergences (0.26%) with R̂=1.0006, min-bulk-ESS=1992,
+    # E-BFMI=0.93 — sampling is correct; the residual divergences cluster at extreme
+    # phi (constrained ≈ 0.9999, the AR(1) unit root) where sigma²/(1-phi²) blows up
+    # the stationary-init geometry. Per the model-freeze-post-groundtruth policy,
+    # the right response is gate relaxation backed by the cluster diagnosis, NOT a
+    # prior swap (the Beta(20,1.5)-shifted alternative was tried 2026-05-12 and made
+    # cert WORSE, see worklog/threads/phase0-statistician-es-ncp-stoch-vol.md).
+    # MCLMC (Recipe Phase 2) remains the principled long-term fix; this override
+    # closes Phase 0 in the meantime.
+    divergence_rate_tolerance=0.005,
 )

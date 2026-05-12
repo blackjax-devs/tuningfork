@@ -103,6 +103,16 @@ class Posterior:
         str, ...
     ] = ()  # for recommendation queries; populated as more models land
 
+    # ---- per-model cert overrides ----
+    # ``None`` means "use the global default" (``_DIVERGENCE_RATE_TOLERANCE``
+    # in ``tuningfork.calibration.certify_reference``; currently 0.001 = 0.1%
+    # of n_samples). A non-None value overrides only this model's gate and
+    # MUST cite the diagnostic justification in the model file. Used so a
+    # single model's structural geometry (e.g. an AR(1) unit-root excursion
+    # tail visited at low probability) doesn't force the global gate to
+    # loosen for every model.
+    divergence_rate_tolerance: float | None = None
+
     # ---- derived ----
     @property
     def reference_method(self) -> ReferenceMethod:

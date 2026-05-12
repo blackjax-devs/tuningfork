@@ -314,10 +314,17 @@ def certify_reference_nuts(
     min_chunk_bulk_ess = min(ess_values)
 
     # --- Certification gate ---
-    # Divergence allowance: up to _DIVERGENCE_RATE_TOLERANCE × n_samples
-    # (default 0.001 = 0.1%). At n=40k this allows ≤40 divergences; at n=100k
-    # ≤100. See _DIVERGENCE_RATE_TOLERANCE comment above for rationale.
-    max_divergences_allowed = int(_DIVERGENCE_RATE_TOLERANCE * n_samples)
+    # Divergence allowance: per-model override if set, else global default.
+    # Default _DIVERGENCE_RATE_TOLERANCE = 0.001 = 0.1% of n_samples (≤40 in
+    # 40k, ≤100 in 100k). A model may override via Posterior.divergence_rate_tolerance
+    # (e.g. stoch_vol uses 0.005 for the AR(1) unit-root excursion tail — see
+    # the Posterior field's docstring + the model file's rationale comment).
+    effective_tolerance = (
+        entry.divergence_rate_tolerance
+        if entry.divergence_rate_tolerance is not None
+        else _DIVERGENCE_RATE_TOLERANCE
+    )
+    max_divergences_allowed = int(effective_tolerance * n_samples)
     passed = (
         split_rhat_max <= _RHAT_THRESHOLD
         and min_chunk_bulk_ess >= _MIN_CHUNK_ESS
