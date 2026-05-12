@@ -223,13 +223,36 @@ def load_idata(
             # Recipe schema mismatch or missing Effort enum — skip enrichment
             pass
 
-    return samples_to_idata(samples, chain_stats=chain_stats)
+    # Resolve n_chunks from the recipe's warmup params (the cert protocol's
+    # split-R̂ chunking — typically 4 — recorded under warmup_params at
+    # cert time). Default to 1 (no chunk split) for safety when absent.
+    n_chunks = int(recipe.warmup_params.get("n_chunks", 1) or 1)
+
+    if n_chunks > 1:
+        # Transparency: print the reshape ONCE per call so users know what
+        # shape they're inspecting in az.summary / az.plot_trace.
+        any_site = next(iter(samples))
+        n_total = int(samples[any_site].shape[0])
+        per_chunk = n_total // n_chunks
+        import warnings
+
+        warnings.warn(
+            f"tuningfork.notebooks.load_idata: applied cert-protocol reshape "
+            f"({n_total} draws from 1 chain) → ({n_chunks} chains × {per_chunk} draws). "
+            f"This matches the certification protocol's split-R̂ chunking and lets "
+            f"az.summary(idata) compute r_hat directly. Pass n_chunks=1 to "
+            f"samples_to_idata if you want the raw single-chain layout.",
+            stacklevel=2,
+        )
+
+    return samples_to_idata(samples, chain_stats=chain_stats, n_chunks=n_chunks)
 
 
 def samples_to_idata(
     samples_dict: dict[str, Any],
     is_multichain: bool = False,
     chain_stats: dict[str, Any] | None = None,
+    n_chunks: int = 1,
 ) -> Any:
     """Convert a samples dict to ``arviz.InferenceData``.
 
@@ -244,7 +267,9 @@ def samples_to_idata(
     samples_dict
         Dictionary mapping parameter names to arrays.
         If ``is_multichain=False`` (default): shape ``(n_draws, *event_shape)``
-        — reshaped to ``(1, n_draws, *event_shape)`` for ArviZ.
+        — reshaped to ``(1, n_draws, *event_shape)`` for ArviZ (when
+        ``n_chunks == 1``), or to ``(n_chunks, n_draws // n_chunks, ...)``
+        when ``n_chunks > 1``.
         If ``is_multichain=True``: shape ``(n_chains, n_draws, *event_shape)``.
     is_multichain
         Whether samples are already in multi-chain layout.
@@ -256,6 +281,14 @@ def samples_to_idata(
         sample_stats schema (``diverging``, ``energy``, ``acceptance_rate``,
         ``n_steps``) and attached to the ``sample_stats`` group of the
         returned InferenceData.
+    n_chunks
+        Cert-protocol chunk count. When ``> 1`` and ``is_multichain=False``,
+        the single-chain samples are reshaped to a multi-chain ArviZ layout
+        ``(n_chunks, n_draws // n_chunks, ...)``. This makes
+        ``az.summary(idata)`` produce ``r_hat`` directly.
+        ``load_idata`` reads this from ``recipe.warmup_params["n_chunks"]``;
+        callers using this function directly should pass it explicitly when
+        the recipe's cert protocol used chunked split-R̂.
 
     Returns
     -------
@@ -266,5 +299,8 @@ def samples_to_idata(
     from tuningfork.diagnostics import samples_to_idata as _samples_to_idata
 
     return _samples_to_idata(
-        samples_dict, is_multichain=is_multichain, chain_stats=chain_stats
+        samples_dict,
+        is_multichain=is_multichain,
+        chain_stats=chain_stats,
+        n_chunks=n_chunks,
     )

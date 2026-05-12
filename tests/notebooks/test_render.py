@@ -53,6 +53,62 @@ def test_samples_to_idata_single_chain_default() -> None:
     assert posterior["mu"].shape[1] == 100  # n_draws
 
 
+def test_samples_to_idata_n_chunks_reshapes_single_to_multichain() -> None:
+    """samples_to_idata with n_chunks=4 splits a 4000-draw chain into 4×1000."""
+    from tuningfork.notebooks import samples_to_idata
+
+    rng = np.random.default_rng(0)
+    samples = {
+        "mu": rng.standard_normal((4000, 3)),
+        "sigma": rng.standard_normal((4000,)),
+    }
+    idata = samples_to_idata(samples, is_multichain=False, n_chunks=4)
+    posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
+    assert posterior["mu"].shape[0] == 4  # 4 chains
+    assert posterior["mu"].shape[1] == 1000  # 4000 / 4
+    assert posterior["sigma"].shape[0] == 4
+    assert posterior["sigma"].shape[1] == 1000
+
+
+def test_samples_to_idata_n_chunks_truncates_remainder() -> None:
+    """When n_draws is not divisible by n_chunks, the remainder is dropped."""
+    from tuningfork.notebooks import samples_to_idata
+
+    rng = np.random.default_rng(0)
+    # 4003 % 4 = 3 → expect drop the trailing 3 draws, reshape to (4, 1000)
+    samples = {"mu": rng.standard_normal(4003)}
+    idata = samples_to_idata(samples, is_multichain=False, n_chunks=4)
+    posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
+    assert posterior["mu"].shape == (4, 1000)
+
+
+def test_samples_to_idata_n_chunks_reshapes_chain_stats_consistently() -> None:
+    """sample_stats arrays are reshaped to the same (n_chunks, per_chunk) layout."""
+    from tuningfork.notebooks import samples_to_idata
+
+    rng = np.random.default_rng(0)
+    n_total = 4000
+    n_chunks = 4
+    samples = {"mu": rng.standard_normal(n_total)}
+    chain_stats = {
+        "is_divergent": rng.integers(0, 2, size=n_total).astype(bool),
+        "energy": rng.standard_normal(n_total).astype(np.float32),
+        "num_integration_steps": rng.integers(1, 128, size=n_total).astype(np.int32),
+        "acceptance_rate": rng.uniform(0, 1, size=n_total).astype(np.float32),
+    }
+    idata = samples_to_idata(
+        samples, is_multichain=False, chain_stats=chain_stats, n_chunks=n_chunks
+    )
+    # Both posterior and sample_stats reshaped to (4, 1000)
+    posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
+    stats = (
+        idata["sample_stats"] if hasattr(idata, "__getitem__") else idata.sample_stats
+    )
+    assert posterior["mu"].shape == (n_chunks, n_total // n_chunks)
+    assert stats["diverging"].shape == (n_chunks, n_total // n_chunks)
+    assert stats["energy"].shape == (n_chunks, n_total // n_chunks)
+
+
 def test_samples_to_idata_multichain() -> None:
     """samples_to_idata with is_multichain=True preserves (n_chains, n_draws, *event)."""
     from tuningfork.notebooks import samples_to_idata

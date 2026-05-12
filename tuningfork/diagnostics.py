@@ -180,13 +180,23 @@ _CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
 
 
 def _chain_stats_to_sample_stats(
-    chain_stats: dict[str, np.ndarray], is_multichain: bool
+    chain_stats: dict[str, np.ndarray],
+    is_multichain: bool,
+    n_chunks: int = 1,
 ) -> dict[str, np.ndarray]:
     """Project our chain_stats dict to ArviZ sample_stats schema.
 
     Renames known per-step scalar fields per ``_CHAIN_STATS_TO_SAMPLE_STATS``;
     drops fields that don't map cleanly (multi-dim, nested, or unrecognised).
-    Reshapes to (n_chains=1, n_draws) when ``is_multichain=False``.
+
+    Reshape behaviour (when ``is_multichain=False``):
+
+    - ``n_chunks == 1`` (default): single-chain → ``(1, n_draws)``
+    - ``n_chunks > 1``: split the single chain of length ``n_draws`` into
+      ``n_chunks`` contiguous chunks of equal size and present them as
+      ``(n_chunks, n_draws // n_chunks)``. This matches the cert protocol's
+      "1 long chain × split-into-chunks for split-R̂" convention and lets
+      ArviZ treat the chunks as chains for downstream diagnostics.
     """
     out: dict[str, np.ndarray] = {}
     for our_name, arviz_name in _CHAIN_STATS_TO_SAMPLE_STATS.items():
@@ -196,11 +206,19 @@ def _chain_stats_to_sample_stats(
         if arr.ndim < 1:
             continue  # not a per-step array
         if not is_multichain:
-            # Single-chain → reshape to (1, n_draws)
-            if arr.ndim == 1:
-                arr = arr[np.newaxis, :]
+            if n_chunks > 1:
+                # Single-chain → reshape to (n_chunks, n_draws // n_chunks, ...)
+                n_total = arr.shape[0]
+                per_chunk = n_total // n_chunks
+                arr = arr[: n_chunks * per_chunk].reshape(
+                    n_chunks, per_chunk, *arr.shape[1:]
+                )
             else:
-                arr = arr[np.newaxis, ...]
+                # Single-chain → reshape to (1, n_draws, ...)
+                if arr.ndim == 1:
+                    arr = arr[np.newaxis, :]
+                else:
+                    arr = arr[np.newaxis, ...]
         out[arviz_name] = arr
     return out
 
@@ -209,6 +227,7 @@ def samples_to_idata(
     samples_dict: dict[str, np.ndarray],
     is_multichain: bool = True,
     chain_stats: dict[str, np.ndarray] | None = None,
+    n_chunks: int = 1,
 ) -> Any:
     """Convert samples dict to ArviZ InferenceData, optionally with sample_stats.
 
@@ -216,12 +235,13 @@ def samples_to_idata(
     ----------
     samples_dict
         Dictionary mapping parameter names to arrays.
-        If is_multichain=True: shape (n_chains, n_draws, *event_shape)
-        If is_multichain=False: shape (n_draws, *event_shape) — will be reshaped
-            to (1, n_draws, *event_shape) for SMC compatibility.
+        If ``is_multichain=True``: shape ``(n_chains, n_draws, *event_shape)``
+        If ``is_multichain=False``: shape ``(n_draws, *event_shape)`` — reshape
+        controlled by ``n_chunks`` (see below).
     is_multichain
         Whether samples are already multi-chain layout. For SMC, pass False
-        since particles are (1, N_particles, *event).
+        since particles are ``(1, N_particles, *event)``. Ignored when
+        ``n_chunks > 1`` (chunk-split implies single-chain input).
     chain_stats
         Optional per-step diagnostic dict from NUTS (e.g. as persisted to
         ``reference/chain_stats/<name>.npz`` by the cert pipeline). Known
@@ -231,6 +251,15 @@ def samples_to_idata(
         ``acceptance_rate``, ``n_steps``) and attached to the ``sample_stats``
         group. Unknown / nested / vector fields are dropped silently.
         When None (default), only the posterior group is populated.
+    n_chunks
+        When ``is_multichain=False`` and ``n_chunks > 1``: split the single
+        chain of length ``n_draws`` into ``n_chunks`` contiguous chunks and
+        present them as a multi-chain ArviZ layout
+        ``(n_chunks, n_draws // n_chunks, *event_shape)``. This matches the
+        cert protocol ("1 long chain × split-R̂ over chunks") and makes
+        ``az.summary(idata)`` produce a meaningful ``r_hat`` column
+        out-of-the-box. ``chain_stats`` arrays are reshaped consistently.
+        Default ``1`` preserves the legacy ``(1, n_draws)`` behaviour.
 
     Returns
     -------
@@ -243,21 +272,31 @@ def samples_to_idata(
 
     # Ensure multi-chain shape for all params
     if not is_multichain:
-        # Single-chain → reshape to (1, n_draws, *event)
         mc_samples = {}
         for name, arr in samples_dict.items():
             arr_np = np.asarray(arr)
-            if arr_np.ndim < 2:
-                # Scalar → (n_draws,) → (1, n_draws)
-                mc_samples[name] = arr_np[np.newaxis, :]
+            if n_chunks > 1:
+                # Split single chain into n_chunks contiguous chunks.
+                # arr_np: (n_draws, *event)  →  (n_chunks, per_chunk, *event)
+                n_total = arr_np.shape[0]
+                per_chunk = n_total // n_chunks
+                truncated = arr_np[: n_chunks * per_chunk]
+                mc_samples[name] = truncated.reshape(
+                    n_chunks, per_chunk, *arr_np.shape[1:]
+                )
             else:
-                # (n_draws, *event) → (1, n_draws, *event)
-                mc_samples[name] = arr_np[np.newaxis, :, ...]
+                # Single-chain → reshape to (1, n_draws, *event)
+                if arr_np.ndim < 2:
+                    mc_samples[name] = arr_np[np.newaxis, :]
+                else:
+                    mc_samples[name] = arr_np[np.newaxis, :, ...]
     else:
         mc_samples = {k: np.asarray(v) for k, v in samples_dict.items()}
 
     if chain_stats is not None:
-        sample_stats = _chain_stats_to_sample_stats(chain_stats, is_multichain)
+        sample_stats = _chain_stats_to_sample_stats(
+            chain_stats, is_multichain, n_chunks=n_chunks
+        )
         return az.from_dict({"posterior": mc_samples, "sample_stats": sample_stats})
 
     return az.from_dict({"posterior": mc_samples})
