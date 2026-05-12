@@ -16,18 +16,19 @@
 This module provides a suite of family-dispatch functions that render
 appropriate diagnostic plots for each sampler family:
 
-- Family A: Gradient MH-corrected (nuts, hmc, mhmc, mala, barker, ghmc, dynamic_hmc, dmhmc, rmhmc)
-- Family B: MCLMC (mclmc, adjusted_mclmc, adjusted_mclmc_dynamic)
-- Family C: SMC (adaptive_tempered_smc, tempered_smc, etc.)
-- Family D: VI (meanfield_vi, fullrank_vi)
-- Family E: Specialised (elliptical_slice, mgrad_gaussian, laplace*, orbital_hmc, irmh, additive_step_rw)
+- Gradient MH-corrected (nuts, hmc, mhmc, mala, barker, ghmc, dynamic_hmc, dmhmc, rmhmc)
+- MCLMC family (mclmc, adjusted_mclmc, adjusted_mclmc_dynamic)
+- SMC family (adaptive_tempered_smc, tempered_smc, etc.)
+- VI family (meanfield_vi, fullrank_vi)
+- Specialised (elliptical_slice, mgrad_gaussian, laplace*, orbital_hmc, irmh, additive_step_rw)
 
-Each family has a dedicated render_family_* function that returns a list of
+Each family has a dedicated render_* function that returns a list of
 matplotlib figures (or a single figure) appropriate for human inspection.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -47,6 +48,23 @@ except ImportError:
 __all__ = [
     "samples_to_idata",
     "render_universal_summary",
+    # Semantic names (current)
+    "GRADIENT_MH_SAMPLERS",
+    "MCLMC_FAMILY_SAMPLERS",
+    "SMC_FAMILY_SAMPLERS",
+    "VI_FAMILY_SAMPLERS",
+    "SPECIALISED_SAMPLERS",
+    "render_gradient_mh",
+    "render_mclmc_family",
+    "render_smc_family",
+    "render_vi_family",
+    "render_specialised",
+    # Deprecated aliases (kept for one release)
+    "FAMILY_A_SAMPLERS",
+    "FAMILY_B_SAMPLERS",
+    "FAMILY_C_SAMPLERS",
+    "FAMILY_D_SAMPLERS",
+    "FAMILY_E_SAMPLERS",
     "render_family_a",
     "render_family_b",
     "render_family_c",
@@ -54,8 +72,11 @@ __all__ = [
     "render_family_e",
 ]
 
-# Family membership constants
-FAMILY_A_SAMPLERS = {
+# ---------------------------------------------------------------------------
+# Family membership constants — semantic names
+# ---------------------------------------------------------------------------
+
+GRADIENT_MH_SAMPLERS = {
     "nuts",
     "hmc",
     "mhmc",
@@ -66,8 +87,8 @@ FAMILY_A_SAMPLERS = {
     "dmhmc",
     "rmhmc",
 }
-FAMILY_B_SAMPLERS = {"mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic"}
-FAMILY_C_SAMPLERS = {
+MCLMC_FAMILY_SAMPLERS = {"mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic"}
+SMC_FAMILY_SAMPLERS = {
     "adaptive_tempered_smc",
     "tempered_smc",
     "adaptive_persistent_sampling_smc",
@@ -75,8 +96,8 @@ FAMILY_C_SAMPLERS = {
     "partial_posteriors_smc",
     "inner_kernel_tuning",
 }
-FAMILY_D_SAMPLERS = {"meanfield_vi", "fullrank_vi"}
-FAMILY_E_SAMPLERS = {
+VI_FAMILY_SAMPLERS = {"meanfield_vi", "fullrank_vi"}
+SPECIALISED_SAMPLERS = {
     "elliptical_slice",
     "mgrad_gaussian",
     "laplace_hmc",
@@ -88,15 +109,108 @@ FAMILY_E_SAMPLERS = {
     "additive_step_random_walk",
 }
 
-# Family A subset for plot_energy (exclude mala, barker, ghmc)
-FAMILY_A_WITH_ENERGY = {"nuts", "hmc", "mhmc", "dynamic_hmc", "dmhmc", "rmhmc"}
+# Gradient MH subset that supports plot_energy (excludes mala, barker, ghmc)
+GRADIENT_MH_WITH_ENERGY = {"nuts", "hmc", "mhmc", "dynamic_hmc", "dmhmc", "rmhmc"}
+
+# ---------------------------------------------------------------------------
+# Deprecated aliases — FAMILY_X_SAMPLERS → semantic names
+# Kept for one release; will be removed in a future version.
+# ---------------------------------------------------------------------------
+
+# DEPRECATED: use GRADIENT_MH_SAMPLERS instead
+FAMILY_A_SAMPLERS = (
+    GRADIENT_MH_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
+)
+# DEPRECATED: use MCLMC_FAMILY_SAMPLERS instead
+FAMILY_B_SAMPLERS = (
+    MCLMC_FAMILY_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
+)
+# DEPRECATED: use SMC_FAMILY_SAMPLERS instead
+FAMILY_C_SAMPLERS = (
+    SMC_FAMILY_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
+)
+# DEPRECATED: use VI_FAMILY_SAMPLERS instead
+FAMILY_D_SAMPLERS = (
+    VI_FAMILY_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
+)
+# DEPRECATED: use SPECIALISED_SAMPLERS instead
+FAMILY_E_SAMPLERS = (
+    SPECIALISED_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
+)
+
+# Keep old FAMILY_A_WITH_ENERGY alias pointing at the new name
+FAMILY_A_WITH_ENERGY = (
+    GRADIENT_MH_WITH_ENERGY  # DEPRECATED: use GRADIENT_MH_WITH_ENERGY
+)
+
+
+# Mapping from our chain_stats field names (blackjax NUTSInfo._fields) to
+# ArviZ's canonical sample_stats group names.
+# Reference: https://python.arviz.org/en/stable/schema/schema.html#sample-stats
+# Only keys that map to a per-step scalar stat are listed. Vectors (e.g.
+# `momentum`) and nested fields (`proposal`) are intentionally dropped.
+#
+# ArviZ canonical sample_stats keys (per the schema, 2026-05-12):
+#   lp, acceptance_rate, step_size, step_size_nom, tree_depth, n_steps,
+#   reached_max_treedepth, diverging, energy, energy_error, max_energy_error,
+#   int_time, inv_metric.
+#
+# Of these, blackjax's NUTSInfo persists: is_divergent, is_turning, energy,
+# num_trajectory_expansions (= tree_depth), num_integration_steps (= n_steps),
+# acceptance_rate. Step size + reached_max_treedepth are derived in
+# ``tuningfork.notebooks.load_idata`` from the recipe's adapted params +
+# warmup_params['max_num_doublings'].
+_CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
+    # Direct NUTSInfo._fields → ArviZ canonical
+    "is_divergent": "diverging",
+    "energy": "energy",
+    "acceptance_rate": "acceptance_rate",
+    "num_integration_steps": "n_steps",
+    "num_trajectory_expansions": "tree_depth",
+    # is_turning has no ArviZ canonical equivalent; keep under a tuningfork-
+    # prefixed name so downstream consumers can opt in but it doesn't
+    # collide with the schema.
+    "is_turning": "tuningfork_is_turning",
+    # Derived fields (enrichment in tuningfork.notebooks.load_idata for
+    # GROUNDTRUTH recipes) — identity renames so they pass through this
+    # projection without dropping:
+    "step_size": "step_size",
+    "reached_max_treedepth": "reached_max_treedepth",
+}
+
+
+def _chain_stats_to_sample_stats(
+    chain_stats: dict[str, np.ndarray], is_multichain: bool
+) -> dict[str, np.ndarray]:
+    """Project our chain_stats dict to ArviZ sample_stats schema.
+
+    Renames known per-step scalar fields per ``_CHAIN_STATS_TO_SAMPLE_STATS``;
+    drops fields that don't map cleanly (multi-dim, nested, or unrecognised).
+    Reshapes to (n_chains=1, n_draws) when ``is_multichain=False``.
+    """
+    out: dict[str, np.ndarray] = {}
+    for our_name, arviz_name in _CHAIN_STATS_TO_SAMPLE_STATS.items():
+        if our_name not in chain_stats:
+            continue
+        arr = np.asarray(chain_stats[our_name])
+        if arr.ndim < 1:
+            continue  # not a per-step array
+        if not is_multichain:
+            # Single-chain → reshape to (1, n_draws)
+            if arr.ndim == 1:
+                arr = arr[np.newaxis, :]
+            else:
+                arr = arr[np.newaxis, ...]
+        out[arviz_name] = arr
+    return out
 
 
 def samples_to_idata(
     samples_dict: dict[str, np.ndarray],
     is_multichain: bool = True,
+    chain_stats: dict[str, np.ndarray] | None = None,
 ) -> Any:
-    """Convert samples dict to ArviZ InferenceData.
+    """Convert samples dict to ArviZ InferenceData, optionally with sample_stats.
 
     Parameters
     ----------
@@ -108,11 +222,21 @@ def samples_to_idata(
     is_multichain
         Whether samples are already multi-chain layout. For SMC, pass False
         since particles are (1, N_particles, *event).
+    chain_stats
+        Optional per-step diagnostic dict from NUTS (e.g. as persisted to
+        ``reference/chain_stats/<name>.npz`` by the cert pipeline). Known
+        per-step scalar fields (``is_divergent``, ``energy``,
+        ``acceptance_rate``, ``num_integration_steps``) are renamed per
+        ArviZ's canonical sample_stats schema (``diverging``, ``energy``,
+        ``acceptance_rate``, ``n_steps``) and attached to the ``sample_stats``
+        group. Unknown / nested / vector fields are dropped silently.
+        When None (default), only the posterior group is populated.
 
     Returns
     -------
     arviz.InferenceData
-        Posterior group populated from samples_dict.
+        Posterior group populated from samples_dict; sample_stats group
+        populated from chain_stats when provided.
     """
     if az is None:
         raise ImportError("arviz is required for diagnostics rendering")
@@ -131,6 +255,10 @@ def samples_to_idata(
                 mc_samples[name] = arr_np[np.newaxis, :, ...]
     else:
         mc_samples = {k: np.asarray(v) for k, v in samples_dict.items()}
+
+    if chain_stats is not None:
+        sample_stats = _chain_stats_to_sample_stats(chain_stats, is_multichain)
+        return az.from_dict({"posterior": mc_samples, "sample_stats": sample_stats})
 
     return az.from_dict({"posterior": mc_samples})
 
@@ -247,12 +375,12 @@ def render_universal_summary(
     return fig
 
 
-def render_family_a(
+def render_gradient_mh(
     idata: Any,
     info: Any,
     sampler_name: str = "nuts",
 ) -> list[Figure]:
-    """Render Section 2 Family A diagnostics (gradient MH-corrected samplers).
+    """Render gradient MH-corrected sampler diagnostics (nuts, hmc, mhmc, mala, barker, ghmc, ...).
 
     Parameters
     ----------
@@ -266,7 +394,7 @@ def render_family_a(
     Returns
     -------
     list[Figure]
-        List of matplotlib figures for Family A diagnostics.
+        List of matplotlib figures for gradient MH diagnostics.
     """
     if az is None or plt is None:
         raise ImportError("arviz and matplotlib are required")
@@ -320,8 +448,8 @@ def render_family_a(
         except Exception:
             pass
 
-    # 4. plot_energy (only for certain Family A samplers)
-    if sampler_name in FAMILY_A_WITH_ENERGY:
+    # 4. plot_energy (only for certain gradient MH samplers)
+    if sampler_name in GRADIENT_MH_WITH_ENERGY:
         try:
             fig_energy = az.plot_energy(idata, backend="matplotlib")
             if isinstance(fig_energy, plt.Figure):
@@ -346,11 +474,11 @@ def render_family_a(
     return figs
 
 
-def render_family_b(
+def render_mclmc_family(
     idata: Any,
     info: Any,
 ) -> list[Figure]:
-    """Render Section 2 Family B diagnostics (MCLMC samplers).
+    """Render MCLMC family diagnostics (mclmc, adjusted_mclmc, adjusted_mclmc_dynamic).
 
     Parameters
     ----------
@@ -362,7 +490,7 @@ def render_family_b(
     Returns
     -------
     list[Figure]
-        List of matplotlib figures for Family B diagnostics.
+        List of matplotlib figures for MCLMC family diagnostics.
     """
     if az is None or plt is None:
         raise ImportError("arviz and matplotlib are required")
@@ -429,11 +557,11 @@ def render_family_b(
     return figs
 
 
-def render_family_c(
+def render_smc_family(
     idata: Any,
     info: Any,
 ) -> list[Figure]:
-    """Render Section 2 Family C diagnostics (SMC samplers).
+    """Render SMC family diagnostics (adaptive_tempered_smc, tempered_smc, etc.).
 
     Parameters
     ----------
@@ -445,7 +573,7 @@ def render_family_c(
     Returns
     -------
     list[Figure]
-        List of matplotlib figures for Family C diagnostics.
+        List of matplotlib figures for SMC family diagnostics.
     """
     if az is None or plt is None:
         raise ImportError("arviz and matplotlib are required")
@@ -501,11 +629,11 @@ def render_family_c(
     return figs
 
 
-def render_family_d(
+def render_vi_family(
     idata: Any,
     info: Any,
 ) -> list[Figure]:
-    """Render Section 2 Family D diagnostics (VI samplers).
+    """Render VI family diagnostics (meanfield_vi, fullrank_vi).
 
     Parameters
     ----------
@@ -517,7 +645,7 @@ def render_family_d(
     Returns
     -------
     list[Figure]
-        List of matplotlib figures for Family D diagnostics.
+        List of matplotlib figures for VI family diagnostics.
     """
     if plt is None:
         raise ImportError("matplotlib is required")
@@ -542,12 +670,12 @@ def render_family_d(
     return figs
 
 
-def render_family_e(
+def render_specialised(
     idata: Any,
     info: Any,
     sampler_name: str = "elliptical_slice",
 ) -> list[Figure]:
-    """Render Section 2 Family E diagnostics (Specialised samplers).
+    """Render specialised sampler diagnostics (elliptical_slice, mgrad_gaussian, laplace_*, ...).
 
     Parameters
     ----------
@@ -561,15 +689,87 @@ def render_family_e(
     Returns
     -------
     list[Figure]
-        List of matplotlib figures for Family E diagnostics.
+        List of matplotlib figures for specialised sampler diagnostics.
     """
     if az is None or plt is None:
         raise ImportError("arviz and matplotlib are required")
 
-    # Start with Family A standard battery
-    figs = render_family_a(idata, info, sampler_name)
+    # Start with gradient MH standard battery
+    figs = render_gradient_mh(idata, info, sampler_name)
 
-    # Add Family E-specific diagnostics (TODO: implement per sampler)
-    # For now, just return the Family A plots
+    # Add specialised-sampler-specific diagnostics (TODO: implement per sampler)
+    # For now, just return the gradient MH plots
 
     return figs
+
+
+# ---------------------------------------------------------------------------
+# Deprecated render_family_* wrappers — emit DeprecationWarning on call
+# ---------------------------------------------------------------------------
+
+
+def render_family_a(
+    idata: Any,
+    info: Any,
+    sampler_name: str = "nuts",
+) -> list[Figure]:
+    """Deprecated: use ``render_gradient_mh`` instead."""
+    warnings.warn(
+        "render_family_a is deprecated; use render_gradient_mh instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return render_gradient_mh(idata, info, sampler_name=sampler_name)
+
+
+def render_family_b(
+    idata: Any,
+    info: Any,
+) -> list[Figure]:
+    """Deprecated: use ``render_mclmc_family`` instead."""
+    warnings.warn(
+        "render_family_b is deprecated; use render_mclmc_family instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return render_mclmc_family(idata, info)
+
+
+def render_family_c(
+    idata: Any,
+    info: Any,
+) -> list[Figure]:
+    """Deprecated: use ``render_smc_family`` instead."""
+    warnings.warn(
+        "render_family_c is deprecated; use render_smc_family instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return render_smc_family(idata, info)
+
+
+def render_family_d(
+    idata: Any,
+    info: Any,
+) -> list[Figure]:
+    """Deprecated: use ``render_vi_family`` instead."""
+    warnings.warn(
+        "render_family_d is deprecated; use render_vi_family instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return render_vi_family(idata, info)
+
+
+def render_family_e(
+    idata: Any,
+    info: Any,
+    sampler_name: str = "elliptical_slice",
+) -> list[Figure]:
+    """Deprecated: use ``render_specialised`` instead."""
+    warnings.warn(
+        "render_family_e is deprecated; use render_specialised instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return render_specialised(idata, info, sampler_name=sampler_name)

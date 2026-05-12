@@ -17,17 +17,27 @@ Each family renderer is tested independently to catch axis-shape and
 ArviZ-import regressions cheaply.
 """
 
+import warnings
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
 from tuningfork.diagnostics import (
+    FAMILY_A_SAMPLERS,
+    GRADIENT_MH_SAMPLERS,
+    MCLMC_FAMILY_SAMPLERS,
     render_family_a,
     render_family_b,
     render_family_c,
     render_family_d,
     render_family_e,
+    render_gradient_mh,
+    render_mclmc_family,
+    render_smc_family,
+    render_specialised,
     render_universal_summary,
+    render_vi_family,
     samples_to_idata,
 )
 
@@ -115,10 +125,10 @@ def test_render_universal_summary(
     plt.close(fig)
 
 
-def test_render_family_a(mock_samples_multichain, mock_info_with_divergence):
-    """Test Family A (gradient MH) renderer."""
+def test_render_gradient_mh(mock_samples_multichain, mock_info_with_divergence):
+    """Test gradient MH renderer (semantic name)."""
     idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_family_a(idata, mock_info_with_divergence, sampler_name="nuts")
+    figs = render_gradient_mh(idata, mock_info_with_divergence, sampler_name="nuts")
     assert isinstance(figs, list)
     assert len(figs) > 0
     for fig in figs:
@@ -127,10 +137,10 @@ def test_render_family_a(mock_samples_multichain, mock_info_with_divergence):
         plt.close(fig)
 
 
-def test_render_family_b(mock_samples_multichain, mock_info_with_divergence):
-    """Test Family B (MCLMC) renderer."""
+def test_render_mclmc_family(mock_samples_multichain, mock_info_with_divergence):
+    """Test MCLMC family renderer (semantic name)."""
     idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_family_b(idata, mock_info_with_divergence)
+    figs = render_mclmc_family(idata, mock_info_with_divergence)
     assert isinstance(figs, list)
     assert len(figs) > 0
     for fig in figs:
@@ -139,10 +149,10 @@ def test_render_family_b(mock_samples_multichain, mock_info_with_divergence):
         plt.close(fig)
 
 
-def test_render_family_c(mock_samples_multichain, mock_info_with_divergence):
-    """Test Family C (SMC) renderer."""
+def test_render_smc_family(mock_samples_multichain, mock_info_with_divergence):
+    """Test SMC family renderer (semantic name)."""
     idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_family_c(idata, mock_info_with_divergence)
+    figs = render_smc_family(idata, mock_info_with_divergence)
     assert isinstance(figs, list)
     assert len(figs) > 0
     for fig in figs:
@@ -151,10 +161,10 @@ def test_render_family_c(mock_samples_multichain, mock_info_with_divergence):
         plt.close(fig)
 
 
-def test_render_family_d(mock_samples_multichain, mock_info_with_divergence):
-    """Test Family D (VI) renderer."""
+def test_render_vi_family(mock_samples_multichain, mock_info_with_divergence):
+    """Test VI family renderer (semantic name)."""
     idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_family_d(idata, mock_info_with_divergence)
+    figs = render_vi_family(idata, mock_info_with_divergence)
     assert isinstance(figs, list)
     assert len(figs) > 0
     for fig in figs:
@@ -163,10 +173,10 @@ def test_render_family_d(mock_samples_multichain, mock_info_with_divergence):
         plt.close(fig)
 
 
-def test_render_family_e(mock_samples_multichain, mock_info_with_divergence):
-    """Test Family E (Specialised) renderer."""
+def test_render_specialised(mock_samples_multichain, mock_info_with_divergence):
+    """Test specialised sampler renderer (semantic name)."""
     idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_family_e(
+    figs = render_specialised(
         idata, mock_info_with_divergence, sampler_name="elliptical_slice"
     )
     assert isinstance(figs, list)
@@ -174,4 +184,89 @@ def test_render_family_e(mock_samples_multichain, mock_info_with_divergence):
     for fig in figs:
         assert fig is not None
         assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Deprecated alias tests — verify DeprecationWarning fires and result is same
+# ---------------------------------------------------------------------------
+
+
+def test_deprecated_render_family_a_warns(
+    mock_samples_multichain, mock_info_with_divergence
+):
+    """render_family_a should emit DeprecationWarning and delegate to render_gradient_mh."""
+    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        figs = render_family_a(idata, mock_info_with_divergence, sampler_name="nuts")
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+        assert any("render_gradient_mh" in str(w.message) for w in caught)
+    assert isinstance(figs, list)
+    assert len(figs) > 0
+    for fig in figs:
+        plt.close(fig)
+
+
+def test_deprecated_family_constant_aliases():
+    """FAMILY_X_SAMPLERS aliases should equal their semantic counterparts."""
+    assert FAMILY_A_SAMPLERS is GRADIENT_MH_SAMPLERS
+    assert MCLMC_FAMILY_SAMPLERS is not GRADIENT_MH_SAMPLERS  # sanity check
+
+
+def test_deprecated_render_family_b_warns(
+    mock_samples_multichain, mock_info_with_divergence
+):
+    """render_family_b should emit DeprecationWarning."""
+    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        figs = render_family_b(idata, mock_info_with_divergence)
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+    assert isinstance(figs, list)
+    for fig in figs:
+        plt.close(fig)
+
+
+def test_deprecated_render_family_c_warns(
+    mock_samples_multichain, mock_info_with_divergence
+):
+    """render_family_c should emit DeprecationWarning."""
+    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        figs = render_family_c(idata, mock_info_with_divergence)
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+    assert isinstance(figs, list)
+    for fig in figs:
+        plt.close(fig)
+
+
+def test_deprecated_render_family_d_warns(
+    mock_samples_multichain, mock_info_with_divergence
+):
+    """render_family_d should emit DeprecationWarning."""
+    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        figs = render_family_d(idata, mock_info_with_divergence)
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+    assert isinstance(figs, list)
+    for fig in figs:
+        plt.close(fig)
+
+
+def test_deprecated_render_family_e_warns(
+    mock_samples_multichain, mock_info_with_divergence
+):
+    """render_family_e should emit DeprecationWarning."""
+    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        figs = render_family_e(
+            idata, mock_info_with_divergence, sampler_name="elliptical_slice"
+        )
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+    assert isinstance(figs, list)
+    for fig in figs:
         plt.close(fig)
