@@ -80,39 +80,45 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
     T
         Number of time steps (500 for the synthetic stoch_vol dataset).
 
-    Notes
-    -----
-    phi prior uses Beta(20, 1.5) shifted to (-1, 1) via TransformedDistribution
-    (KSC 1998 canonical prior for daily financial vol). This concentrates mass
-    at phi in [0.87, 0.99] and avoids unit-root boundary geometry blowup that
-    would occur with Uniform(-1, 1).
+    Priors (Stan User's Guide § 2.5 canonical NCP form, matched 2026-05-12):
+        mu       ~ Cauchy(0, 10)         # wide, no scale assumption
+        phi      ~ Uniform(-1, 1)        # uninformative AR(1) persistence
+        sigma    ~ HalfCauchy(5)         # wide positive-real
+        h_std    ~ Normal(0, 1) i.i.d.   # NCP standardised innovations
+
+    Note: the data this model is conditioned on is SYNTHETIC, generated from
+    MU_TRUE=-10.0, PHI_TRUE=0.95, SIGMA_TRUE=0.25 at T=500. Stan's example
+    uses real daily financial returns; tuningfork keeps synthetic data so
+    posterior moments can be cross-checked against the data-generating
+    truth. The Stan-canonical priors above are wider than what's needed
+    for this specific synthetic data (which would warrant Normal(-10, 5),
+    Beta(20, 1.5)-shifted, HalfNormal(0.5)) but are kept verbatim to match
+    Stan's reference setup.
 
     Latent log-volatility is initialised at the stationary distribution:
-        h[0] ~ Normal(mu, sigma^2 / (1 - phi^2))
+        h[0] = mu + (sigma / sqrt(1 - phi^2)) * h_std[0]
 
     Subsequent steps follow the AR(1) recursion:
-        h[t] = mu + phi * (h[t-1] - mu) + sigma * h_raw[t]
+        h[t] = mu + phi * (h[t-1] - mu) + sigma * h_std[t]
 
     Likelihood: returns[t] ~ Normal(0, exp(h[t] / 2)).
     """
-    mu = numpyro.sample("mu", dist.Normal(-10.0, 5.0))
-    phi = numpyro.sample(
-        "phi",
-        dist.TransformedDistribution(
-            dist.Beta(20.0, 1.5),
-            dist.transforms.AffineTransform(loc=-1.0, scale=2.0),
-        ),
-    )
-    sigma = numpyro.sample("sigma", dist.HalfNormal(0.5))
+    # Stan-matched priors (mc-stan.org/docs/2_22/stan-users-guide/stochastic-volatility-models.html)
+    mu = numpyro.sample("mu", dist.Cauchy(0.0, 10.0))
+    phi = numpyro.sample("phi", dist.Uniform(-1.0, 1.0))
+    sigma = numpyro.sample("sigma", dist.HalfCauchy(5.0))
 
-    h_raw = numpyro.sample("h_raw", dist.Normal(jnp.zeros(T), 1.0))
+    # NCP latent innovations (renamed h_raw → h_std to match Stan's naming).
+    # h_raw kept as the NumPyro sample name for backwards-compat with prior cache;
+    # the variable name in code is h_std for readability.
+    h_std = numpyro.sample("h_raw", dist.Normal(jnp.zeros(T), 1.0))
 
-    def step(h_prev, h_raw_t):
-        h_t = mu + phi * (h_prev - mu) + sigma * h_raw_t
+    def step(h_prev, h_std_t):
+        h_t = mu + phi * (h_prev - mu) + sigma * h_std_t
         return h_t, h_t
 
-    h0 = mu + (sigma / jnp.sqrt(1.0 - phi**2)) * h_raw[0]
-    _, h_rest = jax.lax.scan(step, h0, h_raw[1:])
+    h0 = mu + (sigma / jnp.sqrt(1.0 - phi**2)) * h_std[0]
+    _, h_rest = jax.lax.scan(step, h0, h_std[1:])
     h = jnp.concatenate([h0[None], h_rest])
     h = numpyro.deterministic("h", h)
 
