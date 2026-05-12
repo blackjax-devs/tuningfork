@@ -21,8 +21,10 @@ Tests
         Correlated chains → R̂ in [1.01, 1.05) → REVIEW.
 3.  test_fail_with_high_rhat
         Badly mixing chains → R̂ ≥ 1.05 → FAIL.
-4.  test_fail_with_divergences
-        n_divergences > 0 → FAIL regardless of other metrics.
+4a. test_few_divergences_still_pass / 4b. test_moderate_divergences_review /
+4c. test_many_divergences_fail
+        3-band n_divergences gate (amended 2026-05-12):
+        ≤ 5 → PASS, 6–39 → REVIEW, ≥ 40 → FAIL.
 5.  test_review_with_low_ess
         Artificially autocorrelated samples → bulk-ESS in [100, 400) → REVIEW.
 6.  test_fail_with_very_low_ess
@@ -159,16 +161,35 @@ def test_fail_with_high_rhat():
 # ---------------------------------------------------------------------------
 
 
-def test_fail_with_divergences():
-    """Any divergences → FAIL regardless of R̂ / ESS."""
+def test_few_divergences_still_pass():
+    """≤ 5 divergences → PASS (amended 2026-05-12: rate-tolerant)."""
     rng = np.random.RandomState(2)
-    # Clean samples so R̂ and ESS would PASS, but divergences → FAIL
     samples = _make_clean_samples(rng, n_chains=4, n_samples=1000, dim=3)
     info = _make_info(4, 1000, n_divergences=5)
     verdict = auto_gate(samples, info)
-    assert verdict.verdict == "FAIL"
+    assert verdict.verdict == "PASS"
     assert verdict.n_divergences == 5
-    assert "n_divergences" in verdict.margins
+    assert verdict.margins["n_divergences"]["band"] == "PASS"
+
+
+def test_moderate_divergences_review():
+    """6 ≤ n_divergences < 40 → REVIEW."""
+    rng = np.random.RandomState(2)
+    samples = _make_clean_samples(rng, n_chains=4, n_samples=1000, dim=3)
+    info = _make_info(4, 1000, n_divergences=20)
+    verdict = auto_gate(samples, info)
+    assert verdict.verdict == "REVIEW"
+    assert verdict.margins["n_divergences"]["band"] == "REVIEW"
+
+
+def test_many_divergences_fail():
+    """n_divergences ≥ 40 → FAIL."""
+    rng = np.random.RandomState(2)
+    samples = _make_clean_samples(rng, n_chains=4, n_samples=1000, dim=3)
+    info = _make_info(4, 1000, n_divergences=50)
+    verdict = auto_gate(samples, info)
+    assert verdict.verdict == "FAIL"
+    assert verdict.n_divergences == 50
     assert verdict.margins["n_divergences"]["band"] == "FAIL"
 
 

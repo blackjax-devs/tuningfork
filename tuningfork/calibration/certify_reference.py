@@ -125,6 +125,16 @@ class CertificationError(RuntimeError):
 _RHAT_THRESHOLD = 1.01
 _MIN_CHUNK_ESS = 400.0
 _EBFMI_THRESHOLD = 0.3
+# Divergence tolerance — fraction of n_samples. Amended 2026-05-12 from strict
+# zero ("no divergences at all") to a rate-based tolerance ("a few in 40k is
+# fine for groundtruth"). Rationale: for well-mixed chains with healthy E-BFMI
+# and high R̂/ESS, the residual divergence rate reflects fundamental geometry
+# (e.g. a HalfCauchy funnel neck visited at probability ~1e-5 per step), not
+# adaptation failure. Strict zero forced gate-gaming (seed-roulette, brute n
+# bump). Threshold 0.001 means up to 1 divergence per 1000 samples — at the
+# default n_samples=40_000 this allows ≤40 divergences before fail. See
+# worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md § 8.
+_DIVERGENCE_RATE_TOLERANCE = 0.001
 
 
 def _compute_e_bfmi(energy: jax.Array) -> jax.Array:
@@ -293,10 +303,14 @@ def certify_reference_nuts(
     min_chunk_bulk_ess = min(ess_values)
 
     # --- Certification gate ---
+    # Divergence allowance: up to _DIVERGENCE_RATE_TOLERANCE × n_samples
+    # (default 0.001 = 0.1%). At n=40k this allows ≤40 divergences; at n=100k
+    # ≤100. See _DIVERGENCE_RATE_TOLERANCE comment above for rationale.
+    max_divergences_allowed = int(_DIVERGENCE_RATE_TOLERANCE * n_samples)
     passed = (
         split_rhat_max <= _RHAT_THRESHOLD
         and min_chunk_bulk_ess >= _MIN_CHUNK_ESS
-        and num_divergences == 0
+        and num_divergences <= max_divergences_allowed
         and e_bfmi_val >= _EBFMI_THRESHOLD
     )
 
@@ -313,7 +327,7 @@ def certify_reference_nuts(
             f"reference-certification certification failed for {entry.name!r}: "
             f"split_rhat_max={split_rhat_max:.4f}, "
             f"min_chunk_bulk_ess={min_chunk_bulk_ess:.1f}, "
-            f"num_divergences={num_divergences}, "
+            f"num_divergences={num_divergences} (gate ≤ {max_divergences_allowed}), "
             f"e_bfmi={e_bfmi_val:.4f}",
             cert,
             adaptation=adaptation,

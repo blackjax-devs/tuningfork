@@ -28,7 +28,8 @@ Verdict semantics (NON-BLOCKING — the Statistician agent can override):
 Metrics evaluated:
   - ``rhat_max``       : max rank-normalised split-R̂ across all params/dims.
   - ``min_bulk_ess``   : min bulk-ESS across all params/dims.
-  - ``n_divergences``  : total divergent transitions (hard-fail threshold).
+  - ``n_divergences``  : total divergent transitions (rate-tolerant threshold;
+                         see ``DEFAULT_THRESHOLDS["n_divergences"]``).
   - ``max_abs_mean_z`` : max |sample_mean - gt_mean| / max(SE_sample, SE_gt)
                          across all params/dims; only when ground truth is
                          available.
@@ -74,8 +75,14 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # else FAIL
     },
     "n_divergences": {
-        "pass": (0, 1),  # x == 0 → PASS (interval [0,1) i.e. x < 1)
-        # else FAIL (no REVIEW band — divergences are hard)
+        # Amended 2026-05-12: strict zero relaxed to small absolute count
+        # for PASS (rationale per certify_reference._DIVERGENCE_RATE_TOLERANCE
+        # comment + decision doc 2026-05-11-phase0-reference-protocol-
+        # refinements § 8). A few divergences in a long chain reflects
+        # geometry (e.g. funnel-neck visits), not adaptation failure.
+        "pass": (0, 6),  # x ≤ 5 → PASS (interval [0,6) i.e. x < 6)
+        "review": (6, 40),  # 6 ≤ x < 40 → REVIEW
+        # else FAIL
     },
     "max_abs_mean_z": {
         "pass": (0.0, 2.0),  # x < 2 → PASS

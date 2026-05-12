@@ -147,7 +147,7 @@ class TestCertifyNutsPassesGate:
     Gate thresholds (from certify_reference.py):
         split_rhat_max <= 1.01
         min_chunk_bulk_ess >= 400
-        num_divergences == 0
+        num_divergences <= 0.1% of n_samples  (rate-tolerant; amended 2026-05-12)
         e_bfmi >= 0.3
 
     At seed=42, n_warmup=500, n_samples=4000, n_chunks=4:
@@ -175,7 +175,9 @@ class TestCertifyNutsPassesGate:
             f"e_bfmi={cert.e_bfmi:.4f}"
         )
 
-    def test_no_divergences(self) -> None:
+    def test_divergences_within_tolerance(self) -> None:
+        # Gate is rate-tolerant (≤ 0.1% of n_samples) per 2026-05-12 amendment.
+        # At N_SAMPLES=4000 this means ≤ 4 divergences.
         key = jax.random.key(NUTS_SEED)
         _, _, _, cert, _ = certify_reference_nuts(
             ENTRY,
@@ -184,9 +186,10 @@ class TestCertifyNutsPassesGate:
             n_samples=N_SAMPLES,
             n_chunks=N_CHUNKS,
         )
+        max_allowed = int(0.001 * N_SAMPLES)
         assert (
-            cert.num_divergences == 0
-        ), f"Expected 0 divergences, got {cert.num_divergences}"
+            cert.num_divergences <= max_allowed
+        ), f"Expected ≤ {max_allowed} divergences, got {cert.num_divergences}"
 
     def test_e_bfmi_above_threshold(self) -> None:
         key = jax.random.key(NUTS_SEED)
