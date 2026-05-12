@@ -19,10 +19,9 @@ Source: ``numpyro.examples.datasets.SP500``. Replaced 2026-05-12 from
 the prior synthetic (KSC truth parameters) version per the user direction
 to match Stan's setup more fully.
 
-Priors match the Stan User's Guide § 2.5 NCP form (phi: daily-financial
-variant, amended 2026-05-12 — see ``stoch_vol_model`` docstring for why):
+Priors match the Stan User's Guide § 2.5 NCP form (primary / generic AR(1)):
     mu    ~ Cauchy(0, 10)
-    phi   ~ Beta(20, 1.5) shifted to (-1, 1)
+    phi   ~ Uniform(-1, 1)
     sigma ~ HalfCauchy(5)
     h_std ~ Normal(0, 1) i.i.d.
 """
@@ -99,24 +98,24 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
         Number of time steps (500 — first 500 SP500 daily returns,
         mean-centered).
 
-    Priors (Stan User's Guide § 2.5 canonical NCP form, matched 2026-05-12;
-    phi prior amended same-day to the Stan-recommended daily-financial-vol
-    variant — see "phi" line below):
+    Priors (Stan User's Guide § 2.5 canonical NCP form, primary variant):
         mu       ~ Cauchy(0, 10)             # wide, no scale assumption
-        phi      ~ Beta(20, 1.5) shifted (-1, 1)  # daily-financial-vol prior
+        phi      ~ Uniform(-1, 1)            # generic AR(1) stationarity
         sigma    ~ HalfCauchy(5)             # wide positive-real
         h_std    ~ Normal(0, 1) i.i.d.       # NCP standardised innovations
 
-    The phi prior is the Stan User's Guide § 2.5 *alternative*
-    (canonical for daily financial volatility): "It would also be possible
-    to give phi a beta prior like beta(20, 1.5) to favor it being close to
-    one." Concentrates mass at phi in [0.87, 0.99] and suppresses the
-    unit-root region phi → ±1 where sigma²/(1-phi²) → ∞ causes
-    stationary-initialization geometry blowup. Confirmed via divergence
-    cluster analysis 2026-05-12: under Uniform(-1, 1) the chain visited
-    extreme phi (unconstrained mean ≈ 8.2 → constrained ≈ 0.9999, 78%
-    of divs in non-div tails); under Beta(20, 1.5)-shifted, the chain is
-    prior-suppressed away from this region.
+    History note (2026-05-12): an experiment briefly swapped phi to Stan's
+    *daily-financial-vol* alternative ``2·Beta(20, 1.5) - 1`` after a
+    divergence-cluster analysis suggested the chain was visiting the
+    unit-root region (constrained phi ≈ 0.9999) under Uniform. The swap
+    made cert WORSE (362 divs / 0.91% vs 105 / 0.26% under Uniform) because
+    the Beta-shifted prior concentrates mass at high persistence (near the
+    sharp-geometry region) rather than suppressing trips to it. Reverted
+    same day. Lesson: the cluster diagnosis was correct (divergences
+    cluster at extreme phi); the proposed fix was not. The remaining
+    divergence rate is a *structural* feature of the diagonal-IMM NUTS on
+    a 503-D AR(1) state space — see worklog thread
+    ``phase0-statistician-es-ncp-stoch-vol.md`` for the full diagnosis.
 
     Data: real SP500 daily returns from ``numpyro.examples.datasets.SP500``,
     first 500 entries, mean-centered. Replaces the prior synthetic data
@@ -134,17 +133,11 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
 
     Likelihood: returns[t] ~ Normal(0, exp(h[t] / 2)).
     """
-    # Stan-matched priors (mc-stan.org/docs/2_22/stan-users-guide/stochastic-volatility-models.html)
-    # phi prior is the Stan-recommended *daily-financial-vol* variant
-    # (Beta(20, 1.5) shifted to (-1, 1)) — see docstring for rationale.
+    # Stan-canonical priors (Stan User's Guide § 2.5, primary form).
+    # See docstring "History note" for the briefly-tested Beta(20,1.5)-shifted
+    # variant that was reverted on 2026-05-12.
     mu = numpyro.sample("mu", dist.Cauchy(0.0, 10.0))
-    phi = numpyro.sample(
-        "phi",
-        dist.TransformedDistribution(
-            dist.Beta(20.0, 1.5),
-            dist.transforms.AffineTransform(loc=-1.0, scale=2.0),
-        ),
-    )
+    phi = numpyro.sample("phi", dist.Uniform(-1.0, 1.0))
     sigma = numpyro.sample("sigma", dist.HalfCauchy(5.0))
 
     # NCP latent innovations (renamed h_raw → h_std to match Stan's naming).
@@ -240,8 +233,8 @@ ENTRY = Posterior(
         "503-D NCP recursive AR(1) stochastic volatility (KSC 1998). "
         "T=500 real SP500 mean-centered daily returns (numpyro.examples.datasets.SP500, "
         "first 500 entries; CSV at data/stoch_vol_returns.csv). "
-        "Stan User's Guide § 2.5 priors (phi: daily-financial variant): "
-        "mu~Cauchy(0,10), phi~2*Beta(20,1.5)-1, sigma~HalfCauchy(5), h_raw~N(0,1)^500 (NCP). "
+        "Stan User's Guide § 2.5 priors (primary form): "
+        "mu~Cauchy(0,10), phi~Uniform(-1,1), sigma~HalfCauchy(5), h_raw~N(0,1)^500 (NCP). "
         "posteriordb_id=None (no upstream reference draws; Long-NUTS self-check). "
         "Dim=503: mu(1)+phi(1)+log_sigma(1)+h_raw(500)."
     ),
