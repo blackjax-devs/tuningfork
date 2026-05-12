@@ -193,10 +193,21 @@ def _load_metadata(name: str, cache_dir: Path) -> dict | None:
 
 
 def _cache_is_valid(meta: dict, n: int, current_version: str, current_sha: str) -> bool:
-    """Return True iff the cached artifact satisfies all validity conditions."""
+    """Return True iff the cached artifact satisfies all validity conditions.
+
+    Per the cache-invalidation policy (decisions/2026-05-11-phase0-reference-protocol-refinements.md
+    § 7: "Do not pre-emptively invalidate caches on spec changes"), the cached
+    ``code_sha`` is treated as **audit trail**, not as an invalidation criterion.
+    Every commit changes the SHA; gating cache validity on equality would
+    invalidate every entry on every commit, which is exactly the pre-emptive
+    invalidation behaviour the policy rules out. The statistician — not the
+    cache validator — has authority to mark an existing groundtruth as
+    "needs redo" based on chain quality.
+
+    ``current_sha`` is still accepted as a parameter so the call site keeps its
+    audit trail context, even though we no longer branch on it.
+    """
     if meta.get("tuningfork_version") != current_version:
-        return False
-    if meta.get("code_sha") != current_sha:
         return False
     if meta.get("num_samples", 0) < n:
         return False

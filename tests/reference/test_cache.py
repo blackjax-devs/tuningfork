@@ -15,7 +15,9 @@
 
 Tests:
 - Round-trip write/load returns same draws.
-- SHA mismatch triggers regeneration.
+- SHA mismatch does NOT trigger regeneration (audit-trail-only, per
+  decisions/2026-05-11-phase0-reference-protocol-refinements.md § 7).
+- Version mismatch DOES trigger regeneration (real spec change).
 - Smaller num_samples than requested triggers regeneration.
 - TUNINGFORK_REFERENCE_DIR env override works.
 - get_reference_summaries loads from JSON.
@@ -91,28 +93,41 @@ class TestRoundTrip:
 class TestCacheInvalidation:
     """Cache hit/miss logic."""
 
-    def test_sha_mismatch_triggers_regeneration(self, tmp_path: Path) -> None:
+    def test_sha_mismatch_does_NOT_trigger_regeneration(self, tmp_path: Path) -> None:
+        """Cache stays valid across code_sha changes (audit trail, not invalidation criterion).
+
+        Per the cache-invalidation policy in
+        ``decisions/2026-05-11-phase0-reference-protocol-refinements.md`` § 7,
+        ``code_sha`` is recorded for audit but is NOT a validity gate. This test
+        was previously named ``test_sha_mismatch_triggers_regeneration`` and
+        enforced the opposite behaviour — it has been flipped to align with
+        the documented policy.
+        """
         key = jax.random.key(10)
         # Populate cache
         draws1 = get_reference_draws(
             MVN_ENTRY, n=N_SMALL, rng_key=key, cache_dir=tmp_path
         )
 
-        # Tamper with SHA in metadata → cache miss → regenerate with new key
+        # Tamper with SHA in metadata → should NOT cause regeneration
         meta_path = _metadata_path("mvn_10", tmp_path)
         with meta_path.open() as fh:
             meta = json.load(fh)
         meta["code_sha"] = "deadbeef000"
         _atomic_write_json(meta_path, meta)
 
+        # Use a DIFFERENT key. If the cache is correctly honoured, draws2 must
+        # equal draws1 because no resampling happens; if the validator wrongly
+        # invalidated on SHA mismatch, draws2 would differ (resampled with key2).
         key2 = jax.random.key(99)
         draws2 = get_reference_draws(
             MVN_ENTRY, n=N_SMALL, rng_key=key2, cache_dir=tmp_path
         )
-        # Draws should differ because a different key was used
-        assert not np.allclose(
-            np.asarray(draws1["x"]), np.asarray(draws2["x"])
-        ), "Expected regeneration with different key"
+        assert np.allclose(np.asarray(draws1["x"]), np.asarray(draws2["x"])), (
+            "Cache should have been honoured despite SHA mismatch — "
+            "got different draws which means regeneration fired (the pre-emptive-"
+            "invalidation antipattern the policy rules out)."
+        )
 
     def test_smaller_n_triggers_regeneration(self, tmp_path: Path) -> None:
         key = jax.random.key(20)
