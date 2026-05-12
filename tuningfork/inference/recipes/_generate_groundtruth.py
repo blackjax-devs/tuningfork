@@ -62,6 +62,7 @@ def generate_groundtruth_recipe(
     n_warmup: int = 5_000,
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
+    max_num_doublings: int = 10,
     cache_dir: Path | None = None,
     recipe_root: Path | None = None,
 ) -> Recipe | None:
@@ -126,6 +127,7 @@ def generate_groundtruth_recipe(
         n_warmup=n_warmup,
         n_chunks=n_chunks,
         target_acceptance=target_acceptance,
+        max_num_doublings=max_num_doublings,
     )
     wall_seconds = time.perf_counter() - t0
 
@@ -173,6 +175,7 @@ def generate_groundtruth_recipe(
         n_samples=n_samples,
         n_chunks=n_chunks,
         target_acceptance=target_acceptance,
+        max_num_doublings=max_num_doublings,
     )
 
     # Handle IMM sidecar for large models

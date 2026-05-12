@@ -645,6 +645,7 @@ class Recipe:
         n_samples: int,
         n_chunks: int,
         target_acceptance: float,
+        max_num_doublings: int = 10,
         tuningfork_version: str = "0.0.0.dev0",
     ) -> Recipe:
         """Build a GROUNDTRUTH Recipe from a long-NUTS reference-certification run.
@@ -722,6 +723,7 @@ class Recipe:
             "n_warmup": n_warmup,
             "n_chunks": n_chunks,
             "target_acceptance": target_acceptance,
+            "max_num_doublings": max_num_doublings,
         }
 
         gate_evidence: dict[str, Any] = {

@@ -337,6 +337,7 @@ def _regenerate_nuts(
     n_warmup: int = 5_000,
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
+    max_num_doublings: int = 10,
 ) -> tuple[
     dict[str, jax.Array],
     Summaries,
@@ -361,6 +362,7 @@ def _regenerate_nuts(
         n_samples=n,
         n_chunks=n_chunks,
         target_acceptance=target_acceptance,
+        max_num_doublings=max_num_doublings,
     )
     cert_dict = {
         "passed": cert.passed,
@@ -388,6 +390,7 @@ def get_reference_draws(
     n_warmup: int = 5_000,
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
+    max_num_doublings: int = 10,
 ) -> dict[str, jax.Array]:
     """Load reference draws from cache or regenerate.
 
@@ -467,6 +470,7 @@ def get_reference_draws(
                 n_warmup=n_warmup,
                 n_chunks=n_chunks,
                 target_acceptance=target_acceptance,
+                max_num_doublings=max_num_doublings,
             )
         except CertificationError as exc:
             # Failure path: persist chain_stats for statistician diagnosis,

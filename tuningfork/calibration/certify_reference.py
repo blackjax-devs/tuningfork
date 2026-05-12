@@ -157,6 +157,7 @@ def certify_reference_nuts(
     n_samples: int = 40_000,
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
+    max_num_doublings: int = 10,
 ) -> tuple[
     dict[str, jax.Array],
     Summaries,
@@ -180,6 +181,13 @@ def certify_reference_nuts(
         Number of contiguous chunks to reshape samples into for split-R̂.
     target_acceptance
         Target acceptance rate for dual averaging.
+    max_num_doublings
+        NUTS ``max_num_doublings`` (max tree depth). Default 10 (BlackJAX
+        default; allows up to 2^10=1024 leapfrog steps per trajectory).
+        Raise to 12-15 for high-d models with naturally long trajectories
+        (horseshoe priors, latent GPs) where the no-U-turn condition fires
+        late. Empirically captured 2026-05-12 by the Phase 0 statistician
+        investigation (worklog/threads/phase0-statistician-3holdouts.md).
 
     Returns
     -------
@@ -221,6 +229,7 @@ def certify_reference_nuts(
         blackjax.nuts,
         logdensity_fn,
         target_acceptance_rate=target_acceptance,
+        max_num_doublings=max_num_doublings,
     )
     (adapted_state, adapted_params), warmup_info = warmup.run(
         rng_key_warmup, init_position, n_warmup
@@ -232,6 +241,8 @@ def certify_reference_nuts(
     )
 
     # --- Long single chain ---
+    # window_adaptation propagates max_num_doublings into adapted_params, so we
+    # don't pass it again here (would raise TypeError on duplicate kwarg).
     nuts = blackjax.nuts(logdensity_fn, **adapted_params)
     final_state, (states, infos) = run_inference_algorithm(
         rng_key=rng_key_sample,
