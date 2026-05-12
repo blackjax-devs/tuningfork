@@ -101,9 +101,12 @@ class CertificationError(RuntimeError):
     """Raised when a Path-B run fails the reference-certification gate.
 
     Carries ``cert: CertificationResult``, ``adaptation: AdaptationParams | None``,
-    and ``chain_stats: dict[str, np.ndarray] | None`` so the caller can log the
-    failure, log diagnostic data, and decide to re-run with more samples or a
-    different seed.
+    ``chain_stats: dict[str, np.ndarray] | None``, AND ``draws: dict[str, jax.Array] | None``
+    so the caller can persist diagnostic data on the failure path. Without
+    draws, the statistician cannot do parameter-space cluster analysis on
+    divergent transitions (the primary diagnostic step per Lens 1 in the
+    diagnostics playbook). Added 2026-05-12 to close the schema gap that
+    blocked diagnosis of gp_regression's chunk-1 divergence cluster.
     """
 
     def __init__(
@@ -112,11 +115,13 @@ class CertificationError(RuntimeError):
         cert: CertificationResult,
         adaptation: "AdaptationParams | None" = None,
         chain_stats: "dict[str, np.ndarray] | None" = None,
+        draws: "dict[str, jax.Array] | None" = None,
     ) -> None:
         super().__init__(message)
         self.cert = cert
         self.adaptation = adaptation
         self.chain_stats = chain_stats
+        self.draws = draws
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +366,7 @@ def certify_reference_nuts(
             cert,
             adaptation=adaptation,
             chain_stats=chain_stats,
+            draws=draws,
         )
 
     summaries = compute_summaries(draws)

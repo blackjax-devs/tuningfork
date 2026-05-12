@@ -484,10 +484,28 @@ def get_reference_draws(
                 max_num_doublings=max_num_doublings,
             )
         except CertificationError as exc:
-            # Failure path: persist chain_stats for statistician diagnosis,
-            # then re-raise so caller knows cert failed.
+            # Failure path: persist chain_stats AND draws for statistician
+            # diagnosis, then re-raise so caller knows cert failed. Without
+            # draws, the cluster-in-parameter-space check (Lens 1 of the
+            # diagnostics playbook) is blocked. Schema gap closed 2026-05-12
+            # after the gp_regression cert failure's chunk-1 divergence
+            # cluster could not be diagnosed because draws weren't persisted.
+            #
+            # IMPORTANT: failure-path draws save to ``<name>.failed.npz``,
+            # NOT to ``<name>.npz``. The success path uses ``<name>.npz``;
+            # we never overwrite a successful cert's draws with a failed
+            # run's draws (which could happen e.g. with force_regenerate=True
+            # on a model whose later re-run regresses).
             if exc.chain_stats is not None:
                 _write_chain_stats(entry.name, exc.chain_stats, effective_dir)
+            if exc.draws is not None:
+                failed_draws_path = _draws_path(entry.name, effective_dir).with_suffix(
+                    ".failed.npz"
+                )
+                _atomic_write_npz(
+                    failed_draws_path,
+                    {k: np.asarray(v) for k, v in exc.draws.items()},
+                )
             raise
 
     metadata = _build_metadata(
