@@ -37,7 +37,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 import arviz as az
-from tuningfork.notebooks import load_recipe, summarize_recipe, load_samples, samples_to_idata
+from tuningfork.notebooks import load_recipe, load_idata, summarize_recipe
 
 matplotlib.use("Agg")
 plt.rcParams["axes.spines.right"] = False
@@ -59,9 +59,12 @@ assert recipe.base_method_name in {"nuts", "hmc"}, (
 ```
 
 ```{code-cell} ipython3
-samples = load_samples(recipe)
-print({k: v.shape for k, v in samples.items()})
-idata = samples_to_idata(samples)
+# One-call: returns InferenceData with posterior + sample_stats
+# (diverging, energy, acceptance_rate, n_steps, tree_depth — and for
+# GROUNDTRUTH recipes, additionally step_size + reached_max_treedepth).
+idata = load_idata(recipe)
+print(f"posterior sites: {list(idata['posterior'].data_vars)}")
+print(f"sample_stats fields: {list(idata['sample_stats'].data_vars)}")
 ```
 
 ```{code-cell} ipython3
