@@ -144,11 +144,73 @@ FAMILY_A_WITH_ENERGY = (
 )
 
 
+# Mapping from our chain_stats field names (blackjax NUTSInfo._fields) to
+# ArviZ's canonical sample_stats group names.
+# Reference: https://python.arviz.org/en/stable/schema/schema.html#sample-stats
+# Only keys that map to a per-step scalar stat are listed. Vectors (e.g.
+# `momentum`) and nested fields (`proposal`) are intentionally dropped.
+#
+# ArviZ canonical sample_stats keys (per the schema, 2026-05-12):
+#   lp, acceptance_rate, step_size, step_size_nom, tree_depth, n_steps,
+#   reached_max_treedepth, diverging, energy, energy_error, max_energy_error,
+#   int_time, inv_metric.
+#
+# Of these, blackjax's NUTSInfo persists: is_divergent, is_turning, energy,
+# num_trajectory_expansions (= tree_depth), num_integration_steps (= n_steps),
+# acceptance_rate. Step size + reached_max_treedepth are derived in
+# ``tuningfork.notebooks.load_idata`` from the recipe's adapted params +
+# warmup_params['max_num_doublings'].
+_CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
+    # Direct NUTSInfo._fields → ArviZ canonical
+    "is_divergent": "diverging",
+    "energy": "energy",
+    "acceptance_rate": "acceptance_rate",
+    "num_integration_steps": "n_steps",
+    "num_trajectory_expansions": "tree_depth",
+    # is_turning has no ArviZ canonical equivalent; keep under a tuningfork-
+    # prefixed name so downstream consumers can opt in but it doesn't
+    # collide with the schema.
+    "is_turning": "tuningfork_is_turning",
+    # Derived fields (enrichment in tuningfork.notebooks.load_idata for
+    # GROUNDTRUTH recipes) — identity renames so they pass through this
+    # projection without dropping:
+    "step_size": "step_size",
+    "reached_max_treedepth": "reached_max_treedepth",
+}
+
+
+def _chain_stats_to_sample_stats(
+    chain_stats: dict[str, np.ndarray], is_multichain: bool
+) -> dict[str, np.ndarray]:
+    """Project our chain_stats dict to ArviZ sample_stats schema.
+
+    Renames known per-step scalar fields per ``_CHAIN_STATS_TO_SAMPLE_STATS``;
+    drops fields that don't map cleanly (multi-dim, nested, or unrecognised).
+    Reshapes to (n_chains=1, n_draws) when ``is_multichain=False``.
+    """
+    out: dict[str, np.ndarray] = {}
+    for our_name, arviz_name in _CHAIN_STATS_TO_SAMPLE_STATS.items():
+        if our_name not in chain_stats:
+            continue
+        arr = np.asarray(chain_stats[our_name])
+        if arr.ndim < 1:
+            continue  # not a per-step array
+        if not is_multichain:
+            # Single-chain → reshape to (1, n_draws)
+            if arr.ndim == 1:
+                arr = arr[np.newaxis, :]
+            else:
+                arr = arr[np.newaxis, ...]
+        out[arviz_name] = arr
+    return out
+
+
 def samples_to_idata(
     samples_dict: dict[str, np.ndarray],
     is_multichain: bool = True,
+    chain_stats: dict[str, np.ndarray] | None = None,
 ) -> Any:
-    """Convert samples dict to ArviZ InferenceData.
+    """Convert samples dict to ArviZ InferenceData, optionally with sample_stats.
 
     Parameters
     ----------
@@ -160,11 +222,21 @@ def samples_to_idata(
     is_multichain
         Whether samples are already multi-chain layout. For SMC, pass False
         since particles are (1, N_particles, *event).
+    chain_stats
+        Optional per-step diagnostic dict from NUTS (e.g. as persisted to
+        ``reference/chain_stats/<name>.npz`` by the cert pipeline). Known
+        per-step scalar fields (``is_divergent``, ``energy``,
+        ``acceptance_rate``, ``num_integration_steps``) are renamed per
+        ArviZ's canonical sample_stats schema (``diverging``, ``energy``,
+        ``acceptance_rate``, ``n_steps``) and attached to the ``sample_stats``
+        group. Unknown / nested / vector fields are dropped silently.
+        When None (default), only the posterior group is populated.
 
     Returns
     -------
     arviz.InferenceData
-        Posterior group populated from samples_dict.
+        Posterior group populated from samples_dict; sample_stats group
+        populated from chain_stats when provided.
     """
     if az is None:
         raise ImportError("arviz is required for diagnostics rendering")
@@ -183,6 +255,10 @@ def samples_to_idata(
                 mc_samples[name] = arr_np[np.newaxis, :, ...]
     else:
         mc_samples = {k: np.asarray(v) for k, v in samples_dict.items()}
+
+    if chain_stats is not None:
+        sample_stats = _chain_stats_to_sample_stats(chain_stats, is_multichain)
+        return az.from_dict({"posterior": mc_samples, "sample_stats": sample_stats})
 
     return az.from_dict({"posterior": mc_samples})
 

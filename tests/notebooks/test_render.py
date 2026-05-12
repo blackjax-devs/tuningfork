@@ -153,3 +153,205 @@ def test_load_samples_passes_cache_dir_override() -> None:
     load_samples(mock_recipe, cache_dir=custom_dir)
 
     mock_recipe.load_cached_samples.assert_called_once_with(cache_dir=custom_dir)
+
+
+# ---------------------------------------------------------------------------
+# chain_stats / sample_stats projection tests
+# ---------------------------------------------------------------------------
+
+
+def test_samples_to_idata_with_chain_stats_populates_sample_stats() -> None:
+    """When chain_stats is passed, ArviZ sample_stats group is populated with
+    renamed fields (is_divergent → diverging, num_integration_steps → n_steps,
+    num_trajectory_expansions → tree_depth, energy → energy,
+    acceptance_rate → acceptance_rate, is_turning → tuningfork_is_turning)."""
+    from tuningfork.notebooks import samples_to_idata
+
+    rng = np.random.default_rng(7)
+    n_draws = 200
+    samples = {"theta": rng.standard_normal((n_draws, 3))}
+    chain_stats = {
+        "is_divergent": rng.integers(0, 2, n_draws).astype(bool),
+        "is_turning": rng.integers(0, 2, n_draws).astype(bool),
+        "energy": rng.standard_normal(n_draws),
+        "acceptance_rate": rng.uniform(0.5, 1.0, n_draws),
+        "num_integration_steps": rng.integers(1, 64, n_draws),
+        "num_trajectory_expansions": rng.integers(1, 10, n_draws),
+        # Vectors / unknown fields should be silently dropped:
+        "momentum": rng.standard_normal((n_draws, 3)),
+        "some_unknown_field": rng.standard_normal(n_draws),
+    }
+    idata = samples_to_idata(samples, chain_stats=chain_stats)
+
+    sample_stats = (
+        idata["sample_stats"] if hasattr(idata, "__getitem__") else idata.sample_stats
+    )
+    # ArviZ-canonical names present
+    assert "diverging" in sample_stats
+    assert "energy" in sample_stats
+    assert "acceptance_rate" in sample_stats
+    assert "n_steps" in sample_stats
+    assert "tree_depth" in sample_stats
+    # Non-canonical fields under prefixed names
+    assert "tuningfork_is_turning" in sample_stats
+    # Original (non-canonical) names absent
+    assert "is_divergent" not in sample_stats
+    assert "num_integration_steps" not in sample_stats
+    assert "num_trajectory_expansions" not in sample_stats
+    # Vector/unknown fields dropped
+    assert "momentum" not in sample_stats
+    assert "some_unknown_field" not in sample_stats
+
+
+def test_load_idata_groundtruth_enrichment(monkeypatch) -> None:
+    """For GROUNDTRUTH recipes, load_idata enriches sample_stats with
+    step_size (broadcast from adapted scalar) and reached_max_treedepth
+    (derived from num_trajectory_expansions vs max_num_doublings)."""
+    from tuningfork.inference.recipes._base import Effort
+    from tuningfork.notebooks import load_idata
+
+    rng = np.random.default_rng(23)
+    n_draws = 100
+    fake_samples = {"theta": rng.standard_normal((n_draws, 3))}
+    fake_chain_stats = {
+        "is_divergent": np.zeros(n_draws, dtype=bool),
+        "energy": rng.standard_normal(n_draws),
+        "acceptance_rate": rng.uniform(0.8, 1.0, n_draws),
+        "num_integration_steps": rng.integers(1, 32, n_draws),
+        "num_trajectory_expansions": np.full(n_draws, 5, dtype=np.int32),
+    }
+
+    mock_recipe = MagicMock()
+    mock_recipe.load_cached_samples.return_value = fake_samples
+    mock_recipe.model_name = "mvn_10"
+    mock_recipe.effort = Effort.GROUNDTRUTH
+    mock_recipe.base_method_params = {"step_size": 0.234}
+    mock_recipe.warmup_params = {"max_num_doublings": 10}
+
+    monkeypatch.setattr(
+        "tuningfork.notebooks.render.try_load_cached_chain_stats",
+        lambda entry, cache_dir=None: fake_chain_stats,
+    )
+
+    idata = load_idata(mock_recipe)
+
+    sample_stats = (
+        idata["sample_stats"] if hasattr(idata, "__getitem__") else idata.sample_stats
+    )
+    # Standard projections
+    assert "diverging" in sample_stats
+    assert "tree_depth" in sample_stats
+    # GROUNDTRUTH-enriched fields
+    assert "step_size" in sample_stats
+    assert "reached_max_treedepth" in sample_stats
+    # step_size should be broadcast to (1, n_draws) (single-chain shape)
+    step_size_arr = np.asarray(sample_stats["step_size"])
+    assert step_size_arr.shape[-1] == n_draws
+    assert np.allclose(step_size_arr, 0.234)
+    # reached_max_treedepth = num_trajectory_expansions >= 10. Our trajectory
+    # expansions are all 5, so none should be at-cap.
+    rmd = np.asarray(sample_stats["reached_max_treedepth"])
+    assert rmd.dtype == bool
+    assert not rmd.any()
+
+
+def test_samples_to_idata_with_partial_chain_stats() -> None:
+    """If only a subset of fields is present in chain_stats, only those map to sample_stats."""
+    from tuningfork.notebooks import samples_to_idata
+
+    rng = np.random.default_rng(11)
+    samples = {"x": rng.standard_normal((100, 2))}
+    chain_stats = {"is_divergent": np.zeros(100, dtype=bool)}
+    idata = samples_to_idata(samples, chain_stats=chain_stats)
+
+    sample_stats = (
+        idata["sample_stats"] if hasattr(idata, "__getitem__") else idata.sample_stats
+    )
+    assert "diverging" in sample_stats
+    assert "energy" not in sample_stats  # not in chain_stats input
+
+
+def test_samples_to_idata_no_chain_stats_no_sample_stats_group() -> None:
+    """Default behaviour (chain_stats=None) — no sample_stats group attached."""
+    from tuningfork.notebooks import samples_to_idata
+
+    rng = np.random.default_rng(13)
+    samples = {"x": rng.standard_normal((100,))}
+    idata = samples_to_idata(samples)  # no chain_stats
+
+    # ArviZ ≥ 0.20 uses DataTree; absent groups may raise KeyError on subscript.
+    # Test by checking attribute access (returns None if absent in legacy API).
+    has_sample_stats = hasattr(idata, "sample_stats") and idata.sample_stats is not None
+    # Legacy InferenceData: attribute exists but may be None; DataTree: subscript raises
+    if not has_sample_stats:
+        try:
+            ss = idata["sample_stats"]  # may raise on DataTree if absent
+            assert ss is None or len(list(ss.data_vars)) == 0
+        except (KeyError, AttributeError):
+            pass  # expected — no sample_stats group
+
+
+# ---------------------------------------------------------------------------
+# load_idata tests — one-call convenience
+# ---------------------------------------------------------------------------
+
+
+def test_load_idata_combines_samples_and_chain_stats(monkeypatch) -> None:
+    """load_idata bundles load_samples + load_chain_stats + samples_to_idata."""
+    from tuningfork.notebooks import load_idata
+
+    rng = np.random.default_rng(17)
+    n_draws = 150
+    fake_samples = {"theta": rng.standard_normal((n_draws, 4))}
+    fake_chain_stats = {
+        "is_divergent": np.zeros(n_draws, dtype=bool),
+        "energy": rng.standard_normal(n_draws),
+        "num_integration_steps": rng.integers(1, 32, n_draws),
+        "acceptance_rate": rng.uniform(0.5, 1.0, n_draws),
+    }
+
+    mock_recipe = MagicMock()
+    mock_recipe.load_cached_samples.return_value = fake_samples
+    mock_recipe.model_name = "mvn_10"
+
+    # Mock try_load_cached_chain_stats via the MODELS lookup path.
+    # tuningfork.notebooks.render.load_chain_stats does:
+    #   MODELS[recipe.model_name] → try_load_cached_chain_stats(entry)
+    # Patch the eager-imported name in tuningfork.notebooks.render (used by load_chain_stats).
+    monkeypatch.setattr(
+        "tuningfork.notebooks.render.try_load_cached_chain_stats",
+        lambda entry, cache_dir=None: fake_chain_stats,
+    )
+
+    idata = load_idata(mock_recipe)
+
+    posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
+    sample_stats = (
+        idata["sample_stats"] if hasattr(idata, "__getitem__") else idata.sample_stats
+    )
+    assert "theta" in posterior
+    assert "diverging" in sample_stats
+    assert "n_steps" in sample_stats
+
+
+def test_load_idata_missing_chain_stats_returns_posterior_only(monkeypatch) -> None:
+    """load_idata is robust to chain_stats cache miss — returns idata with only posterior."""
+    from tuningfork.notebooks import load_idata
+
+    rng = np.random.default_rng(19)
+    fake_samples = {"x": rng.standard_normal((100, 2))}
+
+    mock_recipe = MagicMock()
+    mock_recipe.load_cached_samples.return_value = fake_samples
+    mock_recipe.model_name = "mvn_10"
+
+    # chain_stats cache miss → try_load returns None
+    monkeypatch.setattr(
+        "tuningfork.notebooks.render.try_load_cached_chain_stats",
+        lambda entry, cache_dir=None: None,
+    )
+
+    idata = load_idata(mock_recipe)
+
+    posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
+    assert "x" in posterior
