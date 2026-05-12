@@ -11,8 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Stochastic volatility model — 503-D NCP recursive AR(1) (Kim-Shephard-Chib 1998, T=500)."""
+"""Stochastic volatility model — 503-D NCP recursive AR(1) (Kim-Shephard-Chib 1998).
 
+Data: first 500 mean-centered daily returns of the S&P 500 (real financial
+data), matching the canonical Stan/NumPyro stoch_vol example data class.
+Source: ``numpyro.examples.datasets.SP500``. Replaced 2026-05-12 from
+the prior synthetic (KSC truth parameters) version per the user direction
+to match Stan's setup more fully.
+
+Priors match the Stan User's Guide § 2.5 NCP form:
+    mu    ~ Cauchy(0, 10)
+    phi   ~ Uniform(-1, 1)
+    sigma ~ HalfCauchy(5)
+    h_std ~ Normal(0, 1) i.i.d.
+"""
+
+import csv
 from pathlib import Path
 
 import jax
@@ -27,34 +41,37 @@ __all__ = [
     "ENTRY",
     "RETURNS",
     "T_LENGTH",
-    "MU_TRUE",
-    "PHI_TRUE",
-    "SIGMA_TRUE",
 ]
 
 # ---------------------------------------------------------------------------
 # Model constants
 # ---------------------------------------------------------------------------
 
-#: Number of time steps (T = 500 per statistician verdict)
+#: Number of time steps (T = 500 — first 500 daily returns of SP500)
 T_LENGTH: int = 500
 
 #: Unconstrained dimensionality: mu(1) + phi(1) + log_sigma(1) + h_raw(500)
 DIM: int = 3 + T_LENGTH  # = 503
 
-#: Ground-truth parameters used to generate synthetic data
-MU_TRUE: float = -10.0
-PHI_TRUE: float = 0.95
-SIGMA_TRUE: float = 0.25
-
-#: Path to committed .npy data file
-_NPY_PATH: Path = Path(__file__).parent.parent.parent / "data" / "stoch_vol_returns.npy"
+#: Path to committed CSV data file (SP500 first 500 mean-centered daily returns).
+#: Single column `returns`; 500 rows.
+_CSV_PATH: Path = Path(__file__).parent.parent.parent / "data" / "stoch_vol_returns.csv"
 
 # ---------------------------------------------------------------------------
-# Load synthetic returns (shape: (500,), float32)
+# Load real SP500 returns (shape: (500,), float32, mean-centered)
 # ---------------------------------------------------------------------------
 
-RETURNS: jnp.ndarray = jnp.array(np.load(_NPY_PATH), dtype=jnp.float32)
+
+def _load_returns(path: Path) -> np.ndarray:
+    """Load a single-column 'returns' CSV (header on first line)."""
+    with path.open() as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        assert header == ["returns"], f"Expected header ['returns'], got {header}"
+        return np.array([float(row[0]) for row in reader], dtype=np.float32)
+
+
+RETURNS: jnp.ndarray = jnp.array(_load_returns(_CSV_PATH), dtype=jnp.float32)
 
 # Validate shape
 assert RETURNS.shape == (
@@ -78,7 +95,8 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
     returns
         Observed returns array of shape (T,).
     T
-        Number of time steps (500 for the synthetic stoch_vol dataset).
+        Number of time steps (500 — first 500 SP500 daily returns,
+        mean-centered).
 
     Priors (Stan User's Guide § 2.5 canonical NCP form, matched 2026-05-12):
         mu       ~ Cauchy(0, 10)         # wide, no scale assumption
@@ -86,14 +104,13 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
         sigma    ~ HalfCauchy(5)         # wide positive-real
         h_std    ~ Normal(0, 1) i.i.d.   # NCP standardised innovations
 
-    Note: the data this model is conditioned on is SYNTHETIC, generated from
-    MU_TRUE=-10.0, PHI_TRUE=0.95, SIGMA_TRUE=0.25 at T=500. Stan's example
-    uses real daily financial returns; tuningfork keeps synthetic data so
-    posterior moments can be cross-checked against the data-generating
-    truth. The Stan-canonical priors above are wider than what's needed
-    for this specific synthetic data (which would warrant Normal(-10, 5),
-    Beta(20, 1.5)-shifted, HalfNormal(0.5)) but are kept verbatim to match
-    Stan's reference setup.
+    Data: real SP500 daily returns from ``numpyro.examples.datasets.SP500``,
+    first 500 entries, mean-centered. Replaces the prior synthetic data
+    (KSC ``MU_TRUE=-10, PHI_TRUE=0.95, SIGMA_TRUE=0.25``) per user direction
+    2026-05-12: real data is preferred for matching Stan's reference setup.
+    No analytic posterior available, so cross-checking moments uses Stan
+    reference samples (when available via posteriordb_xcheck) or a
+    long-NUTS reference run as ground truth.
 
     Latent log-volatility is initialised at the stationary distribution:
         h[0] = mu + (sigma / sqrt(1 - phi^2)) * h_std[0]

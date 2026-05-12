@@ -40,14 +40,23 @@ def test_data_shape() -> None:
 
 
 def test_returns_realistic_scale() -> None:
-    """Synthetic returns are in daily-financial-vol range (~0.005–0.03 mean abs).
+    """SP500 daily returns (mean-centered) have std ~1 and mean_abs ~0.5-1.
 
-    mu_true = -10 → exp(mu/2) ≈ 0.0067, so mean_abs should be well below 0.1.
+    Real-data scale: SP500 daily returns are typically ±5% range with most
+    samples within ±2%. Mean-centered: mean ≈ 0, std ≈ 1-1.5, mean_abs ~0.8.
+    Replaced 2026-05-12 from synthetic (mu_true=-10 → mean_abs ≈ 0.007).
     """
-    mean_abs = float(np.abs(np.array(RETURNS)).mean())
+    arr = np.array(RETURNS)
+    mean_abs = float(np.abs(arr).mean())
+    # Should be O(1) for SP500-scale daily returns. Sanity: < 5% probability
+    # of |r| > 5 (extreme single-day move); typical mean_abs is 0.5-1.
     assert (
-        mean_abs < 0.1
-    ), f"mean_abs={mean_abs:.4f} unexpectedly large (expected < 0.1)"
+        0.3 < mean_abs < 3.0
+    ), f"mean_abs={mean_abs:.4f} outside [0.3, 3.0] (SP500 daily returns range)"
+    # Mean-centered → close to zero
+    assert (
+        abs(float(arr.mean())) < 1e-4
+    ), f"mean={arr.mean():.6e} should be ≈ 0 for mean-centered returns"
 
 
 def test_logdensity_finite() -> None:
