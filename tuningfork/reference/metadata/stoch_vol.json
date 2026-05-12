@@ -1,0 +1,16 @@
+{
+  "name": "stoch_vol",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "7d8641930eaffd43b3f2eea94bac8dd1bbc973a0",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-12T12:24:49Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.0006159543991089,
+    "min_chunk_bulk_ess": 1992.8448486328125,
+    "num_divergences": 105,
+    "e_bfmi": 0.9289995431900024
+  }
+}
