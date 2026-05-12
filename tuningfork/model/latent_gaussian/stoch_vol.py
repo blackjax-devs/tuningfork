@@ -19,9 +19,10 @@ Source: ``numpyro.examples.datasets.SP500``. Replaced 2026-05-12 from
 the prior synthetic (KSC truth parameters) version per the user direction
 to match Stan's setup more fully.
 
-Priors match the Stan User's Guide § 2.5 NCP form:
+Priors match the Stan User's Guide § 2.5 NCP form (phi: daily-financial
+variant, amended 2026-05-12 — see ``stoch_vol_model`` docstring for why):
     mu    ~ Cauchy(0, 10)
-    phi   ~ Uniform(-1, 1)
+    phi   ~ Beta(20, 1.5) shifted to (-1, 1)
     sigma ~ HalfCauchy(5)
     h_std ~ Normal(0, 1) i.i.d.
 """
@@ -237,9 +238,10 @@ ENTRY = Posterior(
     ),
     description=(
         "503-D NCP recursive AR(1) stochastic volatility (KSC 1998). "
-        "T=500 synthetic returns, mu_true=-10, phi_true=0.95, sigma_true=0.25. "
-        "Priors: mu~N(-10,5), phi~2*Beta(20,1.5)-1, sigma~HalfNormal(0.5), "
-        "h_raw~N(0,1)^500 (NCP). "
+        "T=500 real SP500 mean-centered daily returns (numpyro.examples.datasets.SP500, "
+        "first 500 entries; CSV at data/stoch_vol_returns.csv). "
+        "Stan User's Guide § 2.5 priors (phi: daily-financial variant): "
+        "mu~Cauchy(0,10), phi~2*Beta(20,1.5)-1, sigma~HalfCauchy(5), h_raw~N(0,1)^500 (NCP). "
         "posteriordb_id=None (no upstream reference draws; Long-NUTS self-check). "
         "Dim=503: mu(1)+phi(1)+log_sigma(1)+h_raw(500)."
     ),
