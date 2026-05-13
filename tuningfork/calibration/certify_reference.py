@@ -31,6 +31,7 @@ This measures how well the momentum resampling explores the energy surface.
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import blackjax
 import jax
@@ -46,8 +47,46 @@ __all__ = [
     "AdaptationParams",
     "CertificationResult",
     "CertificationError",
+    "PreAdaptedWarmup",
     "certify_reference_nuts",
 ]
+
+
+class PreAdaptedWarmup(NamedTuple):
+    """Pre-computed warmup output, optionally injected into ``certify_reference_nuts``.
+
+    When this is provided (as ``pre_adapted=...``), the certifier skips its
+    own ``window_adaptation.run`` call and starts sampling directly from
+    ``state`` using ``params``. This enables a two-phase cert workflow
+    (warmup separately, review, then sample+cert) for models where the
+    warmup is expensive and the user wants to validate the adapted state
+    before committing to a long sampling phase.
+
+    Fields
+    ------
+    state
+        Final HMCState from a prior ``window_adaptation.run``. Position +
+        logdensity + grad pytree at warmup end.
+    params
+        Adapted-params dict, exactly as ``window_adaptation.run`` returns
+        (``step_size``, ``inverse_mass_matrix``, ``max_num_doublings``).
+    num_leapfrog_median
+        Median of ``warmup_info.info.num_integration_steps`` from the
+        prior warmup, used to populate the returned ``AdaptationParams``
+        for downstream reporting.
+
+    Notes
+    -----
+    Introduced 2026-05-13 for the gp_regression Phase 0 closeout where
+    n_warmup=5000 at ta=0.99 takes ~7h wall and an intermediate review
+    of adapted parameters (step_size, IMM diag per site, divergence rate
+    in late warmup) prevents committing the ~30-50h sampling phase to
+    a bad warmup outcome.
+    """
+
+    state: Any  # blackjax HMCState; typed loosely to avoid import dance
+    params: dict[str, Any]  # step_size, inverse_mass_matrix, max_num_doublings
+    num_leapfrog_median: int
 
 
 @dataclass(frozen=True)
@@ -163,6 +202,7 @@ def certify_reference_nuts(
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
     max_num_doublings: int = 10,
+    pre_adapted: "PreAdaptedWarmup | None" = None,
 ) -> tuple[
     dict[str, jax.Array],
     Summaries,
@@ -240,20 +280,32 @@ def certify_reference_nuts(
     # --- Build logdensity_fn ---
     init_position, logdensity_fn, _ = build_logdensity_fn(rng_key_init, entry)
 
-    # --- Window adaptation (warmup) ---
-    warmup = blackjax.window_adaptation(
-        blackjax.nuts,
-        logdensity_fn,
-        target_acceptance_rate=target_acceptance,
-        max_num_doublings=max_num_doublings,
-    )
-    (adapted_state, adapted_params), warmup_info = warmup.run(
-        rng_key_warmup, init_position, n_warmup
-    )
+    # --- Window adaptation (warmup), unless pre-adapted state was supplied ---
+    if pre_adapted is None:
+        warmup = blackjax.window_adaptation(
+            blackjax.nuts,
+            logdensity_fn,
+            target_acceptance_rate=target_acceptance,
+            max_num_doublings=max_num_doublings,
+        )
+        (adapted_state, adapted_params), warmup_info = warmup.run(
+            rng_key_warmup, init_position, n_warmup
+        )
+        num_leapfrog_median = int(jnp.median(warmup_info.info.num_integration_steps))
+    else:
+        # Skip warmup entirely; use the pre-supplied adapted state + params.
+        # ``rng_key_warmup`` and ``n_warmup`` are unused in this branch.
+        # The caller is responsible for having produced ``pre_adapted`` from
+        # a window_adaptation.run with the same target_acceptance and
+        # max_num_doublings — those parameters are baked into the adapted
+        # step_size and IMM, not re-applied here.
+        adapted_state = pre_adapted.state
+        adapted_params = pre_adapted.params
+        num_leapfrog_median = pre_adapted.num_leapfrog_median
     adaptation = AdaptationParams(
         step_size=float(adapted_params["step_size"]),
         inverse_mass_matrix=jnp.array(adapted_params["inverse_mass_matrix"]),
-        num_leapfrog_median=int(jnp.median(warmup_info.info.num_integration_steps)),
+        num_leapfrog_median=num_leapfrog_median,
     )
 
     # --- Long single chain ---

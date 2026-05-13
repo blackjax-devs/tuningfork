@@ -72,7 +72,10 @@ from tuningfork.model._base import Posterior, ReferenceMethod
 
 if TYPE_CHECKING:
     from tuningfork.calibration._summary import Summaries
-    from tuningfork.calibration.certify_reference import AdaptationParams
+    from tuningfork.calibration.certify_reference import (
+        AdaptationParams,
+        PreAdaptedWarmup,
+    )
 
 __all__ = [
     "get_reference_draws",
@@ -349,6 +352,7 @@ def _regenerate_nuts(
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
     max_num_doublings: int = 10,
+    pre_adapted: PreAdaptedWarmup | None = None,
 ) -> tuple[
     dict[str, jax.Array],
     Summaries,
@@ -363,6 +367,9 @@ def _regenerate_nuts(
     CertificationError from `certify_reference_nuts`, the exception carries
     chain_stats and the caller persists it via `_write_chain_stats` before
     re-raising — diagnostic data survives the failure path.
+
+    ``pre_adapted`` (optional) lets the caller inject a previously-run warmup's
+    adapted state and params; when provided, the warmup phase is skipped.
     """
     from tuningfork.calibration.certify_reference import certify_reference_nuts
 
@@ -374,6 +381,7 @@ def _regenerate_nuts(
         n_chunks=n_chunks,
         target_acceptance=target_acceptance,
         max_num_doublings=max_num_doublings,
+        pre_adapted=pre_adapted,
     )
     cert_dict = {
         "passed": cert.passed,
@@ -402,6 +410,7 @@ def get_reference_draws(
     n_chunks: int = 4,
     target_acceptance: float = 0.80,
     max_num_doublings: int = 10,
+    pre_adapted: PreAdaptedWarmup | None = None,
 ) -> dict[str, jax.Array]:
     """Load reference draws from cache or regenerate.
 
@@ -482,6 +491,7 @@ def get_reference_draws(
                 n_chunks=n_chunks,
                 target_acceptance=target_acceptance,
                 max_num_doublings=max_num_doublings,
+                pre_adapted=pre_adapted,
             )
         except CertificationError as exc:
             # Failure path: persist chain_stats, draws, AND adaptation params
