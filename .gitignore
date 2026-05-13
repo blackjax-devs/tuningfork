@@ -29,6 +29,13 @@ tuningfork/reference/draws/*.npy
 # refinements.md § 3.
 tuningfork/reference/chain_stats/*.npz
 
+# Failed-cert artifacts — diagnostic-only, never gate-bearing. Persisted by
+# ``get_reference_draws`` on the CertificationError path so the statistician
+# can do cluster-in-parameter-space analysis (Lens 1 of the diagnostics
+# playbook) without re-running. Distinct filenames from the success-path
+# artifacts so a failed re-run never overwrites a previous successful cert.
+tuningfork/reference/adaptation/*.failed.json
+
 # OS / editor
 .DS_Store
 *.bak

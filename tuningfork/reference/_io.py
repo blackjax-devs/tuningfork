@@ -484,18 +484,20 @@ def get_reference_draws(
                 max_num_doublings=max_num_doublings,
             )
         except CertificationError as exc:
-            # Failure path: persist chain_stats AND draws for statistician
-            # diagnosis, then re-raise so caller knows cert failed. Without
-            # draws, the cluster-in-parameter-space check (Lens 1 of the
-            # diagnostics playbook) is blocked. Schema gap closed 2026-05-12
+            # Failure path: persist chain_stats, draws, AND adaptation params
+            # (step_size + IMM) for statistician diagnosis, then re-raise.
+            # Without these, the cluster-in-parameter-space check (Lens 1 of
+            # the diagnostics playbook) plus the warmup-IMM-vs-empirical
+            # calibration check are blocked. Schema gap closed 2026-05-12
             # after the gp_regression cert failure's chunk-1 divergence
-            # cluster could not be diagnosed because draws weren't persisted.
+            # cluster could not be diagnosed because draws weren't persisted,
+            # and the warmup IMM wasn't recoverable without a re-run.
             #
-            # IMPORTANT: failure-path draws save to ``<name>.failed.npz``,
-            # NOT to ``<name>.npz``. The success path uses ``<name>.npz``;
-            # we never overwrite a successful cert's draws with a failed
-            # run's draws (which could happen e.g. with force_regenerate=True
-            # on a model whose later re-run regresses).
+            # IMPORTANT: failure-path artifacts use ``.failed.<ext>``
+            # filenames. A failed re-run never overwrites a previous
+            # successful cert's artifacts (which could happen e.g. with
+            # force_regenerate=True). All three failure filenames are
+            # gitignored (see ``.gitignore``).
             if exc.chain_stats is not None:
                 _write_chain_stats(entry.name, exc.chain_stats, effective_dir)
             if exc.draws is not None:
@@ -506,6 +508,18 @@ def get_reference_draws(
                     failed_draws_path,
                     {k: np.asarray(v) for k, v in exc.draws.items()},
                 )
+            if exc.adaptation is not None:
+                failed_adapt_path = _adaptation_path(
+                    entry.name, effective_dir
+                ).with_suffix(".failed.json")
+                adapt_dict = {
+                    "step_size": float(exc.adaptation.step_size),
+                    "inverse_mass_matrix": np.asarray(
+                        exc.adaptation.inverse_mass_matrix
+                    ).tolist(),
+                    "num_leapfrog_median": int(exc.adaptation.num_leapfrog_median),
+                }
+                _atomic_write_json(failed_adapt_path, adapt_dict)
             raise
 
     metadata = _build_metadata(
