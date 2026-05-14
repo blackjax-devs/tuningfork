@@ -45,6 +45,8 @@ from tuningfork.model._base import ReferenceMethod
 from tuningfork.reference._io import get_adaptation_params, get_reference_draws
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tuningfork.calibration.certify_reference import PreAdaptedWarmup
     from tuningfork.model._base import Posterior
 
@@ -67,6 +69,8 @@ def generate_groundtruth_recipe(
     cache_dir: Path | None = None,
     recipe_root: Path | None = None,
     pre_adapted: PreAdaptedWarmup | None = None,
+    checkpoint_dir: Path | None = None,
+    validate_warmup_fn: Callable | None = None,
 ) -> Recipe | None:
     """Generate ground-truth for one model. Returns Recipe or None (analytic).
 
@@ -131,6 +135,8 @@ def generate_groundtruth_recipe(
         target_acceptance=target_acceptance,
         max_num_doublings=max_num_doublings,
         pre_adapted=pre_adapted,
+        checkpoint_dir=checkpoint_dir,
+        validate_warmup_fn=validate_warmup_fn,
     )
     wall_seconds = time.perf_counter() - t0
 

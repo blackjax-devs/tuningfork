@@ -60,6 +60,7 @@ import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -353,6 +354,8 @@ def _regenerate_nuts(
     target_acceptance: float = 0.80,
     max_num_doublings: int = 10,
     pre_adapted: PreAdaptedWarmup | None = None,
+    checkpoint_dir: Path | None = None,
+    validate_warmup_fn: Callable | None = None,
 ) -> tuple[
     dict[str, jax.Array],
     Summaries,
@@ -370,6 +373,9 @@ def _regenerate_nuts(
 
     ``pre_adapted`` (optional) lets the caller inject a previously-run warmup's
     adapted state and params; when provided, the warmup phase is skipped.
+    ``checkpoint_dir`` (optional) is where the warmup checkpoint is persisted
+    immediately after warmup completes (before validation, before sampling).
+    ``validate_warmup_fn`` (optional) is a model-specific health-check callback.
     """
     from tuningfork.calibration.certify_reference import certify_reference_nuts
 
@@ -382,6 +388,8 @@ def _regenerate_nuts(
         target_acceptance=target_acceptance,
         max_num_doublings=max_num_doublings,
         pre_adapted=pre_adapted,
+        checkpoint_dir=checkpoint_dir,
+        validate_warmup_fn=validate_warmup_fn,
     )
     cert_dict = {
         "passed": cert.passed,
@@ -411,6 +419,8 @@ def get_reference_draws(
     target_acceptance: float = 0.80,
     max_num_doublings: int = 10,
     pre_adapted: PreAdaptedWarmup | None = None,
+    checkpoint_dir: Path | None = None,
+    validate_warmup_fn: Callable | None = None,
 ) -> dict[str, jax.Array]:
     """Load reference draws from cache or regenerate.
 
@@ -476,6 +486,14 @@ def get_reference_draws(
         # decision doc 2026-05-11-phase0-reference-protocol-refinements § 3).
         from tuningfork.calibration.certify_reference import CertificationError
 
+        # Default checkpoint_dir: <cache_dir>/warmup_checkpoint/<model>/
+        # The checkpoint is written immediately after warmup completes and
+        # contains state.pkl, params.pkl, warmup_info.npz, health.json.
+        # Gitignored (see .gitignore: reference/warmup_checkpoint/).
+        effective_checkpoint_dir = checkpoint_dir
+        if effective_checkpoint_dir is None and pre_adapted is None:
+            effective_checkpoint_dir = effective_dir / "warmup_checkpoint" / entry.name
+
         try:
             (
                 draws,
@@ -492,6 +510,8 @@ def get_reference_draws(
                 target_acceptance=target_acceptance,
                 max_num_doublings=max_num_doublings,
                 pre_adapted=pre_adapted,
+                checkpoint_dir=effective_checkpoint_dir,
+                validate_warmup_fn=validate_warmup_fn,
             )
         except CertificationError as exc:
             # Failure path: persist chain_stats, draws, AND adaptation params
