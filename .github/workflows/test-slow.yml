@@ -1,0 +1,48 @@
+# Slow tests (post-merge smoke).
+#
+# `pytest -m slow -n 2` on Python 3.13. ~tens of min wall, 30-min timeout.
+# Slow tests are JIT-compiled chain runs that would bottleneck PR iteration —
+# gated to push-to-main + manual dispatch only. PRs see only the fast-tests
+# workflow for a tight ~2-min check loop.
+#
+# Excluded from CI by design (run locally as merge gate):
+#   * -m e2e                    multi-algo×model harness; tens of min/cell
+#   * -m requires_posteriordb   external data cache not in CI runners
+#   * -m benchmark              opt-in perf benchmarks
+
+name: test-slow
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-slow:
+    name: test-slow
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --group bench
+
+      - name: Pytest (slow marker)
+        env:
+          JAX_PLATFORM_NAME: cpu
+        run: uv run pytest tests -m slow -n 2 -q
