@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tuningfork"
 authors = [{name = "The Blackjax team"}]
 description = "Benchmark library for BlackJAX MCMC/VI/SMC algorithms — calibrated, gradient-counted comparisons across a curated 14-model suite."
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "jax",
     "jaxlib",
@@ -79,13 +79,4 @@ write_to = "tuningfork/_version.py"
 profile = "black"
 
 [tool.pytest.ini_options]
-filterwarnings = [
-    "error",
-    # ArviZ emits a FutureWarning at import time on every version that
-    # predates its "major refactor" (visible per https://python.arviz.org/en/latest/user_guide/migration_guide.html).
-    # The dep solver resolves a pre-refactor arviz on py3.11 (a later
-    # arviz on py3.13 doesn't trip this). It's a vendor warning we have
-    # no control over until we migrate; ignore it so tests still run.
-    # Remove this ignore when we bump to arviz post-refactor.
-    "ignore:ArviZ is undergoing a major refactor.*:FutureWarning",
-]
+filterwarnings = ["error"]

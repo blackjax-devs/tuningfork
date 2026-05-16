@@ -23,17 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pyproject declares ``requires-python = ">=3.11"``; CI matches the
-        # contract by testing both the minimum and current default. Two
-        # py3.11-only failures were caught and fixed when this workflow first
-        # ran on PR #2:
-        #   1. RecursionError in tests/models/test_lotka_volterra.py via
-        #      jax/_src/flatten_util.py — fixed by bumping
-        #      sys.setrecursionlimit() in tests/conftest.py.
-        #   2. 12 FutureWarning-as-error failures from arviz's import-time
-        #      refactor announcement — fixed by adding an ignore filter in
-        #      pyproject.toml [tool.pytest.ini_options].
-        python: ['3.11', '3.13']
+        # pyproject declares ``requires-python = ">=3.13"``. Matrix matches.
+        python: ['3.13']
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
