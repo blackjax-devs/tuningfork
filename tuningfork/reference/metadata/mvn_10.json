@@ -1,0 +1,16 @@
+{
+  "name": "mvn_10",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "3c9af2abca190677a10b24d66d5ecc515f088877",
+  "generator": "analytic",
+  "num_samples": 100000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-11T14:39:55Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": null,
+    "min_chunk_bulk_ess": null,
+    "num_divergences": null,
+    "e_bfmi": null
+  }
+}

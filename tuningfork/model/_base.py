@@ -103,6 +103,26 @@ class Posterior:
         str, ...
     ] = ()  # for recommendation queries; populated as more models land
 
+    # ---- per-model cert overrides ----
+    # ``None`` means "use the global default" (``_DIVERGENCE_RATE_TOLERANCE``
+    # in ``tuningfork.calibration.certify_reference``; currently 0.001 = 0.1%
+    # of n_samples). A non-None value overrides only this model's gate and
+    # MUST cite the diagnostic justification in the model file. Used so a
+    # single model's structural geometry (e.g. an AR(1) unit-root excursion
+    # tail visited at low probability) doesn't force the global gate to
+    # loosen for every model.
+    divergence_rate_tolerance: float | None = None
+
+    # When True, this model REQUIRES ``JAX_ENABLE_X64=1`` at cert time —
+    # float32 cannot stably evaluate the model's log-density (e.g., dense
+    # Cholesky on a high-d kernel matrix produces NaN at float32 precision).
+    # ``certify_reference_nuts`` asserts ``jax.config.read("jax_enable_x64")``
+    # is True for any entry with this flag set, raising a clear error
+    # otherwise. Default ``False`` for backwards-compatibility — all existing
+    # models cert cleanly at the JAX default float32. The flag MUST cite the
+    # specific numerical issue in the model file's docstring.
+    requires_x64: bool = False
+
     # ---- derived ----
     @property
     def reference_method(self) -> ReferenceMethod:

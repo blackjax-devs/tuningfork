@@ -93,9 +93,20 @@ tuningfork/
 │   └── grad_counter.py        # logdensity_fn wrapper that counts grad evals
 ├── runner/
 │   └── smc.py                 # init_particles_from_prior + run_smc helpers
+├── notebooks/                 # User-facing inspection helpers (load_recipe, load_samples, samples_to_idata)
+│   ├── __init__.py
+│   ├── inspect.py             # load_recipe, summarize_recipe
+│   ├── render.py              # load_samples, samples_to_idata
+│   ├── README.md
+│   └── inspect_example.md    # worked example (jupytext .md)
 ├── reporting/                 # (placeholder; no submodules yet)
 └── cli.py                     # tuningfork reference / warmup / tune subcommands
 ```
+
+The parametrized template notebook lives at `notebooks/recipe_diagnostics.md`
+(repo root `notebooks/` directory, not inside the `tuningfork/` source package).
+As of 2026-05-12, it handles NUTS/HMC only; other sampler families are deferred
+to Recipe Phases 2+.
 
 ### Inventory
 
@@ -141,11 +152,14 @@ Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, in
 
 ## Reference protocol (the load-bearing decision)
 
-Per user direction (2026-05-07), the reference-draws protocol uses a **single long chain reshaped into chunks** rather than multi-chain × shorter:
+Per user direction (2026-05-07; **amended 2026-05-11** per [`worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md`](../worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md)), the reference-draws protocol uses a **single long chain reshaped into chunks** rather than multi-chain × shorter:
 
-- Default: 1 chain × 5,000 warmup × 100,000 post-warmup samples (NUTS + Stan window adaptation).
-- Reshape into 10 contiguous chunks of 10,000 → rank-normalized split-R̂ (Vehtari et al. 2021).
+- Default: 1 chain × 5,000 warmup × **40,000** post-warmup samples (NUTS + Stan window adaptation). Matches posteriordb Stan reference convention (~40k total).
+- Reshape into **4** contiguous chunks of **10,000** → rank-normalized split-R̂ (Vehtari et al. 2021).
 - Certification gate: split-R̂ < 1.01, min per-chunk bulk-ESS > 400, 0 divergences, E-BFMI > 0.3.
+- **Per-step chain_stats** (`num_integration_steps`, `energy`, `is_divergent`, `acceptance_rate`, plus other NUTSInfo fields) persisted to `reference/chain_stats/<name>.npz` (gitignored) on every cert run — also on failure path, so failed cells leave diagnostic crumbs for the statistician.
+- **Cert failure policy**: when a model fails cert at default `n_samples`, escalate to the statistician (`STATISTICIAN_BAYESIAN_WORKFLOW.md` + `STATISTICIAN_DIAGNOSTICS_RECIPE.md`). Do NOT brute-force the gate by inflating `n_samples` — `min_ess` is an absolute threshold and bumping `n` is gate-gaming, not diagnostic validation.
+- **Cache invalidation policy**: do NOT pre-emptively delete cache entries when the spec changes. Existing entries remain valid for their original purpose (metadata.json records actual `num_samples`). When a downstream consumer needs different data, trigger fresh via `force_regenerate=True`; the statistician — not the engineer — has authority to mark a cached groundtruth as "needs redo" based on chain_stats pathology.
 - **Multimodal exception**: model #11 (25-mode Gaussian mixture) cannot use single-chain — uses parallel-tempered SMC + 8 well-separated cold restarts, with mode-coverage check (each of 25 modes ≥ 1% of draws).
 - **Posteriordb cross-check** for #3, #6, #10: compare own marginal mean/std/5%/95% to Stan reference; tolerance |Δmean|<2 SE, |std ratio − 1|<0.05; discrepancies logged to `reference/posteriordb_xcheck/`.
 

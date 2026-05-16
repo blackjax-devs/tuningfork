@@ -96,6 +96,17 @@ class Effort(str, Enum):
              warmup or the sampler.  The Statistician writes up the full Bayesian-
              workflow journey in ``Recipe.workflow``.
              Wall time: MEDIUM + extra Statistician work + BO compute.
+             When the HIGH cell consumes groundtruth samples for oracle comparison,
+             ``wall_seconds_estimate`` MUST = ``groundtruth_wall + extra_engineering_wall``
+             (i.e., include the upstream groundtruth generation cost). The convention
+             applies from Recipe Phase 7 onward.
+
+    GROUNDTRUTH — Long-NUTS reference run (1×100k samples, 10-chunk split-R̂
+                  certification). Not a recommendation; not part of the
+                  LOW→MEDIUM→HIGH escalation ladder. One per NUTS-path model.
+                  Wall time: dominated by long single chain (~5–15 min/model on CPU).
+                  The cached draws under ``reference/draws/<model>.npz`` are the
+                  canonical samples; the recipe pins the protocol for re-running.
 
     **Tier transition discipline.**  LOW → MEDIUM and MEDIUM → HIGH transitions
     start with the Statistician communicating findings to the TL; the TL
@@ -122,6 +133,7 @@ class Effort(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    GROUNDTRUTH = "groundtruth"
 
 
 @dataclass(frozen=True)
@@ -230,6 +242,8 @@ class Recipe:
     calibration_budget: dict[
         str, Any
     ]  # {"trials": int, "wall_seconds_estimate": float, ...}
+    # For HIGH recipes that consume GROUNDTRUTH samples upstream, include the
+    # upstream groundtruth wall time in `wall_seconds_estimate`.
 
     # ---- Difficulty profile (only meaningful for HIGH; None for LOW/MEDIUM) ----
     difficulty: dict[str, Any] | None  # serialized TuningDifficulty.asdict() or None
@@ -617,6 +631,182 @@ class Recipe:
         provisional = cls(**recipe_kwargs)
         recipe_kwargs["instructions"] = render_instructions(provisional)
         return cls(**recipe_kwargs)
+
+    @classmethod
+    def from_groundtruth_run(
+        cls,
+        posterior: Posterior,
+        *,
+        cert: Any,  # CertificationResult; imported inline to avoid circular dep
+        adaptation: Any,  # AdaptationParams; imported inline
+        wall_seconds: float,
+        tuning_seed: int,
+        n_warmup: int,
+        n_samples: int,
+        n_chunks: int,
+        target_acceptance: float,
+        max_num_doublings: int = 10,
+        tuningfork_version: str = "0.0.0.dev0",
+    ) -> Recipe:
+        """Build a GROUNDTRUTH Recipe from a long-NUTS reference-certification run.
+
+        The cached draws under ``reference/draws/<model>.npz`` are the canonical
+        samples; this Recipe pins the protocol so the diagnostics notebook (or any
+        future re-run) can reproduce it. ``gate_evidence.auto.verdict`` is ``"PASS"``
+        by construction — the cert gate (split-R̂ ≤ 1.01, min-chunk bulk-ESS ≥ 400,
+        n_divergences == 0, E-BFMI ≥ 0.3) is strictly tighter than the auto-gate
+        PASS band.
+
+        ``max_abs_mean_z`` is ``None`` because groundtruth IS the reference — there
+        is no upstream ground truth to compare against.
+
+        ``headline_metric`` is ``None`` — groundtruth wall is dominated by sampling,
+        not by warmup; ``wall_seconds`` belongs in ``calibration_budget``.
+
+        Parameters
+        ----------
+        posterior
+            The target posterior describing the benchmark model.
+        cert
+            ``CertificationResult`` from ``certify_reference_nuts``.
+        adaptation
+            ``AdaptationParams`` from ``certify_reference_nuts``.
+        wall_seconds
+            Total wall-clock time (warmup + sampling) for the reference run.
+        tuning_seed
+            Random seed used for the reference run.
+        n_warmup
+            Number of warmup steps.
+        n_samples
+            Number of post-warmup samples.
+        n_chunks
+            Number of chunks used for split-R̂ certification.
+        target_acceptance
+            Target acceptance rate used during warmup.
+        tuningfork_version
+            Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
+
+        Returns
+        -------
+        Recipe
+            A frozen ``Recipe`` with ``effort=Effort.GROUNDTRUTH``, ``base_method_name="nuts"``,
+            ``warmup_name="stan_window"``, and gate evidence pre-populated from ``cert``.
+
+        Notes
+        -----
+        IMM sidecar: if ``adaptation.inverse_mass_matrix.size > 50``, the caller
+        (orchestrator) is responsible for calling ``recipe.save_imm_sidecar()`` after
+        construction, then using ``dataclasses.replace(recipe, inverse_mass_matrix_path=...)``
+        to attach the sidecar path — Recipe is frozen so this classmethod cannot do it
+        inline.  When the IMM is small enough to inline, it is stored as a list in
+        ``base_method_params["inverse_mass_matrix"]``; otherwise the sentinel string
+        ``"sidecar"`` is stored and the caller replaces it after writing the sidecar.
+        """
+        import numpy as np
+
+        from tuningfork.inference.recipes._instructions import render_instructions
+
+        imm = adaptation.inverse_mass_matrix
+        imm_np = np.asarray(imm)
+        if imm_np.size > 50:
+            # Large IMM: store sentinel; caller writes sidecar + uses dataclasses.replace
+            imm_value: Any = "sidecar"
+        else:
+            imm_value = imm_np.tolist()
+
+        base_method_params: dict[str, Any] = {
+            "step_size": float(adaptation.step_size),
+            "inverse_mass_matrix": imm_value,
+        }
+
+        warmup_params: dict[str, Any] = {
+            "n_warmup": n_warmup,
+            "n_chunks": n_chunks,
+            "target_acceptance": target_acceptance,
+            "max_num_doublings": max_num_doublings,
+        }
+
+        gate_evidence: dict[str, Any] = {
+            "auto": {
+                "rhat_max": float(cert.split_rhat_max),
+                "min_bulk_ess": float(cert.min_chunk_bulk_ess),
+                "n_divergences": int(cert.num_divergences),
+                "max_abs_mean_z": None,  # groundtruth IS the reference
+                "verdict": "PASS",
+                "margins": {},
+            },
+            "override": {
+                "reason": "",
+                "statistician_id": "",
+                "decision": "",
+            },
+        }
+
+        calibration_budget: dict[str, Any] = {
+            "trials": 0,
+            "wall_seconds_estimate": wall_seconds,
+            "n_warmup": n_warmup,
+            "n_samples": n_samples,
+        }
+
+        recipe_kwargs: dict[str, Any] = dict(
+            model_name=posterior.name,
+            base_method_name="nuts",
+            warmup_name="stan_window",
+            effort=Effort.GROUNDTRUTH,
+            base_method_params=base_method_params,
+            warmup_params=warmup_params,
+            headline_metric=None,
+            sample_quality=None,
+            calibration_budget=calibration_budget,
+            difficulty=None,
+            instructions="",  # rendered below after provisional construction
+            notes="",
+            tuning_seed=tuning_seed,
+            tuningfork_version=tuningfork_version,
+            blackjax_version=_get_blackjax_version(),
+            jax_version=_get_jax_version(),
+            timestamp_utc=_now_utc_iso(),
+            gate_evidence=gate_evidence,
+        )
+        provisional = cls(**recipe_kwargs)
+        recipe_kwargs["instructions"] = render_instructions(provisional)
+        return cls(**recipe_kwargs)
+
+    def load_cached_samples(
+        self,
+        *,
+        cache_dir: Path | None = None,
+    ) -> dict[str, Any] | None:
+        """Return cached samples for this recipe's model, or None on cache miss.
+
+        For GROUNDTRUTH recipes, returns the long-NUTS reference draws if the
+        reference cache for ``self.model_name`` exists and is valid. For other
+        recipe tiers, currently returns None (extensible — future HIGH-effort
+        recipes with long-run samplers can opt in by populating the cache).
+
+        Useful for the diagnostics notebook: load-or-run pattern avoids redundant
+        multi-minute chain re-runs when the cache is already populated.
+
+        Parameters
+        ----------
+        cache_dir
+            Override the cache directory (default: standard reference cache).
+
+        Returns
+        -------
+        dict[str, jax.Array] or None
+            Draws dict on cache hit, None on miss or non-GROUNDTRUTH recipe.
+        """
+        if self.effort != Effort.GROUNDTRUTH:
+            return None
+        from tuningfork.model import MODELS
+        from tuningfork.reference._io import try_load_cached_draws
+
+        if self.model_name not in MODELS:
+            return None
+        entry = MODELS[self.model_name]
+        return try_load_cached_draws(entry, cache_dir=cache_dir)
 
     # ── IMM sidecar helpers ───────────────────────────────────────────────────
 

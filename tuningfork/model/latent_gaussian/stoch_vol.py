@@ -11,8 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Stochastic volatility model — 503-D NCP recursive AR(1) (Kim-Shephard-Chib 1998, T=500)."""
+"""Stochastic volatility model — 503-D NCP recursive AR(1) (Kim-Shephard-Chib 1998).
 
+Data: first 500 mean-centered daily returns of the S&P 500 (real financial
+data), matching the canonical Stan/NumPyro stoch_vol example data class.
+Source: ``numpyro.examples.datasets.SP500``. Replaced 2026-05-12 from
+the prior synthetic (KSC truth parameters) version per the user direction
+to match Stan's setup more fully.
+
+Priors match the Stan User's Guide § 2.5 NCP form (primary / generic AR(1)):
+    mu    ~ Cauchy(0, 10)
+    phi   ~ Uniform(-1, 1)
+    sigma ~ HalfCauchy(5)
+    h_std ~ Normal(0, 1) i.i.d.
+"""
+
+import csv
 from pathlib import Path
 
 import jax
@@ -27,34 +41,37 @@ __all__ = [
     "ENTRY",
     "RETURNS",
     "T_LENGTH",
-    "MU_TRUE",
-    "PHI_TRUE",
-    "SIGMA_TRUE",
 ]
 
 # ---------------------------------------------------------------------------
 # Model constants
 # ---------------------------------------------------------------------------
 
-#: Number of time steps (T = 500 per statistician verdict)
+#: Number of time steps (T = 500 — first 500 daily returns of SP500)
 T_LENGTH: int = 500
 
 #: Unconstrained dimensionality: mu(1) + phi(1) + log_sigma(1) + h_raw(500)
 DIM: int = 3 + T_LENGTH  # = 503
 
-#: Ground-truth parameters used to generate synthetic data
-MU_TRUE: float = -10.0
-PHI_TRUE: float = 0.95
-SIGMA_TRUE: float = 0.25
-
-#: Path to committed .npy data file
-_NPY_PATH: Path = Path(__file__).parent.parent.parent / "data" / "stoch_vol_returns.npy"
+#: Path to committed CSV data file (SP500 first 500 mean-centered daily returns).
+#: Single column `returns`; 500 rows.
+_CSV_PATH: Path = Path(__file__).parent.parent.parent / "data" / "stoch_vol_returns.csv"
 
 # ---------------------------------------------------------------------------
-# Load synthetic returns (shape: (500,), float32)
+# Load real SP500 returns (shape: (500,), float32, mean-centered)
 # ---------------------------------------------------------------------------
 
-RETURNS: jnp.ndarray = jnp.array(np.load(_NPY_PATH), dtype=jnp.float32)
+
+def _load_returns(path: Path) -> np.ndarray:
+    """Load a single-column 'returns' CSV (header on first line)."""
+    with path.open() as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        assert header == ["returns"], f"Expected header ['returns'], got {header}"
+        return np.array([float(row[0]) for row in reader], dtype=np.float32)
+
+
+RETURNS: jnp.ndarray = jnp.array(_load_returns(_CSV_PATH), dtype=jnp.float32)
 
 # Validate shape
 assert RETURNS.shape == (
@@ -78,41 +95,62 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
     returns
         Observed returns array of shape (T,).
     T
-        Number of time steps (500 for the synthetic stoch_vol dataset).
+        Number of time steps (500 — first 500 SP500 daily returns,
+        mean-centered).
 
-    Notes
-    -----
-    phi prior uses Beta(20, 1.5) shifted to (-1, 1) via TransformedDistribution
-    (KSC 1998 canonical prior for daily financial vol). This concentrates mass
-    at phi in [0.87, 0.99] and avoids unit-root boundary geometry blowup that
-    would occur with Uniform(-1, 1).
+    Priors (Stan User's Guide § 2.5 canonical NCP form, primary variant):
+        mu       ~ Cauchy(0, 10)             # wide, no scale assumption
+        phi      ~ Uniform(-1, 1)            # generic AR(1) stationarity
+        sigma    ~ HalfCauchy(5)             # wide positive-real
+        h_std    ~ Normal(0, 1) i.i.d.       # NCP standardised innovations
+
+    History note (2026-05-12): an experiment briefly swapped phi to Stan's
+    *daily-financial-vol* alternative ``2·Beta(20, 1.5) - 1`` after a
+    divergence-cluster analysis suggested the chain was visiting the
+    unit-root region (constrained phi ≈ 0.9999) under Uniform. The swap
+    made cert WORSE (362 divs / 0.91% vs 105 / 0.26% under Uniform) because
+    the Beta-shifted prior concentrates mass at high persistence (near the
+    sharp-geometry region) rather than suppressing trips to it. Reverted
+    same day. Lesson: the cluster diagnosis was correct (divergences
+    cluster at extreme phi); the proposed fix was not. The remaining
+    divergence rate is a *structural* feature of the diagonal-IMM NUTS on
+    a 503-D AR(1) state space — see worklog thread
+    ``phase0-statistician-es-ncp-stoch-vol.md`` for the full diagnosis.
+
+    Data: real SP500 daily returns from ``numpyro.examples.datasets.SP500``,
+    first 500 entries, mean-centered. Replaces the prior synthetic data
+    (KSC ``MU_TRUE=-10, PHI_TRUE=0.95, SIGMA_TRUE=0.25``) per user direction
+    2026-05-12: real data is preferred for matching Stan's reference setup.
+    No analytic posterior available, so cross-checking moments uses Stan
+    reference samples (when available via posteriordb_xcheck) or a
+    long-NUTS reference run as ground truth.
 
     Latent log-volatility is initialised at the stationary distribution:
-        h[0] ~ Normal(mu, sigma^2 / (1 - phi^2))
+        h[0] = mu + (sigma / sqrt(1 - phi^2)) * h_std[0]
 
     Subsequent steps follow the AR(1) recursion:
-        h[t] = mu + phi * (h[t-1] - mu) + sigma * h_raw[t]
+        h[t] = mu + phi * (h[t-1] - mu) + sigma * h_std[t]
 
     Likelihood: returns[t] ~ Normal(0, exp(h[t] / 2)).
     """
-    mu = numpyro.sample("mu", dist.Normal(-10.0, 5.0))
-    phi = numpyro.sample(
-        "phi",
-        dist.TransformedDistribution(
-            dist.Beta(20.0, 1.5),
-            dist.transforms.AffineTransform(loc=-1.0, scale=2.0),
-        ),
-    )
-    sigma = numpyro.sample("sigma", dist.HalfNormal(0.5))
+    # Stan-canonical priors (Stan User's Guide § 2.5, primary form).
+    # See docstring "History note" for the briefly-tested Beta(20,1.5)-shifted
+    # variant that was reverted on 2026-05-12.
+    mu = numpyro.sample("mu", dist.Cauchy(0.0, 10.0))
+    phi = numpyro.sample("phi", dist.Uniform(-1.0, 1.0))
+    sigma = numpyro.sample("sigma", dist.HalfCauchy(5.0))
 
-    h_raw = numpyro.sample("h_raw", dist.Normal(jnp.zeros(T), 1.0))
+    # NCP latent innovations (renamed h_raw → h_std to match Stan's naming).
+    # h_raw kept as the NumPyro sample name for backwards-compat with prior cache;
+    # the variable name in code is h_std for readability.
+    h_std = numpyro.sample("h_raw", dist.Normal(jnp.zeros(T), 1.0))
 
-    def step(h_prev, h_raw_t):
-        h_t = mu + phi * (h_prev - mu) + sigma * h_raw_t
+    def step(h_prev, h_std_t):
+        h_t = mu + phi * (h_prev - mu) + sigma * h_std_t
         return h_t, h_t
 
-    h0 = mu + (sigma / jnp.sqrt(1.0 - phi**2)) * h_raw[0]
-    _, h_rest = jax.lax.scan(step, h0, h_raw[1:])
+    h0 = mu + (sigma / jnp.sqrt(1.0 - phi**2)) * h_std[0]
+    _, h_rest = jax.lax.scan(step, h0, h_std[1:])
     h = jnp.concatenate([h0[None], h_rest])
     h = numpyro.deterministic("h", h)
 
@@ -193,10 +231,24 @@ ENTRY = Posterior(
     ),
     description=(
         "503-D NCP recursive AR(1) stochastic volatility (KSC 1998). "
-        "T=500 synthetic returns, mu_true=-10, phi_true=0.95, sigma_true=0.25. "
-        "Priors: mu~N(-10,5), phi~2*Beta(20,1.5)-1, sigma~HalfNormal(0.5), "
-        "h_raw~N(0,1)^500 (NCP). "
+        "T=500 real SP500 mean-centered daily returns (numpyro.examples.datasets.SP500, "
+        "first 500 entries; CSV at data/stoch_vol_returns.csv). "
+        "Stan User's Guide § 2.5 priors (primary form): "
+        "mu~Cauchy(0,10), phi~Uniform(-1,1), sigma~HalfCauchy(5), h_raw~N(0,1)^500 (NCP). "
         "posteriordb_id=None (no upstream reference draws; Long-NUTS self-check). "
         "Dim=503: mu(1)+phi(1)+log_sigma(1)+h_raw(500)."
     ),
+    # Per-model divergence-rate override: 0.005 (= 0.5%, vs the global 0.1%).
+    # Justification (TL ↔ user, 2026-05-12): under the canonical NUTS + stan_window
+    # cert (n_warmup=5000, n_samples=40000, ta=0.99, max_num_doublings=15, seed=42),
+    # stoch_vol produces ~105 divergences (0.26%) with R̂=1.0006, min-bulk-ESS=1992,
+    # E-BFMI=0.93 — sampling is correct; the residual divergences cluster at extreme
+    # phi (constrained ≈ 0.9999, the AR(1) unit root) where sigma²/(1-phi²) blows up
+    # the stationary-init geometry. Per the model-freeze-post-groundtruth policy,
+    # the right response is gate relaxation backed by the cluster diagnosis, NOT a
+    # prior swap (the Beta(20,1.5)-shifted alternative was tried 2026-05-12 and made
+    # cert WORSE, see worklog/threads/phase0-statistician-es-ncp-stoch-vol.md).
+    # MCLMC (Recipe Phase 2) remains the principled long-term fix; this override
+    # closes Phase 0 in the meantime.
+    divergence_rate_tolerance=0.005,
 )

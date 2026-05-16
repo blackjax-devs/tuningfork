@@ -48,6 +48,7 @@ bench = [
     "pytest-cov",
     "pytest-xdist",             # parallel test execution; ~3-5x speedup
     "pre-commit",
+    "jupyterlab>=4.5.7",
 ]
 
 [project.urls]

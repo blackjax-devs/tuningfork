@@ -1,0 +1,16 @@
+{
+  "name": "horseshoe",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "893cf022e7ef7f0c1c31c5b5153215e6aabbb179",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-12T05:05:43Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.0002992153167725,
+    "min_chunk_bulk_ess": 2543.05224609375,
+    "num_divergences": 0,
+    "e_bfmi": 0.7551212310791016
+  }
+}

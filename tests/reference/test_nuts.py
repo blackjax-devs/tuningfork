@@ -49,7 +49,7 @@ N_CHUNKS = 4
 class TestCertifyNutsInterface:
     """Basic interface and type checks for certify_reference_nuts."""
 
-    def test_returns_four_tuple(self) -> None:
+    def test_returns_five_tuple(self) -> None:
         key = jax.random.key(NUTS_SEED)
         result = certify_reference_nuts(
             ENTRY,
@@ -59,11 +59,11 @@ class TestCertifyNutsInterface:
             n_chunks=N_CHUNKS,
         )
         assert isinstance(result, tuple)
-        assert len(result) == 4
+        assert len(result) == 5
 
     def test_draws_is_dict(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        draws, _, _, _ = certify_reference_nuts(
+        draws, _, _, _, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -74,7 +74,7 @@ class TestCertifyNutsInterface:
 
     def test_draws_keys_contain_theta_raw(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        draws, _, _, _ = certify_reference_nuts(
+        draws, _, _, _, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -86,7 +86,7 @@ class TestCertifyNutsInterface:
 
     def test_draws_sample_axis(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        draws, _, _, _ = certify_reference_nuts(
+        draws, _, _, _, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -101,7 +101,7 @@ class TestCertifyNutsInterface:
 
     def test_summaries_instance(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        _, summaries, _, _ = certify_reference_nuts(
+        _, summaries, _, _, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -112,7 +112,7 @@ class TestCertifyNutsInterface:
 
     def test_adaptation_params_instance(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        _, _, adaptation, _ = certify_reference_nuts(
+        _, _, adaptation, _, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -125,7 +125,7 @@ class TestCertifyNutsInterface:
 
     def test_cert_instance(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        _, _, _, cert = certify_reference_nuts(
+        _, _, _, cert, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -147,7 +147,7 @@ class TestCertifyNutsPassesGate:
     Gate thresholds (from certify_reference.py):
         split_rhat_max <= 1.01
         min_chunk_bulk_ess >= 400
-        num_divergences == 0
+        num_divergences <= 0.1% of n_samples  (rate-tolerant; amended 2026-05-12)
         e_bfmi >= 0.3
 
     At seed=42, n_warmup=500, n_samples=4000, n_chunks=4:
@@ -160,7 +160,7 @@ class TestCertifyNutsPassesGate:
     def test_certification_passed(self) -> None:
         """certification.passed must be True for seed=42 at small params."""
         key = jax.random.key(NUTS_SEED)
-        _, _, _, cert = certify_reference_nuts(
+        _, _, _, cert, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -175,22 +175,25 @@ class TestCertifyNutsPassesGate:
             f"e_bfmi={cert.e_bfmi:.4f}"
         )
 
-    def test_no_divergences(self) -> None:
+    def test_divergences_within_tolerance(self) -> None:
+        # Gate is rate-tolerant (≤ 0.1% of n_samples) per 2026-05-12 amendment.
+        # At N_SAMPLES=4000 this means ≤ 4 divergences.
         key = jax.random.key(NUTS_SEED)
-        _, _, _, cert = certify_reference_nuts(
+        _, _, _, cert, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
             n_samples=N_SAMPLES,
             n_chunks=N_CHUNKS,
         )
+        max_allowed = int(0.001 * N_SAMPLES)
         assert (
-            cert.num_divergences == 0
-        ), f"Expected 0 divergences, got {cert.num_divergences}"
+            cert.num_divergences <= max_allowed
+        ), f"Expected ≤ {max_allowed} divergences, got {cert.num_divergences}"
 
     def test_e_bfmi_above_threshold(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        _, _, _, cert = certify_reference_nuts(
+        _, _, _, cert, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -201,7 +204,7 @@ class TestCertifyNutsPassesGate:
 
     def test_split_rhat_below_threshold(self) -> None:
         key = jax.random.key(NUTS_SEED)
-        _, _, _, cert = certify_reference_nuts(
+        _, _, _, cert, _ = certify_reference_nuts(
             ENTRY,
             key,
             n_warmup=N_WARMUP,
@@ -211,3 +214,55 @@ class TestCertifyNutsPassesGate:
         assert (
             cert.split_rhat_max <= 1.01
         ), f"split_rhat_max={cert.split_rhat_max:.4f} exceeds threshold 1.01"
+
+
+@pytest.mark.fast
+class TestChainStats:
+    """Tests for chain_stats extraction and certification error persistence."""
+
+    def test_chain_stats_returned(self) -> None:
+        """chain_stats dict must be returned as 5th element."""
+        key = jax.random.key(NUTS_SEED)
+        _, _, _, _, chain_stats = certify_reference_nuts(
+            ENTRY,
+            key,
+            n_warmup=N_WARMUP,
+            n_samples=N_SAMPLES,
+            n_chunks=N_CHUNKS,
+        )
+        assert isinstance(chain_stats, dict)
+
+    def test_chain_stats_has_required_fields(self) -> None:
+        """chain_stats must have at least the required fields."""
+        key = jax.random.key(NUTS_SEED)
+        _, _, _, _, chain_stats = certify_reference_nuts(
+            ENTRY,
+            key,
+            n_warmup=N_WARMUP,
+            n_samples=N_SAMPLES,
+            n_chunks=N_CHUNKS,
+        )
+        required_fields = {
+            "num_integration_steps",
+            "energy",
+            "is_divergent",
+            "acceptance_rate",
+        }
+        assert required_fields.issubset(
+            set(chain_stats.keys())
+        ), f"chain_stats missing fields: {required_fields - set(chain_stats.keys())}"
+
+    def test_chain_stats_field_shapes(self) -> None:
+        """chain_stats arrays must have first axis matching n_samples."""
+        key = jax.random.key(NUTS_SEED)
+        _, _, _, _, chain_stats = certify_reference_nuts(
+            ENTRY,
+            key,
+            n_warmup=N_WARMUP,
+            n_samples=N_SAMPLES,
+            n_chunks=N_CHUNKS,
+        )
+        for field_name, arr in chain_stats.items():
+            assert (
+                arr.shape[0] == N_SAMPLES
+            ), f"Field {field_name!r}: expected shape[0]={N_SAMPLES}, got {arr.shape[0]}"

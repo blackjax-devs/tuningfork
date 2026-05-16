@@ -1,0 +1,16 @@
+{
+  "name": "eight_schools_ncp",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "c184d46ef7c5f71ab9a8d75615440fd093b51504",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-12T04:11:15Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.000186562538147,
+    "min_chunk_bulk_ess": 3650.665283203125,
+    "num_divergences": 1,
+    "e_bfmi": 0.9679509401321411
+  }
+}

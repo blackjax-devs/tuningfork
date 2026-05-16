@@ -18,12 +18,15 @@ schema-conformance, serialization/deserialization, and rendering of instructions
 All tests are marked @pytest.mark.fast.
 """
 
+import dataclasses
 import json
 import math
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from tuningfork.calibration.tune import default_params_for
@@ -643,3 +646,411 @@ def test_existing_starter_recipes_still_load(rel_path: str) -> None:
     assert isinstance(recipe.gate_evidence, dict)
     assert recipe.gate_evidence["auto"]["verdict"] == "NOT_RUN"
     assert recipe.gate_evidence["override"]["decision"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Tests for Effort.GROUNDTRUTH (Phase 0)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_effort_enum_has_four_values() -> None:
+    """Effort enum has exactly 4 values: LOW, MEDIUM, HIGH, GROUNDTRUTH."""
+    assert len(Effort) == 4
+    assert set(Effort) == {Effort.LOW, Effort.MEDIUM, Effort.HIGH, Effort.GROUNDTRUTH}
+    assert Effort.GROUNDTRUTH.value == "groundtruth"
+    assert Effort.GROUNDTRUTH == "groundtruth"
+
+
+def _make_mock_cert(
+    split_rhat_max: float = 1.005,
+    min_chunk_bulk_ess: float = 450.0,
+    num_divergences: int = 0,
+    e_bfmi: float = 0.5,
+) -> MagicMock:
+    """Build a mock CertificationResult."""
+    cert = MagicMock()
+    cert.passed = True
+    cert.split_rhat_max = split_rhat_max
+    cert.min_chunk_bulk_ess = min_chunk_bulk_ess
+    cert.num_divergences = num_divergences
+    cert.e_bfmi = e_bfmi
+    return cert
+
+
+def _make_mock_adaptation(
+    step_size: float = 0.05,
+    imm_size: int = 10,
+) -> MagicMock:
+    """Build a mock AdaptationParams with a small diagonal IMM."""
+    adapt = MagicMock()
+    adapt.step_size = step_size
+    adapt.inverse_mass_matrix = np.ones(imm_size)
+    adapt.num_leapfrog_median = 8
+    return adapt
+
+
+@pytest.mark.fast
+def test_from_groundtruth_run_returns_valid_recipe() -> None:
+    """from_groundtruth_run returns a Recipe with GROUNDTRUTH effort and correct fields."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation(imm_size=10)
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=42.5,
+        tuning_seed=42,
+        n_warmup=500,
+        n_samples=2000,
+        n_chunks=4,
+        target_acceptance=0.80,
+    )
+
+    assert recipe.effort == Effort.GROUNDTRUTH
+    assert recipe.model_name == "mvn_10"
+    assert recipe.base_method_name == "nuts"
+    assert recipe.warmup_name == "stan_window"
+    assert recipe.headline_metric is None
+
+    # gate_evidence
+    auto = recipe.gate_evidence["auto"]
+    assert auto["verdict"] == "PASS"
+    assert auto["rhat_max"] == pytest.approx(cert.split_rhat_max)
+    assert auto["min_bulk_ess"] == pytest.approx(cert.min_chunk_bulk_ess)
+    assert auto["n_divergences"] == cert.num_divergences
+    assert auto["max_abs_mean_z"] is None
+
+    # calibration_budget
+    budget = recipe.calibration_budget
+    assert budget["trials"] == 0
+    assert budget["wall_seconds_estimate"] == pytest.approx(42.5)
+    assert budget["n_warmup"] == 500
+    assert budget["n_samples"] == 2000
+
+    # warmup_params
+    assert recipe.warmup_params["n_chunks"] == 4
+    assert recipe.warmup_params["target_acceptance"] == pytest.approx(0.80)
+
+    # instructions non-empty
+    assert isinstance(recipe.instructions, str)
+    assert len(recipe.instructions) > 10
+
+
+@pytest.mark.fast
+def test_from_groundtruth_run_save_load_roundtrip(tmp_path: Path) -> None:
+    """from_groundtruth_run recipe round-trips through save/load."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation(imm_size=10)
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=10.0,
+        tuning_seed=0,
+        n_warmup=100,
+        n_samples=500,
+        n_chunks=4,
+        target_acceptance=0.80,
+    )
+    saved_path = recipe.save(tmp_path)
+
+    # Filename convention: groundtruth__nuts__stan_window.json
+    assert saved_path.name == "groundtruth__nuts__stan_window.json"
+    assert saved_path.parent.name == "mvn_10"
+    assert saved_path.exists()
+
+    loaded = Recipe.load(saved_path)
+    assert loaded.effort == Effort.GROUNDTRUTH
+    assert loaded.model_name == "mvn_10"
+    assert loaded.gate_evidence["auto"]["verdict"] == "PASS"
+    assert loaded.calibration_budget["n_samples"] == 500
+
+
+@pytest.mark.fast
+def test_from_groundtruth_run_large_imm_uses_sentinel() -> None:
+    """from_groundtruth_run with IMM.size > 50 stores 'sidecar' sentinel."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation(imm_size=51)  # > 50 threshold
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=5.0,
+        tuning_seed=0,
+        n_warmup=100,
+        n_samples=200,
+        n_chunks=2,
+        target_acceptance=0.80,
+    )
+    assert recipe.base_method_params["inverse_mass_matrix"] == "sidecar"
+
+
+@pytest.mark.fast
+def test_from_groundtruth_run_small_imm_inlined() -> None:
+    """from_groundtruth_run with IMM.size <= 50 inlines the IMM as a list."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation(imm_size=10)  # <= 50 threshold
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=5.0,
+        tuning_seed=0,
+        n_warmup=100,
+        n_samples=200,
+        n_chunks=2,
+        target_acceptance=0.80,
+    )
+    imm = recipe.base_method_params["inverse_mass_matrix"]
+    assert isinstance(imm, list)
+    assert len(imm) == 10
+
+
+@pytest.mark.fast
+def test_from_groundtruth_run_imm_sidecar_pattern(tmp_path: Path) -> None:
+    """Orchestrator pattern: sentinel → save_imm_sidecar → dataclasses.replace works."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation(imm_size=51)
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=5.0,
+        tuning_seed=0,
+        n_warmup=100,
+        n_samples=200,
+        n_chunks=2,
+        target_acceptance=0.80,
+    )
+    assert recipe.base_method_params["inverse_mass_matrix"] == "sidecar"
+
+    # Save sidecar and replace path
+    imm_array = np.ones(51)
+    sidecar_rel = recipe.save_imm_sidecar(tmp_path, imm_array)
+    recipe_with_sidecar = dataclasses.replace(
+        recipe, inverse_mass_matrix_path=sidecar_rel
+    )
+
+    assert recipe_with_sidecar.inverse_mass_matrix_path is not None
+    assert recipe_with_sidecar.inverse_mass_matrix_path.endswith(".imm.npz")
+    assert "mvn_10" in recipe_with_sidecar.inverse_mass_matrix_path
+
+
+@pytest.mark.fast
+def test_load_cached_samples_returns_none_for_non_groundtruth() -> None:
+    """load_cached_samples returns None for LOW/MEDIUM/HIGH recipes."""
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["nuts"]
+    recipe = Recipe.from_default_config(posterior, base_method)
+    assert recipe.effort == Effort.LOW
+    assert recipe.load_cached_samples() is None
+
+
+@pytest.mark.fast
+def test_load_cached_samples_returns_none_on_cache_miss(tmp_path: Path) -> None:
+    """load_cached_samples returns None when no cache exists (empty tmp_path)."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation()
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=5.0,
+        tuning_seed=0,
+        n_warmup=100,
+        n_samples=200,
+        n_chunks=2,
+        target_acceptance=0.80,
+    )
+    assert recipe.effort == Effort.GROUNDTRUTH
+    # tmp_path is empty → cache miss
+    result = recipe.load_cached_samples(cache_dir=tmp_path)
+    assert result is None
+
+
+@pytest.mark.fast
+def test_load_cached_samples_returns_draws_on_hit(tmp_path: Path) -> None:
+    """load_cached_samples returns draws dict when cache is populated."""
+    import datetime
+
+    import tuningfork
+
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation()
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=5.0,
+        tuning_seed=0,
+        n_warmup=100,
+        n_samples=50,
+        n_chunks=2,
+        target_acceptance=0.80,
+    )
+
+    # Populate cache manually using _io internals
+    from tuningfork.reference._io import (
+        _atomic_write_json,
+        _atomic_write_npz,
+        _draws_path,
+        _get_code_sha,
+        _metadata_path,
+    )
+
+    draws_data = {"x": np.random.randn(50, 10).astype(np.float32)}
+    _atomic_write_npz(_draws_path("mvn_10", tmp_path), draws_data)
+
+    cert_dict = {"passed": True}
+    metadata = {
+        "name": "mvn_10",
+        "tuningfork_version": tuningfork.__version__,
+        "code_sha": _get_code_sha(tmp_path),
+        "generator": "analytic",
+        "num_samples": 50,
+        "seed": 0,
+        "timestamp_utc": datetime.datetime.now(datetime.UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+        "certification": cert_dict,
+    }
+    _atomic_write_json(_metadata_path("mvn_10", tmp_path), metadata)
+
+    result = recipe.load_cached_samples(cache_dir=tmp_path)
+    assert result is not None
+    assert "x" in result
+    assert result["x"].shape == (50, 10)
+
+
+@pytest.mark.fast
+def test_render_instructions_groundtruth_non_empty() -> None:
+    """render_instructions for a GROUNDTRUTH recipe returns non-empty prose."""
+    posterior = MODELS["mvn_10"]
+    cert = _make_mock_cert()
+    adaptation = _make_mock_adaptation()
+
+    recipe = Recipe.from_groundtruth_run(
+        posterior,
+        cert=cert,
+        adaptation=adaptation,
+        wall_seconds=5.0,
+        tuning_seed=0,
+        n_warmup=500,
+        n_samples=2000,
+        n_chunks=4,
+        target_acceptance=0.80,
+    )
+    prose = render_instructions(recipe)
+    assert isinstance(prose, str)
+    assert len(prose) > 20
+    assert "mvn_10" in prose
+    assert "ground-truth" in prose.lower() or "Ground-truth" in prose
+
+
+@pytest.mark.fast
+def test_try_load_cached_draws_returns_none_on_miss(tmp_path: Path) -> None:
+    """try_load_cached_draws returns None when no cache exists."""
+    from tuningfork.reference._io import try_load_cached_draws
+
+    posterior = MODELS["mvn_10"]
+    result = try_load_cached_draws(posterior, cache_dir=tmp_path)
+    assert result is None
+
+
+@pytest.mark.fast
+def test_try_load_cached_draws_returns_draws_on_hit(tmp_path: Path) -> None:
+    """try_load_cached_draws returns draws dict when cache is populated."""
+    import datetime
+
+    import tuningfork
+    from tuningfork.reference._io import (
+        _atomic_write_json,
+        _atomic_write_npz,
+        _draws_path,
+        _get_code_sha,
+        _metadata_path,
+        try_load_cached_draws,
+    )
+
+    posterior = MODELS["mvn_10"]
+
+    draws_data = {"x": np.random.randn(100, 10).astype(np.float32)}
+    _atomic_write_npz(_draws_path("mvn_10", tmp_path), draws_data)
+
+    metadata = {
+        "name": "mvn_10",
+        "tuningfork_version": tuningfork.__version__,
+        "code_sha": _get_code_sha(tmp_path),
+        "generator": "analytic",
+        "num_samples": 100,
+        "seed": 0,
+        "timestamp_utc": datetime.datetime.now(datetime.UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+        "certification": {"passed": True},
+    }
+    _atomic_write_json(_metadata_path("mvn_10", tmp_path), metadata)
+
+    # n=None: load all
+    result = try_load_cached_draws(posterior, cache_dir=tmp_path)
+    assert result is not None
+    assert "x" in result
+    assert result["x"].shape == (100, 10)
+
+    # n=50: load first 50
+    result_sliced = try_load_cached_draws(posterior, n=50, cache_dir=tmp_path)
+    assert result_sliced is not None
+    assert result_sliced["x"].shape == (50, 10)
+
+
+@pytest.mark.fast
+def test_try_load_cached_draws_returns_none_when_n_too_large(tmp_path: Path) -> None:
+    """try_load_cached_draws returns None when requested n > cached num_samples."""
+    import datetime
+
+    import tuningfork
+    from tuningfork.reference._io import (
+        _atomic_write_json,
+        _atomic_write_npz,
+        _draws_path,
+        _get_code_sha,
+        _metadata_path,
+        try_load_cached_draws,
+    )
+
+    posterior = MODELS["mvn_10"]
+
+    draws_data = {"x": np.random.randn(50, 10).astype(np.float32)}
+    _atomic_write_npz(_draws_path("mvn_10", tmp_path), draws_data)
+
+    metadata = {
+        "name": "mvn_10",
+        "tuningfork_version": tuningfork.__version__,
+        "code_sha": _get_code_sha(tmp_path),
+        "generator": "analytic",
+        "num_samples": 50,  # only 50 cached
+        "seed": 0,
+        "timestamp_utc": datetime.datetime.now(datetime.UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+        "certification": {"passed": True},
+    }
+    _atomic_write_json(_metadata_path("mvn_10", tmp_path), metadata)
+
+    # n=100 > 50 → cache miss
+    result = try_load_cached_draws(posterior, n=100, cache_dir=tmp_path)
+    assert result is None

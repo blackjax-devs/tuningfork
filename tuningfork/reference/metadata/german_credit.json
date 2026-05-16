@@ -1,0 +1,16 @@
+{
+  "name": "german_credit",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-11T20:02:41Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.0001041889190674,
+    "min_chunk_bulk_ess": 7284.3525390625,
+    "num_divergences": 0,
+    "e_bfmi": 1.0050644874572754
+  }
+}

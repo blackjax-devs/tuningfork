@@ -1,0 +1,11 @@
+{
+  "model_name": "radon",
+  "posteriordb_id": "radon-radon_hierarchical_centered",
+  "passed": false,
+  "n_dims_compared": 0,
+  "failed_dims": [
+    "posteriordb-error: AssertionError: "
+  ],
+  "max_abs_mean_z": NaN,
+  "max_std_ratio_dev": NaN
+}

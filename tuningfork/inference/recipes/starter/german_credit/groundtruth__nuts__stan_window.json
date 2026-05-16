@@ -1,0 +1,75 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "nuts",
+  "warmup_name": "stan_window",
+  "effort": "groundtruth",
+  "base_method_params": {
+    "step_size": 0.33045321702957153,
+    "inverse_mass_matrix": [
+      0.00792774185538292,
+      0.010884666815400124,
+      0.012860480695962906,
+      0.00931841041892767,
+      0.007274898234754801,
+      0.00915086455643177,
+      0.01119965873658657,
+      0.00723120616748929,
+      0.008121585473418236,
+      0.008018453605473042,
+      0.011071943677961826,
+      0.03265761211514473,
+      0.015308516100049019,
+      0.03019658662378788,
+      0.010367710143327713,
+      0.013203526847064495,
+      0.018149103969335556,
+      0.014304205775260925,
+      0.017041509971022606,
+      0.010094883851706982,
+      0.00753369927406311,
+      0.01072597038000822,
+      0.0070627713575959206,
+      0.006595394108444452,
+      0.00800325907766819,
+      0.010157081298530102
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 5000,
+    "n_chunks": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 25.928719931980595,
+    "n_warmup": 5000,
+    "n_samples": 40000
+  },
+  "difficulty": null,
+  "instructions": "**Ground-truth reference recipe** for `german_credit`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.8). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/draws/german_credit.npz` (gitignored \u2014 40000 samples \u00d7 dim=26). Load via:\n\n    from tuningfork.reference._io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['german_credit'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
+  "notes": "",
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0001041889190674,
+      "min_bulk_ess": 7284.3525390625,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {}
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 42,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev68+g820718a91",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-11T20:02:41Z"
+}

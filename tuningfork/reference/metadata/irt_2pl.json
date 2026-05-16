@@ -1,0 +1,16 @@
+{
+  "name": "irt_2pl",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-11T20:02:14Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.0003743171691895,
+    "min_chunk_bulk_ess": 2084.401123046875,
+    "num_divergences": 0,
+    "e_bfmi": 0.5834671854972839
+  }
+}
