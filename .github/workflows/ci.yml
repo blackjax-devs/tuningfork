@@ -1,0 +1,108 @@
+# Continuous integration for tuningfork.
+#
+# Three jobs:
+#   * lint        — pre-commit on all files (black/isort/flake8/pyupgrade/mypy/etc.)
+#   * fast-tests  — pytest -m fast (~1.5 min wall) on every PR + push to main
+#   * slow-tests  — pytest -m slow (~tens of min) ONLY on push to main; PRs skip.
+#                   Gated this way because slow tests are JIT-compiled chain runs
+#                   that bottleneck PR iteration speed for moderate signal.
+#                   `make test-full` (which adds e2e) is the merge-gate locally;
+#                   CI runs slow-tests on main as a post-merge smoke.
+#
+# Triggers: PR + push to main + manual dispatch.
+# Excluded from CI by design: -m e2e (multi-algo×model harness; tens of minutes
+# per cell; local merge gate only) and -m requires_posteriordb (needs external
+# data cache not present in CI runners).
+#
+# Python: matrix on 3.11 (minimum supported per pyproject) + 3.13 (current
+# default). Catches regressions in either direction.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel stale runs on new commits to the same PR/branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (pre-commit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --group bench
+
+      - name: Pre-commit
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  fast-tests:
+    name: fast tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      - name: Sync dependencies
+        run: uv sync --group bench --python ${{ matrix.python }}
+
+      - name: Pytest (fast marker)
+        env:
+          JAX_PLATFORM_NAME: cpu
+        run: uv run pytest tests -m fast -n 2 --benchmark-disable -q
+
+  slow-tests:
+    # Heavy chain-running tests; gated to post-merge runs on main.
+    # PRs see only the fast-tests gate (~1.5 min) for tight iteration.
+    name: slow tests (post-merge)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [fast-tests]
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --group bench
+
+      - name: Pytest (slow marker)
+        env:
+          JAX_PLATFORM_NAME: cpu
+        run: uv run pytest tests -m slow -n 2 --benchmark-disable -q
+        timeout-minutes: 30
