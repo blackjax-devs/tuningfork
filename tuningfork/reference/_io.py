@@ -26,13 +26,18 @@ Cache layout (relative to ``cache_dir``, default ``tuningfork/reference/``):
 
 Stamp fields (``metadata/<name>.json``):
 
-    tuningfork_version  str   installed package version
-    code_sha           str   git HEAD SHA of tuningfork repo, or "untracked"
-    generator          str   "analytic" | "long_nuts"
-    num_samples        int   number of samples stored
-    seed               int   RNG seed used
-    timestamp_utc      str   ISO-8601 UTC timestamp
-    certification      dict  passed/failed + diagnostic values
+    tuningfork_version              str    installed package version
+    code_sha                       str    git HEAD SHA of tuningfork repo, or "untracked"
+    generator                      str    "analytic" | "nuts"
+    num_samples                    int    number of samples stored
+    seed                           int    RNG seed used
+    timestamp_utc                  str    ISO-8601 UTC timestamp
+    wall_time_seconds              float|null  total regeneration wall (null on cache hit / older runs)
+    divergence_rate_tolerance_used float|null  applied divergence-rate gate
+                                              (null for analytic-path models;
+                                               default 0.001 or per-model override
+                                               from Posterior.divergence_rate_tolerance)
+    certification                  dict   passed/failed + diagnostic values
 
 Resolution order for ``get_reference_draws``::
 
@@ -302,8 +307,24 @@ def _build_metadata(
     current_version: str,
     current_sha: str,
     certification_dict: dict,
+    wall_time_seconds: float | None = None,
+    divergence_rate_tolerance_used: float | None = None,
 ) -> dict:
-    """Build the metadata stamp dict."""
+    """Build the metadata stamp dict.
+
+    ``wall_time_seconds`` (optional): total wall for the regeneration, in
+    seconds. ``None`` on cache hit (no regeneration occurred).
+    ``divergence_rate_tolerance_used`` (optional): the divergence-rate gate
+    value applied at cert time — captures per-model overrides (e.g.,
+    stoch_vol's 0.005) vs the default 0.001. ``None`` for analytic-path
+    models (no divergence gate is applied) and on cache hit.
+
+    Both fields added 2026-05-16 per the META candidate
+    ``reference-metadata-schema-missing-wall-time``. Backward-compatible:
+    older metadata files without these keys still load via
+    ``meta.get(field, None)``; the new fields default to None when the
+    cert pipeline doesn't supply them.
+    """
     n = next(iter(draws.values())).shape[0]
     return {
         "name": entry.name,
@@ -315,6 +336,8 @@ def _build_metadata(
         "timestamp_utc": datetime.datetime.now(datetime.UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         ),
+        "wall_time_seconds": wall_time_seconds,
+        "divergence_rate_tolerance_used": divergence_rate_tolerance_used,
         "certification": certification_dict,
     }
 
@@ -478,6 +501,13 @@ def get_reference_draws(
     adaptation_params = None
     chain_stats: dict[str, np.ndarray] | None = None
 
+    # Time the regeneration to populate metadata.wall_time_seconds. The clock
+    # encloses both analytic and NUTS branches, including the on-failure
+    # persistence path (so wall is captured even when cert fails).
+    import time as _time
+
+    _t0 = _time.perf_counter()
+
     if entry.reference_method == ReferenceMethod.ANALYTIC:
         draws, summaries, cert_dict = _regenerate_analytic(entry, n, rng_key)
     else:
@@ -552,8 +582,30 @@ def get_reference_draws(
                 _atomic_write_json(failed_adapt_path, adapt_dict)
             raise
 
+    # Capture wall + applied gate AFTER regeneration completes. On NUTS path,
+    # the gate is per-model (Posterior.divergence_rate_tolerance overrides the
+    # module global). On analytic path no divergence gate applies; field is None.
+    _wall_seconds = float(_time.perf_counter() - _t0)
+    if entry.reference_method == ReferenceMethod.ANALYTIC:
+        _gate_used: float | None = None
+    else:
+        from tuningfork.calibration.certify_reference import _DIVERGENCE_RATE_TOLERANCE
+
+        _gate_used = (
+            entry.divergence_rate_tolerance
+            if entry.divergence_rate_tolerance is not None
+            else _DIVERGENCE_RATE_TOLERANCE
+        )
+
     metadata = _build_metadata(
-        entry, draws, seed, current_version, current_sha, cert_dict
+        entry,
+        draws,
+        seed,
+        current_version,
+        current_sha,
+        cert_dict,
+        wall_time_seconds=_wall_seconds,
+        divergence_rate_tolerance_used=_gate_used,
     )
     _write_artifacts(
         entry,
