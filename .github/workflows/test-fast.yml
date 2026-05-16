@@ -23,20 +23,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Currently py3.13 only. pyproject declares ``requires-python >= 3.11``
-        # but py3.11 has two pre-existing bugs surfaced by the first CI run
-        # on PR #2:
+        # pyproject declares ``requires-python = ">=3.11"``; CI matches the
+        # contract by testing both the minimum and current default. Two
+        # py3.11-only failures were caught and fixed when this workflow first
+        # ran on PR #2:
         #   1. RecursionError in tests/models/test_lotka_volterra.py via
-        #      jax/_src/flatten_util.py (deep pytree recursion exceeds py3.11
-        #      default 1000-frame limit; py3.13 default is higher).
-        #   2. 12 FutureWarning-as-error failures in tests/notebooks/test_render.py
-        #      (filterwarnings=error catches warnings only emitted on py3.11).
-        # Local dev is py3.13-only; these went undetected. CI infra is correct;
-        # the failures are real py3.11 bugs.
-        # TODO: either (a) fix both classes of bug and restore '3.11' here,
-        # or (b) bump pyproject's requires-python to >=3.13 if py3.11
-        # support isn't actually maintained.
-        python: ['3.13']
+        #      jax/_src/flatten_util.py — fixed by bumping
+        #      sys.setrecursionlimit() in tests/conftest.py.
+        #   2. 12 FutureWarning-as-error failures from arviz's import-time
+        #      refactor announcement — fixed by adding an ignore filter in
+        #      pyproject.toml [tool.pytest.ini_options].
+        python: ['3.11', '3.13']
     steps:
       - name: Check out repo
         uses: actions/checkout@v4

@@ -24,8 +24,18 @@ Discipline rule: every test must be tagged with exactly one of ``fast``, ``slow`
 The ``requires_posteriordb`` marker is additive (combine with ``slow`` or ``e2e``).
 """
 
+import sys
+
 # Import shared fixtures so pytest discovers them globally
 from tests import fixtures as _  # noqa: F401
+
+# Python 3.11's default recursion limit (1000) is too low for some JAX pytree
+# operations used by tuningfork models (e.g. lotka_volterra's logdensity_fn
+# flattens a deeply nested pytree via ``jax/_src/flatten_util.py:65`` which
+# blows the stack at d~30. Python 3.13's effective stack depth is higher and
+# absorbs it; py3.11 needs the bump to match. Apply at conftest-load so every
+# test in the session inherits.
+sys.setrecursionlimit(3000)
 
 
 def pytest_configure(config: object) -> None:
