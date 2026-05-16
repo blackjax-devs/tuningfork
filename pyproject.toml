@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tuningfork"
 authors = [{name = "The Blackjax team"}]
 description = "Benchmark library for BlackJAX MCMC/VI/SMC algorithms — calibrated, gradient-counted comparisons across a curated 14-model suite."
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "jax",
     "jaxlib",

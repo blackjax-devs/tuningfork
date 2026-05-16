@@ -1,0 +1,43 @@
+# Pre-commit / lint check.
+#
+# Runs `pre-commit run --all-files` (black, isort, flake8, pyupgrade, mypy,
+# end-of-file-fixer, trailing-whitespace, check-merge-conflict, debug-statements).
+# ~30 s wall. Runs on every PR + push to main.
+
+name: pre-commit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          # uv.lock is gitignored (bench group pins blackjax@git+main; lockfile
+          # would churn on every blackjax bump). Cache invalidates on pyproject
+          # changes instead.
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --group bench
+
+      - name: Pre-commit
+        run: uv run pre-commit run --all-files --show-diff-on-failure

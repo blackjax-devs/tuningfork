@@ -1,0 +1,47 @@
+# Fast tests (PR gate).
+#
+# `pytest -m fast -n 2` on Python 3.11 + 3.13 matrix. ~1.5 min wall per Python.
+# 676 tests in the current `fast` set (no JAX trace, < 100 ms each).
+# Runs on every PR + push to main.
+
+name: test-fast
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-fast:
+    name: test-fast (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # pyproject declares ``requires-python = ">=3.13"``. Matrix matches.
+        python: ['3.13']
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      - name: Sync dependencies
+        run: uv sync --group bench --python ${{ matrix.python }}
+
+      - name: Pytest (fast marker)
+        env:
+          JAX_PLATFORM_NAME: cpu
+        run: uv run pytest tests -m fast -n 2 -q
