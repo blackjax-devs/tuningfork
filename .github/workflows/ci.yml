@@ -42,6 +42,10 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # uv.lock is gitignored (bench group pins blackjax@git+main; lockfile
+          # would churn on every blackjax bump). Cache invalidates on pyproject
+          # changes instead — slightly less precise but works without a lockfile.
+          cache-dependency-glob: pyproject.toml
 
       - name: Set up Python
         run: uv python install 3.13
@@ -67,6 +71,10 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # uv.lock is gitignored (bench group pins blackjax@git+main; lockfile
+          # would churn on every blackjax bump). Cache invalidates on pyproject
+          # changes instead — slightly less precise but works without a lockfile.
+          cache-dependency-glob: pyproject.toml
 
       - name: Set up Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
@@ -94,6 +102,10 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # uv.lock is gitignored (bench group pins blackjax@git+main; lockfile
+          # would churn on every blackjax bump). Cache invalidates on pyproject
+          # changes instead — slightly less precise but works without a lockfile.
+          cache-dependency-glob: pyproject.toml
 
       - name: Set up Python
         run: uv python install 3.13
