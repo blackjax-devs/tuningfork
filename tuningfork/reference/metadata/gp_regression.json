@@ -1,0 +1,16 @@
+{
+  "name": "gp_regression",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "276fc31fc7c696ab563ff6bfb24f739d44764355",
+  "generator": "nuts",
+  "num_samples": 40000,
+  "seed": 0,
+  "timestamp_utc": "2026-05-16T19:36:15Z",
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.0000325650684947,
+    "min_chunk_bulk_ess": 3909.829994560011,
+    "num_divergences": 18,
+    "e_bfmi": 0.9810208401941981
+  }
+}
