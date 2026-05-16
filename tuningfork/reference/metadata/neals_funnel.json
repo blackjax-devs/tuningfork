@@ -6,6 +6,8 @@
   "num_samples": 100000,
   "seed": 0,
   "timestamp_utc": "2026-05-11T14:40:02Z",
+  "wall_time_seconds": null,
+  "divergence_rate_tolerance_used": null,
   "certification": {
     "passed": true,
     "split_rhat_max": null,
