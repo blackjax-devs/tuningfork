@@ -1,0 +1,161 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Emit a standalone Python script from a Recipe.
+
+This is the entry point for recipe portability (Principle F): given a Recipe,
+emit a Python script that imports only jax, blackjax, numpyro, numpy
+(+ optional arviz) and reproduces the recipe's inference. No ``import
+tuningfork`` in the emitted code.
+
+Templates live in ``_templates/`` and use string.Template ($slot) substitution
+because Python code contains curly braces that conflict with str.format.
+
+Design decisions
+----------------
+- **D8 STRICT**: zero ``import tuningfork`` in the inference path.  Model body
+  is inlined from the model template; warmup + sampler call directly into
+  BlackJAX.
+- **D9**: pure function — returns a string; no side effects.  The caller writes
+  to whatever path they want.
+- **D10**: hand-written templates + round-trip CI gate in
+  ``tests/recipes/test_emit_script.py``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from string import Template
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tuningfork.recipes._base import Recipe
+
+
+__all__ = ["emit_script"]
+
+_TEMPLATES_DIR = Path(__file__).parent / "_templates"
+
+
+def _load_template(relpath: str) -> Template:
+    """Load a .py.tmpl file as a string.Template."""
+    return Template((_TEMPLATES_DIR / relpath).read_text())
+
+
+def _recipe_hash(recipe: Recipe) -> str:
+    """SHA-1 of the canonical recipe JSON; first 12 chars."""
+    payload = json.dumps(
+        {
+            "model_name": recipe.model_name,
+            "base_method_name": recipe.base_method_name,
+            "warmup_name": recipe.warmup_name,
+            "effort": recipe.effort.value,
+            "base_method_params": recipe.base_method_params,
+            "warmup_params": recipe.warmup_params,
+            "tuning_seed": recipe.tuning_seed,
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha1(payload.encode()).hexdigest()[:12]
+
+
+def emit_script(
+    recipe: Recipe,
+    *,
+    num_samples: int = 2000,
+    sampler_seed: int | None = None,
+) -> str:
+    """Assemble a standalone Python script that reproduces the recipe.
+
+    Per locked decision D8 (STRICT), the emitted script has zero
+    ``import tuningfork`` lines in its inference path. The model body is
+    inlined from the template; warmup + sampler calls go directly to BlackJAX.
+
+    Parameters
+    ----------
+    recipe : Recipe
+        The recipe to emit. Loaded via :func:`tuningfork.catalog.load_recipe`.
+    num_samples : int
+        Number of post-warmup samples to draw in the emitted inference loop.
+        Defaults to 2000.
+    sampler_seed : int, optional
+        RNG seed for the post-warmup sampling. Defaults to
+        ``recipe.tuning_seed + 1`` so the emitted script is deterministic
+        given the recipe.
+
+    Returns
+    -------
+    str
+        The full Python script content. The function is pure — no side effects.
+        The caller writes the returned string to whatever path they want
+        (per locked decision D9).
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required template is missing for the given
+        ``(model_name, warmup_name, base_method_name)`` combo.
+    KeyError
+        If the recipe's ``warmup_params`` or ``base_method_params`` lack a
+        required slot for the template.
+    """
+    if sampler_seed is None:
+        sampler_seed = recipe.tuning_seed + 1
+
+    # Normalise warmup_params key spelling: groundtruth recipes use
+    # "target_acceptance" (legacy key from certify_reference.py);
+    # newer recipe-generation code uses "target_acceptance_rate".
+    target_acceptance_rate = recipe.warmup_params.get(
+        "target_acceptance_rate",
+        recipe.warmup_params.get("target_acceptance", 0.8),
+    )
+
+    # Substitution context — every $slot the templates reference must be here.
+    ctx = {
+        "recipe_id": (
+            f"{recipe.model_name}/{recipe.effort.value}"
+            f"__{recipe.base_method_name}__{recipe.warmup_name}"
+        ),
+        "model_name": recipe.model_name,
+        "base_method_name": recipe.base_method_name,
+        "warmup_name": recipe.warmup_name,
+        "effort": recipe.effort.value,
+        "recipe_hash": _recipe_hash(recipe),
+        "verdict": recipe.gate_evidence.get("auto", {}).get("verdict", "NOT_RUN"),
+        "tuning_seed": recipe.tuning_seed,
+        "sampler_seed": sampler_seed,
+        "num_samples": num_samples,
+        # warmup_params unrolled
+        "target_acceptance_rate": target_acceptance_rate,
+        "n_warmup": recipe.warmup_params.get("n_warmup", 1000),
+        # base_method_params unrolled
+        "max_num_doublings": recipe.base_method_params.get("max_num_doublings", 10),
+    }
+
+    preamble = _load_template("preamble.py.tmpl").substitute(ctx)
+    model_body = _load_template(f"models/{recipe.model_name}.py.tmpl").substitute(ctx)
+    warmup_body = _load_template(f"warmups/{recipe.warmup_name}.py.tmpl").substitute(
+        ctx
+    )
+    sampler_body = _load_template(
+        f"samplers/{recipe.base_method_name}.py.tmpl"
+    ).substitute(ctx)
+    inference_loop = _load_template("inference_loop.py.tmpl").substitute(ctx)
+    postamble = _load_template("postamble.py.tmpl").substitute(ctx)
+
+    return "\n\n".join(
+        [preamble, model_body, warmup_body, sampler_body, inference_loop, postamble]
+    )

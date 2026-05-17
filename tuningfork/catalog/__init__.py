@@ -40,6 +40,7 @@ from tuningfork.catalog.diagnostics import (
     render_vi_family,
     samples_to_idata,
 )
+from tuningfork.catalog.emit import emit_script
 from tuningfork.catalog.inspect import load_recipe, summarize_recipe
 from tuningfork.catalog.render import load_chain_stats, load_idata, load_samples
 
@@ -59,4 +60,6 @@ __all__ = [
     "render_smc_family",
     "render_vi_family",
     "render_specialised",
+    # emit
+    "emit_script",
 ]
