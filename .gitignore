@@ -14,9 +14,8 @@ uv.lock
 *.ipynb
 .ipynb_checkpoints/
 
-# Benchmark outputs (large; keep only canonical snapshots)
-results/runs/
-results/cache/
+# Benchmark output (R6 pytest-benchmark suite writes here)
+benchmarks/results.json
 
 # =============================================================================
 # Reference cache (post-R2 catalog layout, 2026-05-17)
