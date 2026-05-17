@@ -38,11 +38,11 @@ from typing import TYPE_CHECKING, Any
 import jax
 import numpy as np
 
+from tuningfork._cache_io import get_adaptation_params, get_reference_draws
 from tuningfork.calibration.certify_reference import CertificationError
 from tuningfork.model import MODELS
 from tuningfork.model._base import ReferenceMethod
 from tuningfork.recipes._base import Recipe
-from tuningfork.reference._io import get_adaptation_params, get_reference_draws
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -148,7 +148,7 @@ def generate_groundtruth_recipe(
     adaptation = get_adaptation_params(entry, cache_dir=cache_dir)
 
     # Read cert diagnostics from the metadata stamp written by get_reference_draws
-    from tuningfork.reference._io import _load_metadata, _resolve_cache_dir
+    from tuningfork._cache_io import _load_metadata, _resolve_cache_dir
 
     effective_dir = _resolve_cache_dir(cache_dir)
     meta = _load_metadata(entry.name, effective_dir)

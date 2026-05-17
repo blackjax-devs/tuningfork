@@ -814,9 +814,7 @@ def certify_reference_nuts(
 
     # --- Posteriordb cross-check (optional; only for models with a posteriordb_id) ---
     if entry.posteriordb_id is not None:
-        from tuningfork.reference._posteriordb_xcheck import (
-            cross_check_against_posteriordb,
-        )
+        from tuningfork._posteriordb_xcheck import cross_check_against_posteriordb
 
         # Build the our_summaries dict in the format expected by cross_check_against_posteriordb:
         # {site: {"mean": array, "std": array, "q05": array, "q95": array}}

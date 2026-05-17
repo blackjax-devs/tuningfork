@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for tuningfork.reference._posteriordb_xcheck.
+"""Tests for tuningfork._posteriordb_xcheck.
 
 Covers:
 1. XCheckResult schema — constructs and serialises to JSON correctly.
@@ -36,10 +36,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from tuningfork.reference._posteriordb_xcheck import (
-    XCheckResult,
-    cross_check_against_posteriordb,
-)
+from tuningfork._posteriordb_xcheck import XCheckResult, cross_check_against_posteriordb
 
 pytestmark = [pytest.mark.slow, pytest.mark.requires_posteriordb]
 

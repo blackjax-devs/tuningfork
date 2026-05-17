@@ -102,7 +102,7 @@ __all__ = [
 # _cache/<gitignored>}. Path helpers below split committed vs runtime caches:
 # committed artifacts live under <model>/reference/; runtime cache under
 # <model>/_cache/.
-DEFAULT_CACHE_DIR = Path(__file__).parent.parent / "catalog"
+DEFAULT_CACHE_DIR = Path(__file__).parent / "catalog"
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +122,11 @@ def _resolve_cache_dir(cache_dir: Path | None) -> Path:
 
 def _get_code_sha(cache_dir: Path) -> str:
     """Return git HEAD SHA of the tuningfork repo, or 'untracked'."""
-    # Walk up from the package file to find the repo root
-    repo_root = Path(__file__).parent.parent.parent
+    # Walk up from the package file to find the repo root.
+    # _cache_io.py lives at tuningfork/tuningfork/_cache_io.py:
+    # parent  = tuningfork/tuningfork/  (the package dir)
+    # parent.parent = tuningfork/        (the repo root)
+    repo_root = Path(__file__).parent.parent
     try:
         sha = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],

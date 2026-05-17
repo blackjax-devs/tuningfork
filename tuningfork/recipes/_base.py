@@ -900,8 +900,8 @@ class Recipe:
         """
         if self.effort != Effort.GROUNDTRUTH:
             return None
+        from tuningfork._cache_io import try_load_cached_draws
         from tuningfork.model import MODELS
-        from tuningfork.reference._io import try_load_cached_draws
 
         if self.model_name not in MODELS:
             return None

@@ -22,8 +22,8 @@ def _cmd_reference(args: argparse.Namespace) -> int:
     """Handle the `reference` subcommand."""
     import jax
 
+    from tuningfork._cache_io import get_reference_draws, get_reference_summaries
     from tuningfork.model import MODELS
-    from tuningfork.reference._io import get_reference_draws, get_reference_summaries
 
     if args.model not in MODELS:
         known = ", ".join(sorted(MODELS.keys()))
@@ -62,7 +62,7 @@ def _cmd_reference(args: argparse.Namespace) -> int:
     n_actual = next(iter(draws.values())).shape[0]
 
     # Certification info from the last metadata stamp
-    from tuningfork.reference._io import _load_metadata, _resolve_cache_dir
+    from tuningfork._cache_io import _load_metadata, _resolve_cache_dir
 
     cache_dir = _resolve_cache_dir(None)
     meta = _load_metadata(entry.name, cache_dir)
