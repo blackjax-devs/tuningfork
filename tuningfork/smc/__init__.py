@@ -13,7 +13,7 @@
 # limitations under the License.
 """SMC algorithm registry — sister abstraction to BASE_METHODS.
 
-See tuningfork/inference/smc/_base.py for the SMCMethod dataclass.
+See tuningfork/smc/_base.py for the SMCMethod dataclass.
 SMC methods have a different factory contract from BaseMethod
 (prior/likelihood split, inner kernel composition).
 """

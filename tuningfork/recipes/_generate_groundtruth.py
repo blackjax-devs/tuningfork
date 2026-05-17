@@ -101,7 +101,7 @@ def generate_groundtruth_recipe(
         Override the reference cache directory.
     recipe_root
         Override the recipe output root. Defaults to
-        ``<repo>/tuningfork/inference/recipes/starter``.
+        ``<repo>/tuningfork/recipes/starter``.
 
     Returns
     -------

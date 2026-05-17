@@ -28,7 +28,7 @@ Output CSV:
     tuningfork/data/irt_2pl.csv — 2000-row long-format table with columns:
         student_id (0-indexed, 0..99), item_id (0-indexed, 0..19), response (0/1).
 
-    The loader in tuningfork/model/hierarchical/irt_2pl.py reshapes the CSV
+    The loader in tuningfork/model/irt_2pl.py reshapes the CSV
     into a (J=100, I=20) 2-D JAX array RESPONSE[j, i].
 
 Usage:

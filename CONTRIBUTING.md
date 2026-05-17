@@ -125,9 +125,9 @@ For minor test changes (adding a marker, adjusting an assertion), one-line commi
 
 | Component | Module Path | Tests Location |
 |-----------|-------------|-----------------|
-| Algorithm wrappers (HMC, NUTS, MALA, etc.) | `tuningfork/inference/` | `tests/inference/base_method/`, `tests/inference/warmup/` |
-| Warmup strategies (Stan window, Pathfinder, etc.) | `tuningfork/inference/warmup/` | `tests/inference/warmup/` |
-| SMC variants | `tuningfork/inference/smc/` | `tests/inference/smc/` |
+| Algorithm wrappers (HMC, NUTS, MALA, etc.) | `tuningfork/` | `tests/inference/base_method/`, `tests/inference/warmup/` |
+| Warmup strategies (Stan window, Pathfinder, etc.) | `tuningfork/warmup/` | `tests/inference/warmup/` |
+| SMC variants | `tuningfork/smc/` | `tests/inference/smc/` |
 | Models (MVN, funnel, horseshoe, etc.) | `tuningfork/registry/` | `tests/models/` |
 | Recipe schema and emission | `tuningfork/recipes/` | `tests/recipes/` |
 | Metrics (headline, diagnostics) | `tuningfork/metrics/` | `tests/metrics/` |

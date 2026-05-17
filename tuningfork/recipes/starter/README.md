@@ -65,7 +65,7 @@ fall under MEDIUM as an exploration of an unconventional pairing).
 Recipes in this directory are produced by two pipelines:
 
 - **`groundtruth__nuts__stan_window.json`** — emitted by the Recipe Phase 0
-  ground-truth sweep (`tuningfork/inference/recipes/_generate_groundtruth.py`).
+  ground-truth sweep (`tuningfork/recipes/_generate_groundtruth.py`).
   One per NUTS-path model. Cache artifacts live under `tuningfork/reference/`.
   Each emit re-runs the certifier; the JSON pins the resulting NUTS-tuned
   hyperparameters.
@@ -81,5 +81,5 @@ fresh provenance timestamps and regenerates the gate verdict.
 
 ## Schema Reference
 
-See `tuningfork/inference/recipes/_base.py` for the full `Recipe` dataclass
+See `tuningfork/recipes/_base.py` for the full `Recipe` dataclass
 definition and design rationale.

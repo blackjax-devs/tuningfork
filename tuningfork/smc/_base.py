@@ -18,7 +18,7 @@ SMC algorithms have a fundamentally different factory contract from standard
 MCMC kernels: they require ``(logprior_fn, loglikelihood_fn)`` — not a unified
 ``logdensity_fn`` — plus an inner MCMC kernel and a resampling function.
 
-See ``tuningfork/inference/smc/__init__.py`` for the ``SMC_METHODS`` registry.
+See ``tuningfork/smc/__init__.py`` for the ``SMC_METHODS`` registry.
 """
 
 from collections.abc import Callable

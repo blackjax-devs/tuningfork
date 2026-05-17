@@ -35,7 +35,7 @@ matplotlib.use("Agg")
 plt.rcParams["figure.figsize"] = (10, 6)
 
 recipe = load_recipe(
-    "tuningfork/inference/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json"
+    "tuningfork/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json"
 )
 summarize_recipe(recipe)  # auto-renders as HTML table in Jupyter
 ```
