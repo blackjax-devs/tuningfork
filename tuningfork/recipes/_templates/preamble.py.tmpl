@@ -1,16 +1,31 @@
-"""Auto-generated standalone reproduction script.
+"""Auto-generated recipe reproduction script.
 
 Source recipe: $recipe_id (model=$model_name, sampler=$base_method_name, warmup=$warmup_name)
 Recipe hash:   $recipe_hash
 Effort:        $effort
 Verdict:       $verdict (expected; pinned at recipe-emission time)
 
-This script is STANDALONE -- no tuningfork dependency in the inference path. Run with:
-    uv run --with jax --with blackjax --with numpyro python <this_script>.py
+The model definition is imported from ``tuningfork.model`` (canonical NumPyro
+code, no template-drift risk). The inference choreography (warmup + sampler +
+loop) is hand-written in this script with no tuningfork imports — so the
+emitted choreography is auditable in one file, while the model code stays
+single-sourced upstream.
+
+Run with::
+
+    uv run --with tuningfork --with jax --with blackjax --with numpyro \\
+        python <this_script>.py
 """
 import jax
 import jax.numpy as jnp
 import numpy as np
-import numpyro
-import numpyro.distributions as dist
 import blackjax
+
+# === MODEL: imported from tuningfork (canonical NumPyro definition) ===
+from tuningfork.model import MODELS
+from tuningfork.model._numpyro import build_logdensity_fn
+
+posterior = MODELS["$model_name"]
+init_position, logdensity_fn, _ = build_logdensity_fn(
+    jax.random.key($tuning_seed), posterior
+)

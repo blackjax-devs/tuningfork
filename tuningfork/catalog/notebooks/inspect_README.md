@@ -106,12 +106,14 @@ When `chain_stats` is provided, the function projects it into the
 `sample_stats` group using `_CHAIN_STATS_TO_SAMPLE_STATS` (renames
 `is_divergent → diverging`, `num_integration_steps → n_steps`, etc.).
 
-## Reproducing a recipe outside tuningfork
+## Reproducing a recipe
 
-Given any recipe, `emit_script(recipe)` returns a standalone Python script
-that imports only `jax`, `jax.numpy`, `numpy`, `numpyro`, `blackjax`
-(+ optional `arviz`) — **no `import tuningfork`**. Drop the script into any
-fresh project, install those deps, and reproduce:
+Given any recipe, `emit_script(recipe)` returns a Python script that
+reproduces the recipe's inference. The **inference choreography** (warmup
++ sampler + inference loop) is hand-rolled inline — auditable in one file
+with no tuningfork imports. The **model definition** is imported via
+`from tuningfork.model import MODELS` — canonical NumPyro code lives
+upstream, not duplicated as a template:
 
 ```python
 from tuningfork.catalog import emit_script, load_recipe
@@ -122,18 +124,27 @@ script = emit_script(recipe, num_samples=2000)
 from pathlib import Path
 Path("run_eight_schools_groundtruth.py").write_text(script)
 # Then in a fresh shell:
-#   uv run --with jax --with blackjax --with numpyro python run_eight_schools_groundtruth.py
+#   uv run --with tuningfork --with jax --with blackjax --with numpyro \
+#       python run_eight_schools_groundtruth.py
 ```
 
-The model body is inlined from the canonical NumPyro definition; warmup +
-sampler calls go directly to BlackJAX with the recipe's pinned hyperparameters.
-A cross-check test (`test_emit_script_cross_check_against_tuningfork_import`)
-verifies the strict-emitted output is bit-identical (modulo PRNG path) to
-the `from tuningfork.model import` route at the same seed — drift between
-templates and the canonical model code is caught at CI time.
+The emitted script's inference choreography shows the exact BlackJAX call
+shape (`blackjax.window_adaptation(blackjax.nuts, ...)`, `blackjax.nuts(...).step`,
+the `jax.lax.scan` inference loop) with the recipe's pinned hyperparameters
+hard-coded. Users can inspect the inference shape without spelunking through
+the tuningfork wiring layer.
 
-As of R3.5-MVP (2026-05-17), templates exist for `eight_schools_ncp` ×
-`stan_window` × `nuts` only. R3.5b expands to the full 14 × 10 × 24 matrix.
+**Design rationale** (R3.5-MVP follow-up clarification, 2026-05-17): we
+considered fully-standalone scripts (model body inlined per-model template),
+but that would have meant 14 model templates duplicating canonical NumPyro
+code from `tuningfork/model/<model>.py` with permanent drift risk. Importing
+the model upstream eliminates drift and keeps templates focused on the
+*wiring* (which is what tuningfork ADDS over BlackJAX, per Principle A — a
+heavy sampler or warmup template signals an upstream BlackJAX design smell
+worth fixing there). The cost is one `pip install tuningfork` step.
+
+As of R3.5-MVP (2026-05-17), templates exist for `stan_window` warmup and
+`nuts` sampler only. R3.5b expands to the full 10 warmups × 24 samplers.
 
 ## Sampling-book pattern reference
 

@@ -87,12 +87,14 @@ tuningfork/
 ├── recipes/                   # Recipe schema + generators (CODE ONLY)
 │   ├── _base.py, _instructions.py
 │   ├── _generate_starter.py, _generate_groundtruth.py
-│   ├── _emit_script.py        # recipe → standalone Python script (R3.5)
+│   ├── _emit_script.py        # recipe → reproduction Python script (R3.5)
 │   └── _templates/            # .py.tmpl templates (string.Template substitution)
-│       ├── preamble.py.tmpl, postamble.py.tmpl, inference_loop.py.tmpl
-│       ├── models/<model>.py.tmpl    # MVP: eight_schools_ncp; R3.5b expands
-│       ├── warmups/<warmup>.py.tmpl  # MVP: stan_window
-│       └── samplers/<sampler>.py.tmpl # MVP: nuts
+│       ├── preamble.py.tmpl       # imports + `from tuningfork.model import MODELS`
+│       ├── postamble.py.tmpl, inference_loop.py.tmpl
+│       ├── warmups/<warmup>.py.tmpl    # MVP: stan_window; R3.5b expands to 10
+│       └── samplers/<sampler>.py.tmpl  # MVP: nuts; R3.5b expands to 24
+│       (no models/ subdir — model definitions imported from tuningfork.model,
+│        not duplicated as templates; eliminates drift risk)
 ├── calibration/               # cert + Optuna BO + auto-gate
 │   ├── certify_reference.py, certify_reference_analytic.py
 │   ├── tune.py, statistician_gate.py

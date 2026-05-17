@@ -11,23 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Emit a standalone Python script from a Recipe.
+"""Emit a recipe-reproduction script from a Recipe.
 
 This is the entry point for recipe portability (Principle F): given a Recipe,
-emit a Python script that imports only jax, blackjax, numpyro, numpy
-(+ optional arviz) and reproduces the recipe's inference. No ``import
-tuningfork`` in the emitted code.
+emit a Python script that reproduces the recipe's inference with the wiring
+code visible inline.
 
 Templates live in ``_templates/`` and use string.Template ($slot) substitution
 because Python code contains curly braces that conflict with str.format.
 
 Design decisions
 ----------------
-- **D8 STRICT**: zero ``import tuningfork`` in the inference path.  Model body
-  is inlined from the model template; warmup + sampler call directly into
-  BlackJAX.
-- **D9**: pure function — returns a string; no side effects.  The caller writes
-  to whatever path they want.
+- **D8 STRICT (clarified 2026-05-17 post R3.5-MVP)**: the **inference
+  choreography** (warmup + sampler + inference loop) has zero ``import
+  tuningfork`` — it's auditable in one file and shows the exact BlackJAX
+  call shape.  The **model** is imported via ``from tuningfork.model import
+  MODELS`` (canonical NumPyro code lives upstream; not duplicated here).
+  This avoids template-drift risk on the largest, most-stable code surface
+  while preserving the design-smell forcing function on the actual wiring
+  layer (per Principle A — heavy sampler/warmup template = upstream BlackJAX
+  design issue).
+- **D9**: pure function — returns a string; no side effects.  The caller
+  writes to whatever path they want.
 - **D10**: hand-written templates + round-trip CI gate in
   ``tests/recipes/test_emit_script.py``.
 """
@@ -78,11 +83,14 @@ def emit_script(
     num_samples: int = 2000,
     sampler_seed: int | None = None,
 ) -> str:
-    """Assemble a standalone Python script that reproduces the recipe.
+    """Assemble a recipe-reproduction Python script.
 
-    Per locked decision D8 (STRICT), the emitted script has zero
-    ``import tuningfork`` lines in its inference path. The model body is
-    inlined from the template; warmup + sampler calls go directly to BlackJAX.
+    Per locked decision D8 (STRICT inference, 2026-05-17 clarification),
+    the emitted script's **inference choreography** (warmup + sampler +
+    inference loop) has zero ``import tuningfork`` and is auditable inline.
+    The **model definition** is imported via ``from tuningfork.model import
+    MODELS`` — canonical NumPyro code lives upstream, not duplicated as
+    a per-model template.
 
     Parameters
     ----------
@@ -146,7 +154,6 @@ def emit_script(
     }
 
     preamble = _load_template("preamble.py.tmpl").substitute(ctx)
-    model_body = _load_template(f"models/{recipe.model_name}.py.tmpl").substitute(ctx)
     warmup_body = _load_template(f"warmups/{recipe.warmup_name}.py.tmpl").substitute(
         ctx
     )
@@ -156,6 +163,6 @@ def emit_script(
     inference_loop = _load_template("inference_loop.py.tmpl").substitute(ctx)
     postamble = _load_template("postamble.py.tmpl").substitute(ctx)
 
-    return "\n\n".join(
-        [preamble, model_body, warmup_body, sampler_body, inference_loop, postamble]
-    )
+    # Model definition is imported from tuningfork.model in the preamble;
+    # no separate model template assembled here (post R3.5-MVP clarification).
+    return "\n\n".join([preamble, warmup_body, sampler_body, inference_loop, postamble])
