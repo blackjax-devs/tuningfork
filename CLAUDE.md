@@ -91,8 +91,8 @@ tuningfork/
 │   └── _templates/            # .py.tmpl templates (string.Template substitution)
 │       ├── preamble.py.tmpl       # imports + `from tuningfork.model import MODELS`
 │       ├── postamble.py.tmpl, inference_loop.py.tmpl
-│       ├── warmups/<warmup>.py.tmpl    # MVP: stan_window; R3.5b expands to 10
-│       └── samplers/<sampler>.py.tmpl  # MVP: nuts; R3.5b expands to 24
+│       ├── warmups/<warmup>.py.tmpl    # stan_window, no_warmup. R3.5b-2: pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, meanfield_vi, fullrank_vi
+│       └── samplers/<sampler>.py.tmpl  # nuts, hmc, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm. R3.5b-2: mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_{hmc,dhmc,mhmc,dmhmc}, irmh, additive_step_random_walk, meanfield_vi, fullrank_vi
 │       (no models/ subdir — model definitions imported from tuningfork.model,
 │        not duplicated as templates; eliminates drift risk)
 ├── calibration/               # cert + Optuna BO + auto-gate
