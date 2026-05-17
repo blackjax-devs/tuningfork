@@ -26,7 +26,7 @@ Tolerance
 where SE = std / sqrt(n_samples).
 
 Reports persist to
-``tuningfork/reference/<model>/xcheck.json`` (caller's
+``tuningfork/catalog/<model>/reference/xcheck.json`` (caller's
 responsibility; call ``XCheckResult.save(path)`` after construction).
 """
 

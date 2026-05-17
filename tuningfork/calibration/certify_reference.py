@@ -835,7 +835,9 @@ def certify_reference_nuts(
             our_summaries=our_summaries,
             n_samples_ours=n_samples,
         )
-        xcheck_dir = Path(__file__).parent.parent / "reference" / entry.name
+        # Post-R2 (2026-05-17): xcheck.json lives in the committed reference/
+        # subdir under the per-model catalog dir.
+        xcheck_dir = Path(__file__).parent.parent / "catalog" / entry.name / "reference"
         xcheck_dir.mkdir(parents=True, exist_ok=True)
         xcheck.save(xcheck_dir / "xcheck.json")
 

@@ -17,14 +17,19 @@ This is the only module the runner and CLI call.  It owns the cache contract:
 given a ``Posterior`` and a requested sample count, it either loads a
 valid cached artifact or regenerates it.
 
-Cache layout (relative to ``cache_dir``, default ``tuningfork/reference/``):
+Cache layout (relative to ``cache_dir``, default ``tuningfork/catalog/``):
 
-    <name>/draws.npz           gitignored; potentially large
-    <name>/summary.json        committed; ~few KB
-    <name>/adaptation.json     committed; long-NUTS path only
-    <name>/metadata.json       committed; cache-validity stamp
+    <name>/reference/metadata.json     committed; cache-validity stamp
+    <name>/reference/summary.json      committed; ~few KB
+    <name>/reference/adaptation.json   committed; long-NUTS path only
+    <name>/reference/xcheck.json       committed; posteriordb cross-check (where applicable)
+    <name>/groundtruth.json            committed; canonical groundtruth recipe pin
+    <name>/groundtruth.imm.npz         committed; high-dim IMM sidecar (where applicable)
+    <name>/_cache/draws.npz            gitignored; potentially large
+    <name>/_cache/chain_stats.npz      gitignored; per-step NUTS diagnostics
+    <name>/_cache/warmup_checkpoint/   gitignored; mid-warmup state for resume
 
-Stamp fields (``metadata/<name>.json``):
+Stamp fields (``<name>/reference/metadata.json``):
 
     tuningfork_version              str    installed package version
     code_sha                       str    git HEAD SHA of tuningfork repo, or "untracked"
@@ -43,7 +48,7 @@ Resolution order for ``get_reference_draws``::
 
     1. If not force_regenerate AND metadata exists AND version matches AND
        code_sha matches AND num_samples >= n AND certification.passed:
-           → load draws from draws/<name>.npz; slice to first n.
+           → load draws from <name>/_cache/draws.npz; slice to first n.
     2. Else regenerate (analytic or NUTS).
     3. Always write all artifacts.
 
@@ -92,7 +97,12 @@ __all__ = [
     "DEFAULT_CACHE_DIR",
 ]
 
-DEFAULT_CACHE_DIR = Path(__file__).parent
+# Per-model catalog layout (R2, 2026-05-17): each model owns a subdir under
+# the catalog root holding {groundtruth.json, reference/<artifacts>.json,
+# _cache/<gitignored>}. Path helpers below split committed vs runtime caches:
+# committed artifacts live under <model>/reference/; runtime cache under
+# <model>/_cache/.
+DEFAULT_CACHE_DIR = Path(__file__).parent.parent / "catalog"
 
 
 # ---------------------------------------------------------------------------
@@ -130,23 +140,23 @@ def _current_version() -> str:
 
 
 def _metadata_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / name / "metadata.json"
+    return cache_dir / name / "reference" / "metadata.json"
 
 
 def _draws_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / name / "draws.npz"
+    return cache_dir / name / "_cache" / "draws.npz"
 
 
 def _summaries_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / name / "summary.json"
+    return cache_dir / name / "reference" / "summary.json"
 
 
 def _adaptation_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / name / "adaptation.json"
+    return cache_dir / name / "reference" / "adaptation.json"
 
 
 def _chain_stats_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / name / "chain_stats.npz"
+    return cache_dir / name / "_cache" / "chain_stats.npz"
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -516,13 +526,15 @@ def get_reference_draws(
         # decision doc 2026-05-11-phase0-reference-protocol-refinements § 3).
         from tuningfork.calibration.certify_reference import CertificationError
 
-        # Default checkpoint_dir: <cache_dir>/<model>/warmup_checkpoint/
+        # Default checkpoint_dir: <cache_dir>/<model>/_cache/warmup_checkpoint/
         # The checkpoint is written immediately after warmup completes and
         # contains state.pkl, params.pkl, warmup_info.npz, health.json.
-        # Gitignored (see .gitignore: reference/*/warmup_checkpoint/).
+        # Gitignored (see .gitignore: catalog/*/_cache/warmup_checkpoint/).
         effective_checkpoint_dir = checkpoint_dir
         if effective_checkpoint_dir is None and pre_adapted is None:
-            effective_checkpoint_dir = effective_dir / entry.name / "warmup_checkpoint"
+            effective_checkpoint_dir = (
+                effective_dir / entry.name / "_cache" / "warmup_checkpoint"
+            )
 
         try:
             (
