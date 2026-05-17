@@ -20,7 +20,7 @@ Covers:
   4. step() returns (MFVISamplerState, MFVIInfo) with correct shapes.
   5. JIT compatibility: jax.jit(algo.step)(key, state) runs without error.
   6. End-to-end: 5-D std normal target; ELBO converges; sample mean/std in
-     atol=0.15 of (0, 1) after 200 draws.
+     atol=0.15 of (0, 1) after 2_000 draws.
 
 Single seed make_rng(42) per kickoff decision — no parametrized fixture.
 """
@@ -275,7 +275,16 @@ class TestMFVIEndToEnd:
         )
 
     def test_samples_mean_close_to_zero(self) -> None:
-        """Sample mean within atol=0.15 of 0 after 200 draws."""
+        """Sample mean within atol=0.15 of 0 after 2_000 draws.
+
+        N=2_000 not 200: with σ=1 the MC SE of the mean is 1/√N. At N=200
+        SE≈0.071 → atol=0.15 is only ~2.1σ → 5-dim joint check flakes at ~17%
+        (4th instance of noisy-MC-assertion antipattern, lesson
+        ``worklog/lessons/code-patterns/2026-05-11-single-realization-mc-noisy-assertion.md``
+        Pattern A-variant). At N=2_000 SE≈0.022 → atol=0.15 is ~6.8σ → flake
+        rate effectively zero. Sampling 2_000 draws after a 2_000-step
+        optimisation costs ~ms (Gaussian draws are cheap).
+        """
         algo = ENTRY.factory(_logdensity_fn, num_optimization_steps=2_000)
         state = algo.init(jnp.zeros(_D))
 
@@ -283,16 +292,22 @@ class TestMFVIEndToEnd:
             new_state, _info = algo.step(key, carry)
             return new_state, new_state.position
 
-        keys = jax.random.split(jax.random.key(_SEED), 200)
+        keys = jax.random.split(jax.random.key(_SEED), 2_000)
         _final_state, positions = jax.lax.scan(one_step, state, keys)
-        # positions: (200, D)
+        # positions: (2_000, D)
         sample_mean = jnp.mean(positions, axis=0)
         assert jnp.allclose(
             sample_mean, jnp.zeros(_D), atol=0.15
         ), f"Sample mean too far from 0: {sample_mean}"
 
     def test_samples_std_close_to_one(self) -> None:
-        """Sample std within atol=0.15 of 1 after 200 draws."""
+        """Sample std within atol=0.15 of 1 after 2_000 draws.
+
+        N=2_000 not 200: SE of sample std ≈ σ/√(2N). At N=200 SE≈0.05 →
+        atol=0.15 is ~3σ joint over 5 dims → ~3-5% flake under shifted PRNG.
+        Same noisy-MC-assertion antipattern fix as test_samples_mean_close_to_zero
+        — see that test's docstring for the lesson reference.
+        """
         algo = ENTRY.factory(_logdensity_fn, num_optimization_steps=2_000)
         state = algo.init(jnp.zeros(_D))
 
@@ -300,9 +315,9 @@ class TestMFVIEndToEnd:
             new_state, _info = algo.step(key, carry)
             return new_state, new_state.position
 
-        keys = jax.random.split(jax.random.key(_SEED), 200)
+        keys = jax.random.split(jax.random.key(_SEED), 2_000)
         _final_state, positions = jax.lax.scan(one_step, state, keys)
-        # positions: (200, D)
+        # positions: (2_000, D)
         sample_std = jnp.std(positions, axis=0)
         assert jnp.allclose(
             sample_std, jnp.ones(_D), atol=0.15
