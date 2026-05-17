@@ -389,14 +389,14 @@ class Recipe:
         # asdict recurses; enum values become their raw value via the Enum's __repr__
         # but we need the string value, not "Effort.LOW" — override explicitly.
         d["effort"] = self.effort.value
-        # Serialize failure_diagnosis enum to string if present
+        # asdict already recursively converts AttemptedConfig instances to dicts
+        # and enums via the default=str handler. We just need to handle enums that
+        # might have been converted to "FailureDiagnosis.value" format.
         if d["failure_diagnosis"] is not None:
-            d["failure_diagnosis"] = d["failure_diagnosis"].value
-        # Serialize AttemptedConfig objects to dicts
-        if d["attempted_configurations"]:
-            d["attempted_configurations"] = [
-                asdict(ac) for ac in d["attempted_configurations"]
-            ]
+            # If it's still an enum object, get its value
+            if hasattr(d["failure_diagnosis"], "value"):
+                d["failure_diagnosis"] = d["failure_diagnosis"].value
+            # else it's already a string from default=str
         target.write_text(json.dumps(d, indent=2, default=str))
         return target
 
