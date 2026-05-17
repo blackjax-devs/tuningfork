@@ -57,7 +57,7 @@ def load_recipe(path: str | Path) -> Recipe:
     notebook running in any working directory can load a recipe with a
     path like::
 
-        recipe = load_recipe("tuningfork/inference/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json")
+        recipe = load_recipe("tuningfork/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json")
 
     Parameters
     ----------
@@ -100,7 +100,7 @@ def load_recipe(path: str | Path) -> Recipe:
         f"Recipe file not found: tried {recipe_path!r} (relative to cwd) "
         f"and {candidate!r} (relative to repo root). "
         "Starter recipes live under "
-        "tuningfork/inference/recipes/starter/<model>/<effort>__<sampler>__<warmup>.json"
+        "tuningfork/recipes/starter/<model>/<effort>__<sampler>__<warmup>.json"
     )
 
 

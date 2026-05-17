@@ -11,7 +11,7 @@ from tuningfork.inspect import load_recipe, summarize_recipe
 from tuningfork.render import load_idata
 import arviz as az
 
-recipe = load_recipe("tuningfork/inference/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json")
+recipe = load_recipe("tuningfork/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json")
 summarize_recipe(recipe)               # HTML table inline
 idata = load_idata(recipe)             # posterior + sample_stats
 az.plot_trace(idata)
@@ -47,7 +47,7 @@ See `notebooks/recipe_diagnostics.md` (one directory up) for the parametrized te
 
 Accepts an absolute path or a path relative to the tuningfork repo root (detected
 via the installed package location). The repo-root resolution means notebooks can
-use paths like `"tuningfork/inference/recipes/starter/..."` regardless of the
+use paths like `"tuningfork/recipes/starter/..."` regardless of the
 kernel's working directory.
 
 Raises `FileNotFoundError` with a clear message if the file cannot be found.

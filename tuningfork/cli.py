@@ -311,7 +311,7 @@ def _cmd_warmup(args: argparse.Namespace) -> int:
 def _cmd_leaderboard(args: argparse.Namespace) -> int:
     """Handle the ``leaderboard`` subcommand.
 
-    Scans tuningfork/inference/recipes/starter/<model>/*.json, loads recipes,
+    Scans tuningfork/recipes/starter/<model>/*.json, loads recipes,
     filters by effort (if specified), and renders a markdown table (default)
     or JSON list.
     """

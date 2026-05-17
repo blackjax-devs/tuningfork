@@ -6,7 +6,7 @@ A BlackJAX-native benchmark library for comparing MCMC, VI, and SMC sampling alg
 
 Borges's *Garden of Forking Paths* (1941) gave Gelman & Loken ([2013][gl2013]) a metaphor for one of the subtler problems in applied statistics: even without conscious p-hacking, the implicit multiple-comparison cost of contingent analysis choices produces results that look principled but are not reproducible. MCMC tuning has its own garden — every choice in the (warmup, sampler, step-size, mass matrix, seed, parameterization) tuple is a fork. A sampler that "works" on a model often works because the practitioner walked far enough into the garden to find a path that did, not because the path itself was principled.
 
-`tuningfork` maps the garden. Each cell in the 24 × 10 × 14 (base methods × warmups × models) inventory is an explicit fork; every recipe records the seed, adapted parameters, and auto-gate verdict that certified it. The `Effort` taxonomy makes the cost of a fork visible — LOW means library defaults pass the auto-gate at first emit, MEDIUM means a single statistician-led workaround was required, HIGH means a full Bayesian-workflow investigation. And the auto-gate criteria (R̂ < 1.01, min bulk-ESS ≥ 400, zero divergences) are committed *before* sampling, so a recipe's verdict cannot be retroactively redefined. The canonical definitions live in `tuningfork/inference/recipes/_base.py` (Effort enum) and `tuningfork/calibration/statistician_gate.py` (auto-gate).
+`tuningfork` maps the garden. Each cell in the 24 × 10 × 14 (base methods × warmups × models) inventory is an explicit fork; every recipe records the seed, adapted parameters, and auto-gate verdict that certified it. The `Effort` taxonomy makes the cost of a fork visible — LOW means library defaults pass the auto-gate at first emit, MEDIUM means a single statistician-led workaround was required, HIGH means a full Bayesian-workflow investigation. And the auto-gate criteria (R̂ < 1.01, min bulk-ESS ≥ 400, zero divergences) are committed *before* sampling, so a recipe's verdict cannot be retroactively redefined. The canonical definitions live in `tuningfork/recipes/_base.py` (Effort enum) and `tuningfork/calibration/statistician_gate.py` (auto-gate).
 
 [gl2013]: https://sites.stat.columbia.edu/gelman/research/unpublished/p_hacking.pdf
 
@@ -78,7 +78,7 @@ Recipe construction draws on three building blocks under `tuningfork/calibration
 - **`tune.py` — Hyperparameter optimization**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
 - **`statistician_gate.py` — Auto-gate**: pre-committed thresholds (R̂ < 1.01, min bulk-ESS ≥ 400, divergences = 0, `max_abs_mean_z` < 2) that every recipe must clear before emission. Thresholds are fixed before sampling — see "The garden of forking paths" above.
 
-The `Recipe.effort` field (`tuningfork/inference/recipes/_base.py`) records the resulting cost class: LOW (defaults pass at first emit), MEDIUM (single statistician-led workaround), HIGH (full Bayesian-workflow investigation).
+The `Recipe.effort` field (`tuningfork/recipes/_base.py`) records the resulting cost class: LOW (defaults pass at first emit), MEDIUM (single statistician-led workaround), HIGH (full Bayesian-workflow investigation).
 
 ## Headline metric
 

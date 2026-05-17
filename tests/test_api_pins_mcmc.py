@@ -121,7 +121,7 @@ def test_blackjax_ghmc_factory_signature():
     """Tripwire: blackjax.ghmc must accept (logdensity_fn, step_size,
     momentum_inverse_scale, alpha, delta) as positional/keyword args.
 
-    Pinned tripwire: tuningfork/inference/base_method/ghmc.py calls
+    Pinned tripwire: tuningfork/base_method/ghmc.py calls
     blackjax.ghmc(logdensity_fn, **trial_params) where trial_params includes
     step_size, momentum_inverse_scale, alpha, delta.  If upstream renames or
     removes any of these, factory calls in the BO loop fail silently.
@@ -142,7 +142,7 @@ def test_blackjax_ghmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.ghmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(inner.parameters)}. "
-        f"Update tuningfork/inference/base_method/ghmc.py if upstream API changed."
+        f"Update tuningfork/base_method/ghmc.py if upstream API changed."
     )
 
 
@@ -153,7 +153,7 @@ def test_blackjax_dynamic_hmc_factory_signature():
     """Tripwire: blackjax.dynamic_hmc inner API must accept (logdensity_fn,
     step_size, inverse_mass_matrix); also confirm dhmc alias.
 
-    Pinned tripwire: tuningfork/inference/base_method/dynamic_hmc.py calls
+    Pinned tripwire: tuningfork/base_method/dynamic_hmc.py calls
     blackjax.dynamic_hmc(logdensity_fn, **trial_params) where trial_params
     includes step_size and inverse_mass_matrix (from CHEES warmup).  If
     upstream renames or removes any of these, factory calls in the BO loop
@@ -169,11 +169,11 @@ def test_blackjax_dynamic_hmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.dynamic_hmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/dynamic_hmc.py if upstream API changed."
+        f"Update tuningfork/base_method/dynamic_hmc.py if upstream API changed."
     )
     assert blackjax.dhmc is blackjax.dynamic_hmc, (
         "blackjax.dhmc alias broken: dhmc is not dynamic_hmc. "
-        "Update tuningfork/inference/base_method/dynamic_hmc.py alias note."
+        "Update tuningfork/base_method/dynamic_hmc.py alias note."
     )
 
 
@@ -181,7 +181,7 @@ def test_blackjax_chees_adaptation_signature():
     """Tripwire: blackjax.chees_adaptation must accept (logdensity_fn,
     num_chains, target_acceptance_rate) as parameters.
 
-    Pinned tripwire: tuningfork/inference/warmup/chees.py calls
+    Pinned tripwire: tuningfork/warmup/chees.py calls
     blackjax.chees_adaptation(logdensity_fn, num_chains,
     target_acceptance_rate=..., max_leapfrog_steps=...).
     If upstream renames or removes any of these, the CHEES warmup fails.
@@ -194,7 +194,7 @@ def test_blackjax_chees_adaptation_signature():
     assert not missing, (
         f"blackjax.chees_adaptation is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/warmup/chees.py if upstream API changed."
+        f"Update tuningfork/warmup/chees.py if upstream API changed."
     )
 
 
@@ -202,7 +202,7 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
     """Tripwire: chees_adaptation.run() must return a 2-tuple
     (AdaptationResults, AdaptationInfo).
 
-    Pinned tripwire: tuningfork/inference/warmup/chees.py unpacks the result as
+    Pinned tripwire: tuningfork/warmup/chees.py unpacks the result as
     (adaptation_results, _adaptation_info) = chees.run(...).
     If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
 
@@ -220,27 +220,27 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
     result = chees.run(key, jnp.zeros((4, 3)), 0.1, optim, num_steps=5)
     assert len(result) == 2, (
         f"chees_adaptation.run() should return a 2-tuple (AdaptationResults, AdaptationInfo), "
-        f"got {len(result)}-tuple. Update tuningfork/inference/warmup/chees.py."
+        f"got {len(result)}-tuple. Update tuningfork/warmup/chees.py."
     )
     adaptation_results, _adaptation_info = result
     assert hasattr(adaptation_results, "state"), (
         "AdaptationResults must have 'state' field; "
-        "update tuningfork/inference/warmup/chees.py."
+        "update tuningfork/warmup/chees.py."
     )
     assert hasattr(adaptation_results, "parameters"), (
         "AdaptationResults must have 'parameters' field; "
-        "update tuningfork/inference/warmup/chees.py."
+        "update tuningfork/warmup/chees.py."
     )
     for param_key in ("step_size", "inverse_mass_matrix"):
         assert param_key in adaptation_results.parameters, (
             f"chees_adaptation AdaptationResults.parameters lost key {param_key!r}. "
-            f"Update tuningfork/inference/warmup/chees.py."
+            f"Update tuningfork/warmup/chees.py."
         )
     # Callable params must also be present
     for callable_key in ("next_random_arg_fn", "integration_steps_fn"):
         assert callable_key in adaptation_results.parameters, (
             f"chees_adaptation AdaptationResults.parameters lost callable key {callable_key!r}. "
-            f"Update tuningfork/inference/warmup/chees.py."
+            f"Update tuningfork/warmup/chees.py."
         )
 
 
@@ -251,7 +251,7 @@ def test_blackjax_adjusted_mclmc_factory_signature():
     """Tripwire: blackjax.mcmc.adjusted_mclmc.as_top_level_api must accept
     {logdensity_fn, step_size, integration_steps_params, inverse_mass_matrix}.
 
-    Pinned tripwire: tuningfork/inference/base_method/adjusted_mclmc.py calls
+    Pinned tripwire: tuningfork/base_method/adjusted_mclmc.py calls
     blackjax.adjusted_mclmc(logdensity_fn, step_size=...,
     integration_steps_params=(...,), inverse_mass_matrix=...).
     If upstream renames or removes any of these, factory calls in the BO loop
@@ -272,7 +272,7 @@ def test_blackjax_adjusted_mclmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.adjusted_mclmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/adjusted_mclmc.py if upstream API changed."
+        f"Update tuningfork/base_method/adjusted_mclmc.py if upstream API changed."
     )
 
 
@@ -281,7 +281,7 @@ def test_blackjax_adjusted_mclmc_dynamic_factory_signature():
     {logdensity_fn, step_size, integration_steps_fn, integration_steps_params,
     inverse_mass_matrix}.
 
-    Pinned tripwire: tuningfork/inference/base_method/adjusted_mclmc_dynamic.py calls
+    Pinned tripwire: tuningfork/base_method/adjusted_mclmc_dynamic.py calls
     blackjax.adjusted_mclmc_dynamic(logdensity_fn, step_size=...,
     integration_steps_fn=..., integration_steps_params=(...,),
     inverse_mass_matrix=...).
@@ -303,7 +303,7 @@ def test_blackjax_adjusted_mclmc_dynamic_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.adjusted_mclmc_dynamic.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/adjusted_mclmc_dynamic.py if upstream API changed."
+        f"Update tuningfork/base_method/adjusted_mclmc_dynamic.py if upstream API changed."
     )
 
 
@@ -311,7 +311,7 @@ def test_blackjax_adjusted_mclmc_find_L_and_step_size_returns_3_tuple():
     """Tripwire: blackjax.adjusted_mclmc_find_L_and_step_size must return a 3-tuple
     (state, MCLMCAdaptationState, total_num_tuning_integrator_steps).
 
-    Pinned tripwire: tuningfork/inference/warmup/adjusted_mclmc_tuning.py unpacks
+    Pinned tripwire: tuningfork/warmup/adjusted_mclmc_tuning.py unpacks
     (s, adaptation_state, total_steps). If upstream changes to a 2-tuple (matching
     the vanilla mclmc docstring drift), the unpack fails opaquely.
 
@@ -337,12 +337,12 @@ def test_blackjax_adjusted_mclmc_find_L_and_step_size_returns_3_tuple():
     assert len(result) == 3, (
         f"BlackJAX changed adjusted_mclmc_find_L_and_step_size return arity "
         f"from 3 to {len(result)}. "
-        f"Update tuningfork/inference/warmup/adjusted_mclmc_tuning.py unpack accordingly."
+        f"Update tuningfork/warmup/adjusted_mclmc_tuning.py unpack accordingly."
     )
     assert result[1]._fields == ("L", "step_size", "inverse_mass_matrix"), (
         f"MCLMCAdaptationState._fields changed from "
         f"('L', 'step_size', 'inverse_mass_matrix') to {result[1]._fields}. "
-        f"Update tuningfork/inference/warmup/adjusted_mclmc_tuning.py adapted_params dict."
+        f"Update tuningfork/warmup/adjusted_mclmc_tuning.py adapted_params dict."
     )
 
 
@@ -351,7 +351,7 @@ def test_blackjax_make_random_trajectory_length_fn_signature():
     must accept 'random_trajectory_length' as parameter and return a callable
     (rng_arg, avg) -> int-castable scalar in a reasonable range.
 
-    Pinned tripwire: tuningfork/inference/base_method/adjusted_mclmc_dynamic.py calls
+    Pinned tripwire: tuningfork/base_method/adjusted_mclmc_dynamic.py calls
     make_random_trajectory_length_fn(True) to get the integration_steps_fn.
     If upstream renames the parameter or changes the returned function's signature,
     the dynamic factory breaks.
@@ -364,7 +364,7 @@ def test_blackjax_make_random_trajectory_length_fn_signature():
     assert "random_trajectory_length" in sig.parameters, (
         f"make_random_trajectory_length_fn is missing 'random_trajectory_length' parameter. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/adjusted_mclmc_dynamic.py."
+        f"Update tuningfork/base_method/adjusted_mclmc_dynamic.py."
     )
 
     # Calling make_random_trajectory_length_fn(True) should return a callable
@@ -378,7 +378,7 @@ def test_blackjax_make_random_trajectory_length_fn_signature():
     assert 0 <= result_int <= 100, (
         f"make_random_trajectory_length_fn(True)(key, 5.0) returned {result_int}, "
         f"expected an int-castable scalar in [0, ~10]. "
-        f"Update tuningfork/inference/base_method/adjusted_mclmc_dynamic.py."
+        f"Update tuningfork/base_method/adjusted_mclmc_dynamic.py."
     )
 
 
@@ -389,7 +389,7 @@ def test_blackjax_elliptical_slice_factory_signature():
     """Tripwire: blackjax.mcmc.elliptical_slice.as_top_level_api must accept
     {loglikelihood_fn, mean, cov}.
 
-    Pinned tripwire: tuningfork/inference/base_method/elliptical_slice.py wraps
+    Pinned tripwire: tuningfork/base_method/elliptical_slice.py wraps
     blackjax.elliptical_slice(logdensity_fn, mean=prior_mean, cov=prior_cov)
     where the upstream positional arg is named 'loglikelihood_fn' (not 'logdensity_fn').
     If upstream renames this param, our wrapper silently diverges in naming convention
@@ -405,7 +405,7 @@ def test_blackjax_elliptical_slice_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.elliptical_slice.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/elliptical_slice.py if upstream API changed. "
+        f"Update tuningfork/base_method/elliptical_slice.py if upstream API changed. "
         f"CRITICAL: if 'loglikelihood_fn' was renamed, update the docstring warning in _factory "
         f"and the ENTRY notes — callers must supply a likelihood-ONLY function."
     )
@@ -415,7 +415,7 @@ def test_blackjax_mgrad_gaussian_factory_signature():
     """Tripwire: blackjax.mcmc.marginal_latent_gaussian.as_top_level_api must accept
     {logdensity_fn, covariance, mean, cov_svd, step_size}.
 
-    Pinned tripwire: tuningfork/inference/base_method/mgrad_gaussian.py calls
+    Pinned tripwire: tuningfork/base_method/mgrad_gaussian.py calls
     blackjax.mgrad_gaussian(logdensity_fn, covariance=prior_cov, mean=prior_mean,
     step_size=step_size).  If upstream renames or removes any of these, factory
     calls in the BO loop fail silently.
@@ -430,7 +430,7 @@ def test_blackjax_mgrad_gaussian_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.marginal_latent_gaussian.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/mgrad_gaussian.py if upstream API changed."
+        f"Update tuningfork/base_method/mgrad_gaussian.py if upstream API changed."
     )
 
 
@@ -453,7 +453,7 @@ def test_blackjax_ellip_slice_info_fields_and_marginal_info_fields():
     expected_ellip = ("momentum", "theta", "subiter")
     assert EllipSliceInfo._fields == expected_ellip, (
         f"BlackJAX EllipSliceInfo fields changed from {expected_ellip} to {EllipSliceInfo._fields}. "
-        f"Update tuningfork/inference/base_method/elliptical_slice.py notes and "
+        f"Update tuningfork/base_method/elliptical_slice.py notes and "
         f"tests/test_base_method_elliptical_slice.py accordingly. "
         f"If 'acceptance_rate' was ADDED, revisit target_acceptance_rate=None decision."
     )
@@ -461,7 +461,7 @@ def test_blackjax_ellip_slice_info_fields_and_marginal_info_fields():
     expected_marginal = ("acceptance_rate", "is_accepted", "proposal")
     assert MarginalInfo._fields == expected_marginal, (
         f"BlackJAX MarginalInfo fields changed from {expected_marginal} to {MarginalInfo._fields}. "
-        f"Update tuningfork/inference/base_method/mgrad_gaussian.py notes and "
+        f"Update tuningfork/base_method/mgrad_gaussian.py notes and "
         f"tests/test_base_method_mgrad_gaussian.py accordingly."
     )
 
@@ -486,7 +486,7 @@ def test_blackjax_irmh_factory_signature():
     """Tripwire: blackjax.mcmc.random_walk.irmh_as_top_level_api must accept
     {logdensity_fn, proposal_distribution, proposal_logdensity_fn}.
 
-    Pinned tripwire: tuningfork/inference/base_method/irmh.py calls
+    Pinned tripwire: tuningfork/base_method/irmh.py calls
     blackjax.irmh(logdensity_fn, proposal_distribution=...,
     proposal_logdensity_fn=...).  If upstream renames or removes any of these,
     factory calls in the BO loop fail silently.
@@ -501,12 +501,12 @@ def test_blackjax_irmh_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.random_walk.irmh_as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/irmh.py if upstream API changed."
+        f"Update tuningfork/base_method/irmh.py if upstream API changed."
     )
     assert set(sig.parameters) == expected, (
         f"blackjax.mcmc.random_walk.irmh_as_top_level_api has unexpected parameters. "
         f"Expected exactly {expected}, got {set(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/irmh.py if upstream API changed."
+        f"Update tuningfork/base_method/irmh.py if upstream API changed."
     )
 
 
@@ -527,17 +527,17 @@ def test_blackjax_irmh_alias_check():
     assert blackjax.irmh.differentiable is irmh_as_top_level_api, (
         "blackjax.irmh.differentiable is not blackjax.mcmc.random_walk.irmh_as_top_level_api. "
         "Upstream may have refactored the random_walk module. "
-        "Update tuningfork/inference/base_method/irmh.py and this tripwire."
+        "Update tuningfork/base_method/irmh.py and this tripwire."
     )
     assert blackjax.irmh.init is init, (
         "blackjax.irmh.init is not blackjax.mcmc.random_walk.init. "
         "Upstream may have introduced a separate IRMH init function. "
-        "Update tuningfork/inference/base_method/irmh.py and this tripwire."
+        "Update tuningfork/base_method/irmh.py and this tripwire."
     )
     assert blackjax.irmh.build_kernel is build_irmh, (
         "blackjax.irmh.build_kernel is not blackjax.mcmc.random_walk.build_irmh. "
         "Upstream may have renamed build_irmh. "
-        "Update tuningfork/inference/base_method/irmh.py and this tripwire."
+        "Update tuningfork/base_method/irmh.py and this tripwire."
     )
 
 
@@ -577,7 +577,7 @@ def test_blackjax_rwinfo_rwstate_fields():
 def test_blackjax_mhmc_factory_signature():
     """Tripwire: blackjax.mhmc inner API must accept the same parameters as HMC.
 
-    Pinned tripwire: tuningfork/inference/base_method/mhmc.py calls
+    Pinned tripwire: tuningfork/base_method/mhmc.py calls
     blackjax.mhmc(logdensity_fn, **trial_params) where trial_params includes
     step_size, inverse_mass_matrix, and num_integration_steps.  mhmc is a
     partial-applied HMC with multinomial_hmc_proposal; if upstream changes
@@ -598,14 +598,14 @@ def test_blackjax_mhmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.hmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/mhmc.py if upstream API changed."
+        f"Update tuningfork/base_method/mhmc.py if upstream API changed."
     )
 
 
 def test_blackjax_dmhmc_factory_signature():
     """Tripwire: blackjax.dmhmc inner API must accept the same parameters as dynamic_hmc.
 
-    Pinned tripwire: tuningfork/inference/base_method/dmhmc.py calls
+    Pinned tripwire: tuningfork/base_method/dmhmc.py calls
     blackjax.dmhmc(logdensity_fn, **trial_params) where trial_params includes
     step_size and inverse_mass_matrix (from CHEES warmup).  dmhmc is a
     partial-applied dynamic_hmc with multinomial_hmc_proposal; if upstream
@@ -621,7 +621,7 @@ def test_blackjax_dmhmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.dynamic_hmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/dmhmc.py if upstream API changed."
+        f"Update tuningfork/base_method/dmhmc.py if upstream API changed."
     )
 
 
@@ -634,7 +634,7 @@ def test_blackjax_multinomial_hmc_alias():
     """
     assert blackjax.multinomial_hmc is blackjax.mhmc, (
         "blackjax.multinomial_hmc alias broken: multinomial_hmc is not mhmc. "
-        "Update tuningfork/inference/base_method/mhmc.py alias note and this tripwire."
+        "Update tuningfork/base_method/mhmc.py alias note and this tripwire."
     )
 
 
@@ -653,11 +653,11 @@ def test_blackjax_multinomial_hmc_proposal_exists():
     assert hasattr(blackjax.mcmc.hmc, "multinomial_hmc_proposal"), (
         "blackjax.mcmc.hmc.multinomial_hmc_proposal does not exist. "
         "If upstream renamed or removed the multinomial proposal builder, "
-        "update tuningfork/inference/base_method/mhmc.py and dmhmc.py."
+        "update tuningfork/base_method/mhmc.py and dmhmc.py."
     )
     assert callable(blackjax.mcmc.hmc.multinomial_hmc_proposal), (
         "blackjax.mcmc.hmc.multinomial_hmc_proposal is not callable. "
-        "Update tuningfork/inference/base_method/mhmc.py and dmhmc.py."
+        "Update tuningfork/base_method/mhmc.py and dmhmc.py."
     )
 
 
@@ -675,7 +675,7 @@ def test_base_methods_contains_mhmc_and_dmhmc():
     assert not missing, (
         f"BASE_METHODS is missing entries: {missing}. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
-        f"Check tuningfork/inference/base_method/__init__.py imports."
+        f"Check tuningfork/base_method/__init__.py imports."
     )
 
 
@@ -687,7 +687,7 @@ def test_blackjax_laplace_hmc_factory_signature():
     {log_joint_fn, theta_init, step_size, inverse_mass_matrix,
     num_integration_steps, divergence_threshold, integrator, build_proposal}.
 
-    Pinned tripwire: tuningfork/inference/base_method/laplace_hmc.py calls
+    Pinned tripwire: tuningfork/base_method/laplace_hmc.py calls
     blackjax.laplace_hmc(log_joint_fn, theta_init, step_size,
     inverse_mass_matrix, num_integration_steps, **optimizer_kwargs).
     If upstream renames or removes any of these, the wrapper fails silently.
@@ -711,8 +711,8 @@ def test_blackjax_laplace_hmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.laplace_hmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/laplace_hmc.py and "
-        f"tuningfork/inference/base_method/laplace_mhmc.py if upstream API changed."
+        f"Update tuningfork/base_method/laplace_hmc.py and "
+        f"tuningfork/base_method/laplace_mhmc.py if upstream API changed."
     )
 
 
@@ -722,7 +722,7 @@ def test_blackjax_laplace_dhmc_factory_signature():
     divergence_threshold, integrator, next_random_arg_fn, integration_steps_fn,
     integration_steps_params, build_proposal}.
 
-    Pinned tripwire: tuningfork/inference/base_method/laplace_dhmc.py calls
+    Pinned tripwire: tuningfork/base_method/laplace_dhmc.py calls
     blackjax.laplace_dhmc(log_joint_fn, theta_init, step_size,
     inverse_mass_matrix, **optimizer_kwargs).
     If upstream renames or removes any of these, the wrapper fails silently.
@@ -747,8 +747,8 @@ def test_blackjax_laplace_dhmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.laplace_dynamic_hmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/laplace_dhmc.py and "
-        f"tuningfork/inference/base_method/laplace_dmhmc.py if upstream API changed."
+        f"Update tuningfork/base_method/laplace_dhmc.py and "
+        f"tuningfork/base_method/laplace_dmhmc.py if upstream API changed."
     )
 
 
@@ -756,7 +756,7 @@ def test_blackjax_laplace_hmc_state_fields():
     """Tripwire: LaplaceHMCState._fields must be
     ('position', 'logdensity', 'logdensity_grad', 'theta_star').
 
-    Pinned tripwire: tuningfork/inference/base_method/laplace_hmc.py and
+    Pinned tripwire: tuningfork/base_method/laplace_hmc.py and
     laplace_mhmc.py depend on the state carrying theta_star (the MAP latent
     at current phi, used for warm-starting L-BFGS).  If upstream renames or
     removes theta_star, warm-start and gradient accounting break silently.
@@ -767,7 +767,7 @@ def test_blackjax_laplace_hmc_state_fields():
     assert LaplaceHMCState._fields == expected, (
         f"BlackJAX LaplaceHMCState fields changed from {expected} to "
         f"{LaplaceHMCState._fields}. "
-        f"Update tuningfork/inference/base_method/laplace_hmc.py, laplace_mhmc.py "
+        f"Update tuningfork/base_method/laplace_hmc.py, laplace_mhmc.py "
         f"and tests/inference/base_method/test_laplace_hmc.py."
     )
 
@@ -776,7 +776,7 @@ def test_blackjax_laplace_dynamic_hmc_state_fields():
     """Tripwire: LaplaceDynamicHMCState._fields must be
     ('position', 'logdensity', 'logdensity_grad', 'theta_star', 'random_generator_arg').
 
-    Pinned tripwire: tuningfork/inference/base_method/laplace_dhmc.py and
+    Pinned tripwire: tuningfork/base_method/laplace_dhmc.py and
     laplace_dmhmc.py depend on the state carrying both theta_star (warm-start)
     and random_generator_arg (Halton step-count seed).  If either field is
     renamed or removed, the dynamic wrappers break at runtime.
@@ -793,7 +793,7 @@ def test_blackjax_laplace_dynamic_hmc_state_fields():
     assert LaplaceDynamicHMCState._fields == expected, (
         f"BlackJAX LaplaceDynamicHMCState fields changed from {expected} to "
         f"{LaplaceDynamicHMCState._fields}. "
-        f"Update tuningfork/inference/base_method/laplace_dhmc.py, laplace_dmhmc.py "
+        f"Update tuningfork/base_method/laplace_dhmc.py, laplace_dmhmc.py "
         f"and tests/inference/base_method/test_laplace_dhmc.py."
     )
 
@@ -810,7 +810,7 @@ def test_blackjax_laplace_hmc_build_kernel_callable():
     assert callable(lh.build_kernel), (
         "blackjax.mcmc.laplace_hmc.build_kernel is not callable. "
         "Upstream may have removed or renamed the composable kernel layer. "
-        "Update tuningfork/inference/base_method/laplace_hmc.py and laplace_mhmc.py."
+        "Update tuningfork/base_method/laplace_hmc.py and laplace_mhmc.py."
     )
 
 
@@ -826,7 +826,7 @@ def test_blackjax_laplace_dynamic_hmc_build_kernel_callable():
     assert callable(ldh.build_kernel), (
         "blackjax.mcmc.laplace_dynamic_hmc.build_kernel is not callable. "
         "Upstream may have removed or renamed the composable kernel layer. "
-        "Update tuningfork/inference/base_method/laplace_dhmc.py and laplace_dmhmc.py."
+        "Update tuningfork/base_method/laplace_dhmc.py and laplace_dmhmc.py."
     )
 
 
@@ -844,7 +844,7 @@ def test_base_methods_contains_laplace_marginal_2x2():
     assert not missing, (
         f"BASE_METHODS is missing Laplace-marginal entries: {missing}. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
-        f"Check tuningfork/inference/base_method/__init__.py imports."
+        f"Check tuningfork/base_method/__init__.py imports."
     )
 
 
@@ -855,7 +855,7 @@ def test_blackjax_orbital_hmc_factory_signature():
     """Tripwire: blackjax.mcmc.periodic_orbital.as_top_level_api must accept
     {logdensity_fn, step_size, inverse_mass_matrix, period, bijection}.
 
-    Pinned tripwire: tuningfork/inference/base_method/orbital_hmc.py calls
+    Pinned tripwire: tuningfork/base_method/orbital_hmc.py calls
     blackjax.orbital_hmc(logdensity_fn, step_size=..., inverse_mass_matrix=...,
     period=...).  If upstream renames or removes any of these, factory calls
     in the BO loop fail silently.
@@ -880,7 +880,7 @@ def test_blackjax_orbital_hmc_factory_signature():
     assert not missing, (
         f"blackjax.mcmc.periodic_orbital.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/inference/base_method/orbital_hmc.py if upstream API changed."
+        f"Update tuningfork/base_method/orbital_hmc.py if upstream API changed."
     )
 
 
@@ -888,7 +888,7 @@ def test_blackjax_periodic_orbital_state_fields():
     """Tripwire: PeriodicOrbitalState._fields must be
     ('positions', 'weights', 'directions', 'logdensities', 'logdensities_grad').
 
-    Pinned tripwire: tuningfork/inference/base_method/orbital_hmc.py documents
+    Pinned tripwire: tuningfork/base_method/orbital_hmc.py documents
     that the state carries the FULL orbit (plural fields: positions, logdensities,
     logdensities_grad are arrays of shape (period, D)).  If upstream renames or
     removes fields, shape assertions in tests/inference/base_method/test_orbital_hmc.py
@@ -909,7 +909,7 @@ def test_blackjax_periodic_orbital_state_fields():
     assert PeriodicOrbitalState._fields == expected, (
         f"BlackJAX PeriodicOrbitalState fields changed from {expected} to "
         f"{PeriodicOrbitalState._fields}. "
-        f"Update tuningfork/inference/base_method/orbital_hmc.py notes and "
+        f"Update tuningfork/base_method/orbital_hmc.py notes and "
         f"tests/inference/base_method/test_orbital_hmc.py shape assertions."
     )
 
@@ -928,12 +928,12 @@ def test_blackjax_additive_step_random_walk_is_generate_sampling_api():
     ), (
         f"blackjax.additive_step_random_walk is not a GenerateSamplingAPI instance: "
         f"got {blackjax.additive_step_random_walk.__class__.__name__!r}. "
-        f"Update tuningfork/inference/base_method/additive_step_random_walk.py notes."
+        f"Update tuningfork/base_method/additive_step_random_walk.py notes."
     )
     assert hasattr(blackjax.additive_step_random_walk, "register_factory"), (
         "blackjax.additive_step_random_walk missing 'register_factory' method. "
         "Upstream may have changed the GenerateSamplingAPI class. "
-        "Update tuningfork/inference/base_method/additive_step_random_walk.py."
+        "Update tuningfork/base_method/additive_step_random_walk.py."
     )
 
 
@@ -949,11 +949,11 @@ def test_blackjax_additive_step_random_walk_has_normal_random_walk():
     assert hasattr(blackjax.additive_step_random_walk, "normal_random_walk"), (
         "blackjax.additive_step_random_walk.normal_random_walk is not registered. "
         "Check line 122 of blackjax/__init__.py: register_factory call may have been removed. "
-        "Update tuningfork/inference/base_method/additive_step_random_walk.py notes."
+        "Update tuningfork/base_method/additive_step_random_walk.py notes."
     )
     assert callable(blackjax.additive_step_random_walk.normal_random_walk), (
         "blackjax.additive_step_random_walk.normal_random_walk is not callable. "
-        "Update tuningfork/inference/base_method/additive_step_random_walk.py notes."
+        "Update tuningfork/base_method/additive_step_random_walk.py notes."
     )
 
 
@@ -971,7 +971,7 @@ def test_base_methods_contains_p5_15_algorithmic_specials():
     assert not missing, (
         f"BASE_METHODS is missing entries: {missing}. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
-        f"Check tuningfork/inference/base_method/__init__.py imports."
+        f"Check tuningfork/base_method/__init__.py imports."
     )
 
 
@@ -983,7 +983,7 @@ def test_blackjax_rmhmc_factory_signature():
     {logdensity_fn, step_size, mass_matrix, num_integration_steps,
     divergence_threshold, integrator}.
 
-    Pinned tripwire: tuningfork/inference/base_method/rmhmc.py calls
+    Pinned tripwire: tuningfork/base_method/rmhmc.py calls
     blackjax.rmhmc(logdensity_fn, step_size=..., mass_matrix=...,
     num_integration_steps=...).  The CRITICAL parameter is 'mass_matrix'
     (NOT 'inverse_mass_matrix' -- the tuningfork factory converts IMM to
@@ -1008,7 +1008,7 @@ def test_blackjax_rmhmc_factory_signature():
         f"blackjax.mcmc.rmhmc.as_top_level_api is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
         f"CRITICAL: if 'mass_matrix' is renamed, the tuningfork IMM->mass_matrix "
-        f"conversion in tuningfork/inference/base_method/rmhmc.py will break. "
+        f"conversion in tuningfork/base_method/rmhmc.py will break. "
         f"Update the wrapper accordingly."
     )
     # Verify 'inverse_mass_matrix' is NOT a parameter (would indicate API change).
@@ -1016,7 +1016,7 @@ def test_blackjax_rmhmc_factory_signature():
         "'inverse_mass_matrix' appeared in rmhmc.as_top_level_api signature. "
         "If upstream switched to IMM convention, the tuningfork wrapper's "
         "IMM->mass_matrix conversion is now double-inverting. "
-        "Update tuningfork/inference/base_method/rmhmc.py."
+        "Update tuningfork/base_method/rmhmc.py."
     )
 
 
@@ -1035,12 +1035,12 @@ def test_blackjax_rmhmc_reuses_hmc_state_and_kernel():
 
     assert rmhmc_mod.init is hmc_mod.init, (
         "rmhmc.init is no longer hmc.init. Upstream may have added a distinct "
-        "RMHMCState. Update tuningfork/inference/base_method/rmhmc.py and "
+        "RMHMCState. Update tuningfork/base_method/rmhmc.py and "
         "tests/inference/base_method/test_rmhmc.py state-type assertions."
     )
     assert rmhmc_mod.build_kernel is hmc_mod.build_kernel, (
         "rmhmc.build_kernel is no longer hmc.build_kernel. Upstream may have "
-        "specialized the RMHMC kernel. Update tuningfork/inference/base_method/rmhmc.py."
+        "specialized the RMHMC kernel. Update tuningfork/base_method/rmhmc.py."
     )
 
 
@@ -1054,5 +1054,5 @@ def test_base_methods_contains_p5_15_5_rmhmc():
     assert "rmhmc" in BASE_METHODS, (
         f"BASE_METHODS is missing 'rmhmc' after registration. "
         f"Registered keys: {sorted(BASE_METHODS.keys())}. "
-        f"Check tuningfork/inference/base_method/__init__.py imports."
+        f"Check tuningfork/base_method/__init__.py imports."
     )
