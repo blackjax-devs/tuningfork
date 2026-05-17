@@ -1,0 +1,16 @@
+"""Auto-generated standalone reproduction script.
+
+Source recipe: $recipe_id (model=$model_name, sampler=$base_method_name, warmup=$warmup_name)
+Recipe hash:   $recipe_hash
+Effort:        $effort
+Verdict:       $verdict (expected; pinned at recipe-emission time)
+
+This script is STANDALONE -- zero `import tuningfork`. Run with:
+    uv run --with jax --with blackjax --with numpyro python <this_script>.py
+"""
+import jax
+import jax.numpy as jnp
+import numpy as np
+import numpyro
+import numpyro.distributions as dist
+import blackjax
