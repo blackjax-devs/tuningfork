@@ -61,12 +61,16 @@ def test_generate_groundtruth_analytic_returns_none_and_populates_cache(
     assert result is None
 
     # Cache files must be populated (per-model layout post cleanup-and-simplify)
-    assert (tmp_path / "mvn_10" / "draws.npz").exists(), "draws npz missing"
-    assert (tmp_path / "mvn_10" / "summary.json").exists(), "summary json missing"
-    assert (tmp_path / "mvn_10" / "metadata.json").exists(), "metadata json missing"
+    assert (tmp_path / "mvn_10" / "_cache" / "draws.npz").exists(), "draws npz missing"
+    assert (
+        tmp_path / "mvn_10" / "reference" / "summary.json"
+    ).exists(), "summary json missing"
+    assert (
+        tmp_path / "mvn_10" / "reference" / "metadata.json"
+    ).exists(), "metadata json missing"
 
     # No adaptation file for analytic models
-    assert not (tmp_path / "mvn_10" / "adaptation.json").exists()
+    assert not (tmp_path / "mvn_10" / "reference" / "adaptation.json").exists()
 
 
 @pytest.mark.slow

@@ -76,17 +76,27 @@ tuningfork/
 ├── base_method/               # 24 wrappers — see ENTRIES list below
 ├── warmup/                    # 10 warmup wrappers — see ENTRIES list below
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
-├── recipes/                   # Recipe schema, groundtruth generator, starter generator
+├── recipes/                   # Recipe schema (code-only post R2): _base.py, _instructions.py,
+│                              #   _generate_starter.py, _generate_groundtruth.py
 ├── data/                      # raw datasets + generation scripts
-├── reference/                 # reference artifacts (per-model layout)
-│   └── <model>/               # one dir per certified model
-│       ├── metadata.json      # committed; cache-validity stamp
-│       ├── summary.json       # committed; mean/std/percentiles
-│       ├── adaptation.json    # committed; NUTS-path only
-│       ├── xcheck.json        # committed; posteriordb cross-check (where applicable)
-│       ├── draws.npz          # gitignored; 100k-sample chains
-│       ├── chain_stats.npz    # gitignored; per-step NUTS diagnostics
-│       └── warmup_checkpoint/ # gitignored; warmup mid-run checkpoints
+├── catalog/                   # PER-MODEL artifact library (post-R2 layout, 2026-05-17)
+│   └── <model>/               # one stop per certified model
+│       ├── groundtruth.json   # committed; canonical groundtruth recipe pin
+│       ├── groundtruth.imm.npz # committed; high-dim IMM sidecar (where applicable)
+│       ├── reference/         # committed cert artifacts
+│       │   ├── metadata.json  # cache-validity stamp
+│       │   ├── summary.json   # mean/std/percentiles
+│       │   ├── adaptation.json # NUTS-path only
+│       │   └── xcheck.json    # posteriordb cross-check (where applicable)
+│       ├── recipes/           # per-cell recipes (post Recipe Phase 1+)
+│       │   ├── low__*.json, medium__*.json, high__*.json, failed__*.json
+│       └── _cache/            # gitignored runtime cache
+│           ├── draws.npz      # 100k-sample chains
+│           ├── chain_stats.npz # per-step NUTS diagnostics
+│           └── warmup_checkpoint/  # warmup mid-run checkpoints
+├── reference/                 # cache-io code (will collapse into _cache_io.py in R3)
+│   ├── _io.py                 # path helpers + get_reference_draws
+│   └── _posteriordb_xcheck.py # posteriordb cross-check logic
 ├── calibration/
 │   ├── certify_reference.py        # 1×100k NUTS, 10-chunk split-R̂ certifier
 │   ├── certify_reference_analytic.py  # analytic-path certifier

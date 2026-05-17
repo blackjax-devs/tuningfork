@@ -18,38 +18,52 @@ uv.lock
 results/runs/
 results/cache/
 
-# Reference draws are large — gitignored by default; commit a small
-# canonical subset by force-add when finalizing a release.
-tuningfork/reference/*/draws.npz
+# =============================================================================
+# Reference cache (post-R2 catalog layout, 2026-05-17)
+# Per-model catalog: tuningfork/catalog/<model>/{groundtruth.json,
+# reference/<artifacts>.json, _cache/<gitignored>}.
+# =============================================================================
 
-# Legacy-layout cache files (pre-cleanup-and-simplify reorg, 2026-05-17).
-# Some users may have locally-generated cache under the old per-type layout;
-# keep these ignored so they don't accidentally land in a commit. _io.py no
-# longer reads/writes these paths — they're orphan-on-disk only.
-tuningfork/reference/draws/*.npz
-tuningfork/reference/draws/*.npy
-tuningfork/reference/chain_stats/*.npz
-tuningfork/reference/warmup_checkpoint/
+# Reference draws — large; gitignored. Live under <model>/_cache/draws.npz.
+tuningfork/catalog/*/_cache/draws.npz
 
 # Per-step chain_stats from NUTS cert runs — diagnostic-only, ~1–2 MB per
 # model. Written on every cert run (incl. failed runs, for statistician
 # inspection). See worklog/decisions/2026-05-11-phase0-reference-protocol-
 # refinements.md § 3.
-tuningfork/reference/*/chain_stats.npz
+tuningfork/catalog/*/_cache/chain_stats.npz
 
 # Warmup checkpoints — workflow artifact written by certify_reference_nuts
 # immediately after warmup. Enables resume-after-crash via ``pre_adapted=...``
 # and forensic inspection of bad warmups. State pkl is ~O(d) bytes; warmup_info
 # npz is ~O(n_warmup * 8) bytes per field. See certify_reference.py
 # WarmupCheckpoint class for the layout. Introduced 2026-05-14.
-tuningfork/reference/*/warmup_checkpoint/
+tuningfork/catalog/*/_cache/warmup_checkpoint/
 
 # Failed-cert artifacts — diagnostic-only, never gate-bearing. Persisted by
 # ``get_reference_draws`` on the CertificationError path so the statistician
 # can do cluster-in-parameter-space analysis (Lens 1 of the diagnostics
 # playbook) without re-running. Distinct filenames from the success-path
 # artifacts so a failed re-run never overwrites a previous successful cert.
+tuningfork/catalog/*/reference/adaptation.failed.json
+
+# =============================================================================
+# Legacy reference-cache patterns (pre-R2, 2026-05-17). Kept so existing
+# local cache from prior layouts stays ignored as users transition.
+# _io.py no longer reads/writes these paths — they're orphan-on-disk only.
+# =============================================================================
+
+# Pre-R2 per-model reference layout (post-cleanup-and-simplify, PR #6):
+tuningfork/reference/*/draws.npz
+tuningfork/reference/*/chain_stats.npz
+tuningfork/reference/*/warmup_checkpoint/
 tuningfork/reference/*/adaptation.failed.json
+
+# Pre-cleanup-and-simplify per-type layout (legacy-legacy):
+tuningfork/reference/draws/*.npz
+tuningfork/reference/draws/*.npy
+tuningfork/reference/chain_stats/*.npz
+tuningfork/reference/warmup_checkpoint/
 
 # OS / editor
 .DS_Store

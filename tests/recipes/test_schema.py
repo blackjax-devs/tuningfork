@@ -41,14 +41,8 @@ from tuningfork.recipes import (
 )
 from tuningfork.recipes._instructions import render_instructions
 
-# Path to the committed starter recipes
-_STARTER_ROOT = (
-    Path(__file__).resolve().parents[2]
-    / "tuningfork"
-    / "inference"
-    / "recipes"
-    / "starter"
-)
+# Path to the committed catalog (post-R2 layout, 2026-05-17)
+_CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +195,11 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     assert isinstance(loaded.effort, Effort)
     assert loaded.effort == Effort.LOW
 
-    # Filename convention: <effort>__<method>__<warmup>.json
+    # Filename convention (post-R2, 2026-05-17): non-groundtruth recipes
+    # live under <model>/recipes/<effort>__<method>__<warmup>.json.
     assert saved_path.name == "low__nuts__no_warmup.json"
-    assert saved_path.parent.name == "mvn_10"
+    assert saved_path.parent.name == "recipes"
+    assert saved_path.parent.parent.name == "mvn_10"
 
 
 @pytest.mark.fast
@@ -318,7 +314,7 @@ def test_emit_low_recipes_sampler_filter(tmp_path: Path, monkeypatch) -> None:
     """
     from tuningfork.recipes import _generate_starter
 
-    monkeypatch.setattr(_generate_starter, "_STARTER_ROOT", tmp_path)
+    monkeypatch.setattr(_generate_starter, "_CATALOG_ROOT", tmp_path)
     paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"], sampler="nuts")
     assert len(paths) == 1, f"Expected 1 recipe, got {len(paths)}: {paths}"
     assert paths[0].name == "low__nuts__no_warmup.json"
@@ -331,7 +327,7 @@ def test_emit_low_recipes_no_filter_emits_all_methods(
     """emit_low_recipes() with no sampler filter emits all 6 algos for the model."""
     from tuningfork.recipes import _generate_starter
 
-    monkeypatch.setattr(_generate_starter, "_STARTER_ROOT", tmp_path)
+    monkeypatch.setattr(_generate_starter, "_CATALOG_ROOT", tmp_path)
     paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"])
     # 6 algorithms: hmc, nuts, mala, barker, rwm, mclmc
     assert len(paths) == 6
@@ -470,12 +466,13 @@ def test_save_imm_sidecar_and_load_roundtrip(tmp_path: Path) -> None:
 
     rel_path = recipe.save_imm_sidecar(tmp_path, original_imm)
 
-    # The file must exist at the expected location
-    expected_file = tmp_path / "mvn_10" / "low__nuts__no_warmup.imm.npz"
+    # The file must exist at the expected location (post-R2 layout):
+    # LOW IMM sidecar lives under <model>/recipes/<effort>__<...>.imm.npz.
+    expected_file = tmp_path / "mvn_10" / "recipes" / "low__nuts__no_warmup.imm.npz"
     assert expected_file.exists(), f"Expected sidecar at {expected_file}"
 
     # rel_path is relative to tmp_path
-    assert rel_path == str(Path("mvn_10") / "low__nuts__no_warmup.imm.npz")
+    assert rel_path == str(Path("mvn_10") / "recipes" / "low__nuts__no_warmup.imm.npz")
 
     # Load via load_imm_sidecar (with inverse_mass_matrix_path set)
     recipe_with_path = Recipe(
@@ -616,8 +613,9 @@ def test_from_groundtruth_run_save_load_roundtrip(tmp_path: Path) -> None:
     )
     saved_path = recipe.save(tmp_path)
 
-    # Filename convention: groundtruth__nuts__stan_window.json
-    assert saved_path.name == "groundtruth__nuts__stan_window.json"
+    # Filename convention (post-R2): groundtruth recipes live at
+    # <model>/groundtruth.json (no filename suffix; one path per model).
+    assert saved_path.name == "groundtruth.json"
     assert saved_path.parent.name == "mvn_10"
     assert saved_path.exists()
 
