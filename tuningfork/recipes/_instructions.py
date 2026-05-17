@@ -103,7 +103,7 @@ bulk-ESS ≥ 400, 0 divergences, E-BFMI ≥ 0.3 across {n_chunks} contiguous chu
 The samples themselves live at `tuningfork/reference/{model_name}/draws.npz` \
 (gitignored — {n_samples} samples × dim={dim}). Load via:
 
-    from tuningfork.reference._io import get_reference_draws
+    from tuningfork._cache_io import get_reference_draws
     from tuningfork.model import MODELS
     draws = get_reference_draws(MODELS['{model_name}'])
 

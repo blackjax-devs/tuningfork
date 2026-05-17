@@ -759,7 +759,7 @@ def test_load_cached_samples_returns_draws_on_hit(tmp_path: Path) -> None:
     )
 
     # Populate cache manually using _io internals
-    from tuningfork.reference._io import (
+    from tuningfork._cache_io import (
         _atomic_write_json,
         _atomic_write_npz,
         _draws_path,
@@ -819,7 +819,7 @@ def test_render_instructions_groundtruth_non_empty() -> None:
 @pytest.mark.fast
 def test_try_load_cached_draws_returns_none_on_miss(tmp_path: Path) -> None:
     """try_load_cached_draws returns None when no cache exists."""
-    from tuningfork.reference._io import try_load_cached_draws
+    from tuningfork._cache_io import try_load_cached_draws
 
     posterior = MODELS["mvn_10"]
     result = try_load_cached_draws(posterior, cache_dir=tmp_path)
@@ -832,7 +832,7 @@ def test_try_load_cached_draws_returns_draws_on_hit(tmp_path: Path) -> None:
     import datetime
 
     import tuningfork
-    from tuningfork.reference._io import (
+    from tuningfork._cache_io import (
         _atomic_write_json,
         _atomic_write_npz,
         _draws_path,
@@ -878,7 +878,7 @@ def test_try_load_cached_draws_returns_none_when_n_too_large(tmp_path: Path) -> 
     import datetime
 
     import tuningfork
-    from tuningfork.reference._io import (
+    from tuningfork._cache_io import (
         _atomic_write_json,
         _atomic_write_npz,
         _draws_path,

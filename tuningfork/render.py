@@ -31,8 +31,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from tuningfork._cache_io import try_load_cached_chain_stats
 from tuningfork.model import MODELS
-from tuningfork.reference._io import try_load_cached_chain_stats
 
 __all__ = ["load_samples", "load_chain_stats", "load_idata", "samples_to_idata"]
 
@@ -45,7 +45,7 @@ def load_samples(
     """Load cached samples for the recipe's model.
 
     Cache-only in v1 — no re-run path. Calls ``recipe.load_cached_samples``
-    which delegates to ``tuningfork.reference._io.try_load_cached_draws``.
+    which delegates to ``tuningfork._cache_io.try_load_cached_draws``.
 
     Only GROUNDTRUTH recipes have a populated cache today. For other effort
     tiers, this raises ``FileNotFoundError`` with a pointer to the Phase 0

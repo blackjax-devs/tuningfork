@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the reference cache I/O layer (tuningfork.reference._io).
+"""Tests for the reference cache I/O layer (tuningfork._cache_io).
 
 Tests:
 - Round-trip write/load returns same draws.
@@ -31,8 +31,7 @@ import jax
 import numpy as np
 import pytest
 
-from tuningfork.model import MODELS
-from tuningfork.reference._io import (
+from tuningfork._cache_io import (
     _atomic_write_json,
     _atomic_write_npz,
     _metadata_path,
@@ -41,6 +40,7 @@ from tuningfork.reference._io import (
     get_reference_draws,
     get_reference_summaries,
 )
+from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.fast
 
