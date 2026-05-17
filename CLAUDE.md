@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tuningfork` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. The recipe generation phase is now active; the active plan is [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md) (statistician-authored, 8-table colour-coded effort matrix + supersession map). The library will be open-sourced once the initial set of recipes lands.
 
-Architecture decisions: 14-model suite, calibration protocol (certified reference draws as ground truth, BO over hyperparameters, warmup-only execution), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history + frozen design snapshots (Phases 1-5 plans, audits, retrospectives) live under `../archive/bjx-bench/`.
+Architecture decisions: 14-model suite, calibration protocol (certified reference draws as ground truth, BO over hyperparameters, warmup-only execution), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history is preserved in `worklog/threads/_archive/` under the claude-config project structure; the pre-rename branch is at `bjx-bench-history` on the `tuningfork` remote.
 
 This is a **sibling repo** to `blackjax/` and `sampling-book/`, not a subdir of either. Heavy deps (Optuna, datasets, plotting) live here so `blackjax/` core stays light.
 

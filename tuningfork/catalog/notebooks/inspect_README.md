@@ -1,6 +1,7 @@
 # tuningfork inspect / render — Recipe inspection helpers
 
-User-facing API for inspecting any recipe in `inference/recipes/starter/`.
+User-facing API for inspecting recipes in `tuningfork/catalog/<model>/`.
+The recommended entry point is `from tuningfork.catalog import load_recipe, summarize_recipe`.
 Designed for Jupyter Lab use. Statistician-friendly: minimal wrapper code,
 ArviZ-direct workflow.
 
