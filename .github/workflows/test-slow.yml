@@ -1,9 +1,13 @@
 # Slow tests (post-merge smoke).
 #
-# `pytest -m slow -n 2` on Python 3.13. ~tens of min wall, 30-min timeout.
+# `pytest -m slow -n auto` on Python 3.13. ~tens of min wall, 60-min timeout.
 # Slow tests are JIT-compiled chain runs that would bottleneck PR iteration —
 # gated to push-to-main + manual dispatch only. PRs see only the fast-tests
 # workflow for a tight ~2-min check loop.
+#
+# CI uses -n auto (= 4 on standard GitHub-hosted Ubuntu runners) — half-wall vs -n 2.
+# The Makefile uses -n 2 by design (agent-shell OOM concern, META-010) but
+# CI jobs are isolated processes with 16 GB RAM, so -n auto is safe here.
 #
 # Excluded from CI by design (run locally as merge gate):
 #   * -m e2e                    multi-algo×model harness; tens of min/cell
@@ -25,7 +29,7 @@ jobs:
   test-slow:
     name: test-slow
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -45,4 +49,4 @@ jobs:
       - name: Pytest (slow marker)
         env:
           JAX_PLATFORM_NAME: cpu
-        run: uv run pytest tests -m slow -n 2 -q
+        run: uv run pytest tests -m slow -n auto -q
