@@ -5,7 +5,7 @@ Recipe hash:   $recipe_hash
 Effort:        $effort
 Verdict:       $verdict (expected; pinned at recipe-emission time)
 
-This script is STANDALONE -- zero `import tuningfork`. Run with:
+This script is STANDALONE -- no tuningfork dependency in the inference path. Run with:
     uv run --with jax --with blackjax --with numpyro python <this_script>.py
 """
 import jax
