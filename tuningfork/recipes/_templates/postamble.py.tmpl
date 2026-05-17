@@ -1,0 +1,6 @@
+# Print headline diagnostics for verification.
+import arviz as az
+_n_div = int(jnp.sum(_infos.is_divergent))
+print(f"[recipe='$recipe_id'] n_divergences={_n_div}")
+# Naive scalar verdict signal -- sufficient for the round-trip CI gate.
+print("DONE")

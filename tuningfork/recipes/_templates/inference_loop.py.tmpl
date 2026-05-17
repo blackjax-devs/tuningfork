@@ -1,0 +1,9 @@
+@jax.jit
+def _one_step(state, rng_key):
+    state, info = kernel(rng_key, state)
+    return state, (state, info)
+
+
+_NUM_SAMPLES = $num_samples
+_inference_keys = jax.random.split(jax.random.key($sampler_seed), _NUM_SAMPLES)
+_, (_samples, _infos) = jax.lax.scan(_one_step, _state_post_warmup, _inference_keys)
