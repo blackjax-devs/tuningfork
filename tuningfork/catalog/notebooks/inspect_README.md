@@ -30,7 +30,7 @@ recipes specifically the sample_stats are **further enriched** with
 from `num_trajectory_expansions` ≥ `max_num_doublings`).
 
 See `inspect_example.md` for a full worked example.
-See `notebooks/recipe_diagnostics.md` (one directory up) for the parametrized template.
+See `recipe_diagnostics.md` (in this directory) for the parametrized template.
 
 ## API
 
@@ -117,13 +117,15 @@ ArviZ calls are direct (`az.plot_trace`, `az.summary`, `az.plot_rank`,
 
 ```
 tuningfork/
-├── inspect.py           # load_recipe, summarize_recipe
-└── render.py            # load_samples, load_chain_stats, load_idata, samples_to_idata
-
-notebooks/
-├── inspect_README.md    # this file
-├── inspect_example.md   # worked example notebook (jupytext .md)
-└── recipe_diagnostics.md  # parametrized template notebook
+└── catalog/
+    ├── __init__.py          # re-exports: load_recipe, load_idata, ...
+    ├── inspect.py           # load_recipe, summarize_recipe
+    ├── render.py            # load_samples, load_chain_stats, load_idata, samples_to_idata
+    ├── diagnostics.py       # ArviZ family-aware diagnostic renderers
+    └── notebooks/
+        ├── inspect_README.md    # this file
+        ├── inspect_example.md   # worked example notebook (jupytext .md)
+        └── recipe_diagnostics.md  # parametrized template notebook
 ```
 
 ## Version history
