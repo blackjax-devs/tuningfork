@@ -16,6 +16,18 @@
 See _base.py for the recipe schema and effort tier definitions.
 """
 
-from tuningfork.recipes._base import Effort, Recipe
+from tuningfork.recipes._base import (
+    AttemptedConfig,
+    Effort,
+    FailureDiagnosis,
+    Recipe,
+    RecipeFailedError,
+)
 
-__all__ = ["Recipe", "Effort"]
+__all__ = [
+    "Recipe",
+    "Effort",
+    "FailureDiagnosis",
+    "AttemptedConfig",
+    "RecipeFailedError",
+]

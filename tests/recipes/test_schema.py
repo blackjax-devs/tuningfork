@@ -32,7 +32,13 @@ import pytest
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.calibration.tune import default_params_for
 from tuningfork.model import MODELS
-from tuningfork.recipes import Effort, Recipe
+from tuningfork.recipes import (
+    AttemptedConfig,
+    Effort,
+    FailureDiagnosis,
+    Recipe,
+    RecipeFailedError,
+)
 from tuningfork.recipes._instructions import render_instructions
 
 # Path to the committed starter recipes
@@ -897,3 +903,212 @@ def test_try_load_cached_draws_returns_none_when_n_too_large(tmp_path: Path) -> 
     # n=100 > 50 → cache miss
     result = try_load_cached_draws(posterior, n=100, cache_dir=tmp_path)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Tests for FAILED recipes (R1 restructure phase)
+# ---------------------------------------------------------------------------
+
+
+class TestFailedRecipe:
+    """Coverage for the FAILED effort tier + forking-path log."""
+
+    @pytest.mark.fast
+    def test_effort_enum_has_five_values(self) -> None:
+        """Effort now has LOW, MEDIUM, HIGH, GROUNDTRUTH, FAILED."""
+        assert set(Effort) == {
+            Effort.LOW,
+            Effort.MEDIUM,
+            Effort.HIGH,
+            Effort.GROUNDTRUTH,
+            Effort.FAILED,
+        }
+        assert Effort.FAILED == "failed"
+
+    @pytest.mark.fast
+    def test_failure_diagnosis_enum_has_five_values(self) -> None:
+        """FailureDiagnosis covers the 5 canonical buckets."""
+        assert set(FailureDiagnosis) == {
+            FailureDiagnosis.OUT_OF_SCOPE,
+            FailureDiagnosis.REQUIRES_ALT_SAMPLER,
+            FailureDiagnosis.REQUIRES_MODEL_CHANGE,
+            FailureDiagnosis.TRIVIAL_FIX_DEFERRED,
+            FailureDiagnosis.HARD_DIRECTION,
+        }
+
+    @pytest.mark.fast
+    def test_attempted_config_round_trips_via_asdict(self) -> None:
+        """AttemptedConfig serializes and deserializes cleanly."""
+        cfg = AttemptedConfig(
+            base_method_params={"step_size": 0.01},
+            warmup_params={"n_warmup": 1000},
+            seed=42,
+            gate_verdict={
+                "verdict": "FAIL",
+                "rhat_max": 1.05,
+                "min_bulk_ess": 287.0,
+                "n_divergences": 0,
+            },
+            wall_seconds=95.0,
+            note="closest attempt",
+        )
+        roundtrip = AttemptedConfig(**dataclasses.asdict(cfg))
+        assert roundtrip == cfg
+
+    @pytest.mark.fast
+    def test_recipe_failed_round_trip(self, tmp_path: Path) -> None:
+        """A FAILED Recipe save → load round-trip preserves new fields."""
+        recipe = Recipe(
+            model_name="stoch_vol",
+            base_method_name="mclmc",
+            warmup_name="mclmc_tuning",
+            effort=Effort.FAILED,
+            failure_diagnosis=FailureDiagnosis.HARD_DIRECTION,
+            attempted_configurations=[
+                AttemptedConfig(
+                    base_method_params={"step_size": 0.01, "L": 5.0},
+                    warmup_params={"n_warmup": 1000},
+                    seed=42,
+                    gate_verdict={
+                        "verdict": "FAIL",
+                        "rhat_max": 1.18,
+                        "min_bulk_ess": 42.1,
+                        "n_divergences": 0,
+                    },
+                    wall_seconds=89.0,
+                    note="default MCLMC tuning — ESS too low",
+                ),
+                AttemptedConfig(
+                    base_method_params={"step_size": 0.001, "L": 5.0},
+                    warmup_params={"n_warmup": 1000},
+                    seed=42,
+                    gate_verdict={
+                        "verdict": "FAIL",
+                        "rhat_max": 1.04,
+                        "min_bulk_ess": 287.0,
+                        "n_divergences": 0,
+                    },
+                    wall_seconds=95.0,
+                    note="10× smaller step_size — closest attempt",
+                ),
+            ],
+            workflow="MCLMC on 503-D stoch_vol — 2 forking paths attempted, neither cleared the gate.",
+            base_method_params={"step_size": 0.001, "L": 5.0},
+            warmup_params={"n_warmup": 1000},
+            headline_metric=None,
+            sample_quality=None,
+            calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
+            difficulty=None,
+            instructions="test instructions",
+            tuning_seed=42,
+            tuningfork_version="0.0.0.dev0",
+            blackjax_version="1.0.0",
+            jax_version="0.4.0",
+            timestamp_utc="2026-01-01T00:00:00Z",
+        )
+
+        # save() creates a directory structure, returns the full path
+        saved_path = recipe.save(tmp_path)
+
+        loaded = Recipe.load(saved_path)
+        assert loaded.effort == Effort.FAILED
+        assert loaded.failure_diagnosis == FailureDiagnosis.HARD_DIRECTION
+        assert len(loaded.attempted_configurations) == 2
+        assert loaded.attempted_configurations[0].seed == 42
+        assert (
+            loaded.attempted_configurations[1].note
+            == "10× smaller step_size — closest attempt"
+        )
+
+    @pytest.mark.fast
+    def test_is_failed_method(self) -> None:
+        """is_failed() returns True only for FAILED recipes."""
+        recipe_failed = Recipe(
+            model_name="mvn_10",
+            base_method_name="mclmc",
+            warmup_name="mclmc_tuning",
+            effort=Effort.FAILED,
+            failure_diagnosis=FailureDiagnosis.HARD_DIRECTION,
+            base_method_params={"step_size": 0.01},
+            warmup_params={"n_warmup": 1000},
+            headline_metric=None,
+            sample_quality=None,
+            calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
+            difficulty=None,
+            instructions="test instructions",
+        )
+        assert recipe_failed.is_failed()
+
+        recipe_low = Recipe(
+            model_name="mvn_10",
+            base_method_name="nuts",
+            warmup_name="no_warmup",
+            effort=Effort.LOW,
+            base_method_params={"step_size": 0.1},
+            warmup_params={},
+            headline_metric=None,
+            sample_quality=None,
+            calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
+            difficulty=None,
+            instructions="test instructions",
+        )
+        assert not recipe_low.is_failed()
+
+    @pytest.mark.fast
+    def test_recipe_failed_error_carries_recipe(self) -> None:
+        """RecipeFailedError records the recipe + diagnosis in its message."""
+        recipe = Recipe(
+            model_name="mvn_10",
+            base_method_name="mclmc",
+            warmup_name="mclmc_tuning",
+            effort=Effort.FAILED,
+            failure_diagnosis=FailureDiagnosis.OUT_OF_SCOPE,
+            base_method_params={"step_size": 0.01},
+            warmup_params={"n_warmup": 1000},
+            headline_metric=None,
+            sample_quality=None,
+            calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
+            difficulty=None,
+            instructions="test instructions",
+        )
+        with pytest.raises(RecipeFailedError) as exc_info:
+            raise RecipeFailedError(recipe)
+        assert "FAILED" in str(exc_info.value)
+        assert "out_of_scope" in str(exc_info.value)
+        assert exc_info.value.recipe is recipe
+
+    @pytest.mark.fast
+    def test_prior_recipe_loads_with_default_new_fields(self, tmp_path: Path) -> None:
+        """A pre-R1 recipe JSON (no failure_diagnosis, no attempted_configurations)
+        loads cleanly with the new fields defaulting to None / []."""
+        # Build a JSON dict matching the pre-R1 schema — i.e., a LOW recipe
+        # omitting the two new fields. Save it as a temp file, then load.
+        pre_r1_json = {
+            "model_name": "mvn_10",
+            "base_method_name": "nuts",
+            "warmup_name": "no_warmup",
+            "effort": "low",
+            "base_method_params": {"step_size": 0.1},
+            "warmup_params": {},
+            "headline_metric": None,
+            "sample_quality": None,
+            "calibration_budget": {"trials": 0, "wall_seconds_estimate": 0.0},
+            "difficulty": None,
+            "instructions": "test instructions",
+            "notes": "",
+            "tuning_seed": 0,
+            "tuningfork_version": "0.0.0.dev0",
+            "blackjax_version": "1.0.0",
+            "jax_version": "0.4.0",
+            "timestamp_utc": "2026-01-01T00:00:00Z",
+            # Missing: failure_diagnosis, attempted_configurations
+        }
+
+        recipe_path = tmp_path / "mvn_10" / "low__nuts__no_warmup.json"
+        recipe_path.parent.mkdir(parents=True, exist_ok=True)
+        recipe_path.write_text(json.dumps(pre_r1_json))
+
+        # Load should succeed and fill in defaults
+        loaded = Recipe.load(recipe_path)
+        assert loaded.failure_diagnosis is None
+        assert loaded.attempted_configurations == []
