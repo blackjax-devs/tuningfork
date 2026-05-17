@@ -87,8 +87,8 @@ def load_samples(
     return result
 
 
-# Re-export from tuningfork.diagnostics for convenience so the notebook
-# only needs to import from tuningfork.render.
+# Re-export from tuningfork.catalog.diagnostics for convenience so the notebook
+# only needs to import from tuningfork.catalog.render.
 def load_chain_stats(
     recipe: Any,
     *,
@@ -169,8 +169,8 @@ def load_idata(
 
     Recommended one-call helper for the statistician check workflow:
 
-        from tuningfork.inspect import load_recipe
-        from tuningfork.render import load_idata
+        from tuningfork.catalog.inspect import load_recipe
+        from tuningfork.catalog.render import load_idata
         import arviz as az
 
         recipe = load_recipe("inference/recipes/starter/.../groundtruth__nuts__stan_window.json")
@@ -238,7 +238,7 @@ def load_idata(
         import warnings
 
         warnings.warn(
-            f"tuningfork.render.load_idata: applied cert-protocol reshape "
+            f"tuningfork.catalog.render.load_idata: applied cert-protocol reshape "
             f"({n_total} draws from 1 chain) → ({n_chunks} chains × {per_chunk} draws). "
             f"This matches the certification protocol's split-R̂ chunking and lets "
             f"az.summary(idata) compute r_hat directly. Pass n_chunks=1 to "
@@ -257,7 +257,7 @@ def samples_to_idata(
 ) -> Any:
     """Convert a samples dict to ``arviz.InferenceData``.
 
-    Convenience re-export of ``tuningfork.diagnostics.samples_to_idata``.
+    Convenience re-export of ``tuningfork.catalog.diagnostics.samples_to_idata``.
     The default ``is_multichain=False`` matches the shape returned by
     ``load_samples`` (shape ``(n_samples, *event_shape)`` — single-chain
     reference draws that get promoted to ``(1, n_samples, *event_shape)``
@@ -297,7 +297,7 @@ def samples_to_idata(
         Posterior group populated from ``samples_dict``; sample_stats group
         populated from ``chain_stats`` when provided.
     """
-    from tuningfork.diagnostics import samples_to_idata as _samples_to_idata
+    from tuningfork.catalog.diagnostics import samples_to_idata as _samples_to_idata
 
     return _samples_to_idata(
         samples_dict,

@@ -37,8 +37,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 import arviz as az
-from tuningfork.inspect import load_recipe, summarize_recipe
-from tuningfork.render import load_idata
+from tuningfork.catalog.inspect import load_recipe, summarize_recipe
+from tuningfork.catalog.render import load_idata
 
 matplotlib.use("Agg")
 plt.rcParams["axes.spines.right"] = False

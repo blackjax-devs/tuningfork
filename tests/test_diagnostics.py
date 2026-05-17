@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Smoke tests for tuningfork.diagnostics family renderers.
+"""Smoke tests for tuningfork.catalog.diagnostics family renderers.
 
 Each family renderer is tested independently to catch axis-shape and
 ArviZ-import regressions cheaply.
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from tuningfork.diagnostics import (
+from tuningfork.catalog.diagnostics import (
     render_gradient_mh,
     render_mclmc_family,
     render_smc_family,
