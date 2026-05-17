@@ -1,0 +1,10 @@
+# === WARMUP: stan_window (target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
+_warmup = blackjax.window_adaptation(
+    blackjax.nuts,
+    logdensity_fn,
+    target_acceptance_rate=$target_acceptance_rate,
+    progress_bar=False,
+)
+(_state_post_warmup, _adapted_params), _ = _warmup.run(
+    jax.random.key($tuning_seed), init_position, $n_warmup
+)
