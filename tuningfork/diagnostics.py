@@ -201,7 +201,7 @@ def samples_to_idata(
         ``n_chunks > 1`` (chunk-split implies single-chain input).
     chain_stats
         Optional per-step diagnostic dict from NUTS (e.g. as persisted to
-        ``reference/chain_stats/<name>.npz`` by the cert pipeline). Known
+        ``reference/<name>/chain_stats.npz`` by the cert pipeline). Known
         per-step scalar fields (``is_divergent``, ``energy``,
         ``acceptance_rate``, ``num_integration_steps``) are renamed per
         ArviZ's canonical sample_stats schema (``diverging``, ``energy``,

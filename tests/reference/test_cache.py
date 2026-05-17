@@ -70,7 +70,7 @@ class TestRoundTrip:
     def test_draws_written_to_npz(self, tmp_path: Path) -> None:
         key = jax.random.key(1)
         get_reference_draws(MVN_ENTRY, n=N_SMALL, rng_key=key, cache_dir=tmp_path)
-        npz_path = tmp_path / "draws" / "mvn_10.npz"
+        npz_path = tmp_path / "mvn_10" / "draws.npz"
         assert npz_path.exists(), "draws npz not written"
 
     def test_metadata_written(self, tmp_path: Path) -> None:
@@ -192,7 +192,7 @@ class TestEnvOverride:
         # cache_dir=None → should read from env
         draws = get_reference_draws(MVN_ENTRY, n=N_SMALL, rng_key=key)
         assert draws["x"].shape == (N_SMALL, 10)
-        assert (tmp_path / "draws" / "mvn_10.npz").exists()
+        assert (tmp_path / "mvn_10" / "draws.npz").exists()
         monkeypatch.delenv("TUNINGFORK_REFERENCE_DIR")
 
     def test_explicit_cache_dir_overrides_env(
@@ -208,7 +208,7 @@ class TestEnvOverride:
         )
         assert draws["x"].shape == (N_SMALL, 10)
         # artifact written in alt_dir, not env dir
-        assert (alt_dir / "draws" / "mvn_10.npz").exists()
+        assert (alt_dir / "mvn_10" / "draws.npz").exists()
         monkeypatch.delenv("TUNINGFORK_REFERENCE_DIR")
 
 

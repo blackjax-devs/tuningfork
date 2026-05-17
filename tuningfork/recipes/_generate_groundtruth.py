@@ -110,9 +110,9 @@ def generate_groundtruth_recipe(
 
     Side effects
     ------------
-    Populates ``reference/{draws,summaries,metadata}/<name>``; for NUTS-path
-    also populates ``reference/adaptation/<name>`` and saves recipe JSON (and
-    optional IMM sidecar) under ``recipe_root/<name>/``.
+    Populates ``reference/<name>/{draws.npz,summary.json,metadata.json}``;
+    for NUTS-path also populates ``reference/<name>/adaptation.json`` and
+    saves recipe JSON (and optional IMM sidecar) under ``recipe_root/<name>/``.
 
     Raises
     ------
