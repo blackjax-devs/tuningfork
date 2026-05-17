@@ -1,4 +1,4 @@
-# tuningfork.notebooks — Recipe inspection helpers
+# tuningfork inspect / render — Recipe inspection helpers
 
 User-facing API for inspecting any recipe in `inference/recipes/starter/`.
 Designed for Jupyter Lab use. Statistician-friendly: minimal wrapper code,
@@ -7,7 +7,8 @@ ArviZ-direct workflow.
 ## Quick start (4 lines in a Jupyter cell)
 
 ```python
-from tuningfork.notebooks import load_recipe, load_idata, summarize_recipe
+from tuningfork.inspect import load_recipe, summarize_recipe
+from tuningfork.render import load_idata
 import arviz as az
 
 recipe = load_recipe("tuningfork/inference/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json")
@@ -115,16 +116,15 @@ ArviZ calls are direct (`az.plot_trace`, `az.summary`, `az.plot_rank`,
 ## File layout
 
 ```
-tuningfork/notebooks/
-├── __init__.py          # re-exports the 6 public helpers
+tuningfork/
 ├── inspect.py           # load_recipe, summarize_recipe
-├── render.py            # load_samples, load_chain_stats, load_idata, samples_to_idata
-├── README.md            # this file
-└── inspect_example.md   # worked example notebook (jupytext .md)
-```
+└── render.py            # load_samples, load_chain_stats, load_idata, samples_to_idata
 
-The parametrized template notebook lives at `notebooks/recipe_diagnostics.md`
-(one level up, alongside the notebooks/ source directory).
+notebooks/
+├── inspect_README.md    # this file
+├── inspect_example.md   # worked example notebook (jupytext .md)
+└── recipe_diagnostics.md  # parametrized template notebook
+```
 
 ## Version history
 

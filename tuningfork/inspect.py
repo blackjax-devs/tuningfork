@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Recipe inspection helpers for the tuningfork.notebooks public API.
+"""Recipe inspection helpers (load_recipe, summarize_recipe).
 
 Provides ``load_recipe`` and ``summarize_recipe`` — the two functions a
 statistician calls at the top of a diagnostics notebook to orient themselves
