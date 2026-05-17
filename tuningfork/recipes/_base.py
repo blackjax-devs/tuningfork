@@ -205,7 +205,8 @@ class RecipeFailedError(RuntimeError):
 class Recipe:
     """A pinned (model, base_method, warmup) configuration with provenance.
 
-    Stored as JSON at ``inference/recipes/starter/<model>/<effort>__<method>__<warmup>.json``.
+    Stored as JSON at ``catalog/<model>/recipes/<effort>__<method>__<warmup>.json``
+    (or ``catalog/<model>/groundtruth.json`` for ``effort=GROUNDTRUTH``).
     Loaded via ``Recipe.load(path)``; saved via ``recipe.save(root)``.
 
     Parameters
