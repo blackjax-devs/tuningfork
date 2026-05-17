@@ -16,7 +16,7 @@ kernelspec:
 This notebook shows the full ArviZ-direct inspection flow for the
 `eight_schools_ncp` NUTS groundtruth recipe — the canonical Phase 0 reference.
 
-It uses `tuningfork.inspect` + `tuningfork.render` (4 functions) and then calls ArviZ directly.
+It uses `tuningfork.catalog` (load_recipe, load_idata, summarize_recipe) (4 functions) and then calls ArviZ directly.
 No custom render functions; no custom wrapper code.
 
 Reference: [sampling-book change-of-variable HMC](https://blackjax-devs.github.io/sampling-book/models/change-of-variable-hmc/#arviz-plots)
@@ -28,8 +28,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 import arviz as az
-from tuningfork.inspect import load_recipe, summarize_recipe
-from tuningfork.render import load_idata
+from tuningfork.catalog.inspect import load_recipe, summarize_recipe
+from tuningfork.catalog.render import load_idata
 
 matplotlib.use("Agg")
 plt.rcParams["figure.figsize"] = (10, 6)

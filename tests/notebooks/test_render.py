@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Fast tests for tuningfork.render (load_samples, samples_to_idata).
+"""Fast tests for tuningfork.catalog.render (load_samples, samples_to_idata).
 
 All tests are pure logic / schema — no JAX trace, no real chain runs.
 samples_to_idata is tested with numpy arrays (no JAX compilation).
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.fast
 
 def test_samples_to_idata_single_chain_default() -> None:
     """samples_to_idata promotes (n_draws, *event) to (1, n_draws, *event)."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(0)
     samples = {
@@ -55,7 +55,7 @@ def test_samples_to_idata_single_chain_default() -> None:
 
 def test_samples_to_idata_n_chunks_reshapes_single_to_multichain() -> None:
     """samples_to_idata with n_chunks=4 splits a 4000-draw chain into 4×1000."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(0)
     samples = {
@@ -72,7 +72,7 @@ def test_samples_to_idata_n_chunks_reshapes_single_to_multichain() -> None:
 
 def test_samples_to_idata_n_chunks_truncates_remainder() -> None:
     """When n_draws is not divisible by n_chunks, the remainder is dropped."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(0)
     # 4003 % 4 = 3 → expect drop the trailing 3 draws, reshape to (4, 1000)
@@ -84,7 +84,7 @@ def test_samples_to_idata_n_chunks_truncates_remainder() -> None:
 
 def test_samples_to_idata_n_chunks_reshapes_chain_stats_consistently() -> None:
     """sample_stats arrays are reshaped to the same (n_chunks, per_chunk) layout."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(0)
     n_total = 4000
@@ -111,7 +111,7 @@ def test_samples_to_idata_n_chunks_reshapes_chain_stats_consistently() -> None:
 
 def test_samples_to_idata_multichain() -> None:
     """samples_to_idata with is_multichain=True preserves (n_chains, n_draws, *event)."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(1)
     samples = {
@@ -127,7 +127,7 @@ def test_samples_to_idata_multichain() -> None:
 
 def test_samples_to_idata_dimension_labels() -> None:
     """samples_to_idata produces an idata object with chain and draw dimensions."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(42)
     samples = {"x": rng.standard_normal((200, 5))}
@@ -147,7 +147,7 @@ def test_samples_to_idata_dimension_labels() -> None:
 
 def test_load_samples_cache_miss_raises_file_not_found() -> None:
     """load_samples raises FileNotFoundError with a clear message on cache miss."""
-    from tuningfork.render import load_samples
+    from tuningfork.catalog.render import load_samples
 
     mock_recipe = MagicMock()
     mock_recipe.model_name = "mvn_10"
@@ -161,7 +161,7 @@ def test_load_samples_cache_miss_raises_file_not_found() -> None:
 
 def test_load_samples_cache_miss_message_points_to_docs() -> None:
     """load_samples error message mentions recipe_diagnostics.md or Phase 0."""
-    from tuningfork.render import load_samples
+    from tuningfork.catalog.render import load_samples
 
     mock_recipe = MagicMock()
     mock_recipe.model_name = "some_model"
@@ -180,7 +180,7 @@ def test_load_samples_cache_miss_message_points_to_docs() -> None:
 
 def test_load_samples_cache_hit_returns_dict() -> None:
     """load_samples returns the dict from recipe.load_cached_samples on cache hit."""
-    from tuningfork.render import load_samples
+    from tuningfork.catalog.render import load_samples
 
     fake_draws = {
         "mu": np.ones((1000, 8)),
@@ -199,7 +199,7 @@ def test_load_samples_passes_cache_dir_override() -> None:
     """load_samples forwards cache_dir kwarg to recipe.load_cached_samples."""
     from pathlib import Path
 
-    from tuningfork.render import load_samples
+    from tuningfork.catalog.render import load_samples
 
     fake_draws = {"x": np.zeros((100,))}
     mock_recipe = MagicMock()
@@ -221,7 +221,7 @@ def test_samples_to_idata_with_chain_stats_populates_sample_stats() -> None:
     renamed fields (is_divergent → diverging, num_integration_steps → n_steps,
     num_trajectory_expansions → tree_depth, energy → energy,
     acceptance_rate → acceptance_rate, is_turning → tuningfork_is_turning)."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(7)
     n_draws = 200
@@ -263,8 +263,8 @@ def test_load_idata_groundtruth_enrichment(monkeypatch) -> None:
     """For GROUNDTRUTH recipes, load_idata enriches sample_stats with
     step_size (broadcast from adapted scalar) and reached_max_treedepth
     (derived from num_trajectory_expansions vs max_num_doublings)."""
+    from tuningfork.catalog.render import load_idata
     from tuningfork.recipes._base import Effort
-    from tuningfork.render import load_idata
 
     rng = np.random.default_rng(23)
     n_draws = 100
@@ -285,7 +285,7 @@ def test_load_idata_groundtruth_enrichment(monkeypatch) -> None:
     mock_recipe.warmup_params = {"max_num_doublings": 10}
 
     monkeypatch.setattr(
-        "tuningfork.render.try_load_cached_chain_stats",
+        "tuningfork.catalog.render.try_load_cached_chain_stats",
         lambda entry, cache_dir=None: fake_chain_stats,
     )
 
@@ -313,7 +313,7 @@ def test_load_idata_groundtruth_enrichment(monkeypatch) -> None:
 
 def test_samples_to_idata_with_partial_chain_stats() -> None:
     """If only a subset of fields is present in chain_stats, only those map to sample_stats."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(11)
     samples = {"x": rng.standard_normal((100, 2))}
@@ -329,7 +329,7 @@ def test_samples_to_idata_with_partial_chain_stats() -> None:
 
 def test_samples_to_idata_no_chain_stats_no_sample_stats_group() -> None:
     """Default behaviour (chain_stats=None) — no sample_stats group attached."""
-    from tuningfork.render import samples_to_idata
+    from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(13)
     samples = {"x": rng.standard_normal((100,))}
@@ -354,7 +354,7 @@ def test_samples_to_idata_no_chain_stats_no_sample_stats_group() -> None:
 
 def test_load_idata_combines_samples_and_chain_stats(monkeypatch) -> None:
     """load_idata bundles load_samples + load_chain_stats + samples_to_idata."""
-    from tuningfork.render import load_idata
+    from tuningfork.catalog.render import load_idata
 
     rng = np.random.default_rng(17)
     n_draws = 150
@@ -371,11 +371,11 @@ def test_load_idata_combines_samples_and_chain_stats(monkeypatch) -> None:
     mock_recipe.model_name = "mvn_10"
 
     # Mock try_load_cached_chain_stats via the MODELS lookup path.
-    # tuningfork.render.load_chain_stats does:
+    # tuningfork.catalog.render.load_chain_stats does:
     #   MODELS[recipe.model_name] → try_load_cached_chain_stats(entry)
-    # Patch the eager-imported name in tuningfork.render (used by load_chain_stats).
+    # Patch the eager-imported name in tuningfork.catalog.render (used by load_chain_stats).
     monkeypatch.setattr(
-        "tuningfork.render.try_load_cached_chain_stats",
+        "tuningfork.catalog.render.try_load_cached_chain_stats",
         lambda entry, cache_dir=None: fake_chain_stats,
     )
 
@@ -392,7 +392,7 @@ def test_load_idata_combines_samples_and_chain_stats(monkeypatch) -> None:
 
 def test_load_idata_missing_chain_stats_returns_posterior_only(monkeypatch) -> None:
     """load_idata is robust to chain_stats cache miss — returns idata with only posterior."""
-    from tuningfork.render import load_idata
+    from tuningfork.catalog.render import load_idata
 
     rng = np.random.default_rng(19)
     fake_samples = {"x": rng.standard_normal((100, 2))}
@@ -403,7 +403,7 @@ def test_load_idata_missing_chain_stats_returns_posterior_only(monkeypatch) -> N
 
     # chain_stats cache miss → try_load returns None
     monkeypatch.setattr(
-        "tuningfork.render.try_load_cached_chain_stats",
+        "tuningfork.catalog.render.try_load_cached_chain_stats",
         lambda entry, cache_dir=None: None,
     )
 

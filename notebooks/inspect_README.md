@@ -7,8 +7,8 @@ ArviZ-direct workflow.
 ## Quick start (4 lines in a Jupyter cell)
 
 ```python
-from tuningfork.inspect import load_recipe, summarize_recipe
-from tuningfork.render import load_idata
+from tuningfork.catalog.inspect import load_recipe, summarize_recipe
+from tuningfork.catalog.render import load_idata
 import arviz as az
 
 recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/groundtruth.json")
@@ -94,7 +94,7 @@ should call `load_idata` instead — this exists for diagnostic deep-dives.
 
 ### `samples_to_idata(samples, is_multichain=False, chain_stats=None)`
 
-Re-export of `tuningfork.diagnostics.samples_to_idata`. The default
+Re-export of `tuningfork.catalog.diagnostics.samples_to_idata`. The default
 `is_multichain=False` matches the shape returned by `load_samples`
 (single-chain reference draws, shape `(n_samples, *event_shape)`), which gets
 promoted to `(1, n_samples, *event_shape)` for ArviZ.

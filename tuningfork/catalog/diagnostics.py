@@ -115,7 +115,7 @@ GRADIENT_MH_WITH_ENERGY = {"nuts", "hmc", "mhmc", "dynamic_hmc", "dmhmc", "rmhmc
 # Of these, blackjax's NUTSInfo persists: is_divergent, is_turning, energy,
 # num_trajectory_expansions (= tree_depth), num_integration_steps (= n_steps),
 # acceptance_rate. Step size + reached_max_treedepth are derived in
-# ``tuningfork.render.load_idata`` from the recipe's adapted params +
+# ``tuningfork.catalog.render.load_idata`` from the recipe's adapted params +
 # warmup_params['max_num_doublings'].
 _CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
     # Direct NUTSInfo._fields → ArviZ canonical
@@ -128,7 +128,7 @@ _CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
     # prefixed name so downstream consumers can opt in but it doesn't
     # collide with the schema.
     "is_turning": "tuningfork_is_turning",
-    # Derived fields (enrichment in tuningfork.render.load_idata for
+    # Derived fields (enrichment in tuningfork.catalog.render.load_idata for
     # GROUNDTRUTH recipes) — identity renames so they pass through this
     # projection without dropping:
     "step_size": "step_size",
