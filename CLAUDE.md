@@ -194,7 +194,7 @@ Per user direction (2026-05-07; **amended 2026-05-11** per [`worklog/decisions/2
 - **Cert failure policy**: when a model fails cert at default `n_samples`, escalate to the statistician (`STATISTICIAN_BAYESIAN_WORKFLOW.md` + `STATISTICIAN_DIAGNOSTICS_RECIPE.md`). Do NOT brute-force the gate by inflating `n_samples` — `min_ess` is an absolute threshold and bumping `n` is gate-gaming, not diagnostic validation.
 - **Cache invalidation policy**: do NOT pre-emptively delete cache entries when the spec changes. Existing entries remain valid for their original purpose (metadata.json records actual `num_samples`). When a downstream consumer needs different data, trigger fresh via `force_regenerate=True`; the statistician — not the engineer — has authority to mark a cached groundtruth as "needs redo" based on chain_stats pathology.
 - **Multimodal exception**: model #11 (25-mode Gaussian mixture) cannot use single-chain — uses parallel-tempered SMC + 8 well-separated cold restarts, with mode-coverage check (each of 25 modes ≥ 1% of draws).
-- **Posteriordb cross-check** for #3, #6, #10: compare own marginal mean/std/5%/95% to Stan reference; tolerance |Δmean|<2 SE, |std ratio − 1|<0.05; discrepancies logged to `reference/<model>/xcheck.json`.
+- **Posteriordb cross-check** for #3, #6, #10: compare own marginal mean/std/5%/95% to Stan reference; tolerance |Δmean|<2 SE, |std ratio − 1|<0.05; discrepancies logged to `catalog/<model>/reference/xcheck.json`.
 
 ## Worklog
 
