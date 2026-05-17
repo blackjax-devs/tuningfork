@@ -68,54 +68,69 @@ For full contributor guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Architecture
 
-Source layout (top-level subpackages of `tuningfork/`):
+Source layout (top-level subpackages of `tuningfork/`). Post-R3 two-layer
+split (2026-05-17): **generator layer** (wiring code that produces recipes)
+vs **catalog layer** (artifacts + user-facing helpers that consume them).
 
 ```
 tuningfork/
-├── model/                     # 14 Posterior definitions; MODELS + MODELS_BY_FAMILY registry
-├── base_method/               # 24 wrappers — see ENTRIES list below
+│   # ─────────── GENERATOR LAYER (produces recipes) ───────────
+├── model/                     # 14 Posterior definitions
+│   ├── _registry.py           # MODELS + MODELS_BY_FAMILY assembly
+│   ├── _base.py, _numpyro.py  # Posterior schema + logdensity builder
+│   ├── _data/                 # raw input datasets (CSV/NPZ; was tuningfork/data/)
+│   ├── <model>.py × 14        # one file per model (banana, eight_schools_ncp, ...)
+│   └── __init__.py            # thin re-export from _registry
+├── base_method/               # 24 sampler wrappers — see ENTRIES list below
 ├── warmup/                    # 10 warmup wrappers — see ENTRIES list below
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
-├── recipes/                   # Recipe schema (code-only post R2): _base.py, _instructions.py,
-│                              #   _generate_starter.py, _generate_groundtruth.py
-├── data/                      # raw datasets + generation scripts
-├── catalog/                   # PER-MODEL artifact library (post-R2 layout, 2026-05-17)
-│   └── <model>/               # one stop per certified model
-│       ├── groundtruth.json   # committed; canonical groundtruth recipe pin
-│       ├── groundtruth.imm.npz # committed; high-dim IMM sidecar (where applicable)
-│       ├── reference/         # committed cert artifacts
-│       │   ├── metadata.json  # cache-validity stamp
-│       │   ├── summary.json   # mean/std/percentiles
-│       │   ├── adaptation.json # NUTS-path only
-│       │   └── xcheck.json    # posteriordb cross-check (where applicable)
-│       ├── recipes/           # per-cell recipes (post Recipe Phase 1+)
-│       │   ├── low__*.json, medium__*.json, high__*.json, failed__*.json
-│       └── _cache/            # gitignored runtime cache
-│           ├── draws.npz      # 100k-sample chains
-│           ├── chain_stats.npz # per-step NUTS diagnostics
-│           └── warmup_checkpoint/  # warmup mid-run checkpoints
-├── reference/                 # cache-io code (will collapse into _cache_io.py in R3)
-│   ├── _io.py                 # path helpers + get_reference_draws
-│   └── _posteriordb_xcheck.py # posteriordb cross-check logic
-├── calibration/
-│   ├── certify_reference.py        # 1×100k NUTS, 10-chunk split-R̂ certifier
-│   ├── certify_reference_analytic.py  # analytic-path certifier
-│   ├── tune.py                       # Optuna BO loop
-│   └── statistician_gate.py          # auto-gate (R̂/ESS/divergences/max_abs_mean_z)
-├── metrics/
-│   ├── headline.py            # min-bulk-ESS / total_grad_evals
-│   └── grad_counter.py        # logdensity_fn wrapper that counts grad evals
-├── runner/
-│   └── smc.py                 # init_particles_from_prior + run_smc helpers
-├── inspect.py                 # User-facing: load_recipe, summarize_recipe
-├── render.py                  # User-facing: load_samples, load_chain_stats, load_idata, samples_to_idata
-└── cli.py                     # tuningfork reference / warmup / tune subcommands
+├── recipes/                   # Recipe schema + generators (CODE ONLY)
+│   ├── _base.py, _instructions.py
+│   └── _generate_starter.py, _generate_groundtruth.py
+├── calibration/               # cert + Optuna BO + auto-gate
+│   ├── certify_reference.py, certify_reference_analytic.py
+│   ├── tune.py, statistician_gate.py
+├── metrics/                   # headline + grad_counter + reference_compare
+├── runner/smc.py              # SMC init/run helpers
+├── _cache_io.py               # internal cache I/O (was reference/_io.py)
+├── _posteriordb_xcheck.py     # internal posteriordb xcheck (was reference/_posteriordb_xcheck.py)
+├── cli.py                     # CLI: tuningfork reference / warmup / tune
+│
+│   # ─────────── CATALOG LAYER (consumes recipes) ───────────
+└── catalog/                   # USER-FACING SUBPACKAGE
+    ├── __init__.py            # re-exports load_recipe, load_idata, summarize_recipe, ...
+    ├── inspect.py             # load_recipe, summarize_recipe
+    ├── render.py              # load_samples, load_chain_stats, load_idata, samples_to_idata
+    ├── diagnostics.py         # ArviZ family-aware diagnostic renderers
+    ├── notebooks/             # template + example notebooks (was repo-root notebooks/)
+    │   ├── recipe_diagnostics.md   # parametrized inspection template
+    │   ├── inspect_example.md      # worked example
+    │   └── inspect_README.md       # user-API docs
+    └── <model>/               # PER-MODEL ARTIFACTS (from R2)
+        ├── groundtruth.json   # committed; canonical groundtruth recipe pin
+        ├── groundtruth.imm.npz # committed; high-dim IMM sidecar (where applicable)
+        ├── reference/         # committed cert artifacts
+        │   ├── metadata.json, summary.json, adaptation.json, xcheck.json
+        ├── recipes/           # per-cell recipes (post Recipe Phase 1+)
+        │   └── low__*.json, medium__*.json, high__*.json, failed__*.json
+        └── _cache/            # gitignored runtime cache
+            ├── draws.npz, chain_stats.npz
+            └── warmup_checkpoint/
 ```
 
-User-facing template notebooks live at the repo-root `notebooks/` directory
-(`recipe_diagnostics.md`, `inspect_example.md`, `inspect_README.md`) — NOT
-inside the `tuningfork/` source package. As of 2026-05-12, `recipe_diagnostics`
-handles NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
+The generator layer is what tuningfork **uses internally** to produce
+recipes (Phase 0 groundtruth runs, Phase 1+ recipe emission, calibration,
+benchmarks). The catalog layer is what an **external user** imports:
+`from tuningfork.catalog import load_recipe, load_idata, summarize_recipe`
+and reads the per-model artifact subdirs. A regular user never needs to
+know about the generator layer.
+```
+
+User-facing template notebooks live at `tuningfork/catalog/notebooks/`
+(`recipe_diagnostics.md`, `inspect_example.md`, `inspect_README.md`) —
+post-R3 (2026-05-17), they sit inside the catalog subpackage next to the
+recipes they operate on. As of 2026-05-12, `recipe_diagnostics` handles
+NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
 
 ### Inventory
 
