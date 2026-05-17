@@ -342,7 +342,7 @@ Three sub-rows by proposal generator type:
 **Rationale**:
 - gp_regression G: GP latents = Gaussian prior; Laplace marginalizes them exactly; hyperparameter inference via HMC on the marginal. This is the textbook use case.
 - stoch_vol G: AR(1) = Gaussian prior; Laplace marginalizes the volatility path; hyperparameter inference.
-- eight_schools Y, radon Y, irt_2pl Y: hierarchical NCP with Gaussian group-level priors — marginalization is feasible but requires careful theta_init construction from the NCP parameterization; not obvious from the bjx_bench PosteriorEntry schema yet.
+- eight_schools Y, radon Y, irt_2pl Y: hierarchical NCP with Gaussian group-level priors — marginalization is feasible but requires careful theta_init construction from the NCP parameterization; not obvious from the `tuningfork.model.Posterior` schema yet.
 - All others R: no latent Gaussian structure amenable to Laplace marginalization.
 
 ### 6E — orbital_hmc (no warmup, periodic orbit; no extra_required_kwargs)
@@ -612,7 +612,7 @@ The surrogate collapses these posteriors to a poor Gaussian approximation. The I
 
 This is the "everything works and we know it" tier. NUTS + window_adaptation_diag_imm is the gold-standard reference that every other row in the matrix will be compared against. Build this first.
 
-**Approximate cell count**: 14 models × 2 samplers = 28 conventional `(window_adaptation_diag_imm, {nuts, hmc})` cells. Each cell produces ONE recipe at the lowest effort tier that passes the Statistician auto-gate (see `bjx_bench/inference/recipes/_base.py` `Effort` docstring for canonical taxonomy):
+**Approximate cell count**: 14 models × 2 samplers = 28 conventional `(window_adaptation_diag_imm, {nuts, hmc})` cells. Each cell produces ONE recipe at the lowest effort tier that passes the Statistician auto-gate (see `tuningfork/recipes/_base.py` `Effort` docstring for canonical taxonomy):
 
 - **LOW** if library defaults produce gate-passing samples at first emit (the green cells in the matrix below).
 - **MEDIUM** if the default emit fails the gate and a Statistician workaround (seed change, init change, bug fix) recovers it (the yellow cells; matches the matrix's "workflow narrative required" tier).
