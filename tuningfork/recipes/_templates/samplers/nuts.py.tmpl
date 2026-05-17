@@ -1,0 +1,8 @@
+# === SAMPLER: nuts (step_size and IMM adapted from warmup) ===
+_kernel = blackjax.nuts(
+    logdensity_fn,
+    step_size=_adapted_params["step_size"],
+    inverse_mass_matrix=_adapted_params["inverse_mass_matrix"],
+    max_num_doublings=$max_num_doublings,
+).step
+kernel = _kernel  # alias for inference_loop.py.tmpl which expects 'kernel'
