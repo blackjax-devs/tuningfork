@@ -125,7 +125,7 @@ For minor test changes (adding a marker, adjusting an assertion), one-line commi
 
 ## Where Things Live
 
-Post-R3 restructure (2026-05-17), the package is split into two layers — see [`PROPOSAL_RESTRUCTURE.md`](PROPOSAL_RESTRUCTURE.md) for the full design.
+Post-R3 restructure (2026-05-17), the package is split into two layers.
 
 **Generator layer** (produces recipes):
 

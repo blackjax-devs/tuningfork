@@ -185,11 +185,10 @@ tuningfork/
 ├── .github/workflows/         # pre-commit + test-fast + test-slow + benchmark CI
 ├── CLAUDE.md                  # contributor / agent guide
 ├── RECIPE_GENERATION.md       # statistician-authored recipe matrix + plan
-├── PROPOSAL_RESTRUCTURE.md    # locked design proposal (2026-05-17)
 └── CONTRIBUTING.md            # test markers, folder layout, contribution rules
 ```
 
-The package splits into two layers (post-R3 restructure, 2026-05-17): the **generator** layer (`model/`, `base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`, `runner/`, `_cache_io.py`) produces recipes; the **catalog** layer (`tuningfork.catalog`) is what a regular user imports to consume recipes + read per-model artifacts. See [`PROPOSAL_RESTRUCTURE.md`](PROPOSAL_RESTRUCTURE.md) for the full design rationale.
+The package splits into two layers (post-R3 restructure, 2026-05-17): the **generator** layer (`model/`, `base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`, `runner/`, `_cache_io.py`) produces recipes; the **catalog** layer (`tuningfork.catalog`) is what a regular user imports to consume recipes + read per-model artifacts.
 
 ## License
 
