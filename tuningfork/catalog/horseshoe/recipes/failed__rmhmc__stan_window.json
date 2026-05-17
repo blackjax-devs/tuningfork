@@ -1,0 +1,40 @@
+{
+  "model_name": "horseshoe",
+  "base_method_name": "rmhmc",
+  "warmup_name": "stan_window",
+  "effort": "failed",
+  "failure_diagnosis": "requires_model_change",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Riemannian HMC requires a position-dependent callable mass_matrix_fn that captures the local geometry. The stan_window warmup produces only a constant diagonal IMM; using it with rmhmc degenerates to standard HMC without the Riemannian benefit. This requires model-specific metric construction.",
+  "notes": "",
+  "workflow": "Hard-exclusion category 6: Riemannian HMC without callable metric (rmhmc with stan_window).\n\nRMHMC requires a position-dependent callable mass_matrix_fn to exploit local geometric information from the posterior's Hessian. The stan_window warmup produces a constant diagonal inverse mass matrix, which when used with rmhmc simply degenerates to standard HMC — the Riemannian character is lost.\n\nFor horseshoe (d=204, sparse-slab prior structure), computing the full Hessian at each RMHMC step is intractable without model-specific tuning. The schema field extra_required_kwargs=(\"mass_matrix_fn\",) indicates that rmhmc demands a callable, but stan_window cannot provide one.\n\nWhile a sampler using constant IMM is not wrong (it is correct HMC), the rmhmc entry provides no advantage over hmc and the integration overhead adds engineering complexity for zero benefit. True Riemannian recipes for horseshoe and other high-d models are Phase 7 scope, requiring domain-specific metric implementations.\n\nSee RECIPE_GENERATION.md § Hard Exclusions Category 6 (lines 593-595) for the full context.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-17T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

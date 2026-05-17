@@ -1,0 +1,40 @@
+{
+  "model_name": "gmm_25",
+  "base_method_name": "nuts",
+  "warmup_name": "stan_window",
+  "effort": "failed",
+  "failure_diagnosis": "out_of_scope",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "The 25-mode Gaussian mixture has modes separated by low-density regions. Any single-chain gradient sampler that starts in one mode will never cross to another. This cell is categorically excluded; use SMC with any inner kernel instead.",
+  "notes": "",
+  "workflow": "Hard-exclusion category 1: Multimodal models (gmm_25) with single-chain gradient samplers.\n\nThe 25-mode Gaussian mixture has modes separated by low-density regions. Any single-chain gradient sampler that starts in one mode will never cross to another without explicit mode-jumping mechanics (e.g., parallel tempering). Single-chain NUTS, HMC, MHMC, MALA, Barker, GHMC, MCLMC, adjusted_mclmc, dynamic_hmc, dmhmc, RWM, Orbital_HMC, and all Laplace-marginal variants cannot explore the full posterior.\n\nThe Tier-A reference for gmm_25 uses parallel-tempered SMC. The only valid recipe families for gmm_25 are SMC with any inner kernel (tempering anneals from prior = unimodal to full posterior = multimodal). Elliptical slice and mgrad_gaussian do not apply because gmm_25 has no Gaussian prior structure.\n\nSee RECIPE_GENERATION.md § Hard Exclusions Category 1 (lines 561-569) for the full context.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-17T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

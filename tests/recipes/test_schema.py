@@ -1118,3 +1118,53 @@ class TestFailedRecipe:
         loaded = Recipe.load(recipe_path)
         assert loaded.failure_diagnosis is None
         assert loaded.attempted_configurations == []
+
+    @pytest.mark.fast
+    @pytest.mark.parametrize(
+        "recipe_path,expected_diagnosis",
+        [
+            (
+                "gmm_25/recipes/failed__nuts__stan_window.json",
+                FailureDiagnosis.OUT_OF_SCOPE,
+            ),
+            (
+                "mvn_10/recipes/failed__elliptical_slice__no_warmup.json",
+                FailureDiagnosis.REQUIRES_MODEL_CHANGE,
+            ),
+            (
+                "neals_funnel/recipes/failed__meanfield_vi__no_warmup.json",
+                FailureDiagnosis.OUT_OF_SCOPE,
+            ),
+            (
+                "stoch_vol/recipes/failed__hmc__no_warmup.json",
+                FailureDiagnosis.HARD_DIRECTION,
+            ),
+            (
+                "horseshoe/recipes/failed__rmhmc__stan_window.json",
+                FailureDiagnosis.REQUIRES_MODEL_CHANGE,
+            ),
+            (
+                "mvn_10/recipes/failed__laplace_hmc__no_warmup.json",
+                FailureDiagnosis.REQUIRES_MODEL_CHANGE,
+            ),
+            (
+                "radon/recipes/failed__nuts__fullrank_vi.json",
+                FailureDiagnosis.REQUIRES_MODEL_CHANGE,
+            ),
+        ],
+    )
+    def test_committed_failed_recipe_loads_with_diagnosis(
+        self,
+        recipe_path: str,
+        expected_diagnosis: FailureDiagnosis,
+    ) -> None:
+        """Each committed FAILED recipe loads cleanly and carries the expected diagnosis."""
+        catalog_root = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
+        path = catalog_root / recipe_path
+        assert path.exists(), f"Missing committed FAILED recipe: {path}"
+        recipe = Recipe.load(path)
+        assert recipe.is_failed()
+        assert recipe.effort == Effort.FAILED
+        assert recipe.failure_diagnosis == expected_diagnosis
+        assert len(recipe.workflow) > 50, "workflow must be non-trivial prose"
+        assert recipe.gate_evidence["auto"]["verdict"] == "FAIL"

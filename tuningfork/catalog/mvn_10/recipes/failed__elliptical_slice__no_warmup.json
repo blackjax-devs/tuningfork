@@ -1,0 +1,40 @@
+{
+  "model_name": "mvn_10",
+  "base_method_name": "elliptical_slice",
+  "warmup_name": "no_warmup",
+  "effort": "failed",
+  "failure_diagnosis": "requires_model_change",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Elliptical slice sampling requires an explicit Gaussian prior structure (prior_mean and prior_cov). The mvn_10 model does not expose this structure in its metadata. This cell requires model parameterization work upstream.",
+  "notes": "",
+  "workflow": "Hard-exclusion category 2: Non-differentiable or gradient-degenerate models for gradient-based samplers (elliptical_slice).\n\nElliptical slice and mgrad_gaussian require explicit Gaussian prior structure (prior_mean and prior_cov parameters). These samplers are excluded for 12 of 14 models in the v1 inventory — only gp_regression and stoch_vol expose the required Gaussian priors.\n\nMVN_10 is a simple multivariate Gaussian, but its recipe definition does not expose prior_mean and prior_cov in the Posterior metadata (the model uses implicit uniform priors over the sample space). Enabling elliptical_slice for mvn_10 would require extending the Posterior schema to record prior structure explicitly.\n\nSee RECIPE_GENERATION.md § Hard Exclusions Category 2 (lines 572-574) for the full context.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-17T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}
