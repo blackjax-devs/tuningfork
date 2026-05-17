@@ -51,7 +51,7 @@ T_OBS: int = 40
 DIM: int = 7
 
 #: Path to committed .npz data file
-_NPZ_PATH: Path = Path(__file__).parent.parent / "data" / "lotka_volterra.npz"
+_NPZ_PATH: Path = Path(__file__).parent / "_data" / "lotka_volterra.npz"
 
 # ---------------------------------------------------------------------------
 # Load synthetic data (shape: (40, 2), float32)
@@ -261,7 +261,7 @@ def lotka_volterra_inverse(
 #         alpha=0.5, beta=0.05, gamma=0.5, delta=0.05, u0=10.0, v0=5.0,
 #         sigma_obs=0.5, T_obs=40 points on linspace(0, 20), seed=1234.
 #         Stable limit cycle producing ~3 oscillations over 20 time units.
-#         Committed as tuningfork/data/lotka_volterra.npz.
+#         Committed as tuningfork/model/_data/lotka_volterra.npz.
 #     posteriordb_id = None:
 #         Stan's lotka_volterra uses a different solver/likelihood structure.
 #         No upstream cross-check available.
