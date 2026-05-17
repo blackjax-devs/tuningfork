@@ -54,6 +54,7 @@ __all__ = [
     "WarmupValidationError",
     "WarmupCheckpoint",
     "WarmupHealthSummary",
+    "compute_certification_verdict",
     "default_warmup_validator",
     "certify_reference_nuts",
 ]
@@ -325,6 +326,74 @@ _EBFMI_THRESHOLD = 0.3
 # default n_samples=40_000 this allows ≤40 divergences before fail. See
 # worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md § 8.
 _DIVERGENCE_RATE_TOLERANCE = 0.001
+
+
+def compute_certification_verdict(
+    *,
+    split_rhat_max: float,
+    min_chunk_bulk_ess: float,
+    num_divergences: int,
+    e_bfmi: float,
+    n_samples: int,
+    divergence_rate_tolerance: float | None = None,
+    rhat_threshold: float = _RHAT_THRESHOLD,
+    min_chunk_ess: float = _MIN_CHUNK_ESS,
+    ebfmi_threshold: float = _EBFMI_THRESHOLD,
+) -> CertificationResult:
+    """Pure gate-logic computation — apply per-metric thresholds, build verdict.
+
+    Extracted from ``certify_reference_nuts`` 2026-05-17 so the verdict logic can
+    be unit-tested with synthetic inputs (no NUTS run required). Thresholds
+    default to the module constants (``_RHAT_THRESHOLD``, ``_MIN_CHUNK_ESS``,
+    ``_EBFMI_THRESHOLD``, ``_DIVERGENCE_RATE_TOLERANCE``) but are overridable
+    via keyword for edge-case testing.
+
+    Parameters
+    ----------
+    split_rhat_max
+        Max rank-normalised split-R̂ across all dimensions.
+    min_chunk_bulk_ess
+        Min per-chunk bulk-ESS across all dimensions and chunks.
+    num_divergences
+        Total number of divergent transitions in the post-warmup chain.
+    e_bfmi
+        Expected Bayesian Fraction of Missing Information.
+    n_samples
+        Total number of post-warmup samples — used together with
+        ``divergence_rate_tolerance`` to compute the allowed divergence count.
+    divergence_rate_tolerance
+        Per-model override for the divergence-rate ceiling (fraction of
+        ``n_samples`` allowed to be divergent). ``None`` falls back to the
+        module default ``_DIVERGENCE_RATE_TOLERANCE``.
+    rhat_threshold, min_chunk_ess, ebfmi_threshold
+        Per-metric thresholds. Defaults match the protocol thresholds in
+        CLAUDE.md § "Reference protocol"; overridable for edge-case testing.
+
+    Returns
+    -------
+    CertificationResult
+        Frozen dataclass with ``passed`` (bool) plus the four input metrics
+        echoed back for downstream reporting / error messages.
+    """
+    effective_tolerance = (
+        divergence_rate_tolerance
+        if divergence_rate_tolerance is not None
+        else _DIVERGENCE_RATE_TOLERANCE
+    )
+    max_divergences_allowed = int(effective_tolerance * n_samples)
+    passed = (
+        split_rhat_max <= rhat_threshold
+        and min_chunk_bulk_ess >= min_chunk_ess
+        and num_divergences <= max_divergences_allowed
+        and e_bfmi >= ebfmi_threshold
+    )
+    return CertificationResult(
+        passed=passed,
+        split_rhat_max=split_rhat_max,
+        min_chunk_bulk_ess=min_chunk_bulk_ess,
+        num_divergences=num_divergences,
+        e_bfmi=e_bfmi,
+    )
 
 
 def _compute_warmup_health(
@@ -708,28 +777,27 @@ def certify_reference_nuts(
     # 40k, ≤100 in 100k). A model may override via Posterior.divergence_rate_tolerance
     # (e.g. stoch_vol uses 0.005 for the AR(1) unit-root excursion tail — see
     # the Posterior field's docstring + the model file's rationale comment).
+    #
+    # Verdict computation is delegated to compute_certification_verdict (pure)
+    # so the gate-logic tests can exercise it without running NUTS.
+    cert = compute_certification_verdict(
+        split_rhat_max=split_rhat_max,
+        min_chunk_bulk_ess=min_chunk_bulk_ess,
+        num_divergences=num_divergences,
+        e_bfmi=e_bfmi_val,
+        n_samples=n_samples,
+        divergence_rate_tolerance=entry.divergence_rate_tolerance,
+    )
+    # Recompute max_divergences_allowed for the error message (the verdict
+    # function uses it internally but does not expose it on CertificationResult).
     effective_tolerance = (
         entry.divergence_rate_tolerance
         if entry.divergence_rate_tolerance is not None
         else _DIVERGENCE_RATE_TOLERANCE
     )
     max_divergences_allowed = int(effective_tolerance * n_samples)
-    passed = (
-        split_rhat_max <= _RHAT_THRESHOLD
-        and min_chunk_bulk_ess >= _MIN_CHUNK_ESS
-        and num_divergences <= max_divergences_allowed
-        and e_bfmi_val >= _EBFMI_THRESHOLD
-    )
 
-    cert = CertificationResult(
-        passed=passed,
-        split_rhat_max=split_rhat_max,
-        min_chunk_bulk_ess=min_chunk_bulk_ess,
-        num_divergences=num_divergences,
-        e_bfmi=e_bfmi_val,
-    )
-
-    if not passed:
+    if not cert.passed:
         raise CertificationError(
             f"reference-certification certification failed for {entry.name!r}: "
             f"split_rhat_max={split_rhat_max:.4f}, "
