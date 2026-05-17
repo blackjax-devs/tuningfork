@@ -29,7 +29,7 @@ __all__ = ["ENTRY", "X_DATA", "Y_DATA"]
 # ---------------------------------------------------------------------------
 
 #: Path to the committed, preprocessed CSV.
-_CSV_PATH: Path = Path(__file__).parent.parent.parent / "data" / "german_credit.csv"
+_CSV_PATH: Path = Path(__file__).parent.parent / "data" / "german_credit.csv"
 
 # Intercept + 25 feature coefficients = 26 unconstrained parameters.
 DIM = 26

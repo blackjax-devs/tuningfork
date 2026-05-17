@@ -24,7 +24,7 @@ Provenance:
 Output:
     tuningfork/data/stoch_vol_returns.csv — CSV with header "returns" and one
     float per line. Shape: (500,). This matches the format expected by
-    tuningfork.model.latent_gaussian.stoch_vol.
+    tuningfork.model.stoch_vol.
 
 Usage:
     cd tuningfork

@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, build_logdensity_fn
-from tuningfork.model.hierarchical.radon import (
+from tuningfork.model.radon import (
     COUNTY_IDX,
     DIM,
     ENTRY,

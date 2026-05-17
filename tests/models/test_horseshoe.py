@@ -34,7 +34,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, build_logdensity_fn
-from tuningfork.model.glm.horseshoe import (
+from tuningfork.model.horseshoe import (
     _X_JAX,
     _Y_JAX,
     BETA_TRUE,

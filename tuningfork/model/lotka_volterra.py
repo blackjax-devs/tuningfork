@@ -51,7 +51,7 @@ T_OBS: int = 40
 DIM: int = 7
 
 #: Path to committed .npz data file
-_NPZ_PATH: Path = Path(__file__).parent.parent.parent / "data" / "lotka_volterra.npz"
+_NPZ_PATH: Path = Path(__file__).parent.parent / "data" / "lotka_volterra.npz"
 
 # ---------------------------------------------------------------------------
 # Load synthetic data (shape: (40, 2), float32)

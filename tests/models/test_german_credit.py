@@ -39,7 +39,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, build_logdensity_fn
-from tuningfork.model.glm.german_credit import DIM, ENTRY, X_DATA, Y_DATA
+from tuningfork.model.german_credit import DIM, ENTRY, X_DATA, Y_DATA
 
 pytestmark = pytest.mark.fast  # tests 1–7 are fast; test 8 has its own decorator
 
@@ -112,8 +112,8 @@ def test_data_shape_and_properties() -> None:
 
 def test_data_is_deterministic() -> None:
     """X_DATA and Y_DATA must be deterministic: same values on every import."""
-    from tuningfork.model.glm.german_credit import X_DATA as x2
-    from tuningfork.model.glm.german_credit import Y_DATA as y2
+    from tuningfork.model.german_credit import X_DATA as x2
+    from tuningfork.model.german_credit import Y_DATA as y2
 
     assert np.array_equal(np.asarray(X_DATA), np.asarray(x2)), "X_DATA not stable"
     assert np.array_equal(np.asarray(Y_DATA), np.asarray(y2)), "Y_DATA not stable"

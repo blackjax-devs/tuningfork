@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, build_logdensity_fn
-from tuningfork.model.latent_gaussian.stoch_vol import ENTRY, RETURNS, T_LENGTH
+from tuningfork.model.stoch_vol import ENTRY, RETURNS, T_LENGTH
 
 pytestmark = pytest.mark.fast
 
