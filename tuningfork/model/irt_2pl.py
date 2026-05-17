@@ -35,7 +35,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 #: Path to the committed, preprocessed CSV.
-_CSV_PATH: Path = Path(__file__).parent.parent / "data" / "irt_2pl.csv"
+_CSV_PATH: Path = Path(__file__).parent / "_data" / "irt_2pl.csv"
 
 #: Number of students (J = 100)
 N_STUDENTS: int = 100
@@ -186,7 +186,7 @@ def irt_2pl(
 #     Data: posteriordb dataset 'irt_2pl' (J=100 students, I=20 items, 2000 responses).
 #         Source: https://raw.githubusercontent.com/stan-dev/posteriordb/master/
 #                 posterior_database/data/data/irt_2pl.json.zip
-#         Generated via tools/fetch_irt_2pl.py; committed as tuningfork/data/irt_2pl.csv
+#         Generated via tools/fetch_irt_2pl.py; committed as tuningfork/model/_data/irt_2pl.csv
 #     posteriordb_id = None:
 #         'irt_2pl-irt_2pl' has reference_posterior_name: null (no reference draws).
 #         reference-certification uses Long-NUTS self-check (split-R̂ < 1.01) only; no xcheck.

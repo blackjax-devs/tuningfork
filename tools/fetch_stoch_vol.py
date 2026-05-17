@@ -22,7 +22,7 @@ Provenance:
     The CSV is also exposed via numpyro.examples.datasets.SP500 for reference.
 
 Output:
-    tuningfork/data/stoch_vol_returns.csv — CSV with header "returns" and one
+    tuningfork/model/_data/stoch_vol_returns.csv — CSV with header "returns" and one
     float per line. Shape: (500,). This matches the format expected by
     tuningfork.model.stoch_vol.
 
@@ -45,7 +45,13 @@ from pathlib import Path
 import numpy as np
 
 _URL = "https://github.com/pyro-ppl/datasets/blob/master/SP500.csv?raw=true"
-_OUT = Path(__file__).parent.parent / "tuningfork" / "data" / "stoch_vol_returns.csv"
+_OUT = (
+    Path(__file__).parent.parent
+    / "tuningfork"
+    / "model"
+    / "_data"
+    / "stoch_vol_returns.csv"
+)
 
 
 def fetch_sp500_returns() -> np.ndarray:

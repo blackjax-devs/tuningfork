@@ -29,7 +29,7 @@ __all__ = ["ENTRY", "X_DATA", "Y_DATA"]
 # ---------------------------------------------------------------------------
 
 #: Path to the committed, preprocessed CSV.
-_CSV_PATH: Path = Path(__file__).parent.parent / "data" / "german_credit.csv"
+_CSV_PATH: Path = Path(__file__).parent / "_data" / "german_credit.csv"
 
 # Intercept + 25 feature coefficients = 26 unconstrained parameters.
 DIM = 26
@@ -70,7 +70,7 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
 #       because dim is ~8× larger; 25-D posterior needs more warmup for window
 #       adaptation to converge; in practice 2000 steps suffices per a-priori
 #       expectation for a well-conditioned logistic regression at this scale).
-#     Preprocessing provenance (deterministic, bundled in tuningfork/data/german_credit.csv):
+#     Preprocessing provenance (deterministic, bundled in tuningfork/model/_data/german_credit.csv):
 #         Source: UCI ML Repository German Credit dataset (scikit-learn fetch_openml
 #         name='credit-g', version=1, 1000 borrowers × 20 original attributes).
 #         Feature selection (hits ~25-D posterior target):
@@ -88,7 +88,7 @@ def _model(X: jnp.ndarray, y: jnp.ndarray) -> None:
 #             (zero mean, unit std). Binary target: 1 = good credit, 0 = bad credit
 #             (70% / 30% class balance).
 #         The CSV was generated via tools/prepare_german_credit.py and is committed at
-#         tuningfork/data/german_credit.csv.
+#         tuningfork/model/_data/german_credit.csv.
 #     Model description:
 #         - Data: 1000 borrowers, 25 standardized features (7 numerical +
 #           18 categorical dummies), binary target (good / bad credit).
