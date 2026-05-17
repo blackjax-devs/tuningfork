@@ -138,9 +138,9 @@ def test_inference_namespace_imports():
      If this
     fails, the restructure has broken a public namespace.
     """
-    from tuningfork.inference.base_method import BASE_METHODS
-    from tuningfork.inference.warmup import WARMUPS, Warmup
+    from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
+    from tuningfork.warmup import WARMUPS, Warmup
 
     assert isinstance(MODELS, dict)
     assert len(MODELS) >= 3  # mvn_10, neals_funnel, eight_schools_ncp

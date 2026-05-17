@@ -227,7 +227,7 @@ def test_blackjax_smc_registry_has_three_entries():
     Pinned tripwire: verifies that the __init__.py registration is complete
     and that all three names are resolvable in the registry dict.
     """
-    from tuningfork.inference.smc import SMC_METHODS
+    from tuningfork.smc import SMC_METHODS
 
     required = {
         "adaptive_tempered_smc",
@@ -451,7 +451,7 @@ def test_smc_methods_registry_subset_after_p511():
     Uses subset check (not equality) per : future additions to SMC_METHODS
     should not trigger this tripwire — only removals will.
     """
-    from tuningfork.inference.smc import SMC_METHODS
+    from tuningfork.smc import SMC_METHODS
 
     required = {
         "adaptive_tempered_smc",
@@ -535,7 +535,7 @@ def test_smc_methods_registry_subset_after_p5155():
     Subset check: future additions to SMC_METHODS do not break this test;
     only removal of 'tempered_smc' triggers it.
     """
-    from tuningfork.inference.smc import SMC_METHODS
+    from tuningfork.smc import SMC_METHODS
 
     assert "tempered_smc" in SMC_METHODS, (
         f"SMC_METHODS is missing 'tempered_smc' after registration. "

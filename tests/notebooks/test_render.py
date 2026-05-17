@@ -263,7 +263,7 @@ def test_load_idata_groundtruth_enrichment(monkeypatch) -> None:
     """For GROUNDTRUTH recipes, load_idata enriches sample_stats with
     step_size (broadcast from adapted scalar) and reached_max_treedepth
     (derived from num_trajectory_expansions vs max_num_doublings)."""
-    from tuningfork.inference.recipes._base import Effort
+    from tuningfork.recipes._base import Effort
     from tuningfork.render import load_idata
 
     rng = np.random.default_rng(23)

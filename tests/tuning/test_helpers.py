@@ -52,6 +52,8 @@ import optuna
 import optuna.distributions as D
 import pytest
 
+from tuningfork.base_method import BASE_METHODS
+from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 from tuningfork.calibration.tune import (
     TuningDifficulty,
     TuningResult,
@@ -60,8 +62,6 @@ from tuningfork.calibration.tune import (
     optuna_distribution_for_space,
     optuna_distributions_for,
 )
-from tuningfork.inference.base_method import BASE_METHODS
-from tuningfork.inference.base_method._base import BaseMethod, HyperparamSpace
 
 pytestmark = pytest.mark.fast
 

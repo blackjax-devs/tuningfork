@@ -73,10 +73,10 @@ Source layout (top-level subpackages of `tuningfork/`):
 ```
 tuningfork/
 ├── model/                     # 14 Posterior definitions + MODELS registry
-├── inference/
-│   ├── base_method/           # 24 wrappers — see ENTRIES list below
-│   ├── warmup/                # 10 warmup wrappers — see ENTRIES list below
-│   └── smc/                   # 6 SMC method wrappers — see ENTRIES list below
+├── base_method/               # 24 wrappers — see ENTRIES list below
+├── warmup/                    # 10 warmup wrappers — see ENTRIES list below
+├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
+├── recipes/                   # Recipe schema, groundtruth generator, starter generator
 ├── data/                      # raw datasets + generation scripts
 ├── reference/                 # reference artifacts
 │   ├── draws/                 # *.npz (gitignored; 100k-sample chains)
@@ -105,11 +105,11 @@ handles NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
 
 ### Inventory
 
-**24 base methods** (`inference/base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
+**24 base methods** (`base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
 
-**10 warmups** (`inference/warmup/__init__.py:WARMUPS`): no_warmup, stan_window, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
+**10 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, stan_window, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
 
-**6 SMC methods** (`inference/smc/__init__.py:SMC_METHODS`): adaptive_tempered_smc, tempered_smc, partial_posteriors_smc, inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc.
+**6 SMC methods** (`smc/__init__.py:SMC_METHODS`): adaptive_tempered_smc, tempered_smc, partial_posteriors_smc, inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc.
 
 ### Specialised factories (`extra_required_kwargs`)
 

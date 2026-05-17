@@ -48,7 +48,7 @@ import optuna
 import optuna.distributions
 from blackjax.util import run_inference_algorithm
 
-from tuningfork.inference.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 from tuningfork.metrics.grad_counter import total_grad_evals
 from tuningfork.metrics.headline import min_bulk_ess_per_grad
 
@@ -394,7 +394,7 @@ def _run_warmup(
         If ``warmup_name`` is not in ``WARMUPS`` or if the selected warmup
         is not compatible with ``algorithm_entry.name``.
     """
-    from tuningfork.inference.warmup import WARMUPS
+    from tuningfork.warmup import WARMUPS
 
     if warmup_name not in WARMUPS:
         raise ValueError(
@@ -413,7 +413,7 @@ def _run_warmup(
     # num_chains=4 doesn't accidentally change BO semantics.
     # squeeze_single_chain restores the un-batched (state, params) shape that
     # run_inference_algorithm expects.
-    from tuningfork.inference.warmup._base import squeeze_single_chain
+    from tuningfork.warmup._base import squeeze_single_chain
 
     batched_state, batched_params = warmup.runner(
         rng_key,

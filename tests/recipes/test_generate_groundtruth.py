@@ -33,11 +33,11 @@ from pathlib import Path
 
 import pytest
 
-from tuningfork.inference.recipes._generate_groundtruth import (
+from tuningfork.model import MODELS
+from tuningfork.recipes._generate_groundtruth import (
     generate_groundtruth_recipe,
     sweep_all,
 )
-from tuningfork.model import MODELS
 
 
 @pytest.mark.fast

@@ -26,11 +26,11 @@ from pathlib import Path
 import jax
 import pytest
 
-from tuningfork.inference.base_method import BASE_METHODS
-from tuningfork.inference.recipes import Effort, Recipe
-from tuningfork.inference.recipes._instructions import render_instructions
-from tuningfork.inference.warmup import WARMUPS
+from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
+from tuningfork.recipes import Effort, Recipe
+from tuningfork.recipes._instructions import render_instructions
+from tuningfork.warmup import WARMUPS
 
 # Path to the committed starter recipes
 _STARTER_ROOT = (

@@ -216,7 +216,7 @@ def load_idata(
     # GROUNDTRUTH enrichment: derive ArviZ-canonical fields not in raw chain_stats
     if chain_stats is not None:
         try:
-            from tuningfork.inference.recipes._base import Effort
+            from tuningfork.recipes._base import Effort
 
             if recipe.effort == Effort.GROUNDTRUTH:
                 chain_stats = _enrich_chain_stats_for_groundtruth(recipe, chain_stats)
