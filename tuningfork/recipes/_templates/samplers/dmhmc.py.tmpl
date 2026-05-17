@@ -1,0 +1,26 @@
+# === SAMPLER: dmhmc (dynamic multinomial HMC; step_size + IMM from warmup; trajectory auto-tuned) ===
+# dmhmc.init requires a rng_key as random_generator_arg so that
+# next_random_arg_fn can produce a valid JAX key on every step.
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _ = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+
+_step_size = _adapted_params.get("step_size", $bm_step_size)
+_imm = _adapted_params.get("inverse_mass_matrix", jnp.ones(_n_params))
+
+_kernel_obj = blackjax.dmhmc(
+    logdensity_fn,
+    step_size=_step_size,
+    inverse_mass_matrix=_imm,
+)
+kernel = _kernel_obj.step
+
+# dmhmc.init(position, rng_key) — rng_key seeds random_generator_arg.
+# DynamicHMCState has a random_generator_arg field not present in HMCState,
+# so we always re-init to get the correct state structure.
+try:
+    _dmhmc_start_pos = _state_post_warmup.position
+except NameError:
+    _dmhmc_start_pos = init_position
+_state_post_warmup = _kernel_obj.init(_dmhmc_start_pos, jax.random.key($tuning_seed))

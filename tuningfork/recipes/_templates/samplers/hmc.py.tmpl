@@ -1,0 +1,24 @@
+# === SAMPLER: hmc (step_size + IMM from warmup; num_integration_steps from recipe) ===
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _ = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+
+_step_size = _adapted_params.get("step_size", $bm_step_size)
+_imm = _adapted_params.get("inverse_mass_matrix", jnp.ones(_n_params))
+_num_steps = int(_adapted_params.get("num_integration_steps", $bm_num_integration_steps))
+
+_kernel_obj = blackjax.hmc(
+    logdensity_fn,
+    step_size=_step_size,
+    inverse_mass_matrix=_imm,
+    num_integration_steps=_num_steps,
+)
+kernel = _kernel_obj.step
+
+# Bind _state_post_warmup: warmup template sets it when adaptation runs (e.g.
+# stan_window, pathfinder).  For no_warmup, initialise from the init_position.
+try:
+    _state_post_warmup
+except NameError:
+    _state_post_warmup = _kernel_obj.init(init_position)

@@ -1,0 +1,27 @@
+# === SAMPLER: dynamic_hmc (step_size + IMM from warmup; trajectory length auto-tuned via random_generator_arg) ===
+# dynamic_hmc.init requires a rng_key as random_generator_arg so that
+# next_random_arg_fn can produce a valid JAX key on every step.
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _ = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+
+_step_size = _adapted_params.get("step_size", $bm_step_size)
+_imm = _adapted_params.get("inverse_mass_matrix", jnp.ones(_n_params))
+
+_kernel_obj = blackjax.dynamic_hmc(
+    logdensity_fn,
+    step_size=_step_size,
+    inverse_mass_matrix=_imm,
+)
+kernel = _kernel_obj.step
+
+# dynamic_hmc.init(position, rng_key) — rng_key seeds random_generator_arg.
+# Warmup template (e.g. stan_window) sets _state_post_warmup to an HMCState;
+# dynamic_hmc uses DynamicHMCState which has an additional random_generator_arg
+# field, so we always re-init to get the correct state structure.
+try:
+    _dhmc_start_pos = _state_post_warmup.position
+except NameError:
+    _dhmc_start_pos = init_position
+_state_post_warmup = _kernel_obj.init(_dhmc_start_pos, jax.random.key($tuning_seed))

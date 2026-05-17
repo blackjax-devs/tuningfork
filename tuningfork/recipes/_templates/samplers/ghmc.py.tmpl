@@ -1,0 +1,37 @@
+# === SAMPLER: ghmc (persistent-momentum HMC; momentum_inverse_scale from warmup; alpha + delta from recipe) ===
+# GHMC uses momentum_inverse_scale (not inverse_mass_matrix) and requires a
+# rng_key in its init call to generate the initial persistent momentum + slice.
+# When a warmup (e.g. stan_window) provides inverse_mass_matrix, it is used here
+# as momentum_inverse_scale.
+# The state is always re-initialised because GHMCState has different fields
+# (momentum, slice) than the HMCState / NUTSState produced by stan_window warmup.
+# We extract the warmup's end position (if available) so adaptation is not wasted.
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _ = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+
+_step_size = _adapted_params.get("step_size", $bm_step_size)
+# inverse_mass_matrix from warmup serves as momentum_inverse_scale for GHMC.
+_mom_inv_scale = _adapted_params.get(
+    "inverse_mass_matrix", jnp.ones(_n_params)
+)
+_alpha = float(_adapted_params.get("alpha", $bm_alpha))
+_delta = float(_adapted_params.get("delta", $bm_delta))
+
+_kernel_obj = blackjax.ghmc(
+    logdensity_fn,
+    step_size=_step_size,
+    momentum_inverse_scale=_mom_inv_scale,
+    alpha=_alpha,
+    delta=_delta,
+)
+kernel = _kernel_obj.step
+
+# Extract end-warmup position if warmup produced a state, otherwise use init_position.
+try:
+    _ghmc_start_pos = _state_post_warmup.position
+except NameError:
+    _ghmc_start_pos = init_position
+_ghmc_init_key = jax.random.key($tuning_seed)
+_state_post_warmup = _kernel_obj.init(_ghmc_start_pos, _ghmc_init_key)

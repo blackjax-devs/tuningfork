@@ -125,6 +125,69 @@ def test_emit_script_imports_only_allowed_modules() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize(
+    "warmup_name,base_method_name",
+    [
+        # Conventional gradient samplers with compatible warmups (R3.5b Commit 2).
+        # Further cells added in commits 3-6 as warmup/sampler templates land.
+        ("stan_window", "hmc"),
+        ("no_warmup", "dynamic_hmc"),
+        ("no_warmup", "mhmc"),
+        ("no_warmup", "dmhmc"),
+        ("no_warmup", "ghmc"),
+    ],
+)
+def test_emit_script_executes_for_cell(
+    warmup_name: str, base_method_name: str, tmp_path: Path
+) -> None:
+    """Synthetic recipe for (mvn_10, warmup, sampler) cell; verify emit + exec works.
+
+    Each parametrised cell covers a distinct warmup × sampler pairing.
+    Tests that the assembled script is executable end-to-end (exit 0, prints DONE,
+    reports n_divergences).  Uses mvn_10 (well-behaved 10-D Gaussian) for speed.
+    """
+    import jax
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.recipes._base import Recipe
+    from tuningfork.warmup import WARMUPS
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS[base_method_name]
+    warmup = WARMUPS[warmup_name]
+
+    if warmup_name == "no_warmup":
+        recipe = Recipe.from_default_config(posterior, base_method)
+    else:
+        recipe = Recipe.from_warmup_only(
+            posterior,
+            base_method,
+            warmup,
+            n_warmup=200,
+            rng_key=jax.random.key(0),
+        )
+
+    script = emit_script(recipe, num_samples=200)
+    script_path = tmp_path / "test_emitted.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Emitted script failed for {warmup_name}+{base_method_name}:\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+    assert "n_divergences=" in result.stdout
+
+
+@pytest.mark.slow
 def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
     """Emitted script runs end-to-end via subprocess and prints DONE.
 
