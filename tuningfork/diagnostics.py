@@ -28,7 +28,6 @@ matplotlib figures (or a single figure) appropriate for human inspection.
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 import numpy as np
@@ -59,17 +58,6 @@ __all__ = [
     "render_smc_family",
     "render_vi_family",
     "render_specialised",
-    # Deprecated aliases (kept for one release)
-    "FAMILY_A_SAMPLERS",
-    "FAMILY_B_SAMPLERS",
-    "FAMILY_C_SAMPLERS",
-    "FAMILY_D_SAMPLERS",
-    "FAMILY_E_SAMPLERS",
-    "render_family_a",
-    "render_family_b",
-    "render_family_c",
-    "render_family_d",
-    "render_family_e",
 ]
 
 # ---------------------------------------------------------------------------
@@ -111,37 +99,6 @@ SPECIALISED_SAMPLERS = {
 
 # Gradient MH subset that supports plot_energy (excludes mala, barker, ghmc)
 GRADIENT_MH_WITH_ENERGY = {"nuts", "hmc", "mhmc", "dynamic_hmc", "dmhmc", "rmhmc"}
-
-# ---------------------------------------------------------------------------
-# Deprecated aliases — FAMILY_X_SAMPLERS → semantic names
-# Kept for one release; will be removed in a future version.
-# ---------------------------------------------------------------------------
-
-# DEPRECATED: use GRADIENT_MH_SAMPLERS instead
-FAMILY_A_SAMPLERS = (
-    GRADIENT_MH_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
-)
-# DEPRECATED: use MCLMC_FAMILY_SAMPLERS instead
-FAMILY_B_SAMPLERS = (
-    MCLMC_FAMILY_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
-)
-# DEPRECATED: use SMC_FAMILY_SAMPLERS instead
-FAMILY_C_SAMPLERS = (
-    SMC_FAMILY_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
-)
-# DEPRECATED: use VI_FAMILY_SAMPLERS instead
-FAMILY_D_SAMPLERS = (
-    VI_FAMILY_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
-)
-# DEPRECATED: use SPECIALISED_SAMPLERS instead
-FAMILY_E_SAMPLERS = (
-    SPECIALISED_SAMPLERS  # DEPRECATED: rename per notebook-arviz-redesign thread
-)
-
-# Keep old FAMILY_A_WITH_ENERGY alias pointing at the new name
-FAMILY_A_WITH_ENERGY = (
-    GRADIENT_MH_WITH_ENERGY  # DEPRECATED: use GRADIENT_MH_WITH_ENERGY
-)
 
 
 # Mapping from our chain_stats field names (blackjax NUTSInfo._fields) to
@@ -740,75 +697,3 @@ def render_specialised(
     # For now, just return the gradient MH plots
 
     return figs
-
-
-# ---------------------------------------------------------------------------
-# Deprecated render_family_* wrappers — emit DeprecationWarning on call
-# ---------------------------------------------------------------------------
-
-
-def render_family_a(
-    idata: Any,
-    info: Any,
-    sampler_name: str = "nuts",
-) -> list[Figure]:
-    """Deprecated: use ``render_gradient_mh`` instead."""
-    warnings.warn(
-        "render_family_a is deprecated; use render_gradient_mh instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return render_gradient_mh(idata, info, sampler_name=sampler_name)
-
-
-def render_family_b(
-    idata: Any,
-    info: Any,
-) -> list[Figure]:
-    """Deprecated: use ``render_mclmc_family`` instead."""
-    warnings.warn(
-        "render_family_b is deprecated; use render_mclmc_family instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return render_mclmc_family(idata, info)
-
-
-def render_family_c(
-    idata: Any,
-    info: Any,
-) -> list[Figure]:
-    """Deprecated: use ``render_smc_family`` instead."""
-    warnings.warn(
-        "render_family_c is deprecated; use render_smc_family instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return render_smc_family(idata, info)
-
-
-def render_family_d(
-    idata: Any,
-    info: Any,
-) -> list[Figure]:
-    """Deprecated: use ``render_vi_family`` instead."""
-    warnings.warn(
-        "render_family_d is deprecated; use render_vi_family instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return render_vi_family(idata, info)
-
-
-def render_family_e(
-    idata: Any,
-    info: Any,
-    sampler_name: str = "elliptical_slice",
-) -> list[Figure]:
-    """Deprecated: use ``render_specialised`` instead."""
-    warnings.warn(
-        "render_family_e is deprecated; use render_specialised instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return render_specialised(idata, info, sampler_name=sampler_name)
