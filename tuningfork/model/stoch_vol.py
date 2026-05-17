@@ -55,7 +55,7 @@ DIM: int = 3 + T_LENGTH  # = 503
 
 #: Path to committed CSV data file (SP500 first 500 mean-centered daily returns).
 #: Single column `returns`; 500 rows.
-_CSV_PATH: Path = Path(__file__).parent.parent.parent / "data" / "stoch_vol_returns.csv"
+_CSV_PATH: Path = Path(__file__).parent.parent / "data" / "stoch_vol_returns.csv"
 
 # ---------------------------------------------------------------------------
 # Load real SP500 returns (shape: (500,), float32, mean-centered)

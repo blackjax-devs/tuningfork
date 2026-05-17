@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, ReferenceMethod, build_logdensity_fn
-from tuningfork.model.pathological.banana import DIM, ENTRY, SIGMA_X1
+from tuningfork.model.banana import DIM, ENTRY, SIGMA_X1
 
 pytestmark = pytest.mark.fast
 

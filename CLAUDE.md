@@ -72,7 +72,7 @@ Source layout (top-level subpackages of `tuningfork/`):
 
 ```
 tuningfork/
-├── model/                     # 14 Posterior definitions + MODELS registry
+├── model/                     # 14 Posterior definitions; MODELS + MODELS_BY_FAMILY registry
 ├── base_method/               # 24 wrappers — see ENTRIES list below
 ├── warmup/                    # 10 warmup wrappers — see ENTRIES list below
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below

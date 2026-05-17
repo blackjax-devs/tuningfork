@@ -34,13 +34,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, build_logdensity_fn
-from tuningfork.model.hierarchical.irt_2pl import (
-    DIM,
-    ENTRY,
-    N_ITEMS,
-    N_STUDENTS,
-    RESPONSE,
-)
+from tuningfork.model.irt_2pl import DIM, ENTRY, N_ITEMS, N_STUDENTS, RESPONSE
 
 pytestmark = pytest.mark.fast
 

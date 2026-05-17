@@ -35,7 +35,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, ReferenceMethod, build_logdensity_fn
-from tuningfork.model.pathological.gmm_25 import (
+from tuningfork.model.gmm_25 import (
     COMPONENT_LOCS,
     COMPONENT_SCALE,
     DIM,

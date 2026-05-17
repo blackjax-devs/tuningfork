@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 
 from tuningfork.model import MODELS, ReferenceMethod, build_logdensity_fn
-from tuningfork.model.gaussians.ill_cond_50 import COV_NP, DIM, ENTRY
+from tuningfork.model.ill_cond_50 import COV_NP, DIM, ENTRY
 
 pytestmark = pytest.mark.fast
 

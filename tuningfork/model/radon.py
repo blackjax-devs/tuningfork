@@ -36,7 +36,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 #: Path to the committed, preprocessed CSV.
-_CSV_PATH: Path = Path(__file__).parent.parent.parent / "data" / "radon.csv"
+_CSV_PATH: Path = Path(__file__).parent.parent / "data" / "radon.csv"
 
 #: Number of counties (J = 386 for radon_all)
 N_COUNTIES: int = 386

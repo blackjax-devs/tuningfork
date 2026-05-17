@@ -74,7 +74,7 @@ DIM: int = 3 + N_OBS  # = 203
 JITTER: float = 1e-4
 
 #: Path to committed .npz data file
-_NPZ_PATH: Path = Path(__file__).parent.parent.parent / "data" / "gp_regression.npz"
+_NPZ_PATH: Path = Path(__file__).parent.parent / "data" / "gp_regression.npz"
 
 # ---------------------------------------------------------------------------
 # Load synthetic data

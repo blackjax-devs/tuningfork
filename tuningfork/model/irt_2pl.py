@@ -35,7 +35,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 #: Path to the committed, preprocessed CSV.
-_CSV_PATH: Path = Path(__file__).parent.parent.parent / "data" / "irt_2pl.csv"
+_CSV_PATH: Path = Path(__file__).parent.parent / "data" / "irt_2pl.csv"
 
 #: Number of students (J = 100)
 N_STUDENTS: int = 100
