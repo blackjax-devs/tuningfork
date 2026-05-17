@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Sample loading and ArviZ conversion helpers for tuningfork.notebooks.
+"""Sample loading and ArviZ conversion helpers (load_idata, load_samples, ...).
 
 Statistician-friendly API:
 
@@ -88,7 +88,7 @@ def load_samples(
 
 
 # Re-export from tuningfork.diagnostics for convenience so the notebook
-# only needs to import from tuningfork.notebooks.
+# only needs to import from tuningfork.render.
 def load_chain_stats(
     recipe: Any,
     *,
@@ -169,7 +169,8 @@ def load_idata(
 
     Recommended one-call helper for the statistician check workflow:
 
-        from tuningfork.notebooks import load_recipe, load_idata
+        from tuningfork.inspect import load_recipe
+        from tuningfork.render import load_idata
         import arviz as az
 
         recipe = load_recipe("inference/recipes/starter/.../groundtruth__nuts__stan_window.json")
@@ -237,7 +238,7 @@ def load_idata(
         import warnings
 
         warnings.warn(
-            f"tuningfork.notebooks.load_idata: applied cert-protocol reshape "
+            f"tuningfork.render.load_idata: applied cert-protocol reshape "
             f"({n_total} draws from 1 chain) → ({n_chunks} chains × {per_chunk} draws). "
             f"This matches the certification protocol's split-R̂ chunking and lets "
             f"az.summary(idata) compute r_hat directly. Pass n_chunks=1 to "

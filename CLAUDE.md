@@ -93,20 +93,15 @@ tuningfork/
 │   └── grad_counter.py        # logdensity_fn wrapper that counts grad evals
 ├── runner/
 │   └── smc.py                 # init_particles_from_prior + run_smc helpers
-├── notebooks/                 # User-facing inspection helpers (load_recipe, load_samples, samples_to_idata)
-│   ├── __init__.py
-│   ├── inspect.py             # load_recipe, summarize_recipe
-│   ├── render.py              # load_samples, samples_to_idata
-│   ├── README.md
-│   └── inspect_example.md    # worked example (jupytext .md)
-├── reporting/                 # (placeholder; no submodules yet)
+├── inspect.py                 # User-facing: load_recipe, summarize_recipe
+├── render.py                  # User-facing: load_samples, load_chain_stats, load_idata, samples_to_idata
 └── cli.py                     # tuningfork reference / warmup / tune subcommands
 ```
 
-The parametrized template notebook lives at `notebooks/recipe_diagnostics.md`
-(repo root `notebooks/` directory, not inside the `tuningfork/` source package).
-As of 2026-05-12, it handles NUTS/HMC only; other sampler families are deferred
-to Recipe Phases 2+.
+User-facing template notebooks live at the repo-root `notebooks/` directory
+(`recipe_diagnostics.md`, `inspect_example.md`, `inspect_README.md`) — NOT
+inside the `tuningfork/` source package. As of 2026-05-12, `recipe_diagnostics`
+handles NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
 
 ### Inventory
 

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Fast tests for tuningfork.notebooks.inspect (load_recipe, summarize_recipe).
+"""Fast tests for tuningfork.inspect (load_recipe, summarize_recipe).
 
 All tests are pure logic / schema — no JAX trace, no chain runs.
 """
@@ -127,7 +127,7 @@ def minimal_recipe_json_empty_gate(tmp_path: Path) -> Path:
 
 def test_load_recipe_absolute_path(minimal_recipe_json: Path) -> None:
     """load_recipe loads a recipe from an absolute path."""
-    from tuningfork.notebooks import load_recipe
+    from tuningfork.inspect import load_recipe
 
     recipe = load_recipe(minimal_recipe_json)
     assert recipe.model_name == "eight_schools_ncp"
@@ -141,7 +141,7 @@ def test_load_recipe_relative_path_resolves_against_repo_root(
 ) -> None:
     """load_recipe resolves a relative path against the tuningfork repo root."""
     import tuningfork as _tf
-    from tuningfork.notebooks import load_recipe
+    from tuningfork.inspect import load_recipe
 
     # The recipe is in a temp dir — make the repo root point to the parent
     # of the temp dir so relative resolution works.
@@ -167,7 +167,7 @@ def test_load_recipe_relative_path_resolves_against_repo_root(
 
 def test_load_recipe_missing_raises_file_not_found() -> None:
     """load_recipe raises FileNotFoundError with a helpful message on miss."""
-    from tuningfork.notebooks import load_recipe
+    from tuningfork.inspect import load_recipe
 
     with pytest.raises(FileNotFoundError, match="Recipe file not found"):
         load_recipe("/tmp/this_file_definitely_does_not_exist_abc123.json")
@@ -180,7 +180,7 @@ def test_load_recipe_missing_raises_file_not_found() -> None:
 
 def test_summarize_recipe_returns_dataframe(minimal_recipe_json: Path) -> None:
     """summarize_recipe returns a pd.DataFrame with expected shape."""
-    from tuningfork.notebooks import load_recipe, summarize_recipe
+    from tuningfork.inspect import load_recipe, summarize_recipe
 
     recipe = load_recipe(minimal_recipe_json)
     df = summarize_recipe(recipe)
@@ -192,7 +192,7 @@ def test_summarize_recipe_returns_dataframe(minimal_recipe_json: Path) -> None:
 
 def test_summarize_recipe_contains_expected_rows(minimal_recipe_json: Path) -> None:
     """summarize_recipe includes model, sampler, verdict, R̂_max, etc."""
-    from tuningfork.notebooks import load_recipe, summarize_recipe
+    from tuningfork.inspect import load_recipe, summarize_recipe
 
     recipe = load_recipe(minimal_recipe_json)
     df = summarize_recipe(recipe)
@@ -212,7 +212,7 @@ def test_summarize_recipe_empty_gate_shows_na(
     minimal_recipe_json_empty_gate: Path,
 ) -> None:
     """When gate_evidence is NOT_RUN, R̂_max shows 'N/A'."""
-    from tuningfork.notebooks import load_recipe, summarize_recipe
+    from tuningfork.inspect import load_recipe, summarize_recipe
 
     recipe = load_recipe(minimal_recipe_json_empty_gate)
     df = summarize_recipe(recipe)
