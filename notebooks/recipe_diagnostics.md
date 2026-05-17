@@ -26,7 +26,7 @@ design in `worklog/threads/notebook-arviz-redesign.md`.
 :tags: [parameters]
 
 # Papermill / jupytext parameter cell — edit these to inspect a different recipe
-RECIPE_PATH: str = "tuningfork/recipes/starter/eight_schools_ncp/groundtruth__nuts__stan_window.json"
+RECIPE_PATH: str = "tuningfork/catalog/eight_schools_ncp/groundtruth.json"
 QUICK_MODE: bool = True
 N_SAMPLES_QUICK: int = 1000
 N_CHAINS: int = 4
