@@ -132,6 +132,15 @@ def emit_script(
     )
 
     # Substitution context — every $slot the templates reference must be here.
+    #
+    # Prefix convention (Option A — programmatic spread, R3.5b):
+    #   bm_<key>  — from recipe.base_method_params  (e.g. $bm_step_size, $bm_num_integration_steps)
+    #   wp_<key>  — from recipe.warmup_params        (e.g. $wp_n_warmup, $wp_target_acceptance_rate)
+    #
+    # These prefixed slots are in addition to the hand-unrolled top-level slots
+    # (which remain for backward compatibility with existing templates).
+    # New templates should prefer the prefixed $bm_* / $wp_* form so the context
+    # auto-expands when new hyperparameter fields are added to recipes.
     ctx = {
         "recipe_id": (
             f"{recipe.model_name}/{recipe.effort.value}"
@@ -146,22 +155,32 @@ def emit_script(
         "tuning_seed": recipe.tuning_seed,
         "sampler_seed": sampler_seed,
         "num_samples": num_samples,
-        # warmup_params unrolled
+        # warmup_params unrolled (legacy top-level slots — backward compat)
         "target_acceptance_rate": target_acceptance_rate,
         "n_warmup": recipe.warmup_params.get("n_warmup", 1000),
-        # base_method_params unrolled
+        # base_method_params unrolled (legacy top-level slots — backward compat)
         "max_num_doublings": recipe.base_method_params.get("max_num_doublings", 10),
     }
+    # Programmatic spread: bm_<key> from base_method_params, wp_<key> from warmup_params.
+    # Values are JSON-serialised scalar types (int/float/list); templates that need
+    # them reference $bm_step_size, $bm_num_integration_steps, $wp_n_warmup, etc.
+    ctx.update({f"bm_{k}": v for k, v in recipe.base_method_params.items()})
+    ctx.update({f"wp_{k}": v for k, v in recipe.warmup_params.items()})
 
-    preamble = _load_template("preamble.py.tmpl").substitute(ctx)
-    warmup_body = _load_template(f"warmups/{recipe.warmup_name}.py.tmpl").substitute(
-        ctx
-    )
+    # Use safe_substitute so templates with optional $bm_*/wp_* slots that are
+    # absent from the recipe (e.g. $bm_num_integration_steps in a nuts recipe)
+    # leave the slot as a literal dollar-prefixed string rather than raising
+    # KeyError.  Each template is responsible for using only the slots that
+    # actually exist for its algorithm family.
+    preamble = _load_template("preamble.py.tmpl").safe_substitute(ctx)
+    warmup_body = _load_template(
+        f"warmups/{recipe.warmup_name}.py.tmpl"
+    ).safe_substitute(ctx)
     sampler_body = _load_template(
         f"samplers/{recipe.base_method_name}.py.tmpl"
-    ).substitute(ctx)
-    inference_loop = _load_template("inference_loop.py.tmpl").substitute(ctx)
-    postamble = _load_template("postamble.py.tmpl").substitute(ctx)
+    ).safe_substitute(ctx)
+    inference_loop = _load_template("inference_loop.py.tmpl").safe_substitute(ctx)
+    postamble = _load_template("postamble.py.tmpl").safe_substitute(ctx)
 
     # Model definition is imported from tuningfork.model in the preamble;
     # no separate model template assembled here (post R3.5-MVP clarification).
