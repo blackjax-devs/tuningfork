@@ -188,9 +188,9 @@ def _cmd_warmup(args: argparse.Namespace) -> int:
     """
     import json
 
-    from tuningfork.inference.base_method import BASE_METHODS
-    from tuningfork.inference.warmup import WARMUPS
+    from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
+    from tuningfork.warmup import WARMUPS
 
     # ------------------------------------------------------------------ #
     # 1. Validate model, algo, and warmup                                #
@@ -248,7 +248,7 @@ def _cmd_warmup(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------ #
     import jax
 
-    from tuningfork.inference.recipes._base import Recipe
+    from tuningfork.recipes._base import Recipe
 
     rng_key = jax.random.key(args.seed)
     t0 = time.monotonic()
@@ -318,8 +318,8 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
     import json
     from pathlib import Path
 
-    from tuningfork.inference.recipes._base import Recipe
     from tuningfork.model import MODELS
+    from tuningfork.recipes._base import Recipe
 
     # ------------------------------------------------------------------ #
     # 1. Validate model                                                  #
@@ -458,7 +458,7 @@ def _cmd_tune(args: argparse.Namespace) -> int:
     """
     import json
 
-    from tuningfork.inference.base_method import BASE_METHODS
+    from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
 
     # ------------------------------------------------------------------ #

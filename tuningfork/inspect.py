@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pandas as pd
 
-    from tuningfork.inference.recipes._base import Recipe
+    from tuningfork.recipes._base import Recipe
 
 __all__ = ["load_recipe", "summarize_recipe"]
 
@@ -77,7 +77,7 @@ def load_recipe(path: str | Path) -> Recipe:
         If the recipe file cannot be found after trying absolute and
         repo-root-relative resolution.
     """
-    from tuningfork.inference.recipes._base import Recipe
+    from tuningfork.recipes._base import Recipe
 
     recipe_path = Path(path)
     if recipe_path.is_absolute():

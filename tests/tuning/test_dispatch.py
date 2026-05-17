@@ -30,8 +30,8 @@ from unittest.mock import patch
 import jax
 import pytest
 
+from tuningfork.base_method import BASE_METHODS
 from tuningfork.calibration.tune import TuningResult, default_params_for, tune_algorithm
-from tuningfork.inference.base_method import BASE_METHODS
 from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.slow

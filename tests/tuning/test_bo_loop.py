@@ -37,13 +37,13 @@ import math
 import jax
 import pytest
 
+from tuningfork.base_method import BASE_METHODS
 from tuningfork.calibration.tune import (
     TuningDifficulty,
     TuningResult,
     default_params_for,
     tune_algorithm,
 )
-from tuningfork.inference.base_method import BASE_METHODS
 from tuningfork.model import MODELS
 
 pytestmark = pytest.mark.slow

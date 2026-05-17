@@ -668,7 +668,7 @@ def test_base_methods_contains_mhmc_and_dmhmc():
     new algorithms doesn't break this test).  If either entry is accidentally
     dropped from __init__.py, this fires immediately.
     """
-    from tuningfork.inference.base_method import BASE_METHODS
+    from tuningfork.base_method import BASE_METHODS
 
     required = {"mhmc", "dmhmc"}
     missing = required - set(BASE_METHODS.keys())
@@ -837,7 +837,7 @@ def test_base_methods_contains_laplace_marginal_2x2():
     new algorithms doesn't break this test).  If any of the 4 entries is
     accidentally dropped from __init__.py, this fires immediately.
     """
-    from tuningfork.inference.base_method import BASE_METHODS
+    from tuningfork.base_method import BASE_METHODS
 
     required = {"laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc"}
     missing = required - set(BASE_METHODS.keys())
@@ -964,7 +964,7 @@ def test_base_methods_contains_p5_15_algorithmic_specials():
     new algorithms doesn't break this test).  If either entry is accidentally
     dropped from __init__.py, this fires immediately.
     """
-    from tuningfork.inference.base_method import BASE_METHODS
+    from tuningfork.base_method import BASE_METHODS
 
     required = {"orbital_hmc", "additive_step_random_walk"}
     missing = required - set(BASE_METHODS.keys())
@@ -1049,7 +1049,7 @@ def test_base_methods_contains_p5_15_5_rmhmc():
 
     Subset check ( dodge): future additions do not break this test.
     """
-    from tuningfork.inference.base_method import BASE_METHODS
+    from tuningfork.base_method import BASE_METHODS
 
     assert "rmhmc" in BASE_METHODS, (
         f"BASE_METHODS is missing 'rmhmc' after registration. "
