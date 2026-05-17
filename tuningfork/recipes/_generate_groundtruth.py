@@ -20,7 +20,7 @@ For each model in MODELS:
   * NUTS-path: call get_reference_draws at production settings (n=40_000,
     n_warmup=5_000, n_chunks=4, target_acceptance=0.80) to populate the
     cache; read back metadata + adaptation; build Recipe.from_groundtruth_run
-    and save to inference/recipes/starter/<model>/groundtruth__nuts__stan_window.json.
+    and save to catalog/<model>/groundtruth.json.
     For high-dim models (IMM.size > 50), write IMM sidecar.
 
 Wall-time on CPU: ~30s for the 5 analytic models; ~5-15min each for the 9
@@ -52,9 +52,9 @@ if TYPE_CHECKING:
 
 __all__ = ["generate_groundtruth_recipe", "sweep_all"]
 
-# Default recipe output root (relative to this file's repo).
-_REPO_ROOT = Path(__file__).parent.parent.parent.parent
-_DEFAULT_RECIPE_ROOT = _REPO_ROOT / "tuningfork" / "inference" / "recipes" / "starter"
+# Default catalog root: <package>/catalog/ (where <package> is the
+# tuningfork Python package dir, i.e., parent.parent of this file).
+_DEFAULT_RECIPE_ROOT = Path(__file__).parent.parent / "catalog"
 
 
 def generate_groundtruth_recipe(
@@ -101,7 +101,7 @@ def generate_groundtruth_recipe(
         Override the reference cache directory.
     recipe_root
         Override the recipe output root. Defaults to
-        ``<repo>/tuningfork/recipes/starter``.
+        ``<repo>/tuningfork/catalog``.
 
     Returns
     -------

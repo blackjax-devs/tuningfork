@@ -367,23 +367,35 @@ class Recipe:
     # ── persistence ──────────────────────────────────────────────────────────
 
     def save(self, root: Path) -> Path:
-        """Write to ``<root>/<model_name>/<effort>__<base_method>__<warmup>.json``.
+        """Write the recipe to its canonical location under ``root``.
+
+        Per the catalog layout (post-R2, 2026-05-17):
+
+        - GROUNDTRUTH recipes go to ``<root>/<model_name>/groundtruth.json``
+          (no filename suffix — there's exactly one groundtruth path per model).
+        - All other efforts (LOW / MEDIUM / HIGH / FAILED) go to
+          ``<root>/<model_name>/recipes/<effort>__<base_method>__<warmup>.json``.
 
         Parameters
         ----------
         root
-            Directory under which the per-model subdirectory is created.
+            Catalog root directory (e.g., ``tuningfork/catalog/``).
 
         Returns
         -------
         Path
             The path of the written JSON file.
         """
-        target_dir = Path(root) / self.model_name
+        model_dir = Path(root) / self.model_name
+        if self.effort == Effort.GROUNDTRUTH:
+            target_dir = model_dir
+            filename = "groundtruth.json"
+        else:
+            target_dir = model_dir / "recipes"
+            filename = (
+                f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.json"
+            )
         target_dir.mkdir(parents=True, exist_ok=True)
-        filename = (
-            f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.json"
-        )
         target = target_dir / filename
         d = asdict(self)
         # asdict recurses; enum values become their raw value via the Enum's __repr__
@@ -910,14 +922,15 @@ class Recipe:
             # Then dataclasses.replace(recipe, inverse_mass_matrix_path=sidecar_path)
             # since Recipe is frozen.
 
-        The sidecar lives at
-        ``<root>/<model>/<effort>__<sampler>__<warmup>.imm.npz``
-        so each recipe's IMM is self-contained.
+        Per the catalog layout (post-R2):
+
+        - For GROUNDTRUTH recipes: ``<root>/<model>/groundtruth.imm.npz``
+        - For other efforts: ``<root>/<model>/recipes/<effort>__<sampler>__<warmup>.imm.npz``
 
         Parameters
         ----------
         root
-            Directory under which the per-model subdirectory is created.
+            Catalog root directory (e.g., ``tuningfork/catalog/``).
         imm
             The inverse mass matrix to persist (any shape; saved under key
             ``"imm"`` in the compressed npz).
@@ -930,11 +943,14 @@ class Recipe:
         """
         import numpy as np
 
-        sidecar_dir = root / self.model_name
+        model_dir = root / self.model_name
+        if self.effort == Effort.GROUNDTRUTH:
+            sidecar_dir = model_dir
+            filename = "groundtruth.imm.npz"
+        else:
+            sidecar_dir = model_dir / "recipes"
+            filename = f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.imm.npz"
         sidecar_dir.mkdir(parents=True, exist_ok=True)
-        filename = (
-            f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.imm.npz"
-        )
         sidecar_path = sidecar_dir / filename
         np.savez_compressed(sidecar_path, imm=np.asarray(imm))
         return str(sidecar_path.relative_to(root))
