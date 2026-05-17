@@ -98,6 +98,51 @@ For GPU: `uv pip install "jax[cuda12]"` after `make install`.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a complete guide to test markers (`fast`, `slow`, `e2e`), folder layout, and adding new tests.
 
+## Layout
+
+```
+tuningfork/
+├── tuningfork/                # the package
+│   ├── model/                 # 14 Posterior definitions + MODELS, MODELS_BY_FAMILY
+│   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
+│   ├── warmup/                # 10 warmup wrappers (stan_window, pathfinder, ...)
+│   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
+│   ├── recipes/               # Recipe schema + starter/ groundtruth recipes
+│   │   └── starter/<model>/   # one dir per model; groundtruth__*.json pins
+│   ├── calibration/           # certify_reference, tune (Optuna BO), statistician_gate
+│   ├── metrics/               # headline metric, grad-counter, reference_compare
+│   ├── runner/                # SMC init + run helpers
+│   ├── reference/             # cached groundtruth artifacts (per-model layout)
+│   │   └── <model>/           # one dir per certified model
+│   │       ├── metadata.json     # committed; cache-validity stamp
+│   │       ├── summary.json      # committed; mean/std/percentiles
+│   │       ├── adaptation.json   # committed; NUTS-path only
+│   │       ├── xcheck.json       # committed; posteriordb cross-check (where applicable)
+│   │       ├── draws.npz         # gitignored; long-chain samples
+│   │       ├── chain_stats.npz   # gitignored; per-step NUTS diagnostics
+│   │       └── warmup_checkpoint/  # gitignored; mid-run checkpoints
+│   ├── data/                  # raw datasets + fetch/generate scripts
+│   ├── inspect.py             # User-facing: load_recipe, summarize_recipe
+│   ├── render.py              # User-facing: load_samples, load_chain_stats, load_idata, samples_to_idata
+│   ├── diagnostics.py         # ArviZ family-aware diagnostic rendering
+│   └── cli.py                 # tuningfork {reference, warmup, tune} subcommands
+├── tests/                     # mirrors source layout (base_method/, warmup/, smc/, recipes/, ...)
+├── tools/                     # data fetch + generation scripts
+│   ├── fetch_irt_2pl.py
+│   ├── fetch_radon.py
+│   ├── fetch_stoch_vol.py
+│   ├── generate_gp_regression.py
+│   └── generate_lotka_volterra.py
+├── notebooks/                 # User-facing template + worked-example notebooks
+│   ├── recipe_diagnostics.md      # parametrized recipe inspection notebook
+│   ├── inspect_example.md         # worked example
+│   └── inspect_README.md          # docs for inspect/render API
+├── results/                   # benchmark output (gitignored)
+├── CLAUDE.md                  # contributor / agent guide
+├── RECIPE_GENERATION.md       # statistician-authored recipe matrix + plan
+└── CONTRIBUTING.md            # test markers, folder layout, contribution rules
+```
+
 ## License
 
 Apache 2.0
