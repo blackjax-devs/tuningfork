@@ -137,7 +137,7 @@ NATURAL_WARMUP_FOR_SAMPLER: dict[str, str] = {
 }
 
 # Root of the starter/ directory (relative to this file)
-_STARTER_ROOT = Path(__file__).parent / "starter"
+_CATALOG_ROOT = Path(__file__).parent.parent / "catalog"
 
 
 def emit_low_recipes(
@@ -183,12 +183,12 @@ def emit_low_recipes(
                 base_method,
                 tuningfork_version=_tuningfork_version,
             )
-            path = recipe.save(_STARTER_ROOT)
+            path = recipe.save(_CATALOG_ROOT)
             generated.append(path)
             try:
                 pretty = path.relative_to(repo_root)
             except ValueError:
-                # _STARTER_ROOT was redirected outside the repo (e.g. tests using tmp_path);
+                # _CATALOG_ROOT was redirected outside the repo (e.g. tests using tmp_path);
                 # fall back to absolute path so logging never crashes.
                 pretty = path
             print(f"  LOW   {pretty}")
@@ -262,7 +262,7 @@ def emit_medium_recipes(
                 rng_key=key,
                 tuningfork_version=_tuningfork_version,
             )
-            path = recipe.save(_STARTER_ROOT)
+            path = recipe.save(_CATALOG_ROOT)
             generated.append(path)
             try:
                 pretty = path.relative_to(repo_root)
@@ -356,7 +356,7 @@ def emit_high_recipes(
                 warmup=stan_window,
                 tuningfork_version=_tuningfork_version,
             )
-            path = recipe.save(_STARTER_ROOT)
+            path = recipe.save(_CATALOG_ROOT)
             generated.append(path)
             print(
                 f"    done in {elapsed:.1f}s; "
