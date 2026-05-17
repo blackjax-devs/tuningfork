@@ -503,12 +503,20 @@ def test_load_imm_sidecar_returns_none_when_path_unset(tmp_path: Path) -> None:
 
 
 @pytest.mark.fast
-def test_effort_enum_has_four_values() -> None:
-    """Effort enum has exactly 4 values: LOW, MEDIUM, HIGH, GROUNDTRUTH."""
-    assert len(Effort) == 4
-    assert set(Effort) == {Effort.LOW, Effort.MEDIUM, Effort.HIGH, Effort.GROUNDTRUTH}
+def test_effort_enum_has_five_values() -> None:
+    """Effort enum has exactly 5 values: LOW, MEDIUM, HIGH, GROUNDTRUTH, FAILED."""
+    assert len(Effort) == 5
+    assert set(Effort) == {
+        Effort.LOW,
+        Effort.MEDIUM,
+        Effort.HIGH,
+        Effort.GROUNDTRUTH,
+        Effort.FAILED,
+    }
     assert Effort.GROUNDTRUTH.value == "groundtruth"
     assert Effort.GROUNDTRUTH == "groundtruth"
+    assert Effort.FAILED.value == "failed"
+    assert Effort.FAILED == "failed"
 
 
 def _make_mock_cert(
