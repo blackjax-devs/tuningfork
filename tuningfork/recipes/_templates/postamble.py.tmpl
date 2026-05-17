@@ -1,6 +1,18 @@
 # Print headline diagnostics for verification.
-import arviz as az
-_n_div = int(jnp.sum(_infos.is_divergent))
-print(f"[recipe='$recipe_id'] n_divergences={_n_div}")
+# Different sampler families have different Info namedtuples; we check what
+# fields are available rather than hardcoding.  The postamble is a coarse gate
+# (option-A from the round-trip CI design): emit a sampler-appropriate scalar
+# summary + the DONE marker.
+_acceptance = float("nan")
+_n_div = 0
+if hasattr(_infos, "is_divergent"):
+    _n_div = int(jnp.sum(_infos.is_divergent))
+if hasattr(_infos, "acceptance_rate"):
+    _acceptance = float(jnp.mean(_infos.acceptance_rate))
+elif hasattr(_infos, "is_accepted"):
+    _acceptance = float(jnp.mean(_infos.is_accepted))
+print(
+    f"[recipe='$recipe_id'] n_divergences={_n_div} mean_acceptance={_acceptance:.3f}"
+)
 # Naive scalar verdict signal -- sufficient for the round-trip CI gate.
 print("DONE")

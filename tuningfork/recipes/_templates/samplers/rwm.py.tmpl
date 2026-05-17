@@ -1,0 +1,24 @@
+# === SAMPLER: rwm (Random-Walk Metropolis with isotropic Gaussian proposal) ===
+# Wraps blackjax.rmh with an isotropic Gaussian proposal in flat parameter
+# space, un-ravelled back to the pytree structure (mirrors
+# tuningfork.base_method.rwm._make_rwm).
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _unravel = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+_sigma = _adapted_params.get("step_size", $bm_sigma)
+
+
+def _rwm_proposal_generator(rng_key, position):
+    flat, unravel = _ravel_pytree(position)
+    noise = jax.random.normal(rng_key, shape=flat.shape) * _sigma
+    return unravel(flat + noise)
+
+
+_kernel_obj = blackjax.rmh(logdensity_fn, proposal_generator=_rwm_proposal_generator)
+kernel = _kernel_obj.step
+
+try:
+    _state_post_warmup
+except NameError:
+    _state_post_warmup = _kernel_obj.init(init_position)
