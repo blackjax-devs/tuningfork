@@ -91,57 +91,105 @@ make install      # uv sync --group bench
 make test         # run tests (default: skip e2e suite)
 make test-fast    # inner-loop dev (fast tests only)
 make test-full    # merge gate (everything)
+make benchmark    # weekly perf-regression suite (D5 thresholds; opt-in)
 make lint         # pre-commit
 ```
 
 For GPU: `uv pip install "jax[cuda12]"` after `make install`.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a complete guide to test markers (`fast`, `slow`, `e2e`), folder layout, and adding new tests.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a complete guide to test markers (`fast`, `slow`, `e2e`, `benchmark`), folder layout, and adding new tests.
+
+## Using the catalog
+
+The user-facing API for consuming recipes is in `tuningfork.catalog`:
+
+```python
+from tuningfork.catalog import load_recipe, load_idata, summarize_recipe, emit_script
+
+# Inspect a committed recipe + render its sample-quality diagnostics
+recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/groundtruth.json")
+print(summarize_recipe(recipe))      # auto-renders as DataFrame in Jupyter
+idata = load_idata(recipe)           # posterior + sample_stats (ArviZ-ready)
+
+import arviz as az
+az.plot_trace(idata)
+az.summary(idata)
+
+# Reproduce the recipe in a fresh environment (no tuningfork dependency in
+# the inference choreography; only the model definition imports tuningfork.model)
+script = emit_script(recipe, num_samples=2000)
+from pathlib import Path
+Path("run_eight_schools.py").write_text(script)
+# $ uv run --with tuningfork --with jax --with blackjax --with numpyro \
+#       python run_eight_schools.py
+```
+
+Per-model artifacts live under `tuningfork/catalog/<model>/`:
+
+- **`lessons.md`** — distilled "what's tricky about sampling this model" knowledge ([example](tuningfork/catalog/stoch_vol/lessons.md))
+- **`groundtruth.json`** — canonical long-NUTS reference recipe (for NUTS-path models) or analytic sampler config
+- **`groundtruth.imm.npz`** — high-dim inverse-mass-matrix sidecar (5 high-d models: gp_regression, horseshoe, irt_2pl, radon, stoch_vol)
+- **`reference/{metadata,summary,adaptation,xcheck}.json`** — committed cert artifacts (long-NUTS gold-standard run)
+- **`recipes/{low,medium,high,failed}__*.json`** — per-cell recipes from the Recipe Generation Phase pipeline. 7 canonical FAILED recipes ship today documenting the [hard-exclusion categories](RECIPE_GENERATION.md#hard-exclusions) (e.g., `gmm_25/recipes/failed__nuts__stan_window.json` documents the "multimodal × single-chain gradient" exclusion). LOW/MEDIUM/HIGH recipes land as Recipe Phase 1+ executes.
 
 ## Layout
 
 ```
 tuningfork/
-├── tuningfork/                # the package
-│   ├── model/                 # 14 Posterior definitions + MODELS, MODELS_BY_FAMILY
+├── tuningfork/                # the Python package
+│   │   # ─── generator layer (produces recipes) ───
+│   ├── model/                 # 14 NumPyro models + MODELS, MODELS_BY_FAMILY
+│   │   └── _data/             # raw input datasets (CSV/NPZ); fetch via tools/
 │   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
 │   ├── warmup/                # 10 warmup wrappers (stan_window, pathfinder, ...)
 │   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
-│   ├── recipes/               # Recipe schema + starter/ groundtruth recipes
-│   │   └── starter/<model>/   # one dir per model; groundtruth__*.json pins
+│   ├── recipes/               # Recipe schema + generators + emit_script templates
+│   │   ├── _base.py, _instructions.py
+│   │   ├── _generate_starter.py, _generate_groundtruth.py
+│   │   ├── _emit_script.py    # recipe → reproduction Python script
+│   │   └── _templates/        # .py.tmpl wiring templates (warmups/, samplers/)
 │   ├── calibration/           # certify_reference, tune (Optuna BO), statistician_gate
 │   ├── metrics/               # headline metric, grad-counter, reference_compare
 │   ├── runner/                # SMC init + run helpers
-│   ├── reference/             # cached groundtruth artifacts (per-model layout)
-│   │   └── <model>/           # one dir per certified model
-│   │       ├── metadata.json     # committed; cache-validity stamp
-│   │       ├── summary.json      # committed; mean/std/percentiles
-│   │       ├── adaptation.json   # committed; NUTS-path only
-│   │       ├── xcheck.json       # committed; posteriordb cross-check (where applicable)
-│   │       ├── draws.npz         # gitignored; long-chain samples
-│   │       ├── chain_stats.npz   # gitignored; per-step NUTS diagnostics
-│   │       └── warmup_checkpoint/  # gitignored; mid-run checkpoints
-│   ├── data/                  # raw datasets + fetch/generate scripts
-│   ├── inspect.py             # User-facing: load_recipe, summarize_recipe
-│   ├── render.py              # User-facing: load_samples, load_chain_stats, load_idata, samples_to_idata
-│   ├── diagnostics.py         # ArviZ family-aware diagnostic rendering
-│   └── cli.py                 # tuningfork {reference, warmup, tune} subcommands
-├── tests/                     # mirrors source layout (base_method/, warmup/, smc/, recipes/, ...)
+│   ├── _cache_io.py           # internal cache I/O for reference artifacts
+│   ├── _posteriordb_xcheck.py # posteriordb cross-check logic
+│   ├── cli.py                 # tuningfork {reference, warmup, tune} subcommands
+│   │
+│   │   # ─── catalog layer (user-facing, consumes recipes) ───
+│   └── catalog/               # USER-FACING subpackage
+│       ├── inspect.py         # load_recipe, summarize_recipe
+│       ├── render.py          # load_samples, load_chain_stats, load_idata, samples_to_idata
+│       ├── diagnostics.py     # ArviZ family-aware diagnostic renderers
+│       ├── emit.py            # emit_script (recipe → standalone .py script)
+│       ├── notebooks/         # template + worked-example notebooks
+│       │   ├── recipe_diagnostics.md  # parametrized inspection template
+│       │   ├── inspect_example.md     # worked example
+│       │   └── inspect_README.md      # docs for the catalog API
+│       └── <model>/           # per-model artifacts (one dir per certified model)
+│           ├── lessons.md          # distilled sampling-quirks history
+│           ├── groundtruth.json    # canonical groundtruth recipe pin
+│           ├── groundtruth.imm.npz # high-dim IMM sidecar (5 models)
+│           ├── reference/          # committed cert artifacts
+│           │   ├── metadata.json, summary.json
+│           │   ├── adaptation.json (NUTS-path only)
+│           │   └── xcheck.json     (posteriordb cross-check; eight_schools_ncp + radon)
+│           ├── recipes/            # per-cell recipes (Recipe Phase 1+ output)
+│           │   └── {low,medium,high,failed}__<sampler>__<warmup>.json
+│           └── _cache/             # gitignored runtime cache
+│               ├── draws.npz, chain_stats.npz
+│               └── warmup_checkpoint/
+├── tests/                     # source-mirroring test layout
+├── benchmarks/                # pytest-benchmark perf-regression suite
+│   └── test_fast_recipes.py
 ├── tools/                     # data fetch + generation scripts
-│   ├── fetch_irt_2pl.py
-│   ├── fetch_radon.py
-│   ├── fetch_stoch_vol.py
-│   ├── generate_gp_regression.py
-│   └── generate_lotka_volterra.py
-├── notebooks/                 # User-facing template + worked-example notebooks
-│   ├── recipe_diagnostics.md      # parametrized recipe inspection notebook
-│   ├── inspect_example.md         # worked example
-│   └── inspect_README.md          # docs for inspect/render API
-├── results/                   # benchmark output (gitignored)
+├── .github/workflows/         # pre-commit + test-fast + test-slow + benchmark CI
 ├── CLAUDE.md                  # contributor / agent guide
 ├── RECIPE_GENERATION.md       # statistician-authored recipe matrix + plan
+├── PROPOSAL_RESTRUCTURE.md    # locked design proposal (2026-05-17)
 └── CONTRIBUTING.md            # test markers, folder layout, contribution rules
 ```
+
+The package splits into two layers (post-R3 restructure, 2026-05-17): the **generator** layer (`model/`, `base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`, `runner/`, `_cache_io.py`) produces recipes; the **catalog** layer (`tuningfork.catalog`) is what a regular user imports to consume recipes + read per-model artifacts. See [`PROPOSAL_RESTRUCTURE.md`](PROPOSAL_RESTRUCTURE.md) for the full design rationale.
 
 ## License
 

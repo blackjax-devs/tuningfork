@@ -8,26 +8,28 @@ Tests mirror the source structure under `tuningfork/`:
 
 ```
 tests/
-├── inference/
-│   ├── base_method/        # BaseMethod dataclass + algorithm wrappers
-│   ├── warmup/             # Warmup strategy implementations
-│   └── smc/                # SMC method implementations
+├── base_method/            # 24 sampler wrappers
+├── warmup/                 # 10 warmup wrappers
+├── smc/                    # 6 SMC method wrappers
 ├── models/                 # Model-specific tests (one per model)
-├── recipes/                # Recipe schema and emission tests
+├── recipes/                # Recipe schema + emission + emit_script tests
 ├── metrics/                # Headline metric + diagnostics
-├── tier_a/                 # Tier-A reference certification tests
-├── tier_b/                 # Tier-B Bayesian optimization tests
-├── reference/              # Reference cache and posteriordb cross-checks
+├── reference/              # Reference cache I/O + posteriordb cross-checks
+├── tuning/                 # Optuna BO tests (formerly tier_b)
+├── notebooks/              # tuningfork.catalog.inspect / render tests
 ├── numpyro/                # NumPyro integration helpers
 ├── e2e/                    # End-to-end phase-gate tests
 │
-├── test_api_pins.py        # BlackJAX upstream contract tripwires (cross-cutting)
-├── test_registry.py        # BASE_METHODS + SMC_METHODS registry tests (cross-cutting)
+├── test_api_pins_mcmc.py   # BlackJAX MCMC contract tripwires (cross-cutting)
+├── test_api_pins_warmup.py # BlackJAX warmup contract tripwires
+├── test_api_pins_smc.py    # BlackJAX SMC contract tripwires
+├── test_registry.py        # BASE_METHODS + SMC_METHODS registry (cross-cutting)
+├── test_diagnostics.py     # ArviZ family-aware renderers (cross-cutting)
 ├── conftest.py             # Marker registration
 └── fixtures.py             # Shared fixtures (RNG keys, toy MVN logdensity, etc.)
 ```
 
-Each folder contains an `__init__.py` for package discovery. Cross-cutting tests (contract pins, registry) stay at the root.
+Each folder contains an `__init__.py` for package discovery. Cross-cutting tests (contract pins, registry, diagnostics) stay at the root. The `inference/` parent directory was removed in PR #10 (R3 code reorg, 2026-05-17) — base_method/warmup/smc/recipes are now flat-top under `tests/` to mirror the source layout.
 
 ## Test Markers
 
@@ -39,7 +41,7 @@ Five markers classify tests by cost and dependency:
 | `slow` | Runs a chain or warmup with JAX compilation. | >1 s | Yes |
 | `e2e` | End-to-end phase gate; multiple algorithms × models. | >10 s | Yes |
 | `requires_posteriordb` | Needs the posteriordb data cache; fails offline. | N/A | Yes |
-| `benchmark` | Reserved for future perf benchmarks. | N/A | No |
+| `benchmark` | pytest-benchmark perf-regression suite. Lives under `benchmarks/`, not `tests/`. | <240 s per cell (D5 cap) | No (`make benchmark` opt-in; weekly CI) |
 
 **Discipline rule**: Every test must be tagged with **exactly one** of `fast`, `slow`, or `e2e`. The `requires_posteriordb` marker is additive (combine with `slow` or `e2e` if the test also needs posteriordb data).
 
@@ -62,8 +64,8 @@ All `test-*` targets automatically run `make clean-orphans` first (except `test-
 
 1. **Pick the right subfolder** based on what you're testing:
    - Model correctness → `tests/models/test_<model_name>.py`
-   - Warmup wrapper → `tests/inference/warmup/test_<strategy_name>.py`
-   - Algorithm → `tests/inference/base_method/test_<algorithm_name>.py`
+   - Warmup wrapper → `tests/warmup/test_<strategy_name>.py`
+   - Algorithm → `tests/base_method/test_<algorithm_name>.py`
    - Recipe schema → `tests/recipes/test_schema.py`
    - Cross-cutting → `tests/test_*.py` at the root
 
@@ -123,17 +125,37 @@ For minor test changes (adding a marker, adjusting an assertion), one-line commi
 
 ## Where Things Live
 
+Post-R3 restructure (2026-05-17), the package is split into two layers — see [`PROPOSAL_RESTRUCTURE.md`](PROPOSAL_RESTRUCTURE.md) for the full design.
+
+**Generator layer** (produces recipes):
+
 | Component | Module Path | Tests Location |
 |-----------|-------------|-----------------|
-| Algorithm wrappers (HMC, NUTS, MALA, etc.) | `tuningfork/` | `tests/inference/base_method/`, `tests/inference/warmup/` |
-| Warmup strategies (Stan window, Pathfinder, etc.) | `tuningfork/warmup/` | `tests/inference/warmup/` |
-| SMC variants | `tuningfork/smc/` | `tests/inference/smc/` |
-| Models (MVN, funnel, horseshoe, etc.) | `tuningfork/registry/` | `tests/models/` |
-| Recipe schema and emission | `tuningfork/recipes/` | `tests/recipes/` |
+| Algorithm wrappers (HMC, NUTS, MALA, etc.) | `tuningfork/base_method/` | `tests/base_method/` |
+| Warmup strategies (Stan window, Pathfinder, etc.) | `tuningfork/warmup/` | `tests/warmup/` |
+| SMC variants | `tuningfork/smc/` | `tests/smc/` |
+| Models (MVN, funnel, horseshoe, etc.) | `tuningfork/model/` | `tests/models/` |
+| Recipe schema + generators + emit_script templates | `tuningfork/recipes/` | `tests/recipes/` |
 | Metrics (headline, diagnostics) | `tuningfork/metrics/` | `tests/metrics/` |
-| Tier-A certification | `tuningfork/calibration/certify_reference.py` | `tests/reference/` |
-| Tier-B Bayesian optimization | `tuningfork/calibration/tune.py` | `tests/tuning/` |
-| Reference cache + xcheck | `tuningfork/reference/` | `tests/reference/` |
+| Reference certification + xcheck logic | `tuningfork/calibration/certify_reference.py`, `tuningfork/_cache_io.py`, `tuningfork/_posteriordb_xcheck.py` | `tests/reference/` |
+| Optuna BO tuning loop | `tuningfork/calibration/tune.py` | `tests/tuning/` |
+| SMC runner | `tuningfork/runner/` | `tests/runner/` |
+
+**Catalog layer** (user-facing; consumes recipes):
+
+| Component | Module Path | Tests Location |
+|-----------|-------------|-----------------|
+| `load_recipe`, `summarize_recipe` | `tuningfork/catalog/inspect.py` | `tests/notebooks/test_inspect.py` |
+| `load_samples`, `load_chain_stats`, `load_idata`, `samples_to_idata` | `tuningfork/catalog/render.py` | `tests/notebooks/test_render.py` |
+| ArviZ family-aware diagnostic renderers | `tuningfork/catalog/diagnostics.py` | `tests/test_diagnostics.py` |
+| `emit_script` (recipe → standalone `.py`) | `tuningfork/catalog/emit.py`, `tuningfork/recipes/_emit_script.py`, `tuningfork/recipes/_templates/` | `tests/recipes/test_emit_script.py` |
+| Per-model artifacts (lessons.md, groundtruth.json, recipes/, reference/) | `tuningfork/catalog/<model>/` | (artifact-only; verified via parametric tests in `tests/recipes/test_schema.py`) |
+
+**Benchmark suite**:
+
+| Component | Module Path | Tests Location |
+|-----------|-------------|-----------------|
+| Recipe perf-regression benchmarks (D5 thresholds: select < 180 s, exec ≤ 240 s) | n/a | `benchmarks/test_fast_recipes.py` (opt-in via `make benchmark`; weekly CI cron) |
 
 ## Testing Before Commit
 
