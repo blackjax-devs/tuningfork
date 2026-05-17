@@ -39,7 +39,7 @@ Usage
 
 Flag semantics:
   - ``--only <m>``    restrict to one model (must be in STARTER_MODEL_NAMES)
-  - ``--warmup <w>``  restrict to one warmup (``"no_warmup"`` or ``"stan_window"``)
+  - ``--warmup <w>``  restrict to one warmup (``"no_warmup"`` or ``"window_adaptation_diag_imm"``)
   - ``--sampler <s>`` restrict to one base method
 
 The script is idempotent: re-running overwrites existing files with fresh
@@ -92,7 +92,7 @@ STARTER_MODEL_NAMES = [
 # All 6 base methods used in starter recipes
 ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc"]
 
-# Only nuts and hmc used for MEDIUM warmup-only recipes (stan_window compatibility)
+# Only nuts and hmc used for MEDIUM warmup-only recipes (window_adaptation_diag_imm compatibility)
 MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
 
 # ---------------------------------------------------------------------------
@@ -102,16 +102,16 @@ MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
 # community / literature pairs with that sampler by default.  Under the
 # Effort taxonomy (see _base.py), LOW recipes operate on these conventional
 # pairings; MEDIUM recipes explore unconventional but technically-possible
-# combinations (e.g., stan_window + mala, stan_window + rmhmc); HIGH recipes
+# combinations (e.g., window_adaptation_diag_imm + mala, window_adaptation_diag_imm + rmhmc); HIGH recipes
 # add oracle-tuned warmup HPs and model-specific injection.
 NATURAL_WARMUP_FOR_SAMPLER: dict[str, str] = {
-    # Window-adaptation family (stan_window's compatible_methods)
-    "hmc": "stan_window",
-    "nuts": "stan_window",
-    "mhmc": "stan_window",
-    "barker": "stan_window",
-    "mala": "stan_window",
-    "rmhmc": "stan_window",
+    # Window-adaptation family (window_adaptation_diag_imm's compatible_methods)
+    "hmc": "window_adaptation_diag_imm",
+    "nuts": "window_adaptation_diag_imm",
+    "mhmc": "window_adaptation_diag_imm",
+    "barker": "window_adaptation_diag_imm",
+    "mala": "window_adaptation_diag_imm",
+    "rmhmc": "window_adaptation_diag_imm",
     # MCLMC family
     "mclmc": "mclmc_tuning",
     "adjusted_mclmc": "adjusted_mclmc_tuning",
@@ -202,15 +202,15 @@ def emit_medium_recipes(
     model_names: list[str] | None = None,
     sampler: str | None = None,
 ) -> list[Path]:
-    """Emit MEDIUM-effort candidate recipes using stan_window warmup adaptation.
+    """Emit MEDIUM-effort candidate recipes using window_adaptation_diag_imm warmup adaptation.
 
-    Runs warmup with stan_window adaptation to produce tuned step-size and
+    Runs warmup with window_adaptation_diag_imm adaptation to produce tuned step-size and
     inverse-mass-matrix; these candidates are evaluated by the Statistician
     auto-gate to assess improvement over LOW baselines.
 
     Idempotent: re-running overwrites with deterministic content (same seed → same key).
 
-    Compatibility is limited by WARMUPS["stan_window"].compatible_methods
+    Compatibility is limited by WARMUPS["window_adaptation_diag_imm"].compatible_methods
     to samplers that support window adaptation (hmc, nuts, barker, mala).
     MEDIUM recipes are emitted for nuts and hmc in the starter set.
 
@@ -231,7 +231,7 @@ def emit_medium_recipes(
     -------
     List of Path objects pointing to written JSON files.
     """
-    stan_window = WARMUPS["stan_window"]
+    window_adaptation_diag_imm = WARMUPS["window_adaptation_diag_imm"]
     generated: list[Path] = []
     repo_root = Path(__file__).parent.parent.parent.parent
 
@@ -243,9 +243,10 @@ def emit_medium_recipes(
             base_method = BASE_METHODS[method_name]
 
             # Check compatibility
-            if not stan_window.is_compatible(method_name):
+            if not window_adaptation_diag_imm.is_compatible(method_name):
                 print(
-                    f"  SKIP  {model_name}/{method_name}: " f"stan_window incompatible"
+                    f"  SKIP  {model_name}/{method_name}: "
+                    f"window_adaptation_diag_imm incompatible"
                 )
                 continue
 
@@ -257,7 +258,7 @@ def emit_medium_recipes(
             recipe = Recipe.from_warmup_only(
                 posterior,
                 base_method,
-                stan_window,
+                window_adaptation_diag_imm,
                 n_warmup=n_warmup,
                 rng_key=key,
                 tuningfork_version=_tuningfork_version,
@@ -282,7 +283,7 @@ def emit_high_recipes(
     """Emit HIGH-effort candidate recipes using Bayesian optimization over sampler hyperparameters.
 
     Runs BO tuning Bayesian optimization (via ``tune_algorithm``) to search for
-    improved sampler hyperparameters with stan_window warmup; the result is
+    improved sampler hyperparameters with window_adaptation_diag_imm warmup; the result is
     a HIGH-effort recipe with tuned parameters and difficulty profile.
     Candidates are evaluated by the Statistician auto-gate to assess whether
     the extra optimization effort improved the headline metric.
@@ -314,7 +315,7 @@ def emit_high_recipes(
     """
     from tuningfork.calibration.tune import tune_algorithm
 
-    stan_window = WARMUPS["stan_window"]
+    window_adaptation_diag_imm = WARMUPS["window_adaptation_diag_imm"]
     generated: list[Path] = []
 
     for model_name in model_names or STARTER_MODEL_NAMES:
@@ -324,8 +325,10 @@ def emit_high_recipes(
                 continue
             base_method = BASE_METHODS[method_name]
 
-            if not stan_window.is_compatible(method_name):
-                print(f"  SKIP  {model_name}/{method_name}: stan_window incompatible")
+            if not window_adaptation_diag_imm.is_compatible(method_name):
+                print(
+                    f"  SKIP  {model_name}/{method_name}: window_adaptation_diag_imm incompatible"
+                )
                 continue
 
             # Derive a deterministic per-recipe key via fold_in.
@@ -345,7 +348,7 @@ def emit_high_recipes(
                 n_warmup=500,
                 rng_key=key,
                 sampler="tpe",
-                warmup_name="stan_window",
+                warmup_name="window_adaptation_diag_imm",
             )
             elapsed = time.perf_counter() - t0
 
@@ -353,7 +356,7 @@ def emit_high_recipes(
                 result,
                 posterior=posterior,
                 base_method=base_method,
-                warmup=stan_window,
+                warmup=window_adaptation_diag_imm,
                 tuningfork_version=_tuningfork_version,
             )
             path = recipe.save(_CATALOG_ROOT)
@@ -379,7 +382,7 @@ def main() -> None:
     """
     import argparse
 
-    valid_warmups = {"no_warmup", "stan_window"}
+    valid_warmups = {"no_warmup", "window_adaptation_diag_imm"}
     valid_samplers = set(ALL_METHOD_NAMES)
 
     parser = argparse.ArgumentParser(
@@ -405,7 +408,7 @@ def main() -> None:
         choices=sorted(valid_warmups),
         help=(
             "Restrict to one warmup.  'no_warmup' applies to the LOW pass "
-            "for samplers without trajectory adaptation; 'stan_window' "
+            "for samplers without trajectory adaptation; 'window_adaptation_diag_imm' "
             "applies to NUTS/HMC and other window-compatible samplers.  "
             "Default: all."
         ),
@@ -432,12 +435,12 @@ def main() -> None:
 
     # The warmup filter selects which LOW pass to run.
     # `no_warmup`   → emit_low_recipes   (no adaptation; identity warmup)
-    # `stan_window` → emit_medium_recipes (window adaptation; *as a LOW candidate*
+    # `window_adaptation_diag_imm` → emit_medium_recipes (window adaptation; *as a LOW candidate*
     #                                      under the new framing — this function
     #                                      runs the default warmup and produces
     #                                      candidate output for the gate)
     do_no_warmup = args.warmup in (None, "no_warmup")
-    do_stan_window = args.warmup in (None, "stan_window")
+    do_window_adaptation_diag_imm = args.warmup in (None, "window_adaptation_diag_imm")
 
     # ── Echo selection ──────────────────────────────────────────────────────
     selection = []
@@ -453,7 +456,7 @@ def main() -> None:
         print("Emitting ALL LOW candidates (no filters set).")
 
     no_warmup_paths: list[Path] = []
-    stan_window_paths: list[Path] = []
+    window_adaptation_diag_imm_paths: list[Path] = []
 
     if do_no_warmup:
         print(
@@ -462,17 +465,19 @@ def main() -> None:
         )
         no_warmup_paths = emit_low_recipes(model_names=names, sampler=args.sampler)
 
-    if do_stan_window:
+    if do_window_adaptation_diag_imm:
         print(
-            "\nEmitting candidates for warmup=stan_window "
+            "\nEmitting candidates for warmup=window_adaptation_diag_imm "
             f"({'nuts/hmc' if args.sampler is None else args.sampler})..."
         )
-        stan_window_paths = emit_medium_recipes(model_names=names, sampler=args.sampler)
+        window_adaptation_diag_imm_paths = emit_medium_recipes(
+            model_names=names, sampler=args.sampler
+        )
 
-    total = len(no_warmup_paths) + len(stan_window_paths)
+    total = len(no_warmup_paths) + len(window_adaptation_diag_imm_paths)
     print(
         f"\n✓ Emitted {len(no_warmup_paths)} no_warmup + "
-        f"{len(stan_window_paths)} stan_window = {total} LOW candidates.  "
+        f"{len(window_adaptation_diag_imm_paths)} window_adaptation_diag_imm = {total} LOW candidates.  "
         f"Next: Statistician gate."
     )
 

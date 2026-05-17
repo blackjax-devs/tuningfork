@@ -15,14 +15,14 @@
 
 Covers:
   1. WARMUPS dict has exactly the three expected entries.
-  2. is_compatible() for stan_window: hmc/nuts → True; mclmc → False.
+  2. is_compatible() for window_adaptation_diag_imm: hmc/nuts → True; mclmc → False.
   3. is_compatible() for mclmc_tuning: mclmc → True; nuts → False.
   4. is_compatible() for no_warmup: any name → True (sentinel "*").
-  5. stan_window smoke: NUTS on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
+  5. window_adaptation_diag_imm smoke: NUTS on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
   6. mclmc_tuning smoke: MCLMC on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
   7. no_warmup smoke: RWM (gradient-free) and NUTS, num_chains=1.
   8. Compatibility error via _run_warmup (wrong warmup for algorithm).
-  9. Auto-dispatch in tune_algorithm: mclmc → mclmc_tuning, nuts → stan_window,
+  9. Auto-dispatch in tune_algorithm: mclmc → mclmc_tuning, nuts → window_adaptation_diag_imm,
      rwm → no_warmup (verified via result structure).
  10. tune_algorithm regression: existing calls with warmup_name=None still pass.
  11. Multi-chain contract tests: shape checks for num_chains=1/4/8,
@@ -82,7 +82,7 @@ class TestWarmupRegistry:
     def test_warmups_has_expected_entries(self) -> None:
         """Subset assertion: all known warmups must be present ( pattern)."""
         expected = {
-            "stan_window",
+            "window_adaptation_diag_imm",
             "mclmc_tuning",
             "adjusted_mclmc_tuning",
             "no_warmup",
@@ -96,8 +96,8 @@ class TestWarmupRegistry:
             f"Registered: {sorted(WARMUPS)}"
         )
 
-    def test_warmups_has_stan_window(self) -> None:
-        assert "stan_window" in WARMUPS
+    def test_warmups_has_window_adaptation_diag_imm(self) -> None:
+        assert "window_adaptation_diag_imm" in WARMUPS
 
     def test_warmups_has_mclmc_tuning(self) -> None:
         assert "mclmc_tuning" in WARMUPS
@@ -138,24 +138,24 @@ class TestWarmupRegistry:
 class TestIsCompatible:
     """is_compatible() for each warmup (fast; pure logic)."""
 
-    # -- stan_window --
-    def test_stan_window_compatible_with_hmc(self) -> None:
-        assert WARMUPS["stan_window"].is_compatible("hmc")
+    # -- window_adaptation_diag_imm --
+    def test_window_adaptation_diag_imm_compatible_with_hmc(self) -> None:
+        assert WARMUPS["window_adaptation_diag_imm"].is_compatible("hmc")
 
-    def test_stan_window_compatible_with_nuts(self) -> None:
-        assert WARMUPS["stan_window"].is_compatible("nuts")
+    def test_window_adaptation_diag_imm_compatible_with_nuts(self) -> None:
+        assert WARMUPS["window_adaptation_diag_imm"].is_compatible("nuts")
 
-    def test_stan_window_compatible_with_barker(self) -> None:
-        assert WARMUPS["stan_window"].is_compatible("barker")
+    def test_window_adaptation_diag_imm_compatible_with_barker(self) -> None:
+        assert WARMUPS["window_adaptation_diag_imm"].is_compatible("barker")
 
-    def test_stan_window_compatible_with_mala(self) -> None:
-        assert WARMUPS["stan_window"].is_compatible("mala")
+    def test_window_adaptation_diag_imm_compatible_with_mala(self) -> None:
+        assert WARMUPS["window_adaptation_diag_imm"].is_compatible("mala")
 
-    def test_stan_window_not_compatible_with_mclmc(self) -> None:
-        assert not WARMUPS["stan_window"].is_compatible("mclmc")
+    def test_window_adaptation_diag_imm_not_compatible_with_mclmc(self) -> None:
+        assert not WARMUPS["window_adaptation_diag_imm"].is_compatible("mclmc")
 
-    def test_stan_window_not_compatible_with_rwm(self) -> None:
-        assert not WARMUPS["stan_window"].is_compatible("rwm")
+    def test_window_adaptation_diag_imm_not_compatible_with_rwm(self) -> None:
+        assert not WARMUPS["window_adaptation_diag_imm"].is_compatible("rwm")
 
     # -- mclmc_tuning --
     def test_mclmc_tuning_compatible_with_mclmc(self) -> None:
@@ -214,12 +214,12 @@ class TestIsCompatible:
 
 
 # ---------------------------------------------------------------------------
-# 5. stan_window smoke: NUTS on MVN-10 at n_warmup=200, num_chains=1 (single-chain shim)
+# 5. window_adaptation_diag_imm smoke: NUTS on MVN-10 at n_warmup=200, num_chains=1 (single-chain shim)
 # ---------------------------------------------------------------------------
 
 
 class TestStanWindowSmoke:
-    """stan_window smoke test on NUTS + MVN-10.
+    """window_adaptation_diag_imm smoke test on NUTS + MVN-10.
 
     Uses num_chains=1 to preserve backward-compatible shim semantics.
     Output shapes have a leading dim of 1.
@@ -229,7 +229,7 @@ class TestStanWindowSmoke:
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
         warmup_key = jax.random.fold_in(key, 1)
-        return WARMUPS["stan_window"].runner(
+        return WARMUPS["window_adaptation_diag_imm"].runner(
             warmup_key, init_pos, 200, _NUTS, logdensity_fn=logdensity_fn, **kw
         )
 
@@ -428,7 +428,7 @@ class TestCompatibilityError:
                 warmup_name="mclmc_tuning",
             )
 
-    def test_stan_window_on_mclmc_raises(self) -> None:
+    def test_window_adaptation_diag_imm_on_mclmc_raises(self) -> None:
         key = jax.random.key(402)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
         with pytest.raises(ValueError, match="not compatible with"):
@@ -438,7 +438,7 @@ class TestCompatibilityError:
                 algorithm_entry=_MCLMC,
                 n_warmup=50,
                 rng_key=jax.random.fold_in(key, 1),
-                warmup_name="stan_window",
+                warmup_name="window_adaptation_diag_imm",
             )
 
     def test_unknown_warmup_name_raises(self) -> None:
@@ -475,7 +475,7 @@ class TestAutoDispatch:
     """
 
     def test_mclmc_auto_dispatches_to_mclmc_tuning(self) -> None:
-        """MCLMC with warmup_name=None should use mclmc_tuning (not stan_window)."""
+        """MCLMC with warmup_name=None should use mclmc_tuning (not window_adaptation_diag_imm)."""
         result = tune_algorithm(
             _MVN,
             _MCLMC,
@@ -486,13 +486,13 @@ class TestAutoDispatch:
             n_samples=_AUTO_N_SAMPLES,
             n_warmup=_AUTO_N_WARMUP,
         )
-        # If auto-dispatch went to stan_window instead, it would raise
+        # If auto-dispatch went to window_adaptation_diag_imm instead, it would raise
         # ValueError("not compatible with").  So if we reach this assertion,
         # dispatch is correct.
         assert result.base_method_name == "mclmc"
 
-    def test_nuts_auto_dispatches_to_stan_window(self) -> None:
-        """NUTS with warmup_name=None should use stan_window."""
+    def test_nuts_auto_dispatches_to_window_adaptation_diag_imm(self) -> None:
+        """NUTS with warmup_name=None should use window_adaptation_diag_imm."""
         result = tune_algorithm(
             _MVN,
             _NUTS,
@@ -504,7 +504,7 @@ class TestAutoDispatch:
             n_warmup=_AUTO_N_WARMUP,
         )
         assert result.base_method_name == "nuts"
-        # Verify: best_score is finite (stan_window warmup worked).
+        # Verify: best_score is finite (window_adaptation_diag_imm warmup worked).
         assert math.isfinite(result.best_score), f"best_score={result.best_score}"
 
     def test_rwm_auto_dispatches_to_no_warmup(self) -> None:
@@ -522,7 +522,7 @@ class TestAutoDispatch:
         assert result.base_method_name == "rwm"
 
     def test_explicit_warmup_name_overrides_auto(self) -> None:
-        """Passing warmup_name='no_warmup' for NUTS should skip stan_window."""
+        """Passing warmup_name='no_warmup' for NUTS should skip window_adaptation_diag_imm."""
         result = tune_algorithm(
             _MVN,
             _NUTS,
@@ -617,12 +617,12 @@ def _position_shape(states) -> tuple:
 
 
 class TestStanWindowMultiChain:
-    """stan_window multi-chain shape contract tests."""
+    """window_adaptation_diag_imm multi-chain shape contract tests."""
 
     def _run(self, seed: int, num_chains: int, **kw):
         key = jax.random.key(seed)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        return WARMUPS["stan_window"].runner(
+        return WARMUPS["window_adaptation_diag_imm"].runner(
             jax.random.fold_in(key, 1),
             init_pos,
             200,
@@ -636,7 +636,7 @@ class TestStanWindowMultiChain:
         """No num_chains kwarg → default 4; position leading dim == 4."""
         key = jax.random.key(1001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = WARMUPS["stan_window"].runner(
+        states, params = WARMUPS["window_adaptation_diag_imm"].runner(
             jax.random.fold_in(key, 1),
             init_pos,
             200,
@@ -695,7 +695,7 @@ class TestStanWindowMultiChain:
         batched_pos = jax.tree.map(
             lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape), init_pos
         )
-        states, params = WARMUPS["stan_window"].runner(
+        states, params = WARMUPS["window_adaptation_diag_imm"].runner(
             jax.random.fold_in(key, 1),
             batched_pos,
             200,
@@ -1150,7 +1150,7 @@ class TestMeadsMultiChain:
 
     MEADS is fundamentally multi-chain: a single call handles all num_chains
     chains jointly via cross-validation across num_folds folds.  Unlike
-    stan_window (which vmaps per-chain), MEADS is NOT vmapped — one call, all
+    window_adaptation_diag_imm (which vmaps per-chain), MEADS is NOT vmapped — one call, all
     chains.
 
     Adapted parameters are shared (single MEADS estimate) and broadcast to

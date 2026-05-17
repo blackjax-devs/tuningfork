@@ -143,7 +143,7 @@ the model upstream eliminates drift and keeps templates focused on the
 heavy sampler or warmup template signals an upstream BlackJAX design smell
 worth fixing there). The cost is one `pip install tuningfork` step.
 
-As of R3.5-MVP (2026-05-17), templates exist for `stan_window` warmup and
+As of R3.5-MVP (2026-05-17), templates exist for `window_adaptation_diag_imm` warmup and
 `nuts` sampler only. R3.5b expands to the full 10 warmups × 24 samplers.
 
 ## Sampling-book pattern reference

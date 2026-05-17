@@ -1,7 +1,7 @@
 {
   "model_name": "eight_schools_ncp",
   "base_method_name": "nuts",
-  "warmup_name": "stan_window",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
     "step_size": 0.39683836698532104,

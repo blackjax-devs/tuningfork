@@ -30,7 +30,7 @@ __all__ = ["ENTRY"]
 #     U = fixed deterministic orthogonal matrix from QR(Gaussian(seed=42))
 # This gives condition number κ(Σ) = λ_max / λ_min = 1000.
 # The model discriminates sampler families via metric sensitivity:
-#   - HMC / NUTS with well-adapted inverse mass matrix (from stan_window) should
+#   - HMC / NUTS with well-adapted inverse mass matrix (from window_adaptation_diag_imm) should
 #     achieve near-isotropic effective step sizes and high ESS / grad_eval.
 #   - RWM / MALA struggle unless the proposal covariance is preconditioned.
 #   - MCLMC uses a global L and step_size; the ill-conditioning stress-tests its

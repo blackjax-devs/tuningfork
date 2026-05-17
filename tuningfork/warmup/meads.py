@@ -17,7 +17,7 @@ wrapping ``blackjax.meads_adaptation``.
 MEADS is a **GHMC-specific** adaptation routine that simultaneously tunes
 ``step_size``, ``momentum_inverse_scale`` (the inverse mass matrix diagonal),
 ``alpha`` (momentum persistence), and ``delta`` (slice-sampling parameter).
-Unlike ``stan_window`` which vmaps per-chain window adaptation, **MEADS runs a
+Unlike ``window_adaptation_diag_imm`` which vmaps per-chain window adaptation, **MEADS runs a
 single multi-chain adaptation internally**: chains are cross-validated across
 ``num_folds`` folds to estimate the maximum eigenvalue of the target
 covariance, which drives the step-size schedule.  Chains are *inputs*, not
@@ -97,7 +97,7 @@ def _runner(
 ) -> tuple[Any, dict[str, Any]]:
     """Run ``blackjax.meads_adaptation`` over ``num_chains`` chains jointly.
 
-    Unlike ``stan_window`` which vmaps per-chain window adaptation independently,
+    Unlike ``window_adaptation_diag_imm`` which vmaps per-chain window adaptation independently,
     MEADS runs a **single** multi-chain adaptation call.  All chains participate
     together to cross-validate across folds.
 
@@ -226,7 +226,7 @@ ENTRY = Warmup(
     compatible_methods=("ghmc",),
     notes=(
         "MEADS (Maximum-Eigenvalue Adapted Dual-Averaging Step-size) warmup for GHMC. "
-        "Unlike stan_window which vmaps per-chain adaptation, MEADS runs a single "
+        "Unlike window_adaptation_diag_imm which vmaps per-chain adaptation, MEADS runs a single "
         "multi-chain adaptation that cross-validates across num_folds folds; chains "
         "are inputs, not loop iterations.  Requires num_chains ≥ num_folds (default 4). "
         "Adapts step_size, momentum_inverse_scale, alpha, and delta jointly. "

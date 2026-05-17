@@ -295,7 +295,7 @@ tuningfork/                              # repo root
 │   │   ├── _emit_script.py              # NEW: code-gen function (recipe → standalone .py)
 │   │   ├── _templates/                  # NEW: per-sampler / per-warmup script templates
 │   │   │   ├── nuts.py.tmpl, hmc.py.tmpl, mclmc.py.tmpl, ...
-│   │   │   ├── stan_window.py.tmpl, pathfinder.py.tmpl, ...
+│   │   │   ├── window_adaptation_diag_imm.py.tmpl, pathfinder.py.tmpl, ...
 │   │   │   └── inference_loop.py.tmpl
 │   │   └── __init__.py
 │   ├── calibration/                     # cert + tune + auto-gate
@@ -321,10 +321,10 @@ tuningfork/                              # repo root
 │           ├── reference/               # committed cert artifacts
 │           │   ├── metadata.json, summary.json, adaptation.json, xcheck.json
 │           ├── recipes/                 # per-cell recipes
-│           │   ├── low__nuts__stan_window.json
-│           │   ├── medium__mala__stan_window.json
-│           │   ├── high__hmc__stan_window.json
-│           │   └── failed__rmhmc__stan_window.json    # NEW: failure recipe
+│           │   ├── low__nuts__window_adaptation_diag_imm.json
+│           │   ├── medium__mala__window_adaptation_diag_imm.json
+│           │   ├── high__hmc__window_adaptation_diag_imm.json
+│           │   └── failed__rmhmc__window_adaptation_diag_imm.json    # NEW: failure recipe
 │           └── _cache/                  # gitignored
 │               ├── draws.npz, chain_stats.npz, warmup_checkpoint/
 │
@@ -607,7 +607,7 @@ single public function:
 ```python
 from tuningfork.catalog import emit_script, load_recipe
 
-recipe = load_recipe("eight_schools_ncp/recipes/low__nuts__stan_window.json")
+recipe = load_recipe("eight_schools_ncp/recipes/low__nuts__window_adaptation_diag_imm.json")
 script_text = emit_script(recipe)
 
 # Write to disk and run standalone (no tuningfork dependency):
@@ -623,7 +623,7 @@ It depends only on `jax`, `jax.numpy`, `blackjax`, `numpyro`,
 ```python
 """Auto-generated from tuningfork recipe.
 
-Source: eight_schools_ncp/recipes/low__nuts__stan_window.json
+Source: eight_schools_ncp/recipes/low__nuts__window_adaptation_diag_imm.json
 Recipe hash: e7d4f9a2... (matches tuningfork == 0.x.y, blackjax == ...)
 Effort: low. Verdict: PASS (R̂=1.005, min_bulk_ESS=2451, n_div=0).
 """
@@ -653,7 +653,7 @@ init_params, potential_fn, *_ = initialize_model(
 def logdensity_fn(position):
     return -potential_fn(position)
 
-# === WARMUP: stan_window (n_warmup=1000, target_acceptance_rate=0.8) ===
+# === WARMUP: window_adaptation_diag_imm (n_warmup=1000, target_acceptance_rate=0.8) ===
 key = jax.random.key(42)  # seed pinned by recipe
 init_position = init_params.z
 

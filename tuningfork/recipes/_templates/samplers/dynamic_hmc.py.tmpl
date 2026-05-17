@@ -17,7 +17,7 @@ _kernel_obj = blackjax.dynamic_hmc(
 kernel = _kernel_obj.step
 
 # dynamic_hmc.init(position, rng_key) — rng_key seeds random_generator_arg.
-# Warmup template (e.g. stan_window) sets _state_post_warmup to an HMCState;
+# Warmup template (e.g. window_adaptation_diag_imm) sets _state_post_warmup to an HMCState;
 # dynamic_hmc uses DynamicHMCState which has an additional random_generator_arg
 # field, so we always re-init to get the correct state structure.
 try:

@@ -45,12 +45,12 @@ from tuningfork.warmup import WARMUPS
 
 
 @pytest.mark.slow
-def test_from_warmup_only_stan_window_nuts() -> None:
-    """from_warmup_only with stan_window + NUTS returns a MEDIUM recipe.
+def test_from_warmup_only_window_adaptation_diag_imm_nuts() -> None:
+    """from_warmup_only with window_adaptation_diag_imm + NUTS returns a MEDIUM recipe.
 
     Verifies:
     - effort = MEDIUM
-    - warmup_name = "stan_window"
+    - warmup_name = "window_adaptation_diag_imm"
     - base_method_params contains both step_size (from defaults) and
       inverse_mass_matrix (from warmup adaptation)
     - calibration_budget["n_warmup"] == 200
@@ -58,7 +58,7 @@ def test_from_warmup_only_stan_window_nuts() -> None:
     """
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["stan_window"]
+    warmup = WARMUPS["window_adaptation_diag_imm"]
 
     recipe = Recipe.from_warmup_only(
         posterior,
@@ -69,7 +69,7 @@ def test_from_warmup_only_stan_window_nuts() -> None:
     )
 
     assert recipe.effort == Effort.MEDIUM
-    assert recipe.warmup_name == "stan_window"
+    assert recipe.warmup_name == "window_adaptation_diag_imm"
     assert recipe.model_name == "mvn_10"
     assert recipe.base_method_name == "nuts"
 
@@ -166,7 +166,7 @@ def test_from_tuning_result_nuts() -> None:
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["stan_window"]
+    warmup = WARMUPS["window_adaptation_diag_imm"]
 
     tuning_result = tune_algorithm(
         posterior,
@@ -189,7 +189,7 @@ def test_from_tuning_result_nuts() -> None:
     assert recipe.effort == Effort.HIGH
     assert recipe.model_name == "mvn_10"
     assert recipe.base_method_name == "nuts"
-    assert recipe.warmup_name == "stan_window"
+    assert recipe.warmup_name == "window_adaptation_diag_imm"
 
     # headline_metric should be a finite float (mvn_10 doesn't diverge)
     assert isinstance(recipe.headline_metric, float)
@@ -228,7 +228,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["stan_window"]
+    warmup = WARMUPS["window_adaptation_diag_imm"]
 
     tuning_result = tune_algorithm(
         posterior,
@@ -272,7 +272,7 @@ def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
         assert loaded_imm == orig_imm  # exact list equality (both are Python floats)
 
     # Filename convention
-    assert saved_path.name == "high__nuts__stan_window.json"
+    assert saved_path.name == "high__nuts__window_adaptation_diag_imm.json"
 
 
 @pytest.mark.slow
@@ -282,7 +282,7 @@ def test_render_instructions_medium_and_high_real() -> None:
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
-    warmup_sw = WARMUPS["stan_window"]
+    warmup_sw = WARMUPS["window_adaptation_diag_imm"]
 
     # --- MEDIUM ---
     medium = Recipe.from_warmup_only(
@@ -295,7 +295,7 @@ def test_render_instructions_medium_and_high_real() -> None:
     prose_m = render_instructions(medium)
     assert isinstance(prose_m, str)
     assert len(prose_m) > 20
-    assert "stan_window" in prose_m
+    assert "window_adaptation_diag_imm" in prose_m
 
     # --- HIGH ---
     tuning_result = tune_algorithm(

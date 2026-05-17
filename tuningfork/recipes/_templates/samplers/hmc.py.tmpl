@@ -17,7 +17,7 @@ _kernel_obj = blackjax.hmc(
 kernel = _kernel_obj.step
 
 # Bind _state_post_warmup: warmup template sets it when adaptation runs (e.g.
-# stan_window, pathfinder).  For no_warmup, initialise from the init_position.
+# window_adaptation_diag_imm, pathfinder).  For no_warmup, initialise from the init_position.
 try:
     _state_post_warmup
 except NameError:

@@ -338,7 +338,7 @@ def _run_warmup(
     algorithm_entry: BaseMethod,
     n_warmup: int,
     rng_key: jax.Array,
-    warmup_name: str = "stan_window",
+    warmup_name: str = "window_adaptation_diag_imm",
 ) -> tuple[Any, dict[str, Any]]:
     """Run warmup and return (adapted_state, adapted_params).
 
@@ -348,7 +348,7 @@ def _run_warmup(
 
     Behaviour by warmup:
 
-    - ``"stan_window"`` (mass-matrix kernels — NUTS, HMC, Barker, MALA):
+    - ``"window_adaptation_diag_imm"`` (mass-matrix kernels — NUTS, HMC, Barker, MALA):
       ``blackjax.window_adaptation`` runs once.  ``adapted_params`` contains
       at least ``step_size`` and ``inverse_mass_matrix``.  These are reused
       across all BO trials; only the BO-tunable HPs (e.g. ``step_size``,
@@ -678,11 +678,11 @@ def tune_algorithm(
         persistent study storage.  ``None`` for in-memory (default).
     warmup_name
         Name of the warmup procedure from the ``WARMUPS`` registry
-        (``"stan_window"``, ``"mclmc_tuning"``, ``"no_warmup"``).
+        (``"window_adaptation_diag_imm"``, ``"mclmc_tuning"``, ``"no_warmup"``).
         When ``None`` (default), the warmup is auto-dispatched:
 
         - ``"mclmc_tuning"`` for ``algorithm_entry.name == "mclmc"``
-        - ``"stan_window"`` for ``algorithm_entry.needs_mass_matrix == True``
+        - ``"window_adaptation_diag_imm"`` for ``algorithm_entry.needs_mass_matrix == True``
           (NUTS, HMC, Barker, MALA)
         - ``"no_warmup"`` for all remaining algorithms (RWM, etc.)
 
@@ -718,7 +718,7 @@ def tune_algorithm(
         if algorithm_entry.name == "mclmc":
             warmup_name = "mclmc_tuning"
         elif algorithm_entry.needs_mass_matrix:
-            warmup_name = "stan_window"
+            warmup_name = "window_adaptation_diag_imm"
         else:
             warmup_name = "no_warmup"
 
@@ -733,7 +733,7 @@ def tune_algorithm(
         rng_key=rng_key_warmup,
         warmup_name=warmup_name,
     )
-    # warmup_params for stan_window (MM-kernels):
+    # warmup_params for window_adaptation_diag_imm (MM-kernels):
     #   {"step_size": ..., "inverse_mass_matrix": ...}
     # warmup_params for no_warmup (MALA/RWM): {} (all params come from BO)
     # warmup_params for mclmc_tuning:

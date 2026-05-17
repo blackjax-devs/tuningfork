@@ -1,7 +1,7 @@
 {
   "model_name": "stoch_vol",
   "base_method_name": "nuts",
-  "warmup_name": "stan_window",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
     "step_size": 0.013849327340722084,
@@ -24,7 +24,7 @@
   "difficulty": null,
   "instructions": "**Ground-truth reference recipe** for `stoch_vol`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.99). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/draws/stoch_vol.npz` (gitignored \u2014 40000 samples \u00d7 dim=503). Load via:\n\n    from tuningfork.reference._io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['stoch_vol'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
   "notes": "",
-  "inverse_mass_matrix_path": "stoch_vol/groundtruth__nuts__stan_window.imm.npz",
+  "inverse_mass_matrix_path": "stoch_vol/groundtruth__nuts__window_adaptation_diag_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {

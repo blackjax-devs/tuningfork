@@ -173,7 +173,7 @@ def load_idata(
         from tuningfork.catalog.render import load_idata
         import arviz as az
 
-        recipe = load_recipe("inference/recipes/starter/.../groundtruth__nuts__stan_window.json")
+        recipe = load_recipe("inference/recipes/starter/.../groundtruth__nuts__window_adaptation_diag_imm.json")
         idata = load_idata(recipe)
         az.plot_trace(idata)
         az.plot_energy(idata)   # uses sample_stats.energy

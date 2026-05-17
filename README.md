@@ -45,16 +45,16 @@ BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategie
 
 The statistician-drafted recipe matrix (full version in [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md)) assigns a per-cell colour verdict across the full inventory. Legend: **G** = LOW effort (library defaults pass the auto-gate at first emit), **Y** = MEDIUM (one statistician-led workaround recovers), **R** = HIGH (full Bayesian-workflow investigation) OR hard-excluded category.
 
-The canonical baseline table — `stan_window` warmup × NUTS-family samplers — is the Recipe Phase 1 build target:
+The canonical baseline table — `window_adaptation_diag_imm` warmup × NUTS-family samplers — is the Recipe Phase 1 build target:
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| stan_window + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| stan_window + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| stan_window + **mhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| stan_window + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| stan_window + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| stan_window + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
+| window_adaptation_diag_imm + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
+| window_adaptation_diag_imm + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
+| window_adaptation_diag_imm + **mhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
+| window_adaptation_diag_imm + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
+| window_adaptation_diag_imm + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
+| window_adaptation_diag_imm + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
 
 Gaps in Table 1 are filled by other warmup families: **MCLMC + `mclmc_tuning`** is green on `stoch_vol` (d=503) — the canonical case where NUTS `default_works=False` (Recipe Phase 2 target). **SMC + `adaptive_tempered`** is green on `gmm_25` — the only viable path for the 25-mode mixture, since any single-chain gradient sampler gets trapped (Recipe Phase 5 target).
 
@@ -65,7 +65,7 @@ Across all 8 sub-tables (24 base methods × 10 warmups × 14 models, plus 6 SMC 
 | Effort tier | Approx count | Description |
 |---|---|---|
 | 🟢 LOW (Green) | ~480 | conventional `(warmup, sampler)` pairing — library defaults pass auto-gate at first emit |
-| 🟡 MEDIUM (Yellow) | ~180 | statistician investigation: seed/init/bug-fix workaround OR unconventional pairing (e.g., `stan_window + mala`) |
+| 🟡 MEDIUM (Yellow) | ~180 | statistician investigation: seed/init/bug-fix workaround OR unconventional pairing (e.g., `window_adaptation_diag_imm + mala`) |
 | 🔴 HIGH / hard-excluded (Red) | ~420 | dominated by 8 exclusion categories: multimodal × single-chain gradient, VI × pathological, Laplace × non-Gaussian-latent, `no_warmup` × high-d, MCLMC inside SMC, `rmhmc` without callable metric, `fullrank_vi` warmup at d>30, elliptical/mgrad outside Gaussian-prior models |
 
 The full 8-table matrix, supersession map (e.g., `adaptive_tempered_smc` strictly dominates `tempered_smc`), and hard-exclusion category definitions live in [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md).
@@ -130,7 +130,7 @@ Per-model artifacts live under `tuningfork/catalog/<model>/`:
 - **`groundtruth.json`** — canonical long-NUTS reference recipe (for NUTS-path models) or analytic sampler config
 - **`groundtruth.imm.npz`** — high-dim inverse-mass-matrix sidecar (5 high-d models: gp_regression, horseshoe, irt_2pl, radon, stoch_vol)
 - **`reference/{metadata,summary,adaptation,xcheck}.json`** — committed cert artifacts (long-NUTS gold-standard run)
-- **`recipes/{low,medium,high,failed}__*.json`** — per-cell recipes from the Recipe Generation Phase pipeline. 7 canonical FAILED recipes ship today documenting the [hard-exclusion categories](RECIPE_GENERATION.md#hard-exclusions) (e.g., `gmm_25/recipes/failed__nuts__stan_window.json` documents the "multimodal × single-chain gradient" exclusion). LOW/MEDIUM/HIGH recipes land as Recipe Phase 1+ executes.
+- **`recipes/{low,medium,high,failed}__*.json`** — per-cell recipes from the Recipe Generation Phase pipeline. 7 canonical FAILED recipes ship today documenting the [hard-exclusion categories](RECIPE_GENERATION.md#hard-exclusions) (e.g., `gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json` documents the "multimodal × single-chain gradient" exclusion). LOW/MEDIUM/HIGH recipes land as Recipe Phase 1+ executes.
 
 ## Layout
 
@@ -141,7 +141,7 @@ tuningfork/
 │   ├── model/                 # 14 NumPyro models + MODELS, MODELS_BY_FAMILY
 │   │   └── _data/             # raw input datasets (CSV/NPZ); fetch via tools/
 │   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
-│   ├── warmup/                # 10 warmup wrappers (stan_window, pathfinder, ...)
+│   ├── warmup/                # 10 warmup wrappers (window_adaptation_diag_imm, pathfinder, ...)
 │   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
 │   ├── recipes/               # Recipe schema + generators + emit_script templates
 │   │   ├── _base.py, _instructions.py

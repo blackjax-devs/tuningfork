@@ -170,7 +170,7 @@ def _runner(
 
 
 ENTRY = Warmup(
-    name="stan_window",
+    name="window_adaptation_diag_imm",
     runner=_runner,
     compatible_methods=("hmc", "nuts", "barker", "mala"),
     notes=(

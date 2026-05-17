@@ -83,7 +83,7 @@ class Effort(str, Enum):
              (b) **Unconventional pairing exploration**.  The cell pairs a
                  sampler with a *technically-possible-but-unconventional* warmup
                  outside its ``NATURAL_WARMUP_FOR_SAMPLER`` mapping (e.g.,
-                 ``stan_window`` + ``mala``, ``stan_window`` + ``rmhmc``,
+                 ``window_adaptation_diag_imm`` + ``mala``, ``window_adaptation_diag_imm`` + ``rmhmc``,
                  ``pathfinder`` + ``hmc``).  These are not in the LOW emit set;
                  the Statistician explores them deliberately to learn whether the
                  unconventional pairing is worth recommending.
@@ -218,7 +218,7 @@ class Recipe:
         Name of the warmup procedure registered in WARMUPS.  The choice of
         warmup is a property of the cell (model, warmup, sampler), not the
         effort tier.  Conventional cells pair a sampler with its natural
-        warmup (stan_window for nuts/hmc/mala/barker; mclmc_tuning for mclmc;
+        warmup (window_adaptation_diag_imm for nuts/hmc/mala/barker; mclmc_tuning for mclmc;
         meads for ghmc; chees for dynamic_hmc; no_warmup for gradient-free /
         specialised samplers) — see ``NATURAL_WARMUP_FOR_SAMPLER`` in
         ``_generate_starter.py``.
@@ -278,10 +278,10 @@ class Recipe:
     # Name of the warmup procedure registered in WARMUPS.  The choice of warmup
     # is a property of the *cell* (model, warmup, sampler), not the effort tier:
     # every tier uses whichever warmup the cell specifies.  Conventional cells
-    # pair a sampler with its natural warmup (stan_window for nuts/hmc/mala/barker;
+    # pair a sampler with its natural warmup (window_adaptation_diag_imm for nuts/hmc/mala/barker;
     # mclmc_tuning for mclmc; meads for ghmc; chees for dynamic_hmc; no_warmup
     # for gradient-free / specialised samplers).  Unconventional but
-    # technically-possible cells (e.g., stan_window + rmhmc, stan_window + mala)
+    # technically-possible cells (e.g., window_adaptation_diag_imm + rmhmc, window_adaptation_diag_imm + mala)
     # are explored under MEDIUM effort.
     warmup_name: str
     effort: Effort
@@ -790,7 +790,7 @@ class Recipe:
         -------
         Recipe
             A frozen ``Recipe`` with ``effort=Effort.GROUNDTRUTH``, ``base_method_name="nuts"``,
-            ``warmup_name="stan_window"``, and gate evidence pre-populated from ``cert``.
+            ``warmup_name="window_adaptation_diag_imm"``, and gate evidence pre-populated from ``cert``.
 
         Notes
         -----
@@ -852,7 +852,7 @@ class Recipe:
         recipe_kwargs: dict[str, Any] = dict(
             model_name=posterior.name,
             base_method_name="nuts",
-            warmup_name="stan_window",
+            warmup_name="window_adaptation_diag_imm",
             effort=Effort.GROUNDTRUTH,
             base_method_params=base_method_params,
             warmup_params=warmup_params,

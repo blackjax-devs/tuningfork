@@ -1,7 +1,7 @@
 {
   "model_name": "gp_regression",
   "base_method_name": "nuts",
-  "warmup_name": "stan_window",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
     "step_size": 0.00222459206139836,
@@ -24,7 +24,7 @@
   "difficulty": null,
   "instructions": "**Ground-truth reference recipe** for `gp_regression`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.99). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/draws/gp_regression.npz` (gitignored \u2014 40000 samples \u00d7 dim=203). Load via:\n\n    from tuningfork.reference._io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['gp_regression'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
   "notes": "",
-  "inverse_mass_matrix_path": "gp_regression/groundtruth__nuts__stan_window.imm.npz",
+  "inverse_mass_matrix_path": "gp_regression/groundtruth__nuts__window_adaptation_diag_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
