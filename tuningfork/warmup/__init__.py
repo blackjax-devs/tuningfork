@@ -14,7 +14,7 @@
 """tuningfork warmup registry.
 
 Core warmups:
-- ``stan_window``: blackjax.window_adaptation; compatible with hmc, nuts,
+- ``window_adaptation_diag_imm``: blackjax.window_adaptation; compatible with hmc, nuts,
   barker, mala.
 - ``mclmc_tuning``: blackjax.mclmc_find_L_and_step_size; compatible with
   mclmc and adjusted_mclmc variants.
@@ -38,7 +38,7 @@ Usage::
 
     from tuningfork.warmup import WARMUPS, Warmup
 
-    warmup = WARMUPS["stan_window"]
+    warmup = WARMUPS["window_adaptation_diag_imm"]
     state, params = warmup.runner(rng_key, position, n_warmup, base_method,
                                   logdensity_fn=logdensity_fn)
 """
@@ -53,10 +53,12 @@ from tuningfork.warmup.meanfield_vi import ENTRY as _meanfield_vi
 from tuningfork.warmup.multipathfinder import ENTRY as _multipathfinder
 from tuningfork.warmup.no_warmup import ENTRY as _no_warmup
 from tuningfork.warmup.pathfinder import ENTRY as _pathfinder
-from tuningfork.warmup.stan_window import ENTRY as _stan_window
+from tuningfork.warmup.window_adaptation_diag_imm import (
+    ENTRY as _window_adaptation_diag_imm,
+)
 
 WARMUPS: dict[str, Warmup] = {
-    _stan_window.name: _stan_window,
+    _window_adaptation_diag_imm.name: _window_adaptation_diag_imm,
     _mclmc_tuning.name: _mclmc_tuning,
     _adjusted_mclmc_tuning.name: _adjusted_mclmc_tuning,
     _no_warmup.name: _no_warmup,

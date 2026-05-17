@@ -6,7 +6,7 @@ AR(1) unit-root geometry causes divergence clusters at high persistence; require
 
 ## Canonical recipe
 
-low__nuts__stan_window (n_warmup=5000, target_acceptance=0.99; account for 0.5% divergence rate in gate)
+low__nuts__window_adaptation_diag_imm (n_warmup=5000, target_acceptance=0.99; account for 0.5% divergence rate in gate)
 
 ## Sampling quirks
 

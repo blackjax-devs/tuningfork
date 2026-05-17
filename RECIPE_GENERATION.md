@@ -12,7 +12,7 @@
 
 | Warmup | compatible_methods |
 |--------|-------------------|
-| `stan_window` | hmc, nuts, barker, mala |
+| `window_adaptation_diag_imm` | hmc, nuts, barker, mala |
 | `mclmc_tuning` | mclmc |
 | `adjusted_mclmc_tuning` | adjusted_mclmc, adjusted_mclmc_dynamic |
 | `no_warmup` | * (all) |
@@ -58,35 +58,35 @@ SMC compatible inner methods (all 6 share the same set): rwm, irmh, mala, barker
 
 Colour legend: G = green (low effort), Y = yellow (moderate), R = red (high effort / skip)
 
-#### Subgroup A: `stan_window` warmup — compatible: hmc, nuts, barker, mala
+#### Subgroup A: `window_adaptation_diag_imm` warmup — compatible: hmc, nuts, barker, mala
 
-For `mhmc` and `rmhmc`: `stan_window` is also compatible (they accept `inverse_mass_matrix`; verified P5.15.5).
+For `mhmc` and `rmhmc`: `window_adaptation_diag_imm` is also compatible (they accept `inverse_mass_matrix`; verified P5.15.5).
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| stan_window + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| stan_window + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| stan_window + **mhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| stan_window + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| stan_window + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| stan_window + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
+| window_adaptation_diag_imm + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
+| window_adaptation_diag_imm + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
+| window_adaptation_diag_imm + **mhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
+| window_adaptation_diag_imm + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
+| window_adaptation_diag_imm + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
+| window_adaptation_diag_imm + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
 
 **Cell notes (non-green)**:
-- ill_cond_50 + mala/barker Y: gradient-based step limited by worst-conditioned direction; κ≈1000 means mala step-size has to be tiny — converges but slowly without IMM adaptation, and stan_window diagonal IMM helps a lot here, so actually likely G with good adaptation; flagged Y as conservative.
+- ill_cond_50 + mala/barker Y: gradient-based step limited by worst-conditioned direction; κ≈1000 means mala step-size has to be tiny — converges but slowly without IMM adaptation, and window_adaptation_diag_imm diagonal IMM helps a lot here, so actually likely G with good adaptation; flagged Y as conservative.
 - lotka_volterra + mala/barker Y: stiff ODE likelihood; gradients can be large and variable; step size needs to be very small; convergence possible but requires tuning care.
 - eight_schools + mhmc Y: same as hmc — moderate NCP benefit, but mhmc multinomial proposal gives no extra advantage over nuts here; green for hmc, yellow for mhmc (extra cost for similar quality).
-- radon/irt_2pl + hmc/mhmc Y: high dimension (d=390, d=144); fixed-L HMC at these dims needs careful L selection; stan_window adapts step_size but not L — use BO on num_integration_steps.
+- radon/irt_2pl + hmc/mhmc Y: high dimension (d=390, d=144); fixed-L HMC at these dims needs careful L selection; window_adaptation_diag_imm adapts step_size but not L — use BO on num_integration_steps.
 - neals_funnel + nuts Y: NCP analytic model — the funnel is the target, not an artifact. NUTS handles it better than fixed-L HMC but geometry still forces short steps in the neck. Achievable with careful warmup; flag Y not R.
 - neals_funnel + hmc/mhmc/mala/barker Y/R: hmc needs L tuning (Y); mala and barker at the funnel neck take very small steps (R for mala/barker — divergences expected without reparameterization, and reparameterization IS the model, so skip).
 - gmm_25 + all R: multimodal; any single-chain gradient sampler gets trapped. NUTS can visit one mode but won't mix. Only SMC or parallel tempering can cover all 25 modes.
 - banana + nuts/hmc Y: curved manifold but smooth and unimodal; NUTS handles it; requires long trajectories. Y not R.
 - banana + mala/barker Y: slow mixing on the curved manifold; feasible but low ESS per grad.
-- horseshoe + nuts Y: heavy tails + sparsity-inducing; NUTS + stan_window adapts well at d=204 with dense IMM for high correlations — recommended path but needs 2000+ warmup.
-- horseshoe + rmhmc R: Riemannian metric requires a callable mass_matrix_fn — not accessible via stan_window's diagonal IMM. The `extra_required_kwargs=("mass_matrix_fn",)` flag means stan_window cannot provide what rmhmc needs. Skip.
-- gp_regression + nuts G: conjugate structure means marginalised latent GP reduces to kernel hyperparameter inference (~5 dim); NUTS + stan_window is the obvious choice.
+- horseshoe + nuts Y: heavy tails + sparsity-inducing; NUTS + window_adaptation_diag_imm adapts well at d=204 with dense IMM for high correlations — recommended path but needs 2000+ warmup.
+- horseshoe + rmhmc R: Riemannian metric requires a callable mass_matrix_fn — not accessible via window_adaptation_diag_imm's diagonal IMM. The `extra_required_kwargs=("mass_matrix_fn",)` flag means window_adaptation_diag_imm cannot provide what rmhmc needs. Skip.
+- gp_regression + nuts G: conjugate structure means marginalised latent GP reduces to kernel hyperparameter inference (~5 dim); NUTS + window_adaptation_diag_imm is the obvious choice.
 - stoch_vol + nuts Y: d=503, AR(1) tridiagonal structure; NUTS adapts step size but the high dimension slows ESS/grad. Feasible but 4× longer chains needed.
 - stoch_vol + mala/barker R: d=503 Langevin at this dim with random-walk proposals — mixing too slow; min ESS/grad negligible.
-- stoch_vol + rmhmc R: Riemannian metric at d=503 requires a user-defined callable; not composable with stan_window without significant Recipe Generation Phase work.
+- stoch_vol + rmhmc R: Riemannian metric at d=503 requires a user-defined callable; not composable with window_adaptation_diag_imm without significant Recipe Generation Phase work.
 
 ---
 
@@ -104,7 +104,7 @@ Pathfinder provides init position + diagonal IMM (L-BFGS inverse Hessian). No st
 
 **Cell notes**:
 - pathfinder + rwm: Pathfinder init is valuable but RWM without IMM adaptation degrades badly at d≥50. irt_2pl (d=144) and stoch_vol (d=503) are R; radon (d=390) Y at best. Horseshoe R (heavy tails plus d=204). banana R (curved manifold kills isotropic RWM even with good init). Generally: pathfinder warmup + rwm is only green for d≤30 flat posteriors.
-- For nuts/hmc + pathfinder: essentially same as stan_window + nuts/hmc but with faster convergence from better init. Colour matches stan_window verdict; pathfinder wins on warmup budget not quality.
+- For nuts/hmc + pathfinder: essentially same as window_adaptation_diag_imm + nuts/hmc but with faster convergence from better init. Colour matches window_adaptation_diag_imm verdict; pathfinder wins on warmup budget not quality.
 
 ---
 
@@ -212,14 +212,14 @@ LAPS (Late Adjusted Parallel Sampler, EMAUS-paper) adapts `adjusted_mclmc` using
 
 #### Subgroup I: `low_rank_window_adaptation` warmup (not yet in WARMUPS registry)
 
-Wraps BlackJAX `low_rank_window_adaptation`; compatible with hmc, nuts, mala, barker (same as stan_window). Reconstructs dense IMM = `diag(σ)(I + U(Λ-I)U^T)diag(σ)` which is O(dk) but O(d²) at wrapper boundary. Best when posterior has a small number of dominant correlation directions (k << d). Advantage over stan_window is capturing off-diagonal correlations at lower cost than fullrank_vi.
+Wraps BlackJAX `low_rank_window_adaptation`; compatible with hmc, nuts, mala, barker (same as window_adaptation_diag_imm). Reconstructs dense IMM = `diag(σ)(I + U(Λ-I)U^T)diag(σ)` which is O(dk) but O(d²) at wrapper boundary. Best when posterior has a small number of dominant correlation directions (k << d). Advantage over window_adaptation_diag_imm is capturing off-diagonal correlations at lower cost than fullrank_vi.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | low_rank_window + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
 | low_rank_window + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
 
-**Cell notes**: Essentially same as `stan_window` but with better IMM quality for correlated posteriors. Only materially different from stan_window for ill_cond_50 (high correlation — low_rank should outperform diagonal), radon (correlated hierarchical hyperparams), horseshoe (correlated regression coefficients). The O(d²) dense-IMM cost is paid at wrapper boundary only, not per-step. Colour matches stan_window since convergence guarantee is the same; low_rank_window is a benchmark question (supersession §) not a correctness question.
+**Cell notes**: Essentially same as `window_adaptation_diag_imm` but with better IMM quality for correlated posteriors. Only materially different from window_adaptation_diag_imm for ill_cond_50 (high correlation — low_rank should outperform diagonal), radon (correlated hierarchical hyperparams), horseshoe (correlated regression coefficients). The O(d²) dense-IMM cost is paid at wrapper boundary only, not per-step. Colour matches window_adaptation_diag_imm since convergence guarantee is the same; low_rank_window is a benchmark question (supersession §) not a correctness question.
 
 ---
 
@@ -254,7 +254,7 @@ CHEES adapts both step_size and the trajectory-length distribution for dynamic_h
 **Sampler-specific dimension for dynamic_hmc / dmhmc** (trajectory-length generator):
 - Sub-row "uniform L": default `next_random_arg_fn` from CHEES (uniform distribution over [1, max_doublings]). Green for all standard models.
 - Sub-row "CHEES-adapted L": CHEES tunes `integration_steps_params` to adapt the distribution mean. This IS what CHEES does by default — the distinction here is the initial `integration_steps_fn` shape before CHEES convergence vs after. No separate sub-row needed: CHEES always produces the adapted version. Mark as same cell.
-- Sub-row "fixed-L": degenerate case where `integration_steps_fn` returns a constant — equivalent to HMC. No advantage over `stan_window + hmc`; skip (superseded).
+- Sub-row "fixed-L": degenerate case where `integration_steps_fn` returns a constant — equivalent to HMC. No advantage over `window_adaptation_diag_imm + hmc`; skip (superseded).
 
 **Cell notes**:
 - CHEES + dynamic_hmc is essentially NUTS-class performance on most models. Colour matches nuts almost exactly because CHEES adapts trajectory length like NUTS's tree doubling.
@@ -357,15 +357,15 @@ Orbital HMC stores full orbit per state; lower bound on grad_count (period-many 
 
 ### 6F — rmhmc (requires: mass_matrix_fn callable)
 
-Riemannian HMC uses a position-dependent metric. The `stan_window` warmup provides a constant IMM (compatible with rmhmc as diagonal mass matrix), but the Riemannian character requires a callable `mass_matrix_fn`. Recipe Generation Phase must define what callable to supply per model — this is the non-trivial engineering task.
+Riemannian HMC uses a position-dependent metric. The `window_adaptation_diag_imm` warmup provides a constant IMM (compatible with rmhmc as diagonal mass matrix), but the Riemannian character requires a callable `mass_matrix_fn`. Recipe Generation Phase must define what callable to supply per model — this is the non-trivial engineering task.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| stan_window + **rmhmc** (diagonal metric) | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
+| window_adaptation_diag_imm + **rmhmc** (diagonal metric) | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
 | no_warmup + **rmhmc** (Hessian metric) | Y | Y | Y | Y | R | R | R | Y | Y | R | Y | Y | Y | R |
 
 **Rationale**:
-- Diagonal metric: same as stan_window + hmc; the Riemannian character is nullified. Green for easy models, yellow for high-d. Horseshoe and stoch_vol R (Riemannian metric callable not defined for these model structures yet).
+- Diagonal metric: same as window_adaptation_diag_imm + hmc; the Riemannian character is nullified. Green for easy models, yellow for high-d. Horseshoe and stoch_vol R (Riemannian metric callable not defined for these model structures yet).
 - Hessian metric: requires computing the full Hessian per step — only tractable at low-d (mvn_10, logistic_syn, german_credit, eight_schools). High-d R.
 
 ---
@@ -501,7 +501,7 @@ Now applying the outer-method distinction:
 - Posteriors with highly variable curvature (neals_funnel, horseshoe): NUTS adapts per-sample; dynamic_hmc's fixed distribution may be mis-calibrated.
 - New/unfamiliar model geometry: NUTS is the safe default.
 
-**Recipe Generation Phase recommendation**: run `nuts + stan_window` as the primary recipe for all models; run `dynamic_hmc + chees` as a "efficiency benchmark" variant for the 5 easy + 3 hierarchical NCP models where predictable trajectory lengths are expected.
+**Recipe Generation Phase recommendation**: run `nuts + window_adaptation_diag_imm` as the primary recipe for all models; run `dynamic_hmc + chees` as a "efficiency benchmark" variant for the 5 easy + 3 hierarchical NCP models where predictable trajectory lengths are expected.
 
 ### 8. `rmhmc` vs `nuts`
 
@@ -509,9 +509,9 @@ Now applying the outer-method distinction:
 - `rmhmc` with a callable Riemannian metric handles **non-separable Hamiltonians** where the mass matrix is position-dependent.
 - `nuts` assumes a fixed (adapted) mass matrix.
 
-**When rmhmc is NOT worth it**: any model where the posterior geometry is well-approximated by a global diagonal rescaling (mvn_10, logistic_syn, ill_cond_50 with stan_window diagonal IMM). The Riemannian metric provides no benefit and adds per-step cost.
+**When rmhmc is NOT worth it**: any model where the posterior geometry is well-approximated by a global diagonal rescaling (mvn_10, logistic_syn, ill_cond_50 with window_adaptation_diag_imm diagonal IMM). The Riemannian metric provides no benefit and adds per-step cost.
 
-**When rmhmc IS worth it**: models with position-dependent curvature — banana (the banana manifold has varying Gaussian curvature), neals_funnel (curvature varies dramatically between funnel neck and body). However, the current Phase 5 implementation uses `stan_window` which provides a constant IMM → this degenerates to HMC. The true Riemannian advantage requires a non-constant `mass_matrix_fn` callable. **This is deferred to Recipe Generation Phase as a separate "rmhmc Riemannian" variant requiring custom metric functions per model**.
+**When rmhmc IS worth it**: models with position-dependent curvature — banana (the banana manifold has varying Gaussian curvature), neals_funnel (curvature varies dramatically between funnel neck and body). However, the current Phase 5 implementation uses `window_adaptation_diag_imm` which provides a constant IMM → this degenerates to HMC. The true Riemannian advantage requires a non-constant `mass_matrix_fn` callable. **This is deferred to Recipe Generation Phase as a separate "rmhmc Riemannian" variant requiring custom metric functions per model**.
 
 **Recipe Generation Phase recommendation**: build rmhmc recipes with constant metric (= HMC) first (these are green for easy models); tag the Riemannian-callable path as a separate Phase 7 task.
 
@@ -525,7 +525,7 @@ Now applying the outer-method distinction:
 
 **Recipe Generation Phase priority**: Laplace-marginal family is Yellow for radon/irt_2pl (requires careful theta_init construction from PosteriorEntry) and Green for gp_regression/stoch_vol. Build gp_regression + stoch_vol Laplace recipes first (Green cells, high-value showcase).
 
-### 10. `low_rank_window_adaptation` vs `stan_window`
+### 10. `low_rank_window_adaptation` vs `window_adaptation_diag_imm`
 
 **Verdict**: Not a supersession — `low_rank_window_adaptation` is strictly better in theory for posteriors with structured correlations, but the practical question is whether the low-rank correction is worth the extra compute at the wrapper boundary.
 
@@ -534,9 +534,9 @@ Now applying the outer-method distinction:
 - radon hierarchical (correlated group-level effects): cross-county correlation structure has a few dominant principal directions.
 - horseshoe (correlated sparse regression coefficients): the sparsity-inducing prior creates correlated posterior directions.
 
-**When stan_window is sufficient**: smooth, nearly-diagonal posteriors (mvn_10, logistic_syn, german_credit, eight_schools). The low-rank correction adds compute for no quality gain.
+**When window_adaptation_diag_imm is sufficient**: smooth, nearly-diagonal posteriors (mvn_10, logistic_syn, german_credit, eight_schools). The low-rank correction adds compute for no quality gain.
 
-**Recipe Generation Phase recommendation**: build stan_window recipes first for all models; then run low_rank_window_adaptation as a "correlation-structure" variant for ill_cond_50 + radon + horseshoe + irt_2pl as a benchmark comparison.
+**Recipe Generation Phase recommendation**: build window_adaptation_diag_imm recipes first for all models; then run low_rank_window_adaptation as a "correlation-structure" variant for ill_cond_50 + radon + horseshoe + irt_2pl as a benchmark comparison.
 
 **Pre-requisite**: low_rank_window_adaptation must be registered in WARMUPS __init__ (missing from current main — P5.16.5 commits not merged to main yet).
 
@@ -592,7 +592,7 @@ The surrogate collapses these posteriors to a poor Gaussian approximation. The I
 
 ### Category 6 — Riemannian HMC without callable metric
 
-**rmhmc with stan_window IMM** for horseshoe (requires model-specific callable), stoch_vol (d=503; Hessian computation intractable), radon (d=390): the Riemannian character requires a position-dependent `mass_matrix_fn` callable. Using a constant diagonal IMM from stan_window degenerates to HMC. While the resulting sampler is not wrong, it is simply HMC — the rmhmc entry provides no advantage and the `extra_required_kwargs=("mass_matrix_fn",)` integration adds engineering overhead for no benefit. Mark R for these cells; the true Riemannian recipes are Phase 7 scope.
+**rmhmc with window_adaptation_diag_imm IMM** for horseshoe (requires model-specific callable), stoch_vol (d=503; Hessian computation intractable), radon (d=390): the Riemannian character requires a position-dependent `mass_matrix_fn` callable. Using a constant diagonal IMM from window_adaptation_diag_imm degenerates to HMC. While the resulting sampler is not wrong, it is simply HMC — the rmhmc entry provides no advantage and the `extra_required_kwargs=("mass_matrix_fn",)` integration adds engineering overhead for no benefit. Mark R for these cells; the true Riemannian recipes are Phase 7 scope.
 
 ### Category 7 — Laplace-marginal for non-hierarchical / non-Gaussian models
 
@@ -606,13 +606,13 @@ The surrogate collapses these posteriors to a poor Gaussian approximation. The I
 
 ## Recipe Generation Phase Sequencing Recommendation
 
-### Recipe Phase 1 — NUTS-family + stan_window, all 14 models (highest ROI)
+### Recipe Phase 1 — NUTS-family + window_adaptation_diag_imm, all 14 models (highest ROI)
 
-**Target**: `stan_window` × {nuts, hmc} × all 14 models.
+**Target**: `window_adaptation_diag_imm` × {nuts, hmc} × all 14 models.
 
-This is the "everything works and we know it" tier. NUTS + stan_window is the gold-standard reference that every other row in the matrix will be compared against. Build this first.
+This is the "everything works and we know it" tier. NUTS + window_adaptation_diag_imm is the gold-standard reference that every other row in the matrix will be compared against. Build this first.
 
-**Approximate cell count**: 14 models × 2 samplers = 28 conventional `(stan_window, {nuts, hmc})` cells. Each cell produces ONE recipe at the lowest effort tier that passes the Statistician auto-gate (see `bjx_bench/inference/recipes/_base.py` `Effort` docstring for canonical taxonomy):
+**Approximate cell count**: 14 models × 2 samplers = 28 conventional `(window_adaptation_diag_imm, {nuts, hmc})` cells. Each cell produces ONE recipe at the lowest effort tier that passes the Statistician auto-gate (see `bjx_bench/inference/recipes/_base.py` `Effort` docstring for canonical taxonomy):
 
 - **LOW** if library defaults produce gate-passing samples at first emit (the green cells in the matrix below).
 - **MEDIUM** if the default emit fails the gate and a Statistician workaround (seed change, init change, bug fix) recovers it (the yellow cells; matches the matrix's "workflow narrative required" tier).
@@ -647,7 +647,7 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 
 **Target**: `pathfinder` × {nuts, hmc} + `multipathfinder` × {nuts, hmc} for all green cells.
 
-**Rationale**: Pathfinder warmup improves convergence speed (warmup budget reduction) without changing the sampler quality asymptotically. These are "same colour as stan_window but cheaper warmup" variants — high value if the warmup budget is the bottleneck. Build after 6.1 baselines so you can show the warmup speedup.
+**Rationale**: Pathfinder warmup improves convergence speed (warmup budget reduction) without changing the sampler quality asymptotically. These are "same colour as window_adaptation_diag_imm but cheaper warmup" variants — high value if the warmup budget is the bottleneck. Build after 6.1 baselines so you can show the warmup speedup.
 
 ### Recipe Phase 5 — SMC family, prioritize adaptive variants + gmm_25
 
@@ -695,12 +695,12 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 
 ## Final Report to TL (3 bullets)
 
-**1. Cell count by colour**: approximately 480 green / 180 yellow / 420 red across all tables in the matrix. The green cells are concentrated in: NUTS+stan_window (easy+hierarchical models ≈ 60 cells), MCLMC family (high-d smooth models ≈ 40 cells), SMC family (adaptive variants for all models including gmm_25 ≈ 100 cells), VI (applicable models ≈ 20 cells), plus pathfinder/multipathfinder variants (≈ 60 cells). Red cells are dominated by: (a) gmm_25 × non-SMC samplers (~20 cells), (b) high-d models × no_warmup gradient samplers (~30 cells), (c) VI exclusions × 4 pathological models (~40 cells), (d) SMC inner-kernel viability not a concern (all 8 inner kernels are green/yellow for most models), (e) Laplace-marginal family on 10/14 non-applicable models (~40 cells).
+**1. Cell count by colour**: approximately 480 green / 180 yellow / 420 red across all tables in the matrix. The green cells are concentrated in: NUTS+window_adaptation_diag_imm (easy+hierarchical models ≈ 60 cells), MCLMC family (high-d smooth models ≈ 40 cells), SMC family (adaptive variants for all models including gmm_25 ≈ 100 cells), VI (applicable models ≈ 20 cells), plus pathfinder/multipathfinder variants (≈ 60 cells). Red cells are dominated by: (a) gmm_25 × non-SMC samplers (~20 cells), (b) high-d models × no_warmup gradient samplers (~30 cells), (c) VI exclusions × 4 pathological models (~40 cells), (d) SMC inner-kernel viability not a concern (all 8 inner kernels are green/yellow for most models), (e) Laplace-marginal family on 10/14 non-applicable models (~40 cells).
 
 **2. Top 3 supersession verdicts that simplify Recipe Generation Phase most**:
 - **(a) adaptive_tempered_smc dominates tempered_smc**: skip building `tempered_smc` recipes entirely except for a single "overhead benchmark" variant on mvn_10. This eliminates ~14 redundant recipe cells and focuses SMC phase on the adaptive variants that have a defensible geometry argument.
 - **(b) MCLMC + mclmc_tuning at stoch_vol (d=503) should be Recipe Phase 2's first build target** because it is the ONLY case in the matrix where NUTS `default_works=False` (P4.9 result) and MCLMC is the clinically recommended alternative. Building this cell first validates the whole MCLMC-vs-NUTS discrimination story that motivated Phase 5's MCLMC wrapper investment.
-- **(c) pathfinder warmup supersedes no_warmup for all green NUTS/HMC cells without extra work**: every `stan_window + nuts` green cell should have a corresponding `pathfinder + nuts` recipe at negligible extra engineering cost (same base sampler, better init). Recipe Phase 4 can piggyback on 6.1 infrastructure with minimal new recipe logic.
+- **(c) pathfinder warmup supersedes no_warmup for all green NUTS/HMC cells without extra work**: every `window_adaptation_diag_imm + nuts` green cell should have a corresponding `pathfinder + nuts` recipe at negligible extra engineering cost (same base sampler, better init). Recipe Phase 4 can piggyback on 6.1 infrastructure with minimal new recipe logic.
 
 **3. Items requiring a numerical probe before plan locks**:
 - **LAPS IMM placeholder**: the `jnp.ones(ndims)` placeholder in laps warmup means LAPS recipes cannot be validated statistically until the upstream IMM extraction path is fixed. Before Recipe Phase 8 locks, run a 200-step LAPS warmup on stoch_vol and verify the adapted IMM is model-informative (not uniform). If it stays uniform, escalate to upstream as a bug before building any LAPS recipes.

@@ -1,7 +1,7 @@
 {
   "model_name": "gmm_25",
   "base_method_name": "nuts",
-  "warmup_name": "stan_window",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "failed",
   "failure_diagnosis": "out_of_scope",
   "base_method_params": {},

@@ -1,7 +1,7 @@
 {
   "model_name": "logistic_synthetic",
   "base_method_name": "nuts",
-  "warmup_name": "stan_window",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
     "step_size": 0.5802492499351501,

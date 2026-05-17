@@ -59,7 +59,7 @@ adapted_params
     choice is documented in the wrapper's docstring.
 
 The Warmup dataclass supports standard registration of warmup procedures
-(stan_window, mclmc_tuning, no_warmup, etc.) with compatibility guards
+(window_adaptation_diag_imm, mclmc_tuning, no_warmup, etc.) with compatibility guards
 (``is_compatible`` method) preventing mismatched warmup-sampler pairings.
 The multi-chain runner contract enables parallel warmup across multiple chains.
 """
@@ -154,7 +154,7 @@ class Warmup:
     Parameters
     ----------
     name
-        Unique registry key, e.g. ``"stan_window"``, ``"mclmc_tuning"``,
+        Unique registry key, e.g. ``"window_adaptation_diag_imm"``, ``"mclmc_tuning"``,
         ``"no_warmup"``.
     runner
         Callable with signature::

@@ -131,10 +131,10 @@ class TestWarmupCLI:
             data["effort"] == "medium"
         ), f"Expected effort='medium', got {data['effort']!r}"
 
-        # Verify warmup_name is stan_window (default)
+        # Verify warmup_name is window_adaptation_diag_imm (default)
         assert (
-            data["warmup_name"] == "stan_window"
-        ), f"Expected warmup_name='stan_window', got {data['warmup_name']!r}"
+            data["warmup_name"] == "window_adaptation_diag_imm"
+        ), f"Expected warmup_name='window_adaptation_diag_imm', got {data['warmup_name']!r}"
 
         # Verify base_method_params contains step_size and inverse_mass_matrix
         bmp = data["base_method_params"]

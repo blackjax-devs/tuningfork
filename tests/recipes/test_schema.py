@@ -247,7 +247,7 @@ def test_render_instructions_medium_stub() -> None:
     recipe = Recipe(
         model_name="mvn_10",
         base_method_name="nuts",
-        warmup_name="stan_window",
+        warmup_name="window_adaptation_diag_imm",
         effort=Effort.MEDIUM,
         base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0] * 10},
         warmup_params={"n_warmup": 1000, "target_acceptance_rate": 0.8},
@@ -274,7 +274,7 @@ def test_render_instructions_high_stub() -> None:
     recipe = Recipe(
         model_name="mvn_10",
         base_method_name="hmc",
-        warmup_name="stan_window",
+        warmup_name="window_adaptation_diag_imm",
         effort=Effort.HIGH,
         base_method_params={"step_size": 0.08, "num_integration_steps": 32},
         warmup_params={"n_warmup": 1000},
@@ -566,7 +566,7 @@ def test_from_groundtruth_run_returns_valid_recipe() -> None:
     assert recipe.effort == Effort.GROUNDTRUTH
     assert recipe.model_name == "mvn_10"
     assert recipe.base_method_name == "nuts"
-    assert recipe.warmup_name == "stan_window"
+    assert recipe.warmup_name == "window_adaptation_diag_imm"
     assert recipe.headline_metric is None
 
     # gate_evidence
@@ -1124,7 +1124,7 @@ class TestFailedRecipe:
         "recipe_path,expected_diagnosis",
         [
             (
-                "gmm_25/recipes/failed__nuts__stan_window.json",
+                "gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json",
                 FailureDiagnosis.OUT_OF_SCOPE,
             ),
             (
@@ -1140,7 +1140,7 @@ class TestFailedRecipe:
                 FailureDiagnosis.HARD_DIRECTION,
             ),
             (
-                "horseshoe/recipes/failed__rmhmc__stan_window.json",
+                "horseshoe/recipes/failed__rmhmc__window_adaptation_diag_imm.json",
                 FailureDiagnosis.REQUIRES_MODEL_CHANGE,
             ),
             (

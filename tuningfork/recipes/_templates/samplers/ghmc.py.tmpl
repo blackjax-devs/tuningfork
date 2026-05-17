@@ -1,10 +1,10 @@
 # === SAMPLER: ghmc (persistent-momentum HMC; momentum_inverse_scale from warmup; alpha + delta from recipe) ===
 # GHMC uses momentum_inverse_scale (not inverse_mass_matrix) and requires a
 # rng_key in its init call to generate the initial persistent momentum + slice.
-# When a warmup (e.g. stan_window) provides inverse_mass_matrix, it is used here
+# When a warmup (e.g. window_adaptation_diag_imm) provides inverse_mass_matrix, it is used here
 # as momentum_inverse_scale.
 # The state is always re-initialised because GHMCState has different fields
-# (momentum, slice) than the HMCState / NUTSState produced by stan_window warmup.
+# (momentum, slice) than the HMCState / NUTSState produced by window_adaptation_diag_imm warmup.
 # We extract the warmup's end position (if available) so adaptation is not wasted.
 from jax.flatten_util import ravel_pytree as _ravel_pytree
 

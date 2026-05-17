@@ -38,7 +38,7 @@ def minimal_recipe_json(tmp_path: Path) -> Path:
     recipe_data = {
         "model_name": "eight_schools_ncp",
         "base_method_name": "nuts",
-        "warmup_name": "stan_window",
+        "warmup_name": "window_adaptation_diag_imm",
         "effort": "groundtruth",
         "base_method_params": {"step_size": 0.5, "inverse_mass_matrix": [1.0, 1.0]},
         "warmup_params": {"n_warmup": 1000},
@@ -71,7 +71,7 @@ def minimal_recipe_json(tmp_path: Path) -> Path:
         "jax_version": "0.4.0",
         "timestamp_utc": "2026-05-12T00:00:00Z",
     }
-    recipe_file = tmp_path / "groundtruth__nuts__stan_window.json"
+    recipe_file = tmp_path / "groundtruth__nuts__window_adaptation_diag_imm.json"
     recipe_file.write_text(json.dumps(recipe_data))
     return recipe_file
 
@@ -132,7 +132,7 @@ def test_load_recipe_absolute_path(minimal_recipe_json: Path) -> None:
     recipe = load_recipe(minimal_recipe_json)
     assert recipe.model_name == "eight_schools_ncp"
     assert recipe.base_method_name == "nuts"
-    assert recipe.warmup_name == "stan_window"
+    assert recipe.warmup_name == "window_adaptation_diag_imm"
 
 
 def test_load_recipe_relative_path_resolves_against_repo_root(

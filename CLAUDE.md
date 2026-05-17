@@ -91,7 +91,7 @@ tuningfork/
 │   └── _templates/            # .py.tmpl templates (string.Template substitution)
 │       ├── preamble.py.tmpl       # imports + `from tuningfork.model import MODELS`
 │       ├── postamble.py.tmpl, inference_loop.py.tmpl
-│       ├── warmups/<warmup>.py.tmpl    # stan_window, no_warmup. R3.5b-2: pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, meanfield_vi, fullrank_vi
+│       ├── warmups/<warmup>.py.tmpl    # window_adaptation_diag_imm, no_warmup. R3.5b-2: pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, meanfield_vi, fullrank_vi
 │       └── samplers/<sampler>.py.tmpl  # nuts, hmc, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm. R3.5b-2: mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_{hmc,dhmc,mhmc,dmhmc}, irmh, additive_step_random_walk, meanfield_vi, fullrank_vi
 │       (no models/ subdir — model definitions imported from tuningfork.model,
 │        not duplicated as templates; eliminates drift risk)
@@ -145,7 +145,7 @@ NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
 
 **24 base methods** (`base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
 
-**10 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, stan_window, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
+**10 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, window_adaptation_diag_imm, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
 
 **6 SMC methods** (`smc/__init__.py:SMC_METHODS`): adaptive_tempered_smc, tempered_smc, partial_posteriors_smc, inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc.
 

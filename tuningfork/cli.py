@@ -605,8 +605,8 @@ def main() -> int:
     )
     p_warmup.add_argument(
         "--warmup",
-        default="stan_window",
-        help="Warmup strategy: stan_window, mclmc_tuning, no_warmup (default: stan_window)",
+        default="window_adaptation_diag_imm",
+        help="Warmup strategy: window_adaptation_diag_imm, mclmc_tuning, no_warmup (default: window_adaptation_diag_imm)",
     )
     p_warmup.add_argument(
         "--n-warmup",

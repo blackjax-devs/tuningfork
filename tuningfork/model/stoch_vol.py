@@ -239,7 +239,7 @@ ENTRY = Posterior(
         "Dim=503: mu(1)+phi(1)+log_sigma(1)+h_raw(500)."
     ),
     # Per-model divergence-rate override: 0.005 (= 0.5%, vs the global 0.1%).
-    # Justification (TL ↔ user, 2026-05-12): under the canonical NUTS + stan_window
+    # Justification (TL ↔ user, 2026-05-12): under the canonical NUTS + window_adaptation_diag_imm
     # cert (n_warmup=5000, n_samples=40000, ta=0.99, max_num_doublings=15, seed=42),
     # stoch_vol produces ~105 divergences (0.26%) with R̂=1.0006, min-bulk-ESS=1992,
     # E-BFMI=0.93 — sampling is correct; the residual divergences cluster at extreme

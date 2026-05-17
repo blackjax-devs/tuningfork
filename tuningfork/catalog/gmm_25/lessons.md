@@ -6,7 +6,7 @@ No significant sampling quirks documented — model has well-conditioned geometr
 
 ## Canonical recipe
 
-Placeholder: once recipes are generated, link to `recipes/low__nuts__stan_window.json` or the appropriate LOW-effort baseline.
+Placeholder: once recipes are generated, link to `recipes/low__nuts__window_adaptation_diag_imm.json` or the appropriate LOW-effort baseline.
 
 ## Sampling quirks
 

@@ -129,7 +129,7 @@ def test_emit_script_imports_only_allowed_modules() -> None:
     "warmup_name,base_method_name",
     [
         # Conventional gradient samplers with compatible warmups (R3.5b Commit 2).
-        ("stan_window", "hmc"),
+        ("window_adaptation_diag_imm", "hmc"),
         ("no_warmup", "dynamic_hmc"),
         ("no_warmup", "mhmc"),
         ("no_warmup", "dmhmc"),

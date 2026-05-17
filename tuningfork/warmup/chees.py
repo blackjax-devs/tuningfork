@@ -121,7 +121,7 @@ def _runner(
 ) -> tuple[Any, dict[str, Any]]:
     """Run ``blackjax.chees_adaptation`` over ``num_chains`` chains jointly.
 
-    Unlike ``stan_window`` which vmaps per-chain window adaptation independently,
+    Unlike ``window_adaptation_diag_imm`` which vmaps per-chain window adaptation independently,
     CHEES runs a **single** multi-chain adaptation call.  All chains participate
     together to adapt step size and trajectory length.
 

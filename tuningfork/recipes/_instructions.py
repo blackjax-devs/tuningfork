@@ -24,7 +24,7 @@ not how the user consumes it.  The prose framing reflects that:
   MEDIUM — Statistician investigation needed.  Either the default emit failed
            the gate (manual workarounds: seed change, init change, obvious-bug
            fix) or the cell explores a technically-possible-but-unconventional
-           pairing (e.g., ``stan_window`` + ``mala``, ``stan_window`` + ``rmhmc``).
+           pairing (e.g., ``window_adaptation_diag_imm`` + ``mala``, ``window_adaptation_diag_imm`` + ``rmhmc``).
            Wall time = LOW + Statistician investigation.
   HIGH   — LOW and MEDIUM both failed.  The Statistician compared against a
            NUTS + window_adaptation oracle, ran BO over warmup hyperparameters,
