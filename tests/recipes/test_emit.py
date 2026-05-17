@@ -16,8 +16,15 @@
 This file contains all tests that run actual MCMC chains or tuning algorithms.
 These are marked @pytest.mark.slow individually (not at module level, per PR-4 rules).
 
-Tests: from_warmup_only, from_tuning_result, render_instructions_medium_and_high_real,
-and test_medium_recipe_exists_and_has_warmup_data (parametrized).
+Tests: from_warmup_only, from_tuning_result, render_instructions_medium_and_high_real.
+
+History: test_medium_recipe_exists_and_has_warmup_data (parametrized over 6
+(model × {hmc, nuts}) combos) was removed 2026-05-17 as a slow-CI fix —
+the MEDIUM placeholder recipes it asserted-existence-of had been deleted in
+PR #6 commit 3 (715a82c, "recipes: delete stale low/medium/high starter
+recipes"), but the test surgery in that commit missed this slow-only test
+because we don't run slow locally. Real MEDIUM recipes are produced by
+Recipe Phase 1+ pipeline; their existence-on-disk is no longer a test gate.
 """
 
 import math
@@ -31,16 +38,6 @@ from tuningfork.model import MODELS
 from tuningfork.recipes import Effort, Recipe
 from tuningfork.recipes._instructions import render_instructions
 from tuningfork.warmup import WARMUPS
-
-# Path to the committed starter recipes
-_STARTER_ROOT = (
-    Path(__file__).resolve().parents[2]
-    / "tuningfork"
-    / "inference"
-    / "recipes"
-    / "starter"
-)
-
 
 # ---------------------------------------------------------------------------
 # MEDIUM and HIGH constructors (require actual warmup)
@@ -324,36 +321,5 @@ def test_render_instructions_medium_and_high_real() -> None:
     assert str(tuning_result.n_trials_completed) in prose_h
 
 
-# ---------------------------------------------------------------------------
-# Tests: MEDIUM smoke (checks MEDIUM recipes exist with warmup data)
-# ---------------------------------------------------------------------------
-
-_MEDIUM_COMBOS = [
-    (model, method)
-    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
-    for method in ("hmc", "nuts")
-]
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("model_name,method_name", _MEDIUM_COMBOS)
-def test_medium_recipe_exists_and_has_warmup_data(
-    model_name: str, method_name: str
-) -> None:
-    """each (starter_model, {hmc,nuts}) has a MEDIUM recipe via stan_window
-    with non-empty warmup-adapted params and positive wall-clock."""
-    path = _STARTER_ROOT / model_name / f"medium__{method_name}__stan_window.json"
-    assert path.exists(), f"Missing MEDIUM recipe for {model_name} + {method_name}"
-    recipe = Recipe.load(path)
-    assert recipe.effort == Effort.MEDIUM
-    assert recipe.warmup_name == "stan_window"
-    assert recipe.calibration_budget["n_warmup"] == 1000
-    assert recipe.calibration_budget["wall_seconds_estimate"] > 0
-    # The warmup-adapted base_method_params must contain step_size AND
-    # inverse_mass_matrix (a non-trivial adaptation, not just defaults).
-    assert "step_size" in recipe.base_method_params
-    assert "inverse_mass_matrix" in recipe.base_method_params
-    imm = recipe.base_method_params["inverse_mass_matrix"]
-    assert isinstance(imm, list)  # JSON deserialization gives list
-    assert len(imm) > 0
-    assert recipe.headline_metric is None  # MEDIUM doesn't measure post-warmup ESS
+# test_medium_recipe_exists_and_has_warmup_data (parametrized over 6 combos)
+# removed 2026-05-17 — see module docstring "History" section.
