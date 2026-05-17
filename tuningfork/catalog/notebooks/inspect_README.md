@@ -106,6 +106,35 @@ When `chain_stats` is provided, the function projects it into the
 `sample_stats` group using `_CHAIN_STATS_TO_SAMPLE_STATS` (renames
 `is_divergent → diverging`, `num_integration_steps → n_steps`, etc.).
 
+## Reproducing a recipe outside tuningfork
+
+Given any recipe, `emit_script(recipe)` returns a standalone Python script
+that imports only `jax`, `jax.numpy`, `numpy`, `numpyro`, `blackjax`
+(+ optional `arviz`) — **no `import tuningfork`**. Drop the script into any
+fresh project, install those deps, and reproduce:
+
+```python
+from tuningfork.catalog import emit_script, load_recipe
+
+recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/groundtruth.json")
+script = emit_script(recipe, num_samples=2000)
+
+from pathlib import Path
+Path("run_eight_schools_groundtruth.py").write_text(script)
+# Then in a fresh shell:
+#   uv run --with jax --with blackjax --with numpyro python run_eight_schools_groundtruth.py
+```
+
+The model body is inlined from the canonical NumPyro definition; warmup +
+sampler calls go directly to BlackJAX with the recipe's pinned hyperparameters.
+A cross-check test (`test_emit_script_cross_check_against_tuningfork_import`)
+verifies the strict-emitted output is bit-identical (modulo PRNG path) to
+the `from tuningfork.model import` route at the same seed — drift between
+templates and the canonical model code is caught at CI time.
+
+As of R3.5-MVP (2026-05-17), templates exist for `eight_schools_ncp` ×
+`stan_window` × `nuts` only. R3.5b expands to the full 14 × 10 × 24 matrix.
+
 ## Sampling-book pattern reference
 
 We mirror the canonical statistician-facing workflow from the

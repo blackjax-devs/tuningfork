@@ -86,7 +86,13 @@ tuningfork/
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
 ├── recipes/                   # Recipe schema + generators (CODE ONLY)
 │   ├── _base.py, _instructions.py
-│   └── _generate_starter.py, _generate_groundtruth.py
+│   ├── _generate_starter.py, _generate_groundtruth.py
+│   ├── _emit_script.py        # recipe → standalone Python script (R3.5)
+│   └── _templates/            # .py.tmpl templates (string.Template substitution)
+│       ├── preamble.py.tmpl, postamble.py.tmpl, inference_loop.py.tmpl
+│       ├── models/<model>.py.tmpl    # MVP: eight_schools_ncp; R3.5b expands
+│       ├── warmups/<warmup>.py.tmpl  # MVP: stan_window
+│       └── samplers/<sampler>.py.tmpl # MVP: nuts
 ├── calibration/               # cert + Optuna BO + auto-gate
 │   ├── certify_reference.py, certify_reference_analytic.py
 │   ├── tune.py, statistician_gate.py
@@ -98,10 +104,11 @@ tuningfork/
 │
 │   # ─────────── CATALOG LAYER (consumes recipes) ───────────
 └── catalog/                   # USER-FACING SUBPACKAGE
-    ├── __init__.py            # re-exports load_recipe, load_idata, summarize_recipe, ...
+    ├── __init__.py            # re-exports load_recipe, load_idata, summarize_recipe, emit_script, ...
     ├── inspect.py             # load_recipe, summarize_recipe
     ├── render.py              # load_samples, load_chain_stats, load_idata, samples_to_idata
     ├── diagnostics.py         # ArviZ family-aware diagnostic renderers
+    ├── emit.py                # emit_script wrapper (R3.5; recipe → standalone .py)
     ├── notebooks/             # template + example notebooks (was repo-root notebooks/)
     │   ├── recipe_diagnostics.md   # parametrized inspection template
     │   ├── inspect_example.md      # worked example
