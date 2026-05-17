@@ -1,0 +1,40 @@
+{
+  "model_name": "neals_funnel",
+  "base_method_name": "meanfield_vi",
+  "warmup_name": "no_warmup",
+  "effort": "failed",
+  "failure_diagnosis": "out_of_scope",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Mean-field variational inference collapses the Neal's funnel posterior to a poor Gaussian approximation. The funnel's pathological geometry (narrow neck connecting head to tail) is invisible to diagonal covariance structure; the resulting IMM is misleading and makes downstream samplers worse than no-warmup.",
+  "notes": "",
+  "workflow": "Hard-exclusion category 3: VI on pathological posteriors (from Phase 5.12 kickoff).\n\nBoth meanfield_vi and fullrank_vi (as sampler or warmup) are excluded for posteriors with pathological geometry: gmm_25 (multimodal), neals_funnel (funnel), horseshoe (sparse-slab with heavy tails), stoch_vol (unit-root time series), and banana (crescent-shaped ridge).\n\nFor neals_funnel specifically, mean-field VI's diagonal covariance approximation is fundamentally incompatible with the posterior's funnel structure. The posterior has a wide head (d=9 dimensions of modest scale) connected via a narrow neck to a single tail dimension (d=1, highly sensitive scale). A diagonal Gaussian approximation cannot capture the tight correlation between the head and the tail. The resulting variational approximation collapses the posterior mean toward the neck region, producing a poor IMM that degrades downstream sampling vs. no-warmup initialization.\n\nSee RECIPE_GENERATION.md § Hard Exclusions Category 3 (lines 580-583) for the full context.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-17T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

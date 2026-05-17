@@ -1,0 +1,40 @@
+{
+  "model_name": "radon",
+  "base_method_name": "nuts",
+  "warmup_name": "fullrank_vi",
+  "effort": "failed",
+  "failure_diagnosis": "requires_model_change",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Full-rank variational inference at d=390 requires an O(d²) dense Cholesky parameter vector that is computationally and memory-intractable. The radon model (d=390) is far above the threshold (d>30) where fullrank_vi becomes infeasible.",
+  "notes": "",
+  "workflow": "Hard-exclusion category 8: fullrank_vi warmup for high-d models (radon, d=390).\n\nFull-rank variational inference maintains a dense d×d covariance matrix parameterized via its Cholesky decomposition. This requires O(d²) parameters: at d=390, that is ~152,000 variational parameters. Computing the full Cholesky decomposition, storing the dense matrix, and running gradient steps on it becomes computationally and memory-intensive, making fullrank_vi impractical.\n\nThe hard threshold is d > 30: models above this dimension should not use fullrank_vi as a warmup. Excluded: radon (d=390), irt_2pl (d=144), stoch_vol (d=503), horseshoe (d=204), ill_cond_50 (d=50). Mean-field VI (meanfield_vi) remains available for all models (diagonal covariance, O(d) parameters), and for the small-d models (d <= 30), fullrank_vi can be tried.\n\nEnabling fullrank_vi for radon would require either: (1) a reduced-rank approximation (e.g., factor-analysis VI with fixed rank r << d), or (2) a different warmup strategy designed for high-d (e.g., pathfinder, adapted-mclmc tuning). These are Phase 7 / v2 scope.\n\nSee RECIPE_GENERATION.md § Hard Exclusions Category 8 (lines 601-603) for the full context.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-17T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

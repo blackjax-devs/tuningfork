@@ -1,0 +1,40 @@
+{
+  "model_name": "mvn_10",
+  "base_method_name": "laplace_hmc",
+  "warmup_name": "no_warmup",
+  "effort": "failed",
+  "failure_diagnosis": "requires_model_change",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Laplace-marginal HMC requires a latent Gaussian layer that can be analytically marginalized. MVN_10 is a direct Gaussian model with no hierarchical structure, so Laplace marginalization does not apply. This requires model parameterization work.",
+  "notes": "",
+  "workflow": "Hard-exclusion category 7: Laplace-marginal for non-hierarchical / non-Gaussian models.\n\nLaplace-marginal kernels (laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc) exclude all models without a latent Gaussian layer that can be analytically marginalized over the posterior. Concretely, they are unavailable for: mvn_10, ill_cond_50, logistic_syn, lotka_volterra, german_credit, gmm_25, banana, and horseshoe.\n\nMVN_10 is a simple multivariate Gaussian model with no hierarchy — there are no latent parameters to marginalize. The Laplace-marginal sampler would need to define which parameters are latent and which are observed, a distinction that does not exist in the direct Gaussian formulation. Extending mvn_10 to support Laplace marginalization would require introducing an explicit latent Gaussian layer (e.g., a hierarchical prior on the covariance structure) that mvn_10 does not currently expose.\n\nModels like eight_schools_ncp, radon, and irt_2pl are yellow (potentially feasible) because they have explicit latent Gaussian layers, but their PosteriorEntry schema does not yet record theta_init (the initialized latent position); this is Phase 7 scope.\n\nSee RECIPE_GENERATION.md § Hard Exclusions Category 7 (lines 597-599) for the full context.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-17T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}
