@@ -50,7 +50,13 @@ if TYPE_CHECKING:
     from tuningfork.base_method._base import BaseMethod
     from tuningfork.model._base import Posterior
 
-__all__ = ["Effort", "Recipe"]
+__all__ = [
+    "Effort",
+    "FailureDiagnosis",
+    "AttemptedConfig",
+    "Recipe",
+    "RecipeFailedError",
+]
 
 
 class Effort(str, Enum):
@@ -108,6 +114,13 @@ class Effort(str, Enum):
                   The cached draws under ``reference/<model>/draws.npz`` are the
                   canonical samples; the recipe pins the protocol for re-running.
 
+    FAILED    — A hard direction to land. The Statistician's HIGH-effort
+                investigation walked one or more forking paths without producing
+                a gate-passing config; the recipe records every attempt + diagnosis
+                in ``attempted_configurations`` so future agents can pick up
+                directions not yet tried. See ``FailureDiagnosis`` for the
+                canonical failure buckets.
+
     **Tier transition discipline.**  LOW → MEDIUM and MEDIUM → HIGH transitions
     start with the Statistician communicating findings to the TL; the TL
     evaluates and makes the escalation call.  This prevents the auto-gate from
@@ -134,6 +147,58 @@ class Effort(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     GROUNDTRUTH = "groundtruth"
+    FAILED = "failed"
+
+
+class FailureDiagnosis(str, Enum):
+    """Categorization of why a recipe FAILED (no gate-passing config found).
+
+    OUT_OF_SCOPE          — Sampler conceptually wrong for this model class.
+    REQUIRES_ALT_SAMPLER  — Requires a kernel not in the v1 inventory.
+    REQUIRES_MODEL_CHANGE — Model parameterization needs work upstream.
+    TRIVIAL_FIX_DEFERRED  — Known fix not yet landed (deferred work).
+    HARD_DIRECTION        — Tried multiple forking paths; none cleared the gate.
+                            Default for most Statistician-closed failures.
+    """
+
+    OUT_OF_SCOPE = "out_of_scope"
+    REQUIRES_ALT_SAMPLER = "requires_alt_sampler"
+    REQUIRES_MODEL_CHANGE = "requires_model_change"
+    TRIVIAL_FIX_DEFERRED = "trivial_fix_deferred"
+    HARD_DIRECTION = "hard_direction"
+
+
+@dataclass(frozen=True)
+class AttemptedConfig:
+    """One forking-path branch the Statistician walked down for a FAILED recipe.
+
+    Each FAILED Recipe's ``attempted_configurations`` is a list of these,
+    forming the full forking-path log of HP combinations tried.
+    """
+
+    base_method_params: dict
+    warmup_params: dict
+    seed: int
+    gate_verdict: dict  # contains: verdict, rhat_max, min_bulk_ess, n_divergences
+    wall_seconds: float
+    note: str  # one-line "why I tried this and what I saw"
+
+
+class RecipeFailedError(RuntimeError):
+    """Raised when a consumer tries to run a FAILED recipe.
+
+    Carries failure_diagnosis + a pointer to attempted_configurations
+    in the message so the consumer can decide whether to retry with
+    a different forking path.
+    """
+
+    def __init__(self, recipe: Recipe):
+        super().__init__(
+            f"Recipe {recipe.model_name}/{recipe.base_method_name}/"
+            f"{recipe.warmup_name} is FAILED ({recipe.failure_diagnosis.value if recipe.failure_diagnosis else 'no_diagnosis'}). "
+            f"See workflow + attempted_configurations for the forking-path log."
+        )
+        self.recipe = recipe
 
 
 @dataclass(frozen=True)
@@ -295,6 +360,10 @@ class Recipe:
     jax_version: str = ""
     timestamp_utc: str = ""
 
+    # ---- FAILED recipe fields ----
+    failure_diagnosis: FailureDiagnosis | None = None
+    attempted_configurations: list[AttemptedConfig] = field(default_factory=list)
+
     # ── persistence ──────────────────────────────────────────────────────────
 
     def save(self, root: Path) -> Path:
@@ -320,6 +389,14 @@ class Recipe:
         # asdict recurses; enum values become their raw value via the Enum's __repr__
         # but we need the string value, not "Effort.LOW" — override explicitly.
         d["effort"] = self.effort.value
+        # Serialize failure_diagnosis enum to string if present
+        if d["failure_diagnosis"] is not None:
+            d["failure_diagnosis"] = d["failure_diagnosis"].value
+        # Serialize AttemptedConfig objects to dicts
+        if d["attempted_configurations"]:
+            d["attempted_configurations"] = [
+                asdict(ac) for ac in d["attempted_configurations"]
+            ]
         target.write_text(json.dumps(d, indent=2, default=str))
         return target
 
@@ -339,6 +416,17 @@ class Recipe:
         """
         d = json.loads(Path(path).read_text())
         d["effort"] = Effort(d["effort"])
+        # Deserialize failure_diagnosis if present (backward compat: missing key defaults to None)
+        if "failure_diagnosis" in d and d["failure_diagnosis"] is not None:
+            d["failure_diagnosis"] = FailureDiagnosis(d["failure_diagnosis"])
+        # Deserialize attempted_configurations if present (backward compat: missing key defaults to [])
+        if "attempted_configurations" in d and d["attempted_configurations"]:
+            d["attempted_configurations"] = [
+                AttemptedConfig(**ac) for ac in d["attempted_configurations"]
+            ]
+        else:
+            # Ensure default if key missing
+            d.setdefault("attempted_configurations", [])
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────
@@ -873,6 +961,16 @@ class Recipe:
         sidecar_path = root / self.inverse_mass_matrix_path
         with np.load(sidecar_path) as data:
             return jnp.asarray(data["imm"])
+
+    def is_failed(self) -> bool:
+        """Return True iff this recipe is FAILED (no gate-passing config found).
+
+        Returns
+        -------
+        bool
+            True if ``self.effort == Effort.FAILED``, False otherwise.
+        """
+        return self.effort == Effort.FAILED
 
 
 # ── private helpers ───────────────────────────────────────────────────────────
