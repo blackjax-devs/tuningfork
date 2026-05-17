@@ -100,7 +100,7 @@ chain (1×{n_samples} post-warmup, {n_warmup}-step Stan window adaptation, \
 target_acceptance={target_acceptance}). Certified to split-R̂ ≤ 1.01, min per-chunk \
 bulk-ESS ≥ 400, 0 divergences, E-BFMI ≥ 0.3 across {n_chunks} contiguous chunks.
 
-The samples themselves live at `tuningfork/reference/draws/{model_name}.npz` \
+The samples themselves live at `tuningfork/reference/{model_name}/draws.npz` \
 (gitignored — {n_samples} samples × dim={dim}). Load via:
 
     from tuningfork.reference._io import get_reference_draws

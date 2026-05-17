@@ -105,7 +105,7 @@ class Effort(str, Enum):
                   certification). Not a recommendation; not part of the
                   LOW→MEDIUM→HIGH escalation ladder. One per NUTS-path model.
                   Wall time: dominated by long single chain (~5–15 min/model on CPU).
-                  The cached draws under ``reference/draws/<model>.npz`` are the
+                  The cached draws under ``reference/<model>/draws.npz`` are the
                   canonical samples; the recipe pins the protocol for re-running.
 
     **Tier transition discipline.**  LOW → MEDIUM and MEDIUM → HIGH transitions
@@ -650,7 +650,7 @@ class Recipe:
     ) -> Recipe:
         """Build a GROUNDTRUTH Recipe from a long-NUTS reference-certification run.
 
-        The cached draws under ``reference/draws/<model>.npz`` are the canonical
+        The cached draws under ``reference/<model>/draws.npz`` are the canonical
         samples; this Recipe pins the protocol so the diagnostics notebook (or any
         future re-run) can reproduce it. ``gate_evidence.auto.verdict`` is ``"PASS"``
         by construction — the cert gate (split-R̂ ≤ 1.01, min-chunk bulk-ESS ≥ 400,

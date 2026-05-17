@@ -58,14 +58,14 @@ class TestTierACLI:
     def test_mvn_populates_cache(self, tmp_path: Path) -> None:
         """First run: cache should be populated."""
         _run_cli(["reference", "mvn_10", "--n", "1000"], tmp_path)
-        assert (tmp_path / "draws" / "mvn_10.npz").exists()
-        assert (tmp_path / "metadata" / "mvn_10.json").exists()
-        assert (tmp_path / "summaries" / "mvn_10.json").exists()
+        assert (tmp_path / "mvn_10" / "draws.npz").exists()
+        assert (tmp_path / "mvn_10" / "metadata.json").exists()
+        assert (tmp_path / "mvn_10" / "summary.json").exists()
 
     def test_mvn_cache_hit_second_run(self, tmp_path: Path) -> None:
         """Second run must be a cache hit — metadata timestamp must not change."""
         _run_cli(["reference", "mvn_10", "--n", "1000"], tmp_path)
-        meta_path = tmp_path / "metadata" / "mvn_10.json"
+        meta_path = tmp_path / "mvn_10" / "metadata.json"
         with meta_path.open() as fh:
             first_meta = json.load(fh)
         first_ts = first_meta["timestamp_utc"]
@@ -85,7 +85,7 @@ class TestTierACLI:
     def test_mvn_force_regenerates(self, tmp_path: Path) -> None:
         """--force must update the timestamp (regeneration happened)."""
         _run_cli(["reference", "mvn_10", "--n", "1000"], tmp_path)
-        meta_path = tmp_path / "metadata" / "mvn_10.json"
+        meta_path = tmp_path / "mvn_10" / "metadata.json"
         with meta_path.open() as fh:
             first_meta = json.load(fh)
         first_ts = first_meta["timestamp_utc"]
@@ -137,10 +137,10 @@ class TestTierACLI:
         assert (
             "PASSED" in result.stdout
         ), f"Expected certification PASSED in CLI output.\nstdout:\n{result.stdout}"
-        # Cache artifacts must exist
-        assert (tmp_path / "draws" / "eight_schools_ncp.npz").exists()
-        assert (tmp_path / "adaptation" / "eight_schools_ncp.json").exists()
-        meta_path = tmp_path / "metadata" / "eight_schools_ncp.json"
+        # Cache artifacts must exist (per-model layout post cleanup-and-simplify)
+        assert (tmp_path / "eight_schools_ncp" / "draws.npz").exists()
+        assert (tmp_path / "eight_schools_ncp" / "adaptation.json").exists()
+        meta_path = tmp_path / "eight_schools_ncp" / "metadata.json"
         assert meta_path.exists()
         with meta_path.open() as fh:
             meta = json.load(fh)

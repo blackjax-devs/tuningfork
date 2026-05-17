@@ -19,10 +19,10 @@ valid cached artifact or regenerates it.
 
 Cache layout (relative to ``cache_dir``, default ``tuningfork/reference/``):
 
-    draws/<name>.npz           gitignored; potentially large
-    summaries/<name>.json      committed; ~few KB
-    adaptation/<name>.json     committed; long-NUTS path only
-    metadata/<name>.json       committed; cache-validity stamp
+    <name>/draws.npz           gitignored; potentially large
+    <name>/summary.json        committed; ~few KB
+    <name>/adaptation.json     committed; long-NUTS path only
+    <name>/metadata.json       committed; cache-validity stamp
 
 Stamp fields (``metadata/<name>.json``):
 
@@ -130,23 +130,23 @@ def _current_version() -> str:
 
 
 def _metadata_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / "metadata" / f"{name}.json"
+    return cache_dir / name / "metadata.json"
 
 
 def _draws_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / "draws" / f"{name}.npz"
+    return cache_dir / name / "draws.npz"
 
 
 def _summaries_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / "summaries" / f"{name}.json"
+    return cache_dir / name / "summary.json"
 
 
 def _adaptation_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / "adaptation" / f"{name}.json"
+    return cache_dir / name / "adaptation.json"
 
 
 def _chain_stats_path(name: str, cache_dir: Path) -> Path:
-    return cache_dir / "chain_stats" / f"{name}.npz"
+    return cache_dir / name / "chain_stats.npz"
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -516,13 +516,13 @@ def get_reference_draws(
         # decision doc 2026-05-11-phase0-reference-protocol-refinements § 3).
         from tuningfork.calibration.certify_reference import CertificationError
 
-        # Default checkpoint_dir: <cache_dir>/warmup_checkpoint/<model>/
+        # Default checkpoint_dir: <cache_dir>/<model>/warmup_checkpoint/
         # The checkpoint is written immediately after warmup completes and
         # contains state.pkl, params.pkl, warmup_info.npz, health.json.
-        # Gitignored (see .gitignore: reference/warmup_checkpoint/).
+        # Gitignored (see .gitignore: reference/*/warmup_checkpoint/).
         effective_checkpoint_dir = checkpoint_dir
         if effective_checkpoint_dir is None and pre_adapted is None:
-            effective_checkpoint_dir = effective_dir / "warmup_checkpoint" / entry.name
+            effective_checkpoint_dir = effective_dir / entry.name / "warmup_checkpoint"
 
         try:
             (

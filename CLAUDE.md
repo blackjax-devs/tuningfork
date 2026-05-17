@@ -78,11 +78,15 @@ tuningfork/
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
 ├── recipes/                   # Recipe schema, groundtruth generator, starter generator
 ├── data/                      # raw datasets + generation scripts
-├── reference/                 # reference artifacts
-│   ├── draws/                 # *.npz (gitignored; 100k-sample chains)
-│   ├── summaries/             # *.json (mean, std, 5%, 95%)
-│   ├── adaptation/            # *.json (step_size*, IMM*, num_leapfrog*)
-│   └── posteriordb_xcheck/    # discrepancy reports
+├── reference/                 # reference artifacts (per-model layout)
+│   └── <model>/               # one dir per certified model
+│       ├── metadata.json      # committed; cache-validity stamp
+│       ├── summary.json       # committed; mean/std/percentiles
+│       ├── adaptation.json    # committed; NUTS-path only
+│       ├── xcheck.json        # committed; posteriordb cross-check (where applicable)
+│       ├── draws.npz          # gitignored; 100k-sample chains
+│       ├── chain_stats.npz    # gitignored; per-step NUTS diagnostics
+│       └── warmup_checkpoint/ # gitignored; warmup mid-run checkpoints
 ├── calibration/
 │   ├── certify_reference.py        # 1×100k NUTS, 10-chunk split-R̂ certifier
 │   ├── certify_reference_analytic.py  # analytic-path certifier
@@ -152,11 +156,11 @@ Per user direction (2026-05-07; **amended 2026-05-11** per [`worklog/decisions/2
 - Default: 1 chain × 5,000 warmup × **40,000** post-warmup samples (NUTS + Stan window adaptation). Matches posteriordb Stan reference convention (~40k total).
 - Reshape into **4** contiguous chunks of **10,000** → rank-normalized split-R̂ (Vehtari et al. 2021).
 - Certification gate: split-R̂ < 1.01, min per-chunk bulk-ESS > 400, 0 divergences, E-BFMI > 0.3.
-- **Per-step chain_stats** (`num_integration_steps`, `energy`, `is_divergent`, `acceptance_rate`, plus other NUTSInfo fields) persisted to `reference/chain_stats/<name>.npz` (gitignored) on every cert run — also on failure path, so failed cells leave diagnostic crumbs for the statistician.
+- **Per-step chain_stats** (`num_integration_steps`, `energy`, `is_divergent`, `acceptance_rate`, plus other NUTSInfo fields) persisted to `reference/<name>/chain_stats.npz` (gitignored) on every cert run — also on failure path, so failed cells leave diagnostic crumbs for the statistician.
 - **Cert failure policy**: when a model fails cert at default `n_samples`, escalate to the statistician (`STATISTICIAN_BAYESIAN_WORKFLOW.md` + `STATISTICIAN_DIAGNOSTICS_RECIPE.md`). Do NOT brute-force the gate by inflating `n_samples` — `min_ess` is an absolute threshold and bumping `n` is gate-gaming, not diagnostic validation.
 - **Cache invalidation policy**: do NOT pre-emptively delete cache entries when the spec changes. Existing entries remain valid for their original purpose (metadata.json records actual `num_samples`). When a downstream consumer needs different data, trigger fresh via `force_regenerate=True`; the statistician — not the engineer — has authority to mark a cached groundtruth as "needs redo" based on chain_stats pathology.
 - **Multimodal exception**: model #11 (25-mode Gaussian mixture) cannot use single-chain — uses parallel-tempered SMC + 8 well-separated cold restarts, with mode-coverage check (each of 25 modes ≥ 1% of draws).
-- **Posteriordb cross-check** for #3, #6, #10: compare own marginal mean/std/5%/95% to Stan reference; tolerance |Δmean|<2 SE, |std ratio − 1|<0.05; discrepancies logged to `reference/posteriordb_xcheck/`.
+- **Posteriordb cross-check** for #3, #6, #10: compare own marginal mean/std/5%/95% to Stan reference; tolerance |Δmean|<2 SE, |std ratio − 1|<0.05; discrepancies logged to `reference/<model>/xcheck.json`.
 
 ## Worklog
 

@@ -835,8 +835,8 @@ def certify_reference_nuts(
             our_summaries=our_summaries,
             n_samples_ours=n_samples,
         )
-        xcheck_dir = Path(__file__).parent.parent / "reference" / "posteriordb_xcheck"
+        xcheck_dir = Path(__file__).parent.parent / "reference" / entry.name
         xcheck_dir.mkdir(parents=True, exist_ok=True)
-        xcheck.save(xcheck_dir / f"{entry.name}.json")
+        xcheck.save(xcheck_dir / "xcheck.json")
 
     return draws, summaries, adaptation, cert, chain_stats
