@@ -1,0 +1,20 @@
+# === SAMPLER: barker (Barker proposal; step_size + IMM) ===
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _ = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+
+_step_size = _adapted_params.get("step_size", $bm_step_size)
+_imm = _adapted_params.get("inverse_mass_matrix", jnp.ones(_n_params))
+
+_kernel_obj = blackjax.barker(
+    logdensity_fn,
+    step_size=_step_size,
+    inverse_mass_matrix=_imm,
+)
+kernel = _kernel_obj.step
+
+try:
+    _state_post_warmup
+except NameError:
+    _state_post_warmup = _kernel_obj.init(init_position)

@@ -129,12 +129,15 @@ def test_emit_script_imports_only_allowed_modules() -> None:
     "warmup_name,base_method_name",
     [
         # Conventional gradient samplers with compatible warmups (R3.5b Commit 2).
-        # Further cells added in commits 3-6 as warmup/sampler templates land.
         ("stan_window", "hmc"),
         ("no_warmup", "dynamic_hmc"),
         ("no_warmup", "mhmc"),
         ("no_warmup", "dmhmc"),
         ("no_warmup", "ghmc"),
+        # Random-walk / Langevin samplers (R3.5b Commit 3).
+        ("no_warmup", "mala"),
+        ("no_warmup", "barker"),
+        ("no_warmup", "rwm"),
     ],
 )
 def test_emit_script_executes_for_cell(
