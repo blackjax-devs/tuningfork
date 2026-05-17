@@ -60,23 +60,22 @@ fall under MEDIUM as an exploration of an unconventional pairing).
 
 ---
 
-## How to Regenerate
+## How recipes get here
 
-Run the generator script from the `tuningfork/` project root:
+Recipes in this directory are produced by two pipelines:
 
-```bash
-cd tuningfork
-uv run python tuningfork/inference/recipes/_generate_starter.py
-```
+- **`groundtruth__nuts__stan_window.json`** — emitted by the Recipe Phase 0
+  ground-truth sweep (`tuningfork/inference/recipes/_generate_groundtruth.py`).
+  One per NUTS-path model. Cache artifacts live under `tuningfork/reference/`.
+  Each emit re-runs the certifier; the JSON pins the resulting NUTS-tuned
+  hyperparameters.
+- **`low__*.json`, `medium__*.json`, `high__*.json`** — emitted by the
+  Recipe Generation Phase pipeline (Recipe Phase 1+). Each cell's tier is
+  determined by the auto-gate at first emit; the Statistician escalates
+  LOW → MEDIUM → HIGH when the gate fails.
 
-This re-stamps all LOW-effort recipes against the current installed versions
-of `tuningfork`, `blackjax`, and `jax`. The script is idempotent — it
-overwrites existing files with fresh provenance timestamps.
-
-Regenerate whenever:
-- `jax` or `blackjax` is upgraded (provenance versions change)
-- A `BaseMethod.default_hp_space` changes (default HPs change)
-- A new starter model is added (add it to the `STARTER_MODELS` list in the script)
+Both pipelines are idempotent: re-running overwrites existing files with
+fresh provenance timestamps and regenerates the gate verdict.
 
 ---
 

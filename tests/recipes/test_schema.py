@@ -214,42 +214,6 @@ def test_save_json_effort_is_string(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7 (was 8): 6 starter JSONs exist and load cleanly
-# ---------------------------------------------------------------------------
-
-_EXPECTED_COMBOS = [
-    ("mvn_10", "hmc"),
-    ("mvn_10", "nuts"),
-    ("neals_funnel", "hmc"),
-    ("neals_funnel", "nuts"),
-    ("eight_schools_ncp", "hmc"),
-    ("eight_schools_ncp", "nuts"),
-]
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("model_name,method_name", _EXPECTED_COMBOS)
-def test_starter_recipe_exists_and_loads(model_name: str, method_name: str) -> None:
-    """Each of the 6 starter LOW recipes exists on disk and loads cleanly."""
-    path = _STARTER_ROOT / model_name / f"low__{method_name}__no_warmup.json"
-    assert path.exists(), f"Missing starter recipe: {path}"
-
-    recipe = Recipe.load(path)
-
-    assert recipe.effort == Effort.LOW
-    assert recipe.effort == "low"  # str-Enum equality with value
-    assert recipe.warmup_name == "no_warmup"
-    assert recipe.model_name == model_name
-    assert recipe.base_method_name == method_name
-    assert method_name in BASE_METHODS
-    assert recipe.headline_metric is None
-    assert recipe.warmup_params == {}
-    assert recipe.calibration_budget == {"trials": 0, "wall_seconds_estimate": 0.0}
-    assert isinstance(recipe.instructions, str)
-    assert len(recipe.instructions) > 0
-
-
-# ---------------------------------------------------------------------------
 # Test 8 (was 9): render_instructions returns non-empty prose
 # ---------------------------------------------------------------------------
 
@@ -327,104 +291,6 @@ def test_render_instructions_high_stub() -> None:
     assert isinstance(prose, str)
     assert len(prose) > 10
     assert "high" in prose.lower() or "High" in prose
-
-
-# ---------------------------------------------------------------------------
-# wider LOW coverage + MEDIUM smoke
-# ---------------------------------------------------------------------------
-
-_LOW_OTHER_ALGOS = [
-    (model, method)
-    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
-    for method in ("mala", "barker", "rwm", "mclmc")
-]
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("model_name,method_name", _LOW_OTHER_ALGOS)
-def test_low_recipe_exists_for_other_algos(model_name: str, method_name: str) -> None:
-    """every (starter_model, base_method) pair has a LOW recipe on disk."""
-    path = _STARTER_ROOT / model_name / f"low__{method_name}__no_warmup.json"
-    assert path.exists(), f"Missing LOW recipe for {model_name} + {method_name}"
-    recipe = Recipe.load(path)
-    assert recipe.effort == Effort.LOW
-    assert recipe.warmup_name == "no_warmup"
-    assert recipe.model_name == model_name
-    assert recipe.base_method_name == method_name
-
-
-# ---------------------------------------------------------------------------
-# Tests for 6 HIGH recipes exist and have correct schema
-# ---------------------------------------------------------------------------
-
-_HIGH_COMBOS = [
-    (model, method)
-    for model in ("mvn_10", "neals_funnel", "eight_schools_ncp")
-    for method in ("hmc", "nuts")
-]
-
-_EXPECTED_DIFFICULTY_KEYS = (
-    "default_score",
-    "best_score",
-    "threshold_score",
-    "default_works",
-    "n_trials_to_threshold",
-    "n_trials_to_best",
-    "wall_seconds_to_threshold",
-    "wall_seconds_to_best",
-)
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("model_name,method_name", _HIGH_COMBOS)
-def test_high_recipe_exists_and_has_bo_data(model_name: str, method_name: str) -> None:
-    """each (starter_model, {hmc,nuts}) has a HIGH recipe via BO tuning
-    at n_trials=20 with a valid headline_metric and TuningDifficulty profile."""
-    path = _STARTER_ROOT / model_name / f"high__{method_name}__stan_window.json"
-    assert (
-        path.exists()
-    ), f"Missing HIGH recipe for {model_name} + {method_name}: {path}"
-
-    recipe = Recipe.load(path)
-
-    # Identity and effort checks
-    assert recipe.effort == Effort.HIGH
-    assert recipe.warmup_name == "stan_window"
-    assert recipe.model_name == model_name
-    assert recipe.base_method_name == method_name
-
-    # headline_metric must be a real, positive float (all starter models
-    # are well-conditioned; divergence here would be a real failure).
-    assert recipe.headline_metric is not None
-    assert isinstance(recipe.headline_metric, float)
-    assert math.isfinite(recipe.headline_metric)
-    assert recipe.headline_metric > 0, (
-        f"headline_metric={recipe.headline_metric} for {model_name}+{method_name}; "
-        "expected > 0 for these well-conditioned starter models."
-    )
-
-    # calibration_budget shape
-    assert recipe.calibration_budget["trials"] == 20
-    assert "n_seeds" in recipe.calibration_budget
-
-    # difficulty is a dict with all expected keys
-    assert recipe.difficulty is not None
-    assert isinstance(recipe.difficulty, dict)
-    for key in _EXPECTED_DIFFICULTY_KEYS:
-        assert key in recipe.difficulty, (
-            f"Missing difficulty key {key!r} in HIGH recipe "
-            f"{model_name}+{method_name}"
-        )
-
-    # Spot-check difficulty numeric types
-    assert isinstance(recipe.difficulty["default_score"], float)
-    assert isinstance(recipe.difficulty["best_score"], float)
-    assert isinstance(recipe.difficulty["default_works"], bool)
-    assert isinstance(recipe.difficulty["n_trials_to_threshold"], int)
-
-    # Instructions non-empty prose
-    assert isinstance(recipe.instructions, str)
-    assert len(recipe.instructions) > 10
 
 
 # ---------------------------------------------------------------------------
@@ -623,29 +489,6 @@ def test_load_imm_sidecar_returns_none_when_path_unset(tmp_path: Path) -> None:
 
     result = recipe.load_imm_sidecar(tmp_path)
     assert result is None
-
-
-_BACKWARD_COMPAT_RECIPES = [
-    "mvn_10/low__nuts__no_warmup.json",
-    "mvn_10/medium__nuts__stan_window.json",
-]
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("rel_path", _BACKWARD_COMPAT_RECIPES)
-def test_existing_starter_recipes_still_load(rel_path: str) -> None:
-    """existing committed recipes load without error and have current defaults."""
-    path = _STARTER_ROOT / rel_path
-    assert path.exists(), f"Missing recipe: {path}"
-
-    recipe = Recipe.load(path)
-
-    # New fields must default correctly on old recipes that lack these keys
-    assert recipe.inverse_mass_matrix_path is None
-    assert recipe.workflow == ""
-    assert isinstance(recipe.gate_evidence, dict)
-    assert recipe.gate_evidence["auto"]["verdict"] == "NOT_RUN"
-    assert recipe.gate_evidence["override"]["decision"] == ""
 
 
 # ---------------------------------------------------------------------------
