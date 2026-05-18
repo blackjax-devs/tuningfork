@@ -172,13 +172,22 @@ def _runner(
 ENTRY = Warmup(
     name="window_adaptation_diag_imm",
     runner=_runner,
-    compatible_methods=("hmc", "nuts", "barker", "mala"),
+    compatible_methods=(
+        "hmc",
+        "nuts",
+        "barker",
+        "mala",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+    ),
     notes=(
         "Standard Stan window adaptation: dual-averaging step_size + diagonal "
-        "mass matrix.  Compatible with hmc, nuts, barker, mala (all kernels "
-        "that accept inverse_mass_matrix).  Verified by tripwire tests.  "
-        "multi-chain by default (num_chains=4 via jax.vmap); per-chain "
-        "adapted_params returned (step_size shape (num_chains,), IMM shape "
-        "(num_chains, d) or (num_chains, d, d))."
+        "mass matrix.  Compatible with hmc, nuts, barker, mala, and laplace_* "
+        "variants (all kernels that accept inverse_mass_matrix).  Verified by "
+        "tripwire tests.  multi-chain by default (num_chains=4 via jax.vmap); "
+        "per-chain adapted_params returned (step_size shape (num_chains,), IMM "
+        "shape (num_chains, d) or (num_chains, d, d))."
     ),
 )
