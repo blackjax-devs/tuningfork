@@ -86,6 +86,28 @@ The `Recipe.effort` field (`tuningfork/recipes/_base.py`) records the resulting 
 
 ## Setup
 
+**Prerequisite: Git LFS.** The 14-model catalog ships canonical 40k-sample
+groundtruth draws (~270 MB total) as `.npz` files tracked by Git LFS at
+`tuningfork/catalog/<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz`.
+On a fresh clone these are text pointer stubs until you fetch the actual
+binaries — `np.load` will raise a misleading `ValueError: This file contains
+pickled (object) data` when handed a pointer.
+
+```bash
+# One-time per machine: install the git-lfs binary
+sudo apt-get install git-lfs        # Debian / Ubuntu
+sudo dnf install git-lfs            # Fedora / RHEL
+brew install git-lfs                # macOS
+# Releases for other platforms: https://github.com/git-lfs/git-lfs/releases
+
+# One-time per clone: register LFS hooks + fetch the .npz blobs
+git lfs install
+git lfs pull
+```
+
+Verify with `file tuningfork/catalog/banana/groundtruth_samples/blackjax/draws.npz`
+— expect `Zip archive data`, not `ASCII text`.
+
 ```bash
 make install      # uv sync --group bench
 make test         # run tests (default: skip e2e suite)
