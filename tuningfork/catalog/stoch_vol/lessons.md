@@ -16,6 +16,17 @@ The canonical warmup for stoch_vol is **`multipathfinder`** rather than the cata
 
 **⚠️ Multi-mode warmup capture (2026-05-18 finding, addressed by switching to multipathfinder)**: the AR(1) posterior has a bad-attractor mode at the unit-root tail (phi ≈ 0.9999) that single-path warmups can be captured by during the first ~50 warmup steps (step_size collapses to ~10⁻⁶, post-warmup chain stuck). A 2026-05-18 multi-seed sweep showed **44 % gate failure rate under `window_adaptation_diag_imm`** (vs **25 % under `multipathfinder`** with 4 paths + PSIS resampling). The catalog's canonical warmup for stoch_vol is now `multipathfinder` (re-certed at seed=20260517 with cert verdict rhat=1.0002, ESS=1612, n_div=141, wall=184s — see metadata.json). The ~25 % residual multipathfinder failure rate is acceptable for this model: pareto-k > 1 (PSIS unreliable for 503-D multimodal) is expected, so document and move on. Multi-seed cert validation (rather than single-seed point-pin) is the appropriate cert protocol if you regenerate locally — `force_regenerate=True` may not reproduce the bulk-mode landing on every run. Full diagnostics at [`worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md`](worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md); original "PRNG fragility" framing preserved for context at [`2026-05-17-prng-fragility-recert.md`](worklog/lessons/case-studies/stoch_vol/2026-05-17-prng-fragility-recert.md).
 
+**Multipathfinder config — what was tried, what was kept (2026-05-18 2×2 sweep)**. A follow-up 2×2 sweep at the same 8 seeds tested {N_PATHS=4, N_PATHS=10} × {broadcast init, diverse init}:
+
+| Config | Pass rate | Notes |
+|---|---:|---|
+| **N=4, broadcast (committed pin)** | **6/8 (75 %)** | best |
+| N=10, broadcast | 4/8 (50 %) | more paths → more bad-mode weight under shared init |
+| N=4, diverse | 3/8 (37.5 %) | 4 of 8 seeds crash Pathfinder L-BFGS with NaN |
+| N=10, diverse | 0/8 | 7 of 8 seeds crash Pathfinder L-BFGS with NaN |
+
+Conclusions baked into the canonical pin: **do NOT raise n_paths above 4** (empirically harms pass rate) and **do NOT diverse-init** (crashes Pathfinder's quasi-Newton step on this model's heavy-tail geometry). Raw 2×2 data at `worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md` § "2×2 follow-up sweep".
+
 ## Known-bad combinations
 
 None documented yet. FAILED recipes will be backfilled in R5 once the recipe matrix is populated.
