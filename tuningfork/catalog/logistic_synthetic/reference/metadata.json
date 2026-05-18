@@ -1,18 +1,18 @@
 {
   "name": "logistic_synthetic",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-11T20:02:52Z",
-  "wall_time_seconds": null,
+  "timestamp_utc": "2026-05-17T21:28:35Z",
+  "wall_time_seconds": 11.738468911964446,
   "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
-    "split_rhat_max": 0.9999746680259705,
-    "min_chunk_bulk_ess": 4061.474609375,
+    "split_rhat_max": 1.0002793073654175,
+    "min_chunk_bulk_ess": 4370.24560546875,
     "num_divergences": 0,
-    "e_bfmi": 0.9753085374832153
+    "e_bfmi": 0.9934202432632446
   }
 }

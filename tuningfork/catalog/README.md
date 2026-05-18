@@ -42,13 +42,24 @@ Each of the 14 models has a subdirectory `tuningfork/catalog/<model>/`. The cont
 | `reference/adaptation.json` | Step-size + IMM diag + num-leapfrog-median from warmup (NUTS-path only) | yes |
 | `reference/xcheck.json` | Posteriordb cross-check report (only for posteriordb-shared models: eight_schools_ncp, radon) | yes |
 | `recipes/{low,medium,high,failed}__<sampler>__<warmup>.json` | Per-cell recipes from the Recipe Generation Phase pipeline (R5 ships 7 canonical FAILED recipes; LOW/MEDIUM/HIGH land as Recipe Phase 1+ executes) | yes |
-| `_cache/draws.npz` | 40,000-sample long-NUTS draws (or analytic i.i.d. draws) | **gitignored** |
-| `_cache/chain_stats.npz` | Per-step NUTS diagnostics (num_integration_steps, energy, is_divergent, acceptance_rate, ...) | **gitignored** |
+| `groundtruth_samples/<library>/draws.npz` | 40,000-sample groundtruth draws per sampling library (only `blackjax/` shipped initially; future-extend to `stan/`, `numpyro/`, …). 12 of 14 models ship as of 2026-05-18 — see "Groundtruth samples shipped" below. | yes (via Git LFS) |
+| `groundtruth_samples/<library>/chain_stats.npz` | Per-step NUTS diagnostics (num_integration_steps, energy, is_divergent, acceptance_rate, ...) for the sampling library's run | yes (via Git LFS, NUTS-path models only) |
+| `_cache/draws.npz` | Local-only working cache (`get_reference_draws(force_regenerate=True)` writes here) | **gitignored** |
+| `_cache/chain_stats.npz` | Local-only working cache | **gitignored** |
 | `_cache/warmup_checkpoint/` | Mid-run warmup state for resume-after-crash | **gitignored** |
 
-## Current groundtruth status (as of 2026-05-17)
+## Current groundtruth status (as of 2026-05-18)
 
 All 14 models have certified groundtruth. The 9 NUTS-path models ran a 1 chain × 5,000 warmup × 40,000 post-warmup NUTS chain with `window_adaptation_diag_imm`; the 5 analytic models drew i.i.d. samples directly from the posterior. Certification gate (the auto-gate that every groundtruth must clear before commit): **split-R̂ < 1.01, min per-chunk bulk-ESS > 400, E-BFMI > 0.3, divergence count below per-model tolerance**.
+
+## Groundtruth samples shipped (2026-05-18)
+
+12 of 14 models ship their canonical 40,000-sample draws via Git LFS at `<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz`. Total LFS-tracked content: **~122 MB draws + ~1.9 MB chain_stats**. The pinned seed for these shipped draws is `jax.random.key(20260517)` (re-cert sweep date as integer); the `reference/metadata.json` `timestamp_utc` field of `2026-05-17T...` distinguishes these from the original Phase 0 traces. *(Note: the `seed` field in `reference/metadata.json` records `0` for these — that's a stale-default in the cert pipeline that doesn't track `rng_key` parameter values; this is a known issue to be fixed in the cert tooling.)*
+
+Two models do **not** ship draws:
+
+- **`gp_regression`** — certification wall ≈ 63 h on a single CPU; the cert run hasn't been redone at the seed=20260517 protocol, so the committed `reference/*.json` remains at the Phase 0 `seed=0` trace. Draws can be regenerated locally via `get_reference_draws(force_regenerate=True)` (long).
+- **`stoch_vol`** — known PRNG fragility (the canonical config passes at `key(0)` but fails at `key(20260517)`; see [`stoch_vol/lessons.md`](stoch_vol/lessons.md)). The committed `reference/*.json` remains at the Phase 0 `seed=0` trace; multi-seed protocol robustness is an open investigation.
 
 ### NUTS-path groundtruth (9 models)
 

@@ -1,18 +1,18 @@
 {
   "name": "eight_schools_ncp",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "c184d46ef7c5f71ab9a8d75615440fd093b51504",
+  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-12T04:11:15Z",
-  "wall_time_seconds": null,
+  "timestamp_utc": "2026-05-17T21:28:51Z",
+  "wall_time_seconds": 15.985292478930205,
   "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.000186562538147,
-    "min_chunk_bulk_ess": 3650.665283203125,
-    "num_divergences": 1,
-    "e_bfmi": 0.9679509401321411
+    "split_rhat_max": 1.0004181861877441,
+    "min_chunk_bulk_ess": 4304.7861328125,
+    "num_divergences": 2,
+    "e_bfmi": 0.9802640676498413
   }
 }

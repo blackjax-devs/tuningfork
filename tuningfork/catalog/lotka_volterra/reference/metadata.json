@@ -1,18 +1,18 @@
 {
   "name": "lotka_volterra",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "893cf022e7ef7f0c1c31c5b5153215e6aabbb179",
+  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-12T04:59:38Z",
-  "wall_time_seconds": null,
+  "timestamp_utc": "2026-05-17T21:55:21Z",
+  "wall_time_seconds": 486.83733738190494,
   "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0003998279571533,
-    "min_chunk_bulk_ess": 2363.37158203125,
+    "split_rhat_max": 1.0003141164779663,
+    "min_chunk_bulk_ess": 2267.256103515625,
     "num_divergences": 0,
-    "e_bfmi": 0.9425104856491089
+    "e_bfmi": 0.9810041785240173
   }
 }
