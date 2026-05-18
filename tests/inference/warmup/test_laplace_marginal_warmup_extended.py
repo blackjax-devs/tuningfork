@@ -32,17 +32,14 @@ Each test asserts:
 
 n_warmup=200 keeps the test suite under 3 minutes total across all 12 cells.
 
-Pre-existing limitation (low_rank_window_adaptation)
------------------------------------------------------
-The ``low_rank_window_adaptation`` runner uses ``jax.vmap`` to batch chains.
-The adaptation returns a ``Metric`` pytree whose ``momentum_generator``
-attribute is a Python function (not a JAX array), which cannot be stacked
-by vmap.  This is a pre-existing bug that also affects NUTS (see
-``tests/inference/warmup/test_low_rank_window_adaptation.py`` — that test
-fails identically).  The low-rank × laplace_* cells are therefore marked
-``xfail`` with the same root cause.  When the upstream vmap incompatibility
-is fixed, the ``xfail`` markers here should be removed together with the
-fix to ``test_low_rank_window_adaptation.py``.
+Upstream vmap fix landed 2026-05-18
+------------------------------------
+Earlier blackjax versions returned a ``Metric`` whose ``momentum_generator``
+attribute was a Python closure that ``jax.vmap`` could not stack across
+chains.  Fixed by [blackjax#917](https://github.com/blackjax-devs/blackjax/pull/917)
+at ``b094083c``: the new ``LowRankInverseMassMatrix`` NamedTuple is
+pytree-flat and vmap-compatible.  All 12 cells (3 warmups × 4 laplace_*
+samplers) are expected to pass on blackjax ``b094083c`` or later.
 """
 
 import jax
@@ -112,23 +109,11 @@ def test_laplace_marginal_warmup_composition(warmup_name, laplace_name):
     - IMM shape equals (num_chains, dim_phi) [diag] or
       (num_chains, dim_phi, dim_phi) [dense/low-rank projected diagonal].
 
-    Design note: low_rank_window_adaptation returns a Metric object
-    (not a plain array) for inverse_mass_matrix. We check finiteness on
-    sigma/U/lam components via jax.tree.leaves when the result is not a
-    plain ndarray.
+    Design note: low_rank_window_adaptation returns a
+    ``LowRankInverseMassMatrix`` NamedTuple (not a plain array) for
+    inverse_mass_matrix.  We check finiteness on sigma/U/lam components
+    via ``jax.tree.leaves`` when the result is not a plain ndarray.
     """
-    # Pre-existing vmap incompatibility: low_rank_window_adaptation returns a
-    # Metric pytree with a 'momentum_generator' function attribute that cannot
-    # be stacked by jax.vmap.  This affects NUTS equally (not laplace-specific).
-    # Mark xfail until the upstream runner is fixed.
-    if warmup_name == "low_rank_window_adaptation":
-        pytest.xfail(
-            "low_rank_window_adaptation has a pre-existing vmap incompatibility "
-            "(Metric.momentum_generator is a Python function; cannot be stacked "
-            "by jax.vmap). Affects NUTS and laplace_* equally. See "
-            "tests/inference/warmup/test_low_rank_window_adaptation.py."
-        )
-
     phi_init, _theta_init, marginal_logdensity_fn, _log_joint_fn = (
         _build_eight_schools_marginal()
     )
@@ -179,8 +164,18 @@ def test_laplace_marginal_warmup_composition(warmup_name, laplace_name):
             jnp.isfinite(imm)
         ), f"[{warmup_name} x {laplace_name}] IMM NaN/Inf: {imm}"
     elif warmup_name == "low_rank_window_adaptation":
-        # low_rank IMM is a Metric pytree (sigma, U, lam arrays)
-        # Check all leaves are finite
+        # low_rank IMM is a LowRankInverseMassMatrix NamedTuple (sigma, U, lam
+        # arrays, batched on the leading num_chains axis).  Check finiteness
+        # on all leaves; verify the structural fields exist.
+        assert hasattr(imm, "sigma") and hasattr(imm, "U") and hasattr(imm, "lam"), (
+            f"[{warmup_name} x {laplace_name}] IMM should be a "
+            f"LowRankInverseMassMatrix NamedTuple with sigma/U/lam, got {type(imm)}"
+        )
+        # sigma leading dim is num_chains
+        assert imm.sigma.shape[0] == num_chains, (
+            f"[{warmup_name} x {laplace_name}] sigma leading dim {imm.sigma.shape[0]} "
+            f"!= num_chains {num_chains}"
+        )
         imm_leaves = jax.tree.leaves(imm)
         for leaf in imm_leaves:
             assert jnp.all(

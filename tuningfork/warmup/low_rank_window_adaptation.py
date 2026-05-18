@@ -13,35 +13,18 @@
 # limitations under the License.
 """Low-rank mass matrix adaptation via Fisher divergence minimisation.
 
-.. warning::
+.. note::
 
-   **Multi-chain (vmap) path is BROKEN as of 2026-05-18.**
+   **Multi-chain vmap fix landed upstream 2026-05-18.**
 
-   Calling ``_runner`` with ``num_chains > 1`` raises
-   ``TypeError: Output from batched function ... gaussian_euclidean_low_rank.
-   <locals>.momentum_generator ... is not a valid JAX type``. Root cause is
-   upstream in ``blackjax.mcmc.metrics.gaussian_euclidean_low_rank``: the
-   returned ``Metric`` carries a Python closure for ``momentum_generator``
-   that ``jax.vmap`` cannot stack across chains. Affects this warmup
-   composed with **any** HMC-family sampler (NUTS, HMC, MHMC, dynamic_hmc,
-   dmhmc, mala, barker, laplace_*) — not specific to one kernel.
+   Earlier versions of ``blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation``
+   returned an ``inverse_mass_matrix`` carrying a Python closure
+   (``Metric.momentum_generator``) that ``jax.vmap`` could not stack across
+   chains.  Fixed by [blackjax#917](https://github.com/blackjax-devs/blackjax/pull/917)
+   (merged at ``b094083c``), which replaces the closure with a pure-array
+   ``LowRankInverseMassMatrix`` NamedTuple — vmap-compatible and pytree-flat.
 
-   Until the upstream bug is fixed:
-
-   - Use this warmup ONLY with ``num_chains=1``. The single-chain path
-     adapts correctly; the multi-chain contract documented below is
-     ASPIRATIONAL pending the upstream fix.
-   - In the ``wadapt-hmc-sweep`` recipe matrix, all cells using
-     ``low_rank_window_adaptation`` are pre-declared FAILED with
-     ``FailureDiagnosis.REQUIRES_FIX`` (see
-     ``worklog/threads/wadapt-hmc-sweep.md`` § low_rank disposition).
-   - Upstream tracking: blackjax issue queued 2026-05-18 (see
-     ``worklog/threads/wadapt-hmc-sweep.md`` § Decision low_rank P
-     queued).
-
-   Re-test ``tests/inference/warmup/test_low_rank_window_adaptation.py``
-   when upstream lands a fix; remove this warning + flip the matrix cells
-   to attempt-LOW status once it passes.
+   Required blackjax version: ``b094083c`` or later.
 
 Wraps ``blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation``,
 which adapts a mass matrix of the form
@@ -58,8 +41,7 @@ implementation) and follows Stan's three-phase warmup schedule (fast → slow
 windows → final fast).
 
 Compatible with HMC-family kernels (HMC, NUTS, Barker, MALA — verified by
-tripwire tests in ``tests/test_api_pins_mcmc.py``).  **Multi-chain path
-currently broken** — see warning above.
+tripwire tests in ``tests/test_api_pins_mcmc.py``).
 
 Runner signature (multi-chain contract)::
 
@@ -76,7 +58,9 @@ Where:
   pre-batches it (leading dim == ``num_chains``).
 - ``states`` is a batched pytree with leading dim ``num_chains``.
 - ``adapted_params`` contains ``"step_size"`` (shape ``(num_chains,)``) and
-  ``"inverse_mass_matrix"`` (a Metric object encoding the low-rank structure).
+  ``"inverse_mass_matrix"`` (a ``LowRankInverseMassMatrix`` NamedTuple with
+  public ``sigma`` / ``U`` / ``lam`` array fields, batched on the leading
+  ``num_chains`` axis).
 
 The low-rank IMM is represented internally by three arrays:
 
@@ -163,9 +147,10 @@ def _runner(
     adapted_params
         Dict with at least ``"step_size"`` and ``"inverse_mass_matrix"``.
         ``"step_size"`` has shape ``(num_chains,)``.
-        ``"inverse_mass_matrix"`` is a Metric object encoding the low-rank
-        structure. The underlying (sigma, U, lam) components are available
-        via the Metric's private fields (not a public API).
+        ``"inverse_mass_matrix"`` is a ``LowRankInverseMassMatrix`` NamedTuple
+        with public ``sigma`` / ``U`` / ``lam`` array fields (batched on the
+        leading ``num_chains`` axis).  Pytree-flat / vmap-compatible by
+        construction since [blackjax#917](https://github.com/blackjax-devs/blackjax/pull/917).
     """
     from tuningfork.calibration.tune import default_value_for_space
 
