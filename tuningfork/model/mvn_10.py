@@ -61,4 +61,6 @@ ENTRY = Posterior(
         "Standard 10-D MVN, isotropic N(0, I_10). "
         "Sanity baseline — every sampler must pass."
     ),
+    headline_params=None,
+    headline_coords=None,
 )

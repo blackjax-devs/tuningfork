@@ -33,6 +33,30 @@ from `num_trajectory_expansions` ≥ `max_num_doublings`).
 See `inspect_example.md` for a full worked example.
 See `recipe_diagnostics.md` (in this directory) for the parametrized template.
 
+## Interactive marimo notebook
+
+For interactive exploration with dropdowns (no need to edit string paths):
+
+```bash
+uv sync --group notebook   # install marimo (~20 MB; opt-in)
+uv run --group notebook marimo edit tuningfork/catalog/notebooks/catalog_explorer.py
+```
+
+The marimo notebook gives you a **model dropdown → recipe dropdown → auto-loaded
+summary + plots**. Reactive cells re-execute on dropdown change; no
+`widgets.observe` callbacks needed. Per-model "headline params" (typically
+hyperpriors — e.g., `mu`/`tau` for eight_schools_ncp, `mu`/`phi`/`sigma` for
+stoch_vol) render as `az.plot_trace` + `az.plot_pair` plots; bulk params
+(NCP innovations etc.) render as a single `az.plot_forest` capped at 20
+entries (avoid 500-row forest plots on high-dim models like stoch_vol).
+
+Per-model headline_params + headline_coords are declared as fields on the
+`Posterior` dataclass — see [`worklog/decisions/2026-05-18-headline-params-per-model.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-18-headline-params-per-model.md)
+for the ratified per-model values + rationale.
+
+For the jupytext / Jupyter flow (papermill-batch-compatible, no widgets),
+keep using `recipe_diagnostics.md` (in this directory).
+
 ## API
 
 | Function | Returns | Notes |

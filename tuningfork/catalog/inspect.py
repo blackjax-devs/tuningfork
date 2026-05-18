@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from tuningfork.recipes._base import Recipe
 
-__all__ = ["load_recipe", "summarize_recipe"]
+__all__ = ["load_recipe", "summarize_recipe", "list_recipes"]
 
 
 def _repo_root() -> Path:
@@ -48,6 +48,36 @@ def _repo_root() -> Path:
         if (root / "pyproject.toml").exists():
             return root
     return candidate
+
+
+def list_recipes(model_name: str) -> list[Path]:
+    """List all recipe JSON files for a catalog model.
+
+    Returns paths to {groundtruth.json, recipes/*.json} under
+    tuningfork/catalog/<model_name>/.
+
+    Parameters
+    ----------
+    model_name
+        The model name as it appears in MODELS (e.g., "eight_schools_ncp").
+
+    Returns
+    -------
+    list[Path]
+        Sorted list of recipe paths. Empty list if no recipes are present.
+        Raises FileNotFoundError if the model dir doesn't exist.
+    """
+    model_dir = _repo_root() / "tuningfork" / "catalog" / model_name
+    if not model_dir.exists():
+        raise FileNotFoundError(f"catalog dir not found: {model_dir}")
+    paths = []
+    gt = model_dir / "groundtruth.json"
+    if gt.exists():
+        paths.append(gt)
+    recipes_subdir = model_dir / "recipes"
+    if recipes_subdir.exists():
+        paths.extend(sorted(recipes_subdir.glob("*.json")))
+    return paths
 
 
 def load_recipe(path: str | Path) -> Recipe:

@@ -128,4 +128,6 @@ ENTRY = Posterior(
         "Class-0 at (-1.5, -1.5), Class-1 at (+1.5, +1.5), blob std=1.5. "
         "Designed for finite MLE (~92% accuracy); discriminates RWM vs MALA vs HMC."
     ),
+    headline_params=None,
+    headline_coords=None,
 )

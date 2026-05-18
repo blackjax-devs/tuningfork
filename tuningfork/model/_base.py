@@ -113,6 +113,24 @@ class Posterior:
     # loosen for every model.
     divergence_rate_tolerance: float | None = None
 
+    # ---- diagnostic rendering hints (interactive catalog notebook) ----
+    headline_params: tuple[str, ...] | None = None
+    """Subset of free `numpyro.sample` site names to render with
+    az.plot_trace + az.plot_pair in the catalog's interactive notebook.
+    Remaining sites go to az.plot_forest. None = no filtering (show all,
+    appropriate for small-dim models). Every name MUST be a numpyro.sample
+    site (NOT numpyro.deterministic) — deterministics aren't materialised
+    into draws.npz / data_vars. See worklog/decisions/2026-05-18-headline-
+    params-per-model.md for ratified per-model values."""
+
+    headline_coords: dict[str, list[int]] | None = None
+    """Per-model 'interesting indices' within multi-dim sites. E.g.,
+    {'beta': [0, 1, 2, 3, 4, 5, 6, 7]} on german_credit selects the
+    intercept + 7 numerical features for trace/pair; the 18 categorical
+    dummies still render in the forest plot. None = show all coords within
+    each headline param (the default). See the 2026-05-18 decision doc
+    appendix for ratified per-model values."""
+
     # When True, this model REQUIRES ``JAX_ENABLE_X64=1`` at cert time —
     # float32 cannot stably evaluate the model's log-density (e.g., dense
     # Cholesky on a high-d kernel matrix produces NaN at float32 precision).

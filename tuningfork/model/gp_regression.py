@@ -239,4 +239,6 @@ ENTRY = Posterior(
     # float32 with the original jitter=1e-6. The fix is x64 + jitter=1e-4
     # (see module docstring for the diagnosis and 3-init probe data).
     requires_x64=True,
+    headline_params=("log_lengthscale", "log_kernel_scale", "log_noise_scale"),
+    headline_coords=None,
 )

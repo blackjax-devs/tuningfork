@@ -132,4 +132,6 @@ ENTRY = Posterior(
         "Discriminates HMC vs MALA vs RWM at medium dimensionality with "
         "real-data ill-conditioning."
     ),
+    headline_params=None,
+    headline_coords={"beta": [0, 1, 2, 3, 4, 5, 6, 7]},
 )

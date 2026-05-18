@@ -32,6 +32,7 @@ Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
 """
 
 from tuningfork.catalog.diagnostics import (
+    plot_recipe_diagnostics,
     render_gradient_mh,
     render_mclmc_family,
     render_smc_family,
@@ -41,13 +42,14 @@ from tuningfork.catalog.diagnostics import (
     samples_to_idata,
 )
 from tuningfork.catalog.emit import emit_script
-from tuningfork.catalog.inspect import load_recipe, summarize_recipe
+from tuningfork.catalog.inspect import list_recipes, load_recipe, summarize_recipe
 from tuningfork.catalog.render import load_chain_stats, load_idata, load_samples
 
 __all__ = [
     # inspect
     "load_recipe",
     "summarize_recipe",
+    "list_recipes",
     # render
     "load_samples",
     "load_chain_stats",
@@ -60,6 +62,7 @@ __all__ = [
     "render_smc_family",
     "render_vi_family",
     "render_specialised",
+    "plot_recipe_diagnostics",
     # emit
     "emit_script",
 ]

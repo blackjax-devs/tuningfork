@@ -139,4 +139,6 @@ ENTRY = Posterior(
         "2-D mixture of 25 isotropic Gaussians on a 5x5 grid in [-4,4]^2 with sigma=0.3. "
         "Discriminates SMC vs tempered NUTS via mode coverage."
     ),
+    headline_params=None,
+    headline_coords=None,
 )

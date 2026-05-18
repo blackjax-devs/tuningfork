@@ -241,4 +241,6 @@ ENTRY = Posterior(
         "posteriordb_id=None (no reference draws; Long-NUTS self-check only). "
         "Plan dim ~230 corrected to 144 by statistician (2026-05-08)."
     ),
+    headline_params=("sigma_theta", "mu_b", "sigma_b", "sigma_a"),
+    headline_coords=None,
 )

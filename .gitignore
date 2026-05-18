@@ -77,3 +77,4 @@ CLAUDE.md.local
 # Lives at ../.agent_logs/ (parent dir, outside this repo) — these patterns
 # defend against future structural changes that move .agent_logs/ inside.
 .agent_logs/
+__marimo__/

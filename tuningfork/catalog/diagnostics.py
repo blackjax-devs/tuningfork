@@ -47,6 +47,7 @@ except ImportError:
 __all__ = [
     "samples_to_idata",
     "render_universal_summary",
+    "plot_recipe_diagnostics",
     # Semantic names (current)
     "GRADIENT_MH_SAMPLERS",
     "MCLMC_FAMILY_SAMPLERS",
@@ -369,6 +370,108 @@ def render_universal_summary(
 
     fig.suptitle("Section 1: Universal Scalar Summary", fontsize=14, fontweight="bold")
     return fig
+
+
+def plot_recipe_diagnostics(
+    idata: Any,
+    posterior_entry: Any,
+    n_forest_top: int | None = None,
+) -> dict[str, Any]:
+    """Render trace+pair for headline params and forest for the bulk.
+
+    Reads `posterior_entry.headline_params` and `headline_coords` to
+    decide what's "headline" vs "bulk" and renders ArviZ plots accordingly.
+
+    Parameters
+    ----------
+    idata
+        InferenceData (typically from `load_idata(recipe)`).
+    posterior_entry
+        Posterior instance from `MODELS[<model_name>]`. Reads its
+        `headline_params` + `headline_coords` fields.
+    n_forest_top
+        Cap on the number of bulk-param coords rendered in the forest plot
+        (useful for high-dim models like stoch_vol's h_raw with 500 coords).
+        None = render all bulk coords.
+
+    Returns
+    -------
+    dict[str, Any]
+        Dict with keys 'trace', 'pair', 'forest' mapping to the corresponding
+        ``arviz_plots`` PlotCollection objects (renderable inline in marimo /
+        Jupyter via the cell's last-expression rule). If headline_params is
+        None, 'trace' and 'pair' render all posterior sites; if no bulk params
+        remain, 'forest' is None.
+    """
+    # Use the newer arviz_plots backend (PlotCollection-based) rather than
+    # the legacy matplotlib az.plot_* path:
+    #   - trace: arviz_plots.plot_trace_dist (trace + KDE side-by-side)
+    #   - pair: arviz_plots.plot_pair
+    #   - forest: arviz_plots.plot_forest
+    # arviz_plots is auto-installed by the bench dep group (transitively via
+    # arviz>=0.20). Returns plot objects that marimo renders natively.
+    import arviz_plots as azp
+
+    posterior = idata["posterior"]
+    all_params = list(posterior.data_vars)
+    headline_params = posterior_entry.headline_params
+    headline_coords = posterior_entry.headline_coords
+
+    # Determine headline + bulk split
+    if headline_params is None:
+        headline_var_names = list(all_params)
+        bulk_var_names: list[str] = []
+    else:
+        headline_var_names = list(headline_params)
+        bulk_var_names = [p for p in all_params if p not in headline_var_names]
+
+    # Trace + pair on headline (with optional coord slicing).
+    # arviz_plots.plot_pair accepts `visuals={"divergence": True}` to
+    # overlay divergent transitions on the pair scatter (the new-API
+    # equivalent of the legacy `divergences=True` kwarg).
+    trace_kwargs: dict[str, Any] = {"var_names": headline_var_names}
+    pair_kwargs: dict[str, Any] = {
+        "var_names": headline_var_names,
+        "visuals": {"divergence": True},
+    }
+    if headline_coords is not None:
+        # Translate {block: [idx, ...]} to ArviZ coords format.
+        # The dim name is typically "<block>_dim_0".
+        coords: dict[str, Any] = {}
+        for block, idx_list in headline_coords.items():
+            # If headline_coords includes a block not in headline_params,
+            # auto-include it in headline rendering
+            if headline_params is None or block not in headline_var_names:
+                if block in all_params:
+                    headline_var_names.append(block)
+                    if block in bulk_var_names:
+                        bulk_var_names.remove(block)
+            dim_name = f"{block}_dim_0"
+            coords[dim_name] = idx_list
+        trace_kwargs["coords"] = coords
+        pair_kwargs["coords"] = coords
+
+    trace_plot = azp.plot_trace_dist(idata, **trace_kwargs)
+    pair_plot = azp.plot_pair(idata, **pair_kwargs)
+
+    # Forest on bulk
+    forest_plot = None
+    if bulk_var_names:
+        forest_kwargs: dict[str, Any] = {"var_names": bulk_var_names}
+        if n_forest_top is not None:
+            # Slice via coords on each bulk var's first dim, capping at n_forest_top
+            forest_coords: dict[str, Any] = {}
+            for block in bulk_var_names:
+                arr = posterior[block]
+                if arr.ndim > 1:  # has a coord dim beyond chain/draw
+                    block_dim_size = arr.sizes.get(f"{block}_dim_0", 0)
+                    if block_dim_size > n_forest_top:
+                        forest_coords[f"{block}_dim_0"] = list(range(n_forest_top))
+            if forest_coords:
+                forest_kwargs["coords"] = forest_coords
+        forest_plot = azp.plot_forest(idata, **forest_kwargs)
+
+    return {"trace": trace_plot, "pair": pair_plot, "forest": forest_plot}
 
 
 def render_gradient_mh(

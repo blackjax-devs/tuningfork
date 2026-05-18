@@ -19,6 +19,15 @@ dynamic = ["version"]
 # Mirrors sampling-book's `book` group so model implementations port cleanly,
 # plus optuna (Tier-B BO) and posteriordb (Tier-A cross-check, per resolved decision).
 [dependency-groups]
+# Interactive marimo notebook deps. Includes the full `bench` group because
+# the catalog explorer imports numpyro (via tuningfork.model._numpyro),
+# arviz, and matplotlib transitively. `uv sync --group notebook` installs
+# everything needed for `marimo edit tuningfork/catalog/notebooks/catalog_explorer.py`.
+notebook = [
+    "marimo>=0.10",
+    {include-group = "bench"},
+]
+
 bench = [
     "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@main",
     "aeppl",

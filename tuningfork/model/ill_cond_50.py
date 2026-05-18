@@ -118,4 +118,6 @@ ENTRY = Posterior(
         "from 1 to 1000 (κ≈1000) and U is a fixed deterministic orthogonal "
         "matrix. Discriminates HMC vs MCLMC vs RWM via metric sensitivity."
     ),
+    headline_params=None,
+    headline_coords=None,
 )

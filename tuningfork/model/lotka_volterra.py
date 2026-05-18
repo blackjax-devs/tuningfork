@@ -303,4 +303,6 @@ ENTRY = Posterior(
         "Likelihood form B: Normal(u_mean, sqrt(u_std^2 + sigma_obs^2)). "
         "posteriordb_id=None. Dim=7: alpha+beta+gamma+delta+u0+v0+sigma_obs."
     ),
+    headline_params=("alpha", "beta", "gamma", "delta"),
+    headline_coords=None,
 )
