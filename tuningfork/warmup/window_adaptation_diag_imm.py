@@ -186,8 +186,6 @@ ENTRY = Warmup(
         "hmc",
         "nuts",
         "mhmc",
-        "dynamic_hmc",
-        "dmhmc",
         "barker",
         "mala",
         "laplace_hmc",
@@ -197,10 +195,14 @@ ENTRY = Warmup(
     ),
     notes=(
         "Standard Stan window adaptation: dual-averaging step_size + diagonal "
-        "mass matrix.  Compatible with hmc, nuts, mhmc, dynamic_hmc, dmhmc, "
-        "barker, mala, and laplace_* variants (all kernels that accept "
-        "inverse_mass_matrix; mhmc/dynamic_hmc/dmhmc verified by RECIPE_GENERATION.md "
-        "Table 1A note + needs_mass_matrix=True in their registry entries).  "
+        "mass matrix.  Compatible with hmc, nuts, mhmc, barker, mala, and "
+        "laplace_* variants (all kernels that accept inverse_mass_matrix; "
+        "mhmc verified by RECIPE_GENERATION.md Table 1A note + "
+        "needs_mass_matrix=True in registry).  "
+        "NOT compatible with dynamic_hmc/dmhmc: their DynamicHMCState requires "
+        "random_generator_arg at init time; blackjax.window_adaptation calls "
+        "algorithm.init(position, logdensity_fn) without that arg -- needs an "
+        "adapter (similar to _laplace_adapter) to be composed properly.  "
         "multi-chain by default (num_chains=4 via jax.vmap); "
         "per-chain adapted_params returned (step_size shape (num_chains,), IMM "
         "shape (num_chains, d) or (num_chains, d, d))."
