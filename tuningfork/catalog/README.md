@@ -54,12 +54,16 @@ All 14 models have certified groundtruth. The 9 NUTS-path models ran a 1 chain �
 
 ## Groundtruth samples shipped (2026-05-18)
 
-12 of 14 models ship their canonical 40,000-sample draws via Git LFS at `<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz`. Total LFS-tracked content: **~122 MB draws + ~1.9 MB chain_stats**. The pinned seed for these shipped draws is `jax.random.key(20260517)` (re-cert sweep date as integer); the `reference/metadata.json` `timestamp_utc` field of `2026-05-17T...` distinguishes these from the original Phase 0 traces. *(Note: the `seed` field in `reference/metadata.json` records `0` for these — that's a stale-default in the cert pipeline that doesn't track `rng_key` parameter values; this is a known issue to be fixed in the cert tooling.)*
+All **14 of 14** models ship their canonical 40,000-sample groundtruth draws via Git LFS at `<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz`. Total LFS-tracked content: **~256 MB draws + ~2.5 MB chain_stats**. The 5 analytic models ship `draws.npz` only (no NUTS chain_stats); the 9 NUTS-path models ship both.
 
-Two models do **not** ship draws:
+### Per-model seed policy
 
-- **`gp_regression`** — certification wall ≈ 63 h on a single CPU; the cert run hasn't been redone at the seed=20260517 protocol, so the committed `reference/*.json` remains at the Phase 0 `seed=0` trace. Draws can be regenerated locally via `get_reference_draws(force_regenerate=True)` (long).
-- **`stoch_vol`** — known PRNG fragility (the canonical config passes at `key(0)` but fails at `key(20260517)`; see [`stoch_vol/lessons.md`](stoch_vol/lessons.md)). The committed `reference/*.json` remains at the Phase 0 `seed=0` trace; multi-seed protocol robustness is an open investigation.
+Different models pin different seeds — pragmatic per-model choice rather than a global lock:
+
+- **12 models at `jax.random.key(20260517)`**: mvn_10, ill_cond_50, banana, neals_funnel, gmm_25, logistic_synthetic, eight_schools_ncp, german_credit, irt_2pl, radon, horseshoe, lotka_volterra. These re-certed cleanly during the 2026-05-17 sweep; `groundtruth.json::tuning_seed = 20260517`, `reference/metadata.json::timestamp_utc = 2026-05-17T...`.
+- **2 models at `jax.random.key(0)`**: gp_regression, stoch_vol. The Phase 0 traces (May 2026) at seed=0 ship as the canonical groundtruth. `gp_regression` was not re-certed at seed=20260517 because its certification wall is ~63 h; `stoch_vol` has known PRNG fragility — the canonical config passes at `key(0)` but catastrophically fails at `key(20260517)` (split-R̂ ≈ 5, never mixes); see [`stoch_vol/lessons.md`](stoch_vol/lessons.md). Multi-seed protocol robustness for `stoch_vol` is an open investigation.
+
+*(Pipeline-tooling note: `reference/metadata.json::seed` still records `0` for the re-certed 12 because the cert pipeline doesn't currently track `rng_key` parameter values — that's a known issue to fix. Use `groundtruth.json::tuning_seed` as the authoritative per-model seed pin.)*
 
 ### NUTS-path groundtruth (9 models)
 

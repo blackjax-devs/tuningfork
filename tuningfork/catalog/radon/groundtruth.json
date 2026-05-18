@@ -4,7 +4,7 @@
   "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
-    "step_size": 0.21159759163856506,
+    "step_size": 0.23706525564193726,
     "inverse_mass_matrix": "sidecar"
   },
   "warmup_params": {
@@ -27,8 +27,8 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0007851123809814,
-      "min_bulk_ess": 719.571044921875,
+      "rhat_max": 1.0007139444351196,
+      "min_bulk_ess": 783.6925048828125,
       "n_divergences": 0,
       "max_abs_mean_z": null,
       "verdict": "PASS",
@@ -40,9 +40,9 @@
       "decision": ""
     }
   },
-  "tuning_seed": 42,
+  "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-11T20:00:55Z"
+  "timestamp_utc": "2026-05-17T21:31:19Z"
 }

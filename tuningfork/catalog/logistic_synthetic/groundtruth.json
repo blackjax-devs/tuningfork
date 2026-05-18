@@ -4,11 +4,11 @@
   "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
-    "step_size": 0.5802492499351501,
+    "step_size": 0.5052798986434937,
     "inverse_mass_matrix": [
-      0.7181283235549927,
-      0.9283953905105591,
-      1.6082459688186646
+      0.7248959541320801,
+      1.0571393966674805,
+      1.7849693298339844
     ]
   },
   "warmup_params": {
@@ -31,8 +31,8 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 0.9999746680259705,
-      "min_bulk_ess": 4061.474609375,
+      "rhat_max": 1.0002793073654175,
+      "min_bulk_ess": 4370.24560546875,
       "n_divergences": 0,
       "max_abs_mean_z": null,
       "verdict": "PASS",
@@ -44,9 +44,9 @@
       "decision": ""
     }
   },
-  "tuning_seed": 42,
+  "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",
   "blackjax_version": "1.6.dev68+g820718a91",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-11T20:02:52Z"
+  "timestamp_utc": "2026-05-17T21:28:35Z"
 }
