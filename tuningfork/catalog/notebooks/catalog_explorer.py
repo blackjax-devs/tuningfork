@@ -15,12 +15,12 @@ this is a marimo notebook idiom, not a code issue.
 
 import marimo
 
-__generated_with = "0.10"
+__generated_with = "0.23.6"
 app = marimo.App(width="medium")
 
 
 @app.cell
-def __():
+def _():
     import inspect as _inspect
 
     import arviz as az
@@ -38,41 +38,39 @@ def __():
 
     return (
         MODELS,
-        _inspect,
         az,
         list_recipes,
         load_idata,
         load_recipe,
         mo,
         plot_recipe_diagnostics,
-        plt,
         summarize_recipe,
     )
 
 
 @app.cell
-def __(mo):
+def _(mo):
     mo.md(
         """
-        # Tuningfork Catalog Explorer
+    # Tuningfork Catalog Explorer
 
-        Interactive notebook for browsing the 14-model BlackJAX/tuningfork catalog.
+    Interactive notebook for browsing the 14-model BlackJAX/tuningfork catalog.
 
-        1. Pick a **model** below — see its source code and available recipes.
-        2. Pick a **recipe** — see its summary metadata + cert verdict.
-        3. Diagnostic plots auto-render: trace + pair on headline parameters
-           (hyperpriors), forest on the rest.
+    1. Pick a **model** below — see its source code and available recipes.
+    2. Pick a **recipe** — see its summary metadata + cert verdict.
+    3. Diagnostic plots auto-render: trace + pair on headline parameters
+       (hyperpriors), forest on the rest.
 
-        See [catalog README](../README.md) for the broader API + the
-        [headline_params decision doc](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-18-headline-params-per-model.md)
-        for what counts as "headline" per model.
-        """
+    See [catalog README](../README.md) for the broader API + the
+    [headline_params decision doc](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-18-headline-params-per-model.md)
+    for what counts as "headline" per model.
+    """
     )
     return
 
 
 @app.cell
-def __(MODELS, mo):
+def _(MODELS, mo):
     model_name = mo.ui.dropdown(
         options=sorted(MODELS.keys()),
         value="eight_schools_ncp",
@@ -83,7 +81,7 @@ def __(MODELS, mo):
 
 
 @app.cell
-def __(MODELS, _inspect, mo, model_name):
+def _(MODELS, mo, model_name):
     posterior_entry = MODELS[model_name.value]
     model_module = _inspect.getmodule(posterior_entry.__class__)
     if model_module is not None:
@@ -91,11 +89,11 @@ def __(MODELS, _inspect, mo, model_name):
     else:
         source = "(source not available)"
     mo.md(f"### Model source: `{model_name.value}`\n\n```python\n{source}\n```")
-    return model_module, posterior_entry, source
+    return (posterior_entry,)
 
 
 @app.cell
-def __(list_recipes, mo, model_name):
+def _(list_recipes, mo, model_name):
     recipe_paths = list_recipes(model_name.value)
     recipe_options = {p.name: str(p) for p in recipe_paths}
     recipe_dropdown = mo.ui.dropdown(
@@ -104,11 +102,11 @@ def __(list_recipes, mo, model_name):
         label="Recipe",
     )
     recipe_dropdown
-    return recipe_dropdown, recipe_options, recipe_paths
+    return (recipe_dropdown,)
 
 
 @app.cell
-def __(load_recipe, recipe_dropdown, summarize_recipe):
+def _(load_recipe, recipe_dropdown, summarize_recipe):
     if recipe_dropdown.value is None:
         recipe = None
         summary_df = None
@@ -116,11 +114,11 @@ def __(load_recipe, recipe_dropdown, summarize_recipe):
         recipe = load_recipe(recipe_dropdown.value)
         summary_df = summarize_recipe(recipe)
     summary_df
-    return recipe, summary_df
+    return (recipe,)
 
 
 @app.cell
-def __(load_idata, mo, recipe):
+def _(load_idata, mo, recipe):
     if recipe is not None and recipe.effort == "groundtruth":
         try:
             idata = load_idata(recipe)
@@ -137,7 +135,7 @@ def __(load_idata, mo, recipe):
 
 
 @app.cell
-def __(idata, mo, plot_recipe_diagnostics, posterior_entry):
+def _(idata, mo, plot_recipe_diagnostics, posterior_entry):
     if idata is not None:
         figs = plot_recipe_diagnostics(idata, posterior_entry, n_forest_top=20)
         result = mo.vstack(
@@ -157,11 +155,11 @@ def __(idata, mo, plot_recipe_diagnostics, posterior_entry):
     else:
         result = mo.md("")
     result
-    return (result,)
+    return
 
 
 @app.cell
-def __(az, idata, mo, posterior_entry):
+def _(az, idata, mo, posterior_entry):
     if idata is not None:
         var_names = (
             list(posterior_entry.headline_params)
@@ -175,7 +173,7 @@ def __(az, idata, mo, posterior_entry):
     else:
         result_summary = mo.md("")
     result_summary
-    return (result_summary,)
+    return
 
 
 if __name__ == "__main__":
