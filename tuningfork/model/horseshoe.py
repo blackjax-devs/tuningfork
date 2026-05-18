@@ -194,4 +194,6 @@ ENTRY = Posterior(
         "NCP on beta. Matches BlackJAX upstream test_benchmarks @ 2eb62abb. "
         "Discriminates samplers on tau-funnel geometry at high dim."
     ),
+    headline_params=("alpha", "sigma", "tau_tilde", "c2_tilde"),
+    headline_coords=None,
 )

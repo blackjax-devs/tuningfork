@@ -112,4 +112,6 @@ ENTRY = Posterior(
         "2-D banana-shaped distribution: x1 ~ N(0, 8), x2 ~ N(x1**2/4, 1). "
         "Curved manifold; discriminates MALA vs Barker vs HMC by metric sensitivity."
     ),
+    headline_params=None,
+    headline_coords=None,
 )

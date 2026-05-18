@@ -251,4 +251,6 @@ ENTRY = Posterior(
     # MCLMC (Recipe Phase 2) remains the principled long-term fix; this override
     # closes Phase 0 in the meantime.
     divergence_rate_tolerance=0.005,
+    headline_params=("mu", "phi", "sigma"),
+    headline_coords=None,
 )

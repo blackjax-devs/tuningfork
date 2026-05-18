@@ -79,4 +79,6 @@ ENTRY = Posterior(
         "10-D Neal's funnel: v~N(0,9), theta_i|v ~ N(0, exp(v)) for i=1..9. "
         "Pathological curvature — standard stress test for metric adaptation."
     ),
+    headline_params=("v", "theta"),
+    headline_coords=None,
 )

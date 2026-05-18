@@ -212,4 +212,6 @@ ENTRY = Posterior(
         "constrained-space marginals (parameterization-invariant). "
         "Gelman & Hill (2007) ch. 12."
     ),
+    headline_params=("mu_a", "sigma_a", "beta", "sigma_y"),
+    headline_coords=None,
 )

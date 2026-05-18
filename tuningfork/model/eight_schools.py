@@ -61,4 +61,6 @@ ENTRY = Posterior(
         "theta_raw[j]~N(0,1), theta=mu+tau*theta_raw, y~N(theta,sigma). "
         "Reference via long-NUTS (Path B)."
     ),
+    headline_params=("mu", "tau"),
+    headline_coords=None,
 )
