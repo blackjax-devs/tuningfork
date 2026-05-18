@@ -8,9 +8,15 @@ Launch via:
 Pick a model from the dropdown -> see available recipes -> pick a recipe ->
 inspect summary + plots. Reactive cells re-execute on dropdown change.
 
-Linter notes: every cell in a marimo notebook is `def __()`, so mypy sees
-`def __` redefined and flake8 sees F811. Disable both at file scope —
-this is a marimo notebook idiom, not a code issue.
+Linter notes: every cell in a marimo notebook is `def _()` (single
+underscore — marimo's canonical convention), so mypy/flake8 see `_`
+redefined across cells. Disable both at file scope — this is a marimo
+notebook idiom, not a code issue.
+
+Naming gotcha: marimo treats names with a LEADING underscore (e.g.,
+`_my_var`, `import inspect as _inspect`) as CELL-LOCAL — not visible to
+downstream cells. Use plain names (e.g., `pyinspect`) for any module
+alias or variable that other cells need to access.
 """
 
 import marimo
@@ -21,7 +27,9 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    import inspect as _inspect
+    # Note: do NOT prefix module aliases with `_` — marimo treats underscore-
+    # prefixed names as cell-local, so they're not visible to downstream cells.
+    import inspect as pyinspect
 
     import arviz as az
     import marimo as mo
@@ -44,11 +52,12 @@ def _():
         load_recipe,
         mo,
         plot_recipe_diagnostics,
+        pyinspect,
         summarize_recipe,
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         """
@@ -80,12 +89,12 @@ def _(MODELS, mo):
     return (model_name,)
 
 
-@app.cell
-def _(MODELS, mo, model_name):
+@app.cell(hide_code=True)
+def _(MODELS, mo, model_name, pyinspect):
     posterior_entry = MODELS[model_name.value]
-    model_module = _inspect.getmodule(posterior_entry.__class__)
+    model_module = pyinspect.getmodule(posterior_entry.__class__)
     if model_module is not None:
-        source = _inspect.getsource(model_module)
+        source = pyinspect.getsource(model_module)
     else:
         source = "(source not available)"
     mo.md(f"### Model source: `{model_name.value}`\n\n```python\n{source}\n```")
