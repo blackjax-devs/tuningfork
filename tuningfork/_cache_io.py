@@ -147,7 +147,20 @@ def _metadata_path(name: str, cache_dir: Path) -> Path:
 
 
 def _draws_path(name: str, cache_dir: Path) -> Path:
+    """Write-side path for draws.npz — the local runtime cache (gitignored)."""
     return cache_dir / name / "_cache" / "draws.npz"
+
+
+def _lfs_draws_path(name: str, cache_dir: Path, library: str = "blackjax") -> Path:
+    """Read-fallback path for LFS-shipped groundtruth draws.
+
+    The catalog ships canonical 40k-sample draws at this path via Git LFS
+    (one per sampling library; only `blackjax/` initially). Reads fall back
+    to this location when the local `_cache/draws.npz` is missing — typical
+    user flow: `uv sync` → `git lfs pull` → draws appear here without
+    requiring a local cert regen.
+    """
+    return cache_dir / name / "groundtruth_samples" / library / "draws.npz"
 
 
 def _summaries_path(name: str, cache_dir: Path) -> Path:
@@ -159,7 +172,15 @@ def _adaptation_path(name: str, cache_dir: Path) -> Path:
 
 
 def _chain_stats_path(name: str, cache_dir: Path) -> Path:
+    """Write-side path for chain_stats.npz — local runtime cache (gitignored)."""
     return cache_dir / name / "_cache" / "chain_stats.npz"
+
+
+def _lfs_chain_stats_path(
+    name: str, cache_dir: Path, library: str = "blackjax"
+) -> Path:
+    """Read-fallback path for LFS-shipped per-step chain_stats."""
+    return cache_dir / name / "groundtruth_samples" / library / "chain_stats.npz"
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -673,9 +694,14 @@ def try_load_cached_draws(
     if not _cache_is_valid(meta, check_n, current_version, current_sha):
         return None
 
+    # Read draws from local _cache/ first (freshest if user regenerated);
+    # fall back to LFS-shipped groundtruth_samples/blackjax/draws.npz.
     draws_path = _draws_path(entry.name, effective_dir)
     if not draws_path.exists():
-        return None
+        lfs_path = _lfs_draws_path(entry.name, effective_dir)
+        if not lfs_path.exists():
+            return None
+        draws_path = lfs_path
 
     data = np.load(str(draws_path))
     if n is None:
@@ -711,9 +737,13 @@ def try_load_cached_chain_stats(
         fields exposed by BlackJAX.
     """
     effective_dir = _resolve_cache_dir(cache_dir)
+    # Local _cache first (freshest); fall back to LFS-shipped path.
     path = _chain_stats_path(entry.name, effective_dir)
     if not path.exists():
-        return None
+        lfs_path = _lfs_chain_stats_path(entry.name, effective_dir)
+        if not lfs_path.exists():
+            return None
+        path = lfs_path
     data = np.load(str(path))
     return {k: np.asarray(data[k]) for k in data.files}
 

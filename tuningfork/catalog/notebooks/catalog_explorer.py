@@ -147,26 +147,58 @@ def _(load_idata, mo, recipe):
 
 
 @app.cell
-def _(idata, mo, plot_recipe_diagnostics, posterior_entry):
+def _(idata, plot_recipe_diagnostics, posterior_entry):
+    # Compute the 3 plots in one pass; render in separate cells below.
     if idata is not None:
-        figs = plot_recipe_diagnostics(idata, posterior_entry, n_forest_top=20)
-        result = mo.vstack(
+        try:
+            figs = plot_recipe_diagnostics(idata, posterior_entry, n_forest_top=20)
+            plot_error = None
+        except Exception as e:
+            figs = {"trace": None, "pair": None, "forest": None}
+            plot_error = f"plot_recipe_diagnostics failed: {type(e).__name__}: {e}"
+    else:
+        figs = {"trace": None, "pair": None, "forest": None}
+        plot_error = None
+    return figs, plot_error
+
+
+@app.cell(hide_code=True)
+def _(figs, mo, plot_error):
+    mo.vstack(
+        [
+            mo.md("### Trace + KDE plot (headline params)"),
+            (
+                mo.md(f"*Plot error:* `{plot_error}`")
+                if plot_error
+                else (figs["trace"] if figs["trace"] is not None else mo.md(""))
+            ),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(figs, mo):
+    mo.vstack(
+        [
+            mo.md("### Pair plot (headline params)"),
+            figs["pair"] if figs["pair"] is not None else mo.md(""),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(figs, mo):
+    if figs["forest"] is not None:
+        mo.vstack(
             [
-                mo.md("### Trace plot (headline params)"),
-                figs["trace"],
-                mo.md("### Pair plot (headline params)"),
-                figs["pair"],
-                (
-                    mo.md("### Forest plot (bulk params, capped at 20)")
-                    if figs["forest"] is not None
-                    else mo.md("")
-                ),
-                figs["forest"] if figs["forest"] is not None else mo.md(""),
+                mo.md("### Forest plot (bulk params, capped at 20)"),
+                figs["forest"],
             ]
         )
     else:
-        result = mo.md("")
-    result
+        mo.md("*No bulk params for this model — headline covers everything.*")
     return
 
 
