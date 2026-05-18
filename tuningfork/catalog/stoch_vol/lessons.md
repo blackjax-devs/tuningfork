@@ -27,6 +27,8 @@ The canonical warmup for stoch_vol is **`multipathfinder`** rather than the cata
 
 Conclusions baked into the canonical pin: **do NOT raise n_paths above 4** (empirically harms pass rate) and **do NOT diverse-init** (crashes Pathfinder's quasi-Newton step on this model's heavy-tail geometry). Raw 2×2 data at `worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md` § "2×2 follow-up sweep".
 
+**Init-range sweep follow-up (2026-05-18 statistician null result)**. The natural next question — "would a *narrower* init range rescue diverse-init?" — was tested across 7 variants on the same 8 seeds (additive jitter on the broadcast init at σ ∈ {0.01, 0.03, 0.05, 0.1, 0.3}; clamped diverse with `phi_unc ∈ [−2, +2]` only; clamped diverse with full `(mu, phi, sigma)` bracketing). The criterion was "winner = ≥6/8 pass AND zero crashes across the 8 seeds". **No variant clears the bar.** Even σ=0.01 jitter (1 % of NumPyro's default `init_to_uniform(radius=2)` range) crashes ≥1 seed via float-overflow in the AR(1) recursion. The crash mechanism is downstream of `sigma_unc + h_raw` heavy-tail compounding through `Normal(0, exp(h/2))`: any per-path variance pushes some L-BFGS iterates into the overflow regime where the gradient flips sign and the quasi-Newton method runs away to magnitudes ~1e7 (unconstrained). Detailed forensics + 7-variant table at [`worklog/lessons/case-studies/stoch_vol/2026-05-18-init-range-sweep-no-winner.md`](worklog/lessons/case-studies/stoch_vol/2026-05-18-init-range-sweep-no-winner.md).
+
 ## Known-bad combinations
 
 None documented yet. FAILED recipes will be backfilled in R5 once the recipe matrix is populated.
@@ -40,6 +42,7 @@ The following case studies document the investigation path and distilled lessons
 - [2026-05-12-failed-prior-swap-beta-shifted-phi.md](worklog/lessons/case-studies/stoch_vol/2026-05-12-failed-prior-swap-beta-shifted-phi.md) — hypothesis (tighten prior to suppress phi→1 tail) tested and failed; correct diagnosis ≠ straightforward fix
 - [2026-05-17-prng-fragility-recert.md](worklog/lessons/case-studies/stoch_vol/2026-05-17-prng-fragility-recert.md) — re-cert at seed=20260517 fails catastrophically (R̂≈5, ESS≈0.5); original "PRNG fragility" framing; **superseded by 2026-05-18**
 - [2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md](worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md) — 7-seed sweep at recert config reveals 44 % gate-failure rate; warmup-adaptation capture by unit-root attractor is the mechanism; **Pathfinder→NUTS rescues the failing seed**; TRIVIAL recommendation to switch catalog warmup
+- [2026-05-18-init-range-sweep-no-winner.md](worklog/lessons/case-studies/stoch_vol/2026-05-18-init-range-sweep-no-winner.md) — 7-variant init-range sweep (jitter σ ∈ {0.01, 0.03, 0.05, 0.1, 0.3}; clamped diverse {phi-only, mu+phi+sigma}) tests whether a narrower init range rescues diverse-init for multipathfinder. **No winner** across 8 seeds; AR(1) heavy-tail geometry makes L-BFGS step-randomization fragile under any per-path init variance. Confirms the N=4 broadcast pin is the structural best
 
 See `worklog/lessons/case-studies/stoch_vol/README.md` for the index and quick summary.
 
