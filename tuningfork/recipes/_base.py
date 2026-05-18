@@ -410,7 +410,7 @@ class Recipe:
             if hasattr(d["failure_diagnosis"], "value"):
                 d["failure_diagnosis"] = d["failure_diagnosis"].value
             # else it's already a string from default=str
-        target.write_text(json.dumps(d, indent=2, default=str))
+        target.write_text(json.dumps(d, indent=2, default=str) + "\n")
         return target
 
     @classmethod
