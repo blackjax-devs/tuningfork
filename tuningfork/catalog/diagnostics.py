@@ -426,8 +426,14 @@ def plot_recipe_diagnostics(
         bulk_var_names = [p for p in all_params if p not in headline_var_names]
 
     # Trace + pair on headline (with optional coord slicing).
+    # arviz_plots.plot_pair accepts `visuals={"divergence": True}` to
+    # overlay divergent transitions on the pair scatter (the new-API
+    # equivalent of the legacy `divergences=True` kwarg).
     trace_kwargs: dict[str, Any] = {"var_names": headline_var_names}
-    pair_kwargs: dict[str, Any] = {"var_names": headline_var_names}
+    pair_kwargs: dict[str, Any] = {
+        "var_names": headline_var_names,
+        "visuals": {"divergence": True},
+    }
     if headline_coords is not None:
         # Translate {block: [idx, ...]} to ArviZ coords format.
         # The dim name is typically "<block>_dim_0".

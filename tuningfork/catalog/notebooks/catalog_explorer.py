@@ -190,15 +190,20 @@ def _(figs, mo):
 
 @app.cell(hide_code=True)
 def _(figs, mo):
+    # marimo renders the LAST expression of the cell. Assigning to `forest_output`
+    # then exposing it as the final statement ensures both branches render.
     if figs["forest"] is not None:
-        mo.vstack(
+        forest_output = mo.vstack(
             [
                 mo.md("### Forest plot (bulk params, capped at 20)"),
                 figs["forest"],
             ]
         )
     else:
-        mo.md("*No bulk params for this model — headline covers everything.*")
+        forest_output = mo.md(
+            "*No bulk params for this model — headline covers everything.*"
+        )
+    forest_output
     return
 
 
