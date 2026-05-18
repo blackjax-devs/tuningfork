@@ -53,12 +53,16 @@ from tuningfork.warmup.meanfield_vi import ENTRY as _meanfield_vi
 from tuningfork.warmup.multipathfinder import ENTRY as _multipathfinder
 from tuningfork.warmup.no_warmup import ENTRY as _no_warmup
 from tuningfork.warmup.pathfinder import ENTRY as _pathfinder
+from tuningfork.warmup.window_adaptation_dense_imm import (
+    ENTRY as _window_adaptation_dense_imm,
+)
 from tuningfork.warmup.window_adaptation_diag_imm import (
     ENTRY as _window_adaptation_diag_imm,
 )
 
 WARMUPS: dict[str, Warmup] = {
     _window_adaptation_diag_imm.name: _window_adaptation_diag_imm,
+    _window_adaptation_dense_imm.name: _window_adaptation_dense_imm,
     _mclmc_tuning.name: _mclmc_tuning,
     _adjusted_mclmc_tuning.name: _adjusted_mclmc_tuning,
     _no_warmup.name: _no_warmup,
