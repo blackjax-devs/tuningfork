@@ -1,18 +1,18 @@
 {
   "name": "radon",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-11T20:00:53Z",
-  "wall_time_seconds": null,
+  "timestamp_utc": "2026-05-17T21:31:19Z",
+  "wall_time_seconds": 61.39531547902152,
   "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0007851123809814,
-    "min_chunk_bulk_ess": 719.571044921875,
+    "split_rhat_max": 1.0007139444351196,
+    "min_chunk_bulk_ess": 783.6925048828125,
     "num_divergences": 0,
-    "e_bfmi": 0.675777792930603
+    "e_bfmi": 0.6756683588027954
   }
 }

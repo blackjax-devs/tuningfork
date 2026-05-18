@@ -1,18 +1,18 @@
 {
   "name": "irt_2pl",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-11T20:02:14Z",
-  "wall_time_seconds": null,
+  "timestamp_utc": "2026-05-17T21:30:16Z",
+  "wall_time_seconds": 58.70594052306842,
   "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0003743171691895,
-    "min_chunk_bulk_ess": 2084.401123046875,
-    "num_divergences": 0,
-    "e_bfmi": 0.5834671854972839
+    "split_rhat_max": 1.0001578330993652,
+    "min_chunk_bulk_ess": 1568.1644287109375,
+    "num_divergences": 6,
+    "e_bfmi": 0.5844294428825378
   }
 }

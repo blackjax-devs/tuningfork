@@ -1,0 +1,10 @@
+# Groundtruth samples from BlackJAX (and future per-library subdirs:
+# tuningfork/catalog/<model>/groundtruth_samples/<library>/).
+# Parallel to the groundtruth.json recipe pin + groundtruth.imm.npz IMM sidecar,
+# but ship the actual 40,000-sample draws array + per-step chain_stats.
+#
+# LFS-tracked because two files exceed GitHub's 50 MB plain-blob warning
+# (radon ~56 MB, stoch_vol ~67 MB) and the total ~220 MB across 13 models
+# warrants LFS hygiene over plain-git pack-explosion.
+tuningfork/catalog/*/groundtruth_samples/*/draws.npz filter=lfs diff=lfs merge=lfs -text
+tuningfork/catalog/*/groundtruth_samples/*/chain_stats.npz filter=lfs diff=lfs merge=lfs -text

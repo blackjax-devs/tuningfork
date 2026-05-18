@@ -1,18 +1,18 @@
 {
   "name": "german_credit",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "cbf421ed8824736ddfd0db65f936f1f6ee593c54",
+  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-11T20:02:41Z",
-  "wall_time_seconds": null,
+  "timestamp_utc": "2026-05-17T21:29:17Z",
+  "wall_time_seconds": 25.503867684979923,
   "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0001041889190674,
-    "min_chunk_bulk_ess": 7284.3525390625,
+    "split_rhat_max": 1.0001323223114014,
+    "min_chunk_bulk_ess": 6468.49267578125,
     "num_divergences": 0,
-    "e_bfmi": 1.0050644874572754
+    "e_bfmi": 1.005106806755066
   }
 }
