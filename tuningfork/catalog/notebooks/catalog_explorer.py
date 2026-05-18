@@ -105,9 +105,12 @@ def _(MODELS, mo, model_name, pyinspect):
 def _(list_recipes, mo, model_name):
     recipe_paths = list_recipes(model_name.value)
     recipe_options = {p.name: str(p) for p in recipe_paths}
+    # NB: marimo's dropdown `value=` expects one of the OPTION KEYS (the
+    # label-side of the dict), not the value. dropdown.value returns the
+    # mapped value (the str path) which is what we pass to load_recipe below.
     recipe_dropdown = mo.ui.dropdown(
         options=recipe_options,
-        value=next(iter(recipe_options.values())) if recipe_options else None,
+        value=next(iter(recipe_options.keys())) if recipe_options else None,
         label="Recipe",
     )
     recipe_dropdown
