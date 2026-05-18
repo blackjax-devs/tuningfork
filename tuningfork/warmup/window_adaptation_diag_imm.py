@@ -63,6 +63,7 @@ import blackjax
 import jax
 
 from tuningfork.warmup._base import Warmup, _maybe_replicate
+from tuningfork.warmup._laplace_adapter import resolve_warmup_algorithm
 
 __all__ = ["ENTRY"]
 
@@ -145,12 +146,21 @@ def _runner(
             if space.name not in extra_kwargs:
                 extra_kwargs[space.name] = default_value_for_space(space)
 
+    # For laplace_* base methods, substitute blackjax.hmc as the warmup
+    # algorithm so that window_adaptation receives a proper algorithm object
+    # with .build_kernel and .init(position, logdensity_fn).  The caller
+    # is responsible for passing the laplace marginal logdensity
+    # (phi → float) as logdensity_fn — this adapter does not build it.
+    warmup_algorithm, warmup_kwargs = resolve_warmup_algorithm(
+        base_method, extra_kwargs
+    )
+
     warmup = blackjax.window_adaptation(
-        base_method.factory,
+        warmup_algorithm,
         logdensity_fn,
         is_mass_matrix_diagonal=is_mass_matrix_diagonal,
         target_acceptance_rate=target,
-        **extra_kwargs,
+        **warmup_kwargs,
     )
 
     # Split the key for num_chains independent runs.
