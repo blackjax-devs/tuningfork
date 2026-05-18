@@ -1,18 +1,21 @@
 {
   "name": "stoch_vol",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "7d8641930eaffd43b3f2eea94bac8dd1bbc973a0",
+  "code_sha": "9606684d077a36fdd04f275b778575e1a7e15b1f",
   "generator": "nuts",
   "num_samples": 40000,
-  "seed": 0,
-  "timestamp_utc": "2026-05-12T12:24:49Z",
-  "wall_time_seconds": null,
+  "seed": 20260517,
+  "timestamp_utc": "2026-05-18T07:08:59Z",
+  "wall_time_seconds": 183.86027462605853,
   "divergence_rate_tolerance_used": 0.005,
+  "warmup_strategy": "multipathfinder->window_adaptation_diag_imm",
+  "multipathfinder_pareto_k": 1.2542445659637451,
+  "multipathfinder_n_paths": 4,
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0006159543991089,
-    "min_chunk_bulk_ess": 1992.8448486328125,
-    "num_divergences": 105,
-    "e_bfmi": 0.9289995431900024
+    "split_rhat_max": 1.0002297163009644,
+    "min_chunk_bulk_ess": 1612.3067626953125,
+    "num_divergences": 141,
+    "e_bfmi": 0.9223644733428955
   }
 }
