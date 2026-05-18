@@ -19,6 +19,8 @@ dynamic = ["version"]
 # Mirrors sampling-book's `book` group so model implementations port cleanly,
 # plus optuna (Tier-B BO) and posteriordb (Tier-A cross-check, per resolved decision).
 [dependency-groups]
+notebook = ["marimo>=0.10"]
+
 bench = [
     "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@main",
     "aeppl",
