@@ -397,13 +397,20 @@ def plot_recipe_diagnostics(
     Returns
     -------
     dict[str, Any]
-        Dict with keys 'trace', 'pair', 'forest' mapping to matplotlib
-        Figure or axes objects from the corresponding ArviZ calls. If
-        headline_params is None, 'trace' and 'pair' render all posterior
-        sites; if no bulk params remain, 'forest' is None.
+        Dict with keys 'trace', 'pair', 'forest' mapping to the corresponding
+        ``arviz_plots`` PlotCollection objects (renderable inline in marimo /
+        Jupyter via the cell's last-expression rule). If headline_params is
+        None, 'trace' and 'pair' render all posterior sites; if no bulk params
+        remain, 'forest' is None.
     """
-    if az is None or plt is None:
-        raise ImportError("arviz and matplotlib are required for diagnostics rendering")
+    # Use the newer arviz_plots backend (PlotCollection-based) rather than
+    # the legacy matplotlib az.plot_* path:
+    #   - trace: arviz_plots.plot_trace_dist (trace + KDE side-by-side)
+    #   - pair: arviz_plots.plot_pair
+    #   - forest: arviz_plots.plot_forest
+    # arviz_plots is auto-installed by the bench dep group (transitively via
+    # arviz>=0.20). Returns plot objects that marimo renders natively.
+    import arviz_plots as azp
 
     posterior = idata["posterior"]
     all_params = list(posterior.data_vars)
@@ -418,13 +425,12 @@ def plot_recipe_diagnostics(
         headline_var_names = list(headline_params)
         bulk_var_names = [p for p in all_params if p not in headline_var_names]
 
-    # Trace + pair on headline (with optional coord slicing)
+    # Trace + pair on headline (with optional coord slicing).
     trace_kwargs: dict[str, Any] = {"var_names": headline_var_names}
-    pair_kwargs: dict[str, Any] = {"var_names": headline_var_names, "divergences": True}
+    pair_kwargs: dict[str, Any] = {"var_names": headline_var_names}
     if headline_coords is not None:
-        # Translate {block: [idx, ...]} to ArviZ coords format
-        # The dim name is typically "<block>_dim_0" — let ArviZ figure it
-        # out via the `coords` kwarg (which it accepts as dict-of-list).
+        # Translate {block: [idx, ...]} to ArviZ coords format.
+        # The dim name is typically "<block>_dim_0".
         coords: dict[str, Any] = {}
         for block, idx_list in headline_coords.items():
             # If headline_coords includes a block not in headline_params,
@@ -434,22 +440,18 @@ def plot_recipe_diagnostics(
                     headline_var_names.append(block)
                     if block in bulk_var_names:
                         bulk_var_names.remove(block)
-            # Map block_idx_list to the correct dim name
             dim_name = f"{block}_dim_0"
             coords[dim_name] = idx_list
         trace_kwargs["coords"] = coords
         pair_kwargs["coords"] = coords
 
-    az.plot_trace(idata, **trace_kwargs)
-    trace_fig = plt.gcf()
-
-    az.plot_pair(idata, **pair_kwargs)
-    pair_fig = plt.gcf()
+    trace_plot = azp.plot_trace_dist(idata, **trace_kwargs)
+    pair_plot = azp.plot_pair(idata, **pair_kwargs)
 
     # Forest on bulk
-    forest_fig = None
+    forest_plot = None
     if bulk_var_names:
-        forest_kwargs: dict[str, Any] = {"var_names": bulk_var_names, "combined": True}
+        forest_kwargs: dict[str, Any] = {"var_names": bulk_var_names}
         if n_forest_top is not None:
             # Slice via coords on each bulk var's first dim, capping at n_forest_top
             forest_coords: dict[str, Any] = {}
@@ -461,10 +463,9 @@ def plot_recipe_diagnostics(
                         forest_coords[f"{block}_dim_0"] = list(range(n_forest_top))
             if forest_coords:
                 forest_kwargs["coords"] = forest_coords
-        az.plot_forest(idata, **forest_kwargs)
-        forest_fig = plt.gcf()
+        forest_plot = azp.plot_forest(idata, **forest_kwargs)
 
-    return {"trace": trace_fig, "pair": pair_fig, "forest": forest_fig}
+    return {"trace": trace_plot, "pair": pair_plot, "forest": forest_plot}
 
 
 def render_gradient_mh(

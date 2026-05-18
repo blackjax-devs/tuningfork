@@ -154,7 +154,7 @@ def _(idata, mo, plot_recipe_diagnostics, posterior_entry):
             [
                 mo.md("### Trace plot (headline params)"),
                 figs["trace"],
-                mo.md("### Pair plot (headline params, divergences highlighted)"),
+                mo.md("### Pair plot (headline params)"),
                 figs["pair"],
                 (
                     mo.md("### Forest plot (bulk params, capped at 20)")
