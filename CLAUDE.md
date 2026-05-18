@@ -180,8 +180,11 @@ Some base methods need kwargs beyond the standard `(logdensity_fn, step_size, in
 
 ## Notebook Conventions (when narrative tutorials land in `notebooks/`)
 
-- Only commit `.md` files (MyST/Jupytext format). Never commit `.ipynb`.
-- Convert with: `jupytext notebooks/foo.md --to notebook` (for editing) and `jupytext notebooks/foo.ipynb --to myst` (before committing).
+Three notebook formats are supported, distinguished by file extension:
+
+- **Jupytext / MyST notebooks** (`.md`): commit the `.md` source only, never the `.ipynb` artifact. Convert with: `jupytext notebooks/foo.md --to notebook` (for editing) and `jupytext notebooks/foo.ipynb --to myst` (before committing). Use for tutorial/walkthrough content with executable cells; papermill-compatible for batch execution.
+- **Marimo notebooks** (`.py`): commit the `.py` source directly — that's marimo's native format. Identify by the `import marimo` + `app = marimo.App(...)` header; cells are `@app.cell`-decorated functions. Diff cleanly (no JSON wrapping). Use for reactive interactive UX (dropdowns, sliders, live re-render on input). Launch via `uv run --group notebook marimo edit <path>` (the `notebook` opt-in dep group installs marimo ~20 MB). Marimo files need `# flake8: noqa: F811` + `# mypy: disable-error-code="no-redef"` at file top because every cell is `def __()`.
+- **Plain `.ipynb`**: never committed. Always converted to `.md` via jupytext or replaced with marimo `.py`.
 
 ## Reference protocol (the load-bearing decision)
 
