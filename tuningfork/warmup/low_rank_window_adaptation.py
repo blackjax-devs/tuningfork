@@ -176,15 +176,25 @@ def _runner(
 ENTRY = Warmup(
     name="low_rank_window_adaptation",
     runner=_runner,
-    compatible_methods=("hmc", "nuts", "barker", "mala"),
+    compatible_methods=(
+        "hmc",
+        "nuts",
+        "barker",
+        "mala",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+    ),
     notes=(
         "Low-rank mass matrix adaptation via Fisher divergence minimisation "
         "(nutpie algorithm; :cite:`seyboldt2026preconditioning`). Metric has the "
         "form M^{-1} = diag(σ)(I + U(Λ-I)U^T)diag(σ), enabling O(dk) kernel "
-        "operations when rank k << d.  Compatible with hmc, nuts, barker, mala. "
-        "Use when posterior has strong correlations but d is too large for dense "
-        "adaptation.  Default max_rank=10; tune per model.  multi-chain by "
-        "default (num_chains=4 via jax.vmap); per-chain adapted_params returned "
-        "(step_size shape (num_chains,), Metric object encoding (sigma, U, lam))."
+        "operations when rank k << d.  Compatible with hmc, nuts, barker, mala, "
+        "and laplace_* variants. Use when posterior has strong correlations but "
+        "d is too large for dense adaptation.  Default max_rank=10; tune per "
+        "model.  multi-chain by default (num_chains=4 via jax.vmap); per-chain "
+        "adapted_params returned (step_size shape (num_chains,), Metric object "
+        "encoding (sigma, U, lam))."
     ),
 )
