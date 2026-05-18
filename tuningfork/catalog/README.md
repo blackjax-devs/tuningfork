@@ -56,14 +56,17 @@ All 14 models have certified groundtruth. The 9 NUTS-path models ran a 1 chain �
 
 All **14 of 14** models ship their canonical 40,000-sample groundtruth draws via Git LFS at `<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz`. Total LFS-tracked content: **~256 MB draws + ~2.5 MB chain_stats**. The 5 analytic models ship `draws.npz` only (no NUTS chain_stats); the 9 NUTS-path models ship both.
 
-### Per-model seed policy
+### Per-model seed + warmup policy
 
-Different models pin different seeds — pragmatic per-model choice rather than a global lock:
+Different models pin different (seed, warmup) configurations — pragmatic per-model choice rather than a global lock:
 
-- **12 models at `jax.random.key(20260517)`**: mvn_10, ill_cond_50, banana, neals_funnel, gmm_25, logistic_synthetic, eight_schools_ncp, german_credit, irt_2pl, radon, horseshoe, lotka_volterra. These re-certed cleanly during the 2026-05-17 sweep; `groundtruth.json::tuning_seed = 20260517`, `reference/metadata.json::timestamp_utc = 2026-05-17T...`.
-- **2 models at `jax.random.key(0)`**: gp_regression, stoch_vol. The Phase 0 traces (May 2026) at seed=0 ship as the canonical groundtruth. `gp_regression` was not re-certed at seed=20260517 because its certification wall is ~63 h; `stoch_vol` has known PRNG fragility — the canonical config passes at `key(0)` but catastrophically fails at `key(20260517)` (split-R̂ ≈ 5, never mixes); see [`stoch_vol/lessons.md`](stoch_vol/lessons.md). Multi-seed protocol robustness for `stoch_vol` is an open investigation.
+- **12 models at `jax.random.key(20260517)` + `window_adaptation_diag_imm` warmup** (the catalog default): mvn_10, ill_cond_50, banana, neals_funnel, gmm_25, logistic_synthetic, eight_schools_ncp, german_credit, irt_2pl, radon, horseshoe, lotka_volterra. Re-certed cleanly during the 2026-05-17 sweep.
+- **1 model at `jax.random.key(20260517)` + `multipathfinder` warmup** (custom): **stoch_vol**. The AR(1) unit-root posterior has a bad-attractor mode that single-path warmups can be captured by — switching to multipathfinder (4 paths + PSIS resampling) reduces the catastrophic-capture rate from ~30 % to ~25 %. Re-certed 2026-05-18: rhat=1.0002, ESS=1612, n_div=141 (0.35 %), E-BFMI=0.92, wall=184s. See [`stoch_vol/lessons.md`](stoch_vol/lessons.md) and the [2026-05-18 case study](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md).
+- **1 model at `jax.random.key(0)` + `window_adaptation_diag_imm`** (Phase 0 holdover): **gp_regression**. Not re-certed at seed=20260517 because its certification wall is ~63 h on a single CPU.
 
-*(Pipeline-tooling note: `reference/metadata.json::seed` still records `0` for the re-certed 12 because the cert pipeline doesn't currently track `rng_key` parameter values — that's a known issue to fix. Use `groundtruth.json::tuning_seed` as the authoritative per-model seed pin.)*
+**Per-model gate override**: stoch_vol is also the only model with a relaxed `divergence_rate_tolerance` (0.5 % vs the default 0.1 %), reflecting the genuine AR(1) unit-root divergence cluster — multipathfinder warmup reduces the catastrophic-capture rate but does NOT reduce the absolute divergence count (the new cert has 141 divergences vs Phase 0's 105). See the [2026-05-12 gate-override decision](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-12-per-model-divergence-gate-override.md).
+
+*(Pipeline-tooling note: `reference/metadata.json::seed` records `0` for the 12 window_adaptation-warmed models because the cert pipeline doesn't currently track `rng_key` parameter values — that's a known issue to fix. The stoch_vol re-cert script wrote `seed: 20260517` directly. Use `groundtruth.json::tuning_seed` as the authoritative per-model seed pin in any case.)*
 
 ### NUTS-path groundtruth (9 models)
 
@@ -74,13 +77,15 @@ Different models pin different seeds — pragmatic per-model choice rather than 
 | `german_credit` | 26 | GLM real data | 0.80 | 0.330 | inline | 1.0001 | 7,284 | 0 | 26 s | 🟢 LOW |
 | `irt_2pl` | 144 | hierarchical, scale-id | 0.80 | 0.091 | sidecar | 1.0004 | 2,084 | 0 | 69 s | 🟢 LOW |
 | `radon` | 390 | hierarchical+funnel | 0.80 | 0.212 | sidecar | 1.0008 | 720 | 0 | 73 s | 🟢 LOW |
-| `stoch_vol` | 503 | latent-Gaussian / state-space | **0.99** | 0.0138 | sidecar | 1.0006 | 1,993 | 105² | 3.1 min | 🟡 MEDIUM |
+| `stoch_vol`³ | 503 | latent-Gaussian / state-space | **0.99** | 0.0157 | sidecar | 1.0002 | 1,612 | 141² | 3.1 min | 🟡 MEDIUM |
 | `horseshoe` | 204 | sparse heavy-tailed | **0.99** | 0.00333 | sidecar | 1.0003 | 2,543 | 0 | 6.1 min | 🟡 MEDIUM |
 | `lotka_volterra` | 7 | nonlinear ODE inverse | **0.99** | 0.0358 | inline | 1.0004 | 2,363 | 0 | 8.6 min | 🟡 MEDIUM |
 | `gp_regression` | 203 | latent-Gaussian (1D GP) | **0.99** | 0.00222 | sidecar | 1.0000 | 3,910 | 18 | **63 h** | 🔴 HIGH |
 
 ¹ Difficulty tier informally maps to the wall + tuning effort required to clear the gate. 🟢 LOW = `target_acceptance_rate=0.80` defaults; 🟡 MEDIUM = required `0.99` for boundary models; 🔴 HIGH = required `0.99` + sidecar IMM + statistician investigation (see `gp_regression/lessons.md`).
-² stoch_vol's 105 divergences are within the per-model tolerance (`Posterior.divergence_rate_tolerance`) due to the AR(1) unit-root boundary — see [`stoch_vol/lessons.md`](stoch_vol/lessons.md). The certification still passed.
+² stoch_vol's 141 divergences (0.35 %) are within the per-model tolerance (`Posterior.divergence_rate_tolerance = 0.005`, vs default 0.001) due to the AR(1) unit-root boundary — see [`stoch_vol/lessons.md`](stoch_vol/lessons.md). The certification passed.
+
+³ stoch_vol uses `multipathfinder` warmup (4 paths + PSIS resampling) rather than the catalog-default `window_adaptation_diag_imm` — the AR(1) posterior is multi-modal with a unit-root attractor that single-path warmups can be captured by. Re-cert 2026-05-18 at seed=20260517. See the [2026-05-18 case study](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/lessons/case-studies/stoch_vol/2026-05-18-multimodal-warmup-capture-pathfinder-rescue.md).
 
 ### Analytic groundtruth (5 models)
 
