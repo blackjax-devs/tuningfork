@@ -19,6 +19,8 @@ clear message pointing at the file in tuningfork that needs an update.
 
 Includes sections: 5 (pathfinder / multipathfinder), and the unnumbered
 window_adaptation section (for HMC/NUTS/Barker/MALA).
+Also pins: _psis_weighted_mixture_covariance (used by multipathfinder_window_adaptation),
+window_adaptation kwargs initial_inverse_mass_matrix + imm_shrinkage_to_previous.
 """
 
 import blackjax
@@ -161,6 +163,55 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
 
 
 # ───────────────── window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+def test_blackjax_lbfgs_inverse_hessian_importable():
+    """Tripwire: multipathfinder_window_adaptation uses lbfgs_inverse_hessian_formula_1
+    from blackjax.optimizers.lbfgs for computing the PSIS-weighted mixture covariance.
+    If upstream renames or removes it, fail fast here pointing at
+    tuningfork/warmup/multipathfinder_window_adaptation.py.
+
+    Note: we use our own local mixture covariance implementation (not the upstream
+    _psis_weighted_mixture_covariance) because the upstream function assumes flat
+    (n_paths, d) positions but PathfinderState.position stores pytree-structured form.
+    """
+    from blackjax.optimizers.lbfgs import lbfgs_inverse_hessian_formula_1
+
+    assert callable(lbfgs_inverse_hessian_formula_1), (
+        "blackjax.optimizers.lbfgs.lbfgs_inverse_hessian_formula_1 must be callable; "
+        "update tuningfork/warmup/multipathfinder_window_adaptation.py "
+        "if the upstream function was renamed or removed."
+    )
+
+
+def test_window_adaptation_accepts_initial_imm_kwarg():
+    """Tripwire: window_adaptation must accept initial_inverse_mass_matrix kwarg.
+
+    Pinned by tuningfork/warmup/multipathfinder_window_adaptation.py which passes
+    initial_inverse_mass_matrix=<dense array> to seed the mass matrix.
+    """
+    import inspect
+
+    sig = inspect.signature(blackjax.window_adaptation)
+    assert "initial_inverse_mass_matrix" in sig.parameters, (
+        "blackjax.window_adaptation is missing parameter 'initial_inverse_mass_matrix'. "
+        "Update tuningfork/warmup/multipathfinder_window_adaptation.py."
+    )
+
+
+def test_window_adaptation_accepts_imm_shrinkage_kwarg():
+    """Tripwire: window_adaptation must accept imm_shrinkage_to_previous kwarg.
+
+    Pinned by tuningfork/warmup/multipathfinder_window_adaptation.py which passes
+    imm_shrinkage_to_previous=20.0 (medium persistence default).
+    """
+    import inspect
+
+    sig = inspect.signature(blackjax.window_adaptation)
+    assert "imm_shrinkage_to_previous" in sig.parameters, (
+        "blackjax.window_adaptation is missing parameter 'imm_shrinkage_to_previous'. "
+        "Update tuningfork/warmup/multipathfinder_window_adaptation.py."
+    )
+
+
 def test_window_adaptation_constructs_for_supported_kernels():
     """Pinned tripwire: tuningfork/calibration/tune.py:_run_warmup uses
     blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
