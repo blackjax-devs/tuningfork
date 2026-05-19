@@ -13,43 +13,44 @@
 # limitations under the License.
 """Multi-path Pathfinder warmup: init-and-IMM provider via PSIS importance resampling.
 
-This warmup runs one ``blackjax.multipathfinder`` (multi-path Pathfinder) fit
-that starts from ``n_paths`` independent initial positions.  It then draws
-``num_chains`` init positions from the mixture via Pareto-Smoothed Importance
-Sampling (PSIS) resampling, and derives a single diagonal inverse mass matrix
-from the post-PSIS empirical covariance (replicated identically to each chain).
+Thin shim around ``blackjax.pathfinder_adaptation`` dispatching to the
+multi-path path (PATH C: ``effective_n_paths >= 2``).
 
-The PSIS diagnostic (Pareto-k) is returned as a sidecar key for diagnostics.
-A Pareto-k < 0.5 indicates reliable IS; k > 0.7 may indicate unreliable
-importance weights — downstream calibration code may use this to warn or
-fall back to ``pathfinder`` (single-path).
+NOTE: The upstream ``blackjax.pathfinder_adaptation`` multi-path dispatch
+has a bug in ``_psis_weighted_mixture_covariance`` — it assumes
+``path_states.position`` is a flat ``(n_paths, d)`` array, but
+``PathfinderState.position`` stores the pytree-structured (unravelled) form.
+This causes a ``ValueError`` for dict-position models.  We work around this
+by computing the mixture covariance ourselves via ``_psis_mixture_covariance_flat``
+which flattens positions with ``ravel_pytree`` before the einsum.
+
+**Breaking change from pre-PR-B contract**: ``inverse_mass_matrix`` is now
+dense ``(num_chains, d, d)`` (broadcast from the shared ``(d, d)`` upstream
+IMM) instead of the old diagonal ``(num_chains, d)`` form.  No committed
+recipe uses the old diagonal contract (post-PR #31 the stoch_vol groundtruth
+switched to ``window_adaptation_diag_imm``).
 
 Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, n_paths=None, num_samples_per_path=200,
-            n_imm_samples=2000, step_size_default=1.0,
-            num_chains: int = 4, **kwargs)
+            step_size_default=1.0, num_chains=4, **kwargs)
     -> (states, adapted_params)
 
 Where:
 
-- ``rng_key`` is a single key; used for multi-path Pathfinder + PSIS resampling.
-- ``init_position`` is a single pytree (one chain's worth); replicated to
-  ``(n_paths, ...)`` for the multi-path fit unless pre-batched
-  (leading dim == ``n_paths``).
-- ``states`` is a batched pytree with leading dim ``num_chains``;
-  ``states.position`` has shape ``(num_chains, d)`` or ``(num_chains, ...)``
-  for dict-based positions.
+- ``rng_key`` is a single key; used for pathfinder fit + PSIS resampling + DA.
+- ``init_position`` is a single pytree (one chain's worth).
+- ``states`` is a batched pytree with leading dim ``num_chains``.
 - ``adapted_params`` contains:
 
-  ==================================  =================  ==================================
-  Key                                 Shape              Notes
-  ==================================  =================  ==================================
-  ``step_size``                       ``(num_chains,)``  Constant ``step_size_default`` per chain
-  ``inverse_mass_matrix``             ``(num_chains, d)``  Post-PSIS empirical variance, same value per chain
-  ``_multipathfinder_psis_pareto_k``  scalar             PSIS Pareto-k diagnostic
-  ==================================  =================  ==================================
+  ==================================  ====================  ====================================
+  Key                                 Shape                 Notes
+  ==================================  ====================  ====================================
+  ``step_size``                       ``(num_chains,)``     Per-chain adapted step size from DA
+  ``inverse_mass_matrix``             ``(num_chains, d, d)``  Dense IMM broadcast per chain
+  ``_multipathfinder_psis_pareto_k``  scalar                PSIS Pareto-k diagnostic
+  ==================================  ====================  ====================================
 
 Sidecar keys (underscore prefix) are metadata for ``calibration_budget``
 and are NOT forwarded to the base-method kernel as hyperparameters.
@@ -57,24 +58,6 @@ and are NOT forwarded to the base-method kernel as hyperparameters.
 Compatible with: ``nuts``, ``hmc``, ``mala``, ``rwm``, ``barker``.
 NOT compatible with ``mclmc`` (different geometry — microcanonical momentum,
 no Gaussian inverse mass matrix in the HMC sense).
-
-Upstream API (BlackJAX >= 0.9.x):
-
-- ``blackjax.multipathfinder(logdensity_fn)`` returns a ``VIAlgorithm``
-  with ``init``, ``step``, ``sample`` methods.
-- ``mpf.init(rng_key, initial_positions, num_samples=200)``
-  → ``(MultipathfinderState, PathfinderInfo)``
-  where ``MultipathfinderState._fields = ('path_states', 'samples', 'logp', 'logq')``.
-  ``samples`` has shape ``(n_paths, num_samples, ...)`` (pytree-structured).
-- ``psis_weights(state)`` → ``(log_weights, pareto_k)``
-  where ``log_weights`` has shape ``(n_paths * num_samples,)``.
-
-The IMM (inverse mass matrix) is the post-PSIS empirical variance:
-we draw ``n_imm_samples`` positions from the PSIS mixture and compute
-``jnp.var(flat_draws, axis=0)``, where ``flat_draws`` has shape
-``(n_imm_samples, d)`` and ``d`` is the total number of parameters.
-The same ``(d,)`` vector is replicated to each chain so all chains share
-the same preconditioner.
 """
 
 from typing import Any
@@ -82,6 +65,7 @@ from typing import Any
 import blackjax
 import jax
 import jax.numpy as jnp
+from blackjax.optimizers.lbfgs import lbfgs_inverse_hessian_formula_1
 from blackjax.vi.multipathfinder import psis_weights
 from jax.flatten_util import ravel_pytree
 
@@ -89,50 +73,84 @@ from tuningfork.warmup._base import Warmup, _maybe_replicate
 
 __all__ = ["ENTRY"]
 
-# Algorithms that accept an inverse_mass_matrix and are therefore compatible
-# with Pathfinder's init-and-IMM output.  mclmc is excluded: its geometry
-# is microcanonical and its inverse_mass_matrix is a diagonal preconditioner
-# for Euclidean distance, not an HMC-style covariance.
+# Algorithms compatible with HMC-style inverse_mass_matrix.
 _COMPATIBLE = ("nuts", "hmc", "mala", "rwm", "barker")
+
+
+def _psis_mixture_covariance_flat(
+    path_states: Any,
+    log_weights: jax.Array,
+    num_samples_per_path: int,
+) -> jax.Array:
+    """Compute PSIS-weighted mixture covariance using flattened per-path positions.
+
+    Workaround for the upstream ``_psis_weighted_mixture_covariance`` bug:
+    ``PathfinderState.position`` stores pytree-structured (unravelled) positions
+    but the upstream function assumes flat ``(n_paths, d)`` arrays.
+
+    See also: tuningfork/warmup/multipathfinder_window_adaptation.py for the
+    same workaround with documentation.
+
+    Returns
+    -------
+    jax.Array
+        Dense ``(d, d)`` PSIS-weighted mixture covariance.
+    """
+    n_paths = log_weights.shape[0] // num_samples_per_path
+    log_weights_per_path = log_weights.reshape(n_paths, num_samples_per_path)
+    log_path_weights = jax.scipy.special.logsumexp(log_weights_per_path, axis=1)
+    log_path_weights_norm = log_path_weights - jax.scipy.special.logsumexp(
+        log_path_weights
+    )
+    w = jnp.exp(log_path_weights_norm)  # (n_paths,)
+    # Flatten pytree positions to (n_paths, d).
+    mu_per_path = jax.vmap(lambda x: ravel_pytree(x)[0])(
+        path_states.position
+    )  # (n_paths, d)
+    sigmas = jax.vmap(lbfgs_inverse_hessian_formula_1)(
+        path_states.alpha, path_states.beta, path_states.gamma
+    )  # (n_paths, d, d)
+    mu_mix = jnp.einsum("i,id->d", w, mu_per_path)  # (d,)
+    sigma_within = jnp.einsum("i,ijk->jk", w, sigmas)  # (d, d)
+    delta = mu_per_path - mu_mix[None, :]  # (n_paths, d)
+    sigma_between = jnp.einsum("i,ij,ik->jk", w, delta, delta)  # (d, d)
+    return sigma_within + sigma_between  # (d, d)
 
 
 def _runner(
     rng_key: jax.Array,
     init_position: Any,
-    n_warmup: int,  # noqa: ARG001 — accepted for interface uniformity; not used
+    n_warmup: int,
     base_method: Any,  # BaseMethod; not imported to avoid circular dep
     *,
     logdensity_fn: Any,
     n_paths: int | None = None,
     num_samples_per_path: int = 200,
-    n_imm_samples: int = 2000,
     step_size_default: float = 1.0,
     num_chains: int = 4,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
-    """Run multi-path Pathfinder and draw init positions via PSIS resampling.
+    """Run multi-path Pathfinder + PSIS resampling + dual-averaging.
 
-    A single multi-path Pathfinder fit is performed from ``n_paths`` independent
-    starting positions.  ``num_chains`` init positions are then drawn from the
-    importance-resampled mixture.  The post-PSIS empirical covariance diagonal
-    is returned as the ``inverse_mass_matrix`` (same value replicated to each
-    chain).
+    Multi-path Pathfinder fit from ``n_paths`` starting points → PSIS
+    importance-resampled init positions → shared dense ``(d, d)`` IMM via
+    PSIS-weighted L-BFGS mixture covariance → per-chain dual-averaging.
+
+    NOTE: Uses bespoke multi-path implementation rather than delegating to
+    ``blackjax.pathfinder_adaptation(n_paths>1)`` because the upstream
+    ``_psis_weighted_mixture_covariance`` function fails for dict-position
+    models (sees pytree positions, not flat arrays as it assumes).
 
     Parameters
     ----------
     rng_key
-        JAX random key.  Used for the multi-path Pathfinder fit and for
-        PSIS resampling.
+        JAX random key.
     init_position
-        Initial unconstrained parameter pytree (one chain's worth).  The
-        runner replicates it to ``(n_paths, ...)`` for the multi-path fit
-        unless the caller pre-batches it (leading dim == ``n_paths``).
+        Initial unconstrained parameter pytree (one chain's worth).
     n_warmup
-        Accepted for interface uniformity; not used.  Pathfinder's
-        optimisation budget is controlled by ``num_samples_per_path``
-        and ``**kwargs``.
+        Number of dual-averaging adaptation steps per chain.
     base_method
-        ``BaseMethod`` entry.  Used for kernel-state initialisation.
+        ``BaseMethod`` entry.  Used for compatibility check and DA.
     logdensity_fn
         BlackJAX-compatible log-density function.
     n_paths
@@ -141,31 +159,24 @@ def _runner(
     num_samples_per_path
         Number of samples drawn per path to estimate ELBO / PSIS weights.
         Default ``200``.
-    n_imm_samples
-        Number of PSIS-resampled draws used to estimate the post-PSIS
-        empirical covariance for the ``inverse_mass_matrix``.  Default ``2000``.
     step_size_default
-        Constant step size assigned to every chain.  Default ``1.0``.
+        Initial step size for dual-averaging.  Default ``1.0``.
     num_chains
         Number of independent chains to initialise.  Default ``4``.
     **kwargs
-        Forwarded to the multi-path Pathfinder ``init`` call (e.g.
-        ``maxiter``, ``maxcor``).
+        Additional keyword arguments forwarded to the algorithm (e.g.
+        ``num_integration_steps`` for HMC).
 
     Returns
     -------
     states
-        Post-Pathfinder kernel states, batched over ``num_chains``.
-        ``states.position`` has shape ``(num_chains, d)`` or
-        ``(num_chains, ...)`` for dict-based positions.
-        Each chain's position is drawn from the PSIS-resampled mixture.
+        Post-adaptation BlackJAX kernel states, batched over ``num_chains``.
     adapted_params
         Dict with:
 
-        - ``"step_size"``: ``(num_chains,)`` constant ``step_size_default``.
-        - ``"inverse_mass_matrix"``: ``(num_chains, d)``, post-PSIS empirical
-          variance replicated across chains.
-        - ``"_multipathfinder_psis_pareto_k"``: scalar PSIS Pareto-k diagnostic.
+        - ``"step_size"``: ``(num_chains,)`` per-chain adapted step size.
+        - ``"inverse_mass_matrix"``: ``(num_chains, d, d)`` dense IMM.
+        - ``"_multipathfinder_psis_pareto_k"``: scalar PSIS Pareto-k.
 
     Raises
     ------
@@ -181,99 +192,98 @@ def _runner(
     if n_paths is None:
         n_paths = num_chains
 
-    # Build the unravel function from a SINGLE-chain position.
-    # If init_position is pre-batched (leading dim == n_paths), extract one
-    # chain's worth so that ravel_pytree gives the right (d,) unravel fn.
-    _leaves = jax.tree.leaves(init_position)
-    _is_prebatched = bool(
-        _leaves and _leaves[0].shape and _leaves[0].shape[0] == n_paths
-    )
-    if _is_prebatched:
-        _single_pos = jax.tree.map(lambda x: x[0], init_position)
-    else:
-        _single_pos = init_position
-    _dummy_flat, unravel_fn = ravel_pytree(_single_pos)
-    d = int(_dummy_flat.shape[0])
+    # --- Step 1: run multipathfinder ----------------------------------------
+    pf_key, resample_key, adapt_key = jax.random.split(rng_key, 3)
 
-    # Split key: Pathfinder, chain resampling, IMM estimation.
-    pf_key, resample_key, imm_key = jax.random.split(rng_key, 3)
-
-    # Replicate init_position to (n_paths, ...) for the multi-path fit.
-    # _maybe_replicate passes through if already pre-batched (leading dim == n_paths).
     init_positions = _maybe_replicate(init_position, n_paths)
-
-    # Run multi-path Pathfinder.
-    # mpf.init returns (MultipathfinderState, PathfinderInfo).
     mpf = blackjax.multipathfinder(logdensity_fn)
     mpf_state, _pf_info = mpf.init(
-        pf_key, init_positions, num_samples=num_samples_per_path, **kwargs
+        pf_key, init_positions, num_samples=num_samples_per_path
     )
-    # mpf_state.samples: (n_paths, num_samples_per_path, ...) — pytree structured.
 
-    # Compute PSIS importance weights.
+    # --- Step 2: derive dense (d, d) IMM via PSIS-weighted L-BFGS mixture ----
     log_weights, pareto_k = psis_weights(mpf_state)
-    # log_weights: (n_paths * num_samples_per_path,)
-    # pareto_k: scalar
+    imm_dense = _psis_mixture_covariance_flat(
+        mpf_state.path_states, log_weights, num_samples_per_path
+    )  # (d, d)
 
-    # Flatten sample pool to (n_paths * num_samples_per_path, ...).
+    # --- Step 3: PSIS-resample num_chains init positions ----------------------
+    total_pool = log_weights.shape[0]
+    probs = jnp.exp(log_weights)
     samples_flat = jax.tree.map(
         lambda x: x.reshape(-1, *x.shape[2:]), mpf_state.samples
     )
-    # samples_flat is still a pytree; leaves have shape (n_paths*num_samples, ...).
-
-    total_pool = log_weights.shape[0]
-    probs = jnp.exp(log_weights)
-
-    # Draw num_chains init positions via PSIS resampling.
     init_indices = jax.random.choice(
         resample_key, total_pool, shape=(num_chains,), replace=True, p=probs
     )
     init_from_psis = jax.tree.map(lambda x: x[init_indices], samples_flat)
-    # init_from_psis: pytree with leading dim num_chains.
 
-    # Estimate post-PSIS empirical covariance diagonal for the IMM.
-    # Draw a large sample from the PSIS mixture and compute per-parameter variance.
-    imm_indices = jax.random.choice(
-        imm_key, total_pool, shape=(n_imm_samples,), replace=True, p=probs
-    )
-    imm_samples_pytree = jax.tree.map(lambda x: x[imm_indices], samples_flat)
-    # Flatten each sample to (d,) for variance estimation.
-    flat_imm_samples = jax.vmap(lambda x: ravel_pytree(x)[0])(imm_samples_pytree)
-    # flat_imm_samples: (n_imm_samples, d)
-
-    # Empirical variance diagonal; clamp to avoid near-zero entries.
-    imm_diag = jnp.var(flat_imm_samples, axis=0)  # (d,)
-    imm_diag = jnp.clip(imm_diag, min=1e-6)
-
-    # Replicate the shared IMM to each chain: (num_chains, d).
-    imm_per_chain = jnp.broadcast_to(imm_diag[None, :], (num_chains, d))
-
-    # Build the kernel with neutral HPs for state initialisation.
-    # The actual IMM comes from adapted_params; we inject an identity here
-    # just to satisfy the kernel constructor.
-    init_defaults: dict[str, Any] = {}
-    if base_method.needs_mass_matrix:
-        init_defaults["inverse_mass_matrix"] = jnp.ones(d)
-
+    # --- Step 4: per-chain pathfinder_adaptation with shared IMM (PATH B) -----
+    # Use n_paths=1 so pathfinder_adaptation enters PATH B (single-path
+    # broadcast) and doesn't call _psis_weighted_mixture_covariance.
+    # We override the init positions externally via the per-chain DA vmap below.
     from tuningfork.calibration.tune import default_value_for_space
 
+    extra_kwargs: dict[str, Any] = dict(kwargs)
     for space in base_method.default_hp_space:
         if space.name not in ("step_size", "inverse_mass_matrix"):
-            if space.name not in init_defaults:
-                init_defaults[space.name] = default_value_for_space(space)
-    init_defaults.setdefault("step_size", step_size_default)
+            if space.name not in extra_kwargs:
+                extra_kwargs[space.name] = default_value_for_space(space)
 
-    kernel = base_method.factory(logdensity_fn, **init_defaults)
+    # Use the PathfinderAdaptationState machinery via window_adaptation with
+    # the pre-computed IMM as a fixed mass matrix — but use window_adaptation
+    # is cleaner. Actually: use pathfinder_adaptation PATH B (n_paths=1) and
+    # just do per-chain DA via vmap over the PSIS-resampled inits.
+    # Simpler: use blackjax.pathfinder_adaptation(num_chains=1, n_paths=1) per
+    # chain, vmap over PSIS-resampled inits, use the pre-computed imm_dense.
+
+    # Actually the cleanest is: use adaptation.base() directly.
+    from blackjax.adaptation.pathfinder_adaptation import base as pf_adapt_base
+
+    adapt_init, adapt_init_from_imm, adapt_update, adapt_final = pf_adapt_base(
+        target_acceptance_rate=0.80
+    )
+    mcmc_kernel = base_method.factory.build_kernel()
+
+    def one_step(carry, k):
+        state, adaptation_state = carry
+        new_state, info = mcmc_kernel(
+            k,
+            state,
+            logdensity_fn,
+            adaptation_state.step_size,
+            adaptation_state.inverse_mass_matrix,
+            **extra_kwargs,
+        )
+        new_adapt = adapt_update(
+            adaptation_state, new_state.position, info.acceptance_rate
+        )
+        return (new_state, new_adapt), None
 
     @jax.vmap
-    def init_one(pos: Any) -> Any:
-        return kernel.init(pos)
+    def run_one_chain(pos: Any, chain_key: jax.Array) -> tuple[Any, Any]:
+        init_state = base_method.factory.init(pos, logdensity_fn)
+        init_adapt = adapt_init_from_imm(imm_dense, step_size_default)
+        step_keys = jax.random.split(chain_key, n_warmup)
+        (last_state, last_adapt), _ = jax.lax.scan(
+            one_step, (init_state, init_adapt), step_keys
+        )
+        step_size, _ = adapt_final(last_adapt)
+        return last_state, step_size
 
-    states = init_one(init_from_psis)
+    chain_keys = jax.random.split(adapt_key, num_chains)
+    states, step_sizes = run_one_chain(init_from_psis, chain_keys)
+    # states: batched over num_chains
+    # step_sizes: (num_chains,) adapted
+
+    # Broadcast shared dense IMM to (num_chains, d, d).
+    imm_per_chain = jnp.broadcast_to(
+        imm_dense[None, :, :], (num_chains,) + imm_dense.shape
+    )
 
     adapted_params: dict[str, Any] = {
-        "step_size": jnp.full((num_chains,), step_size_default),
-        "inverse_mass_matrix": imm_per_chain,  # (num_chains, d)
+        "step_size": step_sizes,  # (num_chains,)
+        "inverse_mass_matrix": imm_per_chain,  # (num_chains, d, d)
         "_multipathfinder_psis_pareto_k": pareto_k,  # scalar
     }
 
@@ -285,15 +295,18 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=_COMPATIBLE,
     notes=(
-        "Multi-path Pathfinder warmup: runs one multi-path Pathfinder "
-        "fit from n_paths independent starting positions (default: n_paths == "
-        "num_chains).  Draws num_chains init positions from the PSIS "
-        "importance-resampled mixture.  Returns the post-PSIS empirical "
-        "covariance diagonal as the inverse_mass_matrix (same value replicated "
-        "to each chain).  No step_size adaptation: returns a constant scalar "
-        "default (1.0) per chain.  Sidecar: "
-        "_multipathfinder_psis_pareto_k (PSIS Pareto-k diagnostic). "
-        "Compatible: nuts, hmc, mala, rwm, barker.  "
+        "Multi-path Pathfinder warmup: runs one multi-path Pathfinder fit "
+        "from n_paths independent starting positions (default: n_paths == num_chains). "
+        "PSIS-resamples num_chains init positions. "
+        "Derives shared dense (d, d) IMM via PSIS-weighted L-BFGS mixture covariance "
+        "(law of total variance). Runs per-chain dual-averaging for n_warmup steps. "
+        "Returns per-chain adapted step_size (num_chains,) and dense (num_chains, d, d) "
+        "IMM broadcast from the shared estimate. "
+        "Sidecar: _multipathfinder_psis_pareto_k (PSIS Pareto-k diagnostic). "
+        "NOTE: IMM is now dense (num_chains, d, d); old diagonal (num_chains, d) "
+        "contract changed in PR B (warmup-collapse-pathfinder-shims). "
+        "Step size is now adapted (DA over n_warmup steps) instead of constant default. "
+        "Compatible: nuts, hmc, mala, rwm, barker. "
         "NOT compatible with mclmc (microcanonical geometry)."
     ),
 )
