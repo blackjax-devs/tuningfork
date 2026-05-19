@@ -254,15 +254,18 @@ ENTRY = Posterior(
         "posteriordb_id=None (no upstream reference draws; Long-NUTS self-check). "
         "Dim=503: mu(1)+phi(1)+log_sigma(1)+h_raw(500)."
     ),
-    # Per-model divergence-rate override: 0.005 (= 0.5%, vs the global 0.1%).
-    # History: originally set 2026-05-12 for the Cauchy/Uniform-prior model which
-    # produced ~105-141 divergences (0.26-0.35%) clustered at the AR(1) unit root.
-    # 2026-05-18 prior revision (Normal(0,5) for mu, Beta(4,4) factor for phi) reduced
-    # trial-level divergences to ~0.03% (4 in 16000) by shifting the posterior bulk
-    # from phi_con≈0.987 to ≈0.961, making unit-root excursions negligible.
-    # Override retained at 0.5% as a conservative buffer for the full cert; the
-    # expectation is that production divergences will be well below 0.1%.
-    divergence_rate_tolerance=0.005,
+    # Per-model divergence-rate override: removed 2026-05-19. The previous
+    # value (0.005 = 0.5%, vs the global 0.1%) was set 2026-05-12 for the
+    # Cauchy/Uniform-prior model which produced ~105-141 divergences
+    # (0.26-0.35%) clustered at the AR(1) unit root. The 2026-05-18 PR #27
+    # prior revision (Normal(0,5) for mu, Beta(4,4) factor for phi) reduced
+    # trial-level divergences to ~0.03% by shifting the posterior bulk from
+    # phi_con≈0.987 to ≈0.961, and the 2026-05-19 production-path re-cert
+    # confirmed 0 divergences at seed=20260517 under bare
+    # window_adaptation_diag_imm. The model now passes cleanly under the
+    # global 0.1% default; the per-model override is no longer needed.
+    # If a future regression resurfaces the unit-root cluster, set the
+    # override back to 0.005 here and document the trigger.
     headline_params=("mu", "phi", "sigma"),
     headline_coords=None,
 )

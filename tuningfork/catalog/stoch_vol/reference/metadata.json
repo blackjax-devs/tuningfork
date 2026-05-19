@@ -7,7 +7,7 @@
   "seed": 20260517,
   "timestamp_utc": "2026-05-19T04:15:06Z",
   "wall_time_seconds": 99.43789862900303,
-  "divergence_rate_tolerance_used": 0.005,
+  "divergence_rate_tolerance_used": 0.001,
   "certification": {
     "passed": true,
     "split_rhat_max": 1.00013267993927,
