@@ -1,0 +1,22 @@
+# === WARMUP: pathfinder (single-path, target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
+# Single-path Pathfinder + dual-averaging step size adaptation.
+# Derives a dense (d,d) IMM from the L-BFGS inverse Hessian; broadcasts to num_chains.
+import jax.numpy as jnp
+
+_pf_adapt = blackjax.pathfinder_adaptation(
+    blackjax.nuts,
+    logdensity_fn,
+    num_chains=num_chains,
+    n_paths=1,  # explicit 1 → PATH A (num_chains=1) or PATH B (num_chains>1)
+    initial_step_size=1.0,
+    target_acceptance_rate=$target_acceptance_rate,
+)
+_pf_results, _ = _pf_adapt.run(jax.random.key($tuning_seed), init_position, $n_warmup)
+_state_post_warmup = _pf_results.state
+_adapted_params = {
+    "step_size": _pf_results.parameters["step_size"],       # scalar or (num_chains,)
+    "inverse_mass_matrix": jnp.broadcast_to(
+        _pf_results.parameters["inverse_mass_matrix"][None],
+        (num_chains,) + _pf_results.parameters["inverse_mass_matrix"].shape,
+    ),  # (num_chains, d, d)
+}
