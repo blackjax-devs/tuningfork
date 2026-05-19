@@ -67,4 +67,14 @@ def test_window_adaptation_dense_imm_returns_correct_imm_shape():
 
     # Check that IMM values are reasonable (no NaN, finite)
     assert jnp.all(jnp.isfinite(imm)), "IMM contains NaN or Inf"
-    assert jnp.all(imm > 0), "IMM should be positive (inverse of SPD matrix)"
+
+    # Check that IMM is positive-DEFINITE per chain.  A covariance matrix
+    # (and its inverse) is PSD with positive eigenvalues, but NOT
+    # element-wise positive — off-diagonal entries can be negative
+    # whenever two dimensions are anti-correlated.  Use eigvalsh (cheap,
+    # vmappable) to check the spectrum rather than the entries.
+    eigvals = jax.vmap(jnp.linalg.eigvalsh)(imm)  # (num_chains, d)
+    assert jnp.all(eigvals > 0), (
+        f"IMM should be positive-definite; "
+        f"min eigenvalue across chains: {float(eigvals.min())}"
+    )
