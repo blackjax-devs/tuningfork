@@ -13,42 +13,36 @@
 # limitations under the License.
 """Single-path Pathfinder warmup: init-and-IMM provider via variational surrogate.
 
-This warmup runs one independent Pathfinder L-BFGS optimisation per chain
-(vmapped over ``(key, init_position)`` pairs), draws one initial position from
-the per-chain variational surrogate, and derives a diagonal inverse mass matrix
-from the per-chain surrogate covariance (the ``alpha`` field of the
-``PathfinderState``).
+This warmup is a thin shim around ``blackjax.pathfinder_adaptation`` with
+``num_chains`` chains and a single L-BFGS path (``n_paths=1`` equivalent via
+``effective_n_paths == 1`` dispatch in upstream).
 
-**No step_size adaptation** is performed.  A scalar default of ``1.0`` is
-returned for every chain.  The downstream sampler should rely on its own
-dual-averaging adaptation (e.g. NUTS's window adaptation) or Bayesian
-optimisation to tune the step size; this warmup only provides a better
-initialisation than a flat prior sample.
+**Breaking change from pre-PR-B contract**: ``inverse_mass_matrix`` is now
+dense ``(num_chains, d, d)`` (broadcast from the shared ``(d, d)`` L-BFGS
+inverse Hessian) instead of the old diagonal ``(num_chains, d)`` form
+(which returned the ``alpha`` field = diagonal of the L-BFGS approximation).
+This matches the upstream blackjax PR #919 uniform dense-IMM contract.
 
 Runner signature (multi-chain contract)::
 
     _runner(rng_key, init_position, n_warmup, base_method,
             *, logdensity_fn, step_size_default=1.0,
-            num_chains: int = 4, **kwargs)
+            num_chains=4, **kwargs)
     -> (states, adapted_params)
 
 Where:
 
-- ``rng_key`` is a single key; split internally into ``num_chains`` keys.
-- ``init_position`` is a single pytree (one chain's worth); replicated
-  across chains internally via ``_maybe_replicate`` unless the caller
-  pre-batches it (leading dim == ``num_chains``).
-- ``states`` is a batched pytree with leading dim ``num_chains``;
-  ``states.position`` has shape ``(num_chains, d)``.
+- ``rng_key`` is a single key.
+- ``init_position`` is a single pytree (one chain's worth).
+- ``states`` is a batched pytree with leading dim ``num_chains``.
 - ``adapted_params`` contains:
 
-  =============================================  =================  ====================================
-  Key                                            Shape              Notes
-  =============================================  =================  ====================================
-  ``step_size``                                  ``(num_chains,)``  Constant ``step_size_default`` per chain
-  ``inverse_mass_matrix``                        ``(num_chains, d)``  Diagonal of per-chain L-BFGS inv-Hessian (``alpha`` field)
-  ``_pathfinder_logZ_estimate``                  ``(num_chains,)``  Per-chain ELBO (sidecar — routes to calibration_budget, not base_method_params)
-  =============================================  =================  ====================================
+  =============================================  ====================  ======================================
+  Key                                            Shape                 Notes
+  =============================================  ====================  ======================================
+  ``step_size``                                  ``(num_chains,)``     Per-chain adapted step size from DA
+  ``inverse_mass_matrix``                        ``(num_chains, d, d)``  Dense IMM broadcast per chain
+  =============================================  ====================  ======================================
 
 Sidecar keys (underscore prefix) are metadata for ``calibration_budget``
 and are NOT forwarded to the base-method kernel as hyperparameters.
@@ -56,23 +50,6 @@ and are NOT forwarded to the base-method kernel as hyperparameters.
 Compatible with: ``nuts``, ``hmc``, ``mala``, ``rwm``, ``barker``.
 NOT compatible with ``mclmc`` (different geometry — microcanonical momentum,
 no Gaussian inverse mass matrix in the HMC sense).
-
-Upstream API (BlackJAX >= 0.9.x):
-
-- ``blackjax.pathfinder.approximate(rng_key, logdensity_fn, initial_position,
-  num_samples=200, ...)``
-  → ``(PathfinderState, PathfinderInfo)``
-- ``PathfinderState._fields``: ``('elbo', 'position', 'grad_position',
-  'alpha', 'beta', 'gamma')``
-  where ``alpha`` is shape ``(d,)`` — the diagonal of the L-BFGS
-  inverse Hessian approximation.
-- Positions inside ``PathfinderState`` retain the original pytree structure
-  (e.g. a dict of arrays).  We use ``jax.flatten_util.ravel_pytree`` to
-  convert to/from a flat ``(d,)`` array for ``bfgs_sample``.
-
-Positions are drawn via the L-BFGS surrogate (``bfgs_sample``) to produce
-geometrically informed starting points that are typically much closer to
-the posterior than a flat prior draw.
 """
 
 from typing import Any
@@ -80,24 +57,19 @@ from typing import Any
 import blackjax
 import jax
 import jax.numpy as jnp
-from blackjax.vi.pathfinder import bfgs_sample
-from jax.flatten_util import ravel_pytree
 
-from tuningfork.warmup._base import Warmup, _maybe_replicate
+from tuningfork.warmup._base import Warmup
 
 __all__ = ["ENTRY"]
 
-# Algorithms that accept an inverse_mass_matrix and are therefore compatible
-# with Pathfinder's init-and-IMM output.  mclmc is excluded: its geometry
-# is microcanonical and its inverse_mass_matrix is a diagonal preconditioner
-# for Euclidean distance, not an HMC-style covariance.
+# Algorithms compatible with HMC-style inverse_mass_matrix.
 _COMPATIBLE = ("nuts", "hmc", "mala", "rwm", "barker")
 
 
 def _runner(
     rng_key: jax.Array,
     init_position: Any,
-    n_warmup: int,  # noqa: ARG001 — accepted for interface uniformity; not used
+    n_warmup: int,
     base_method: Any,  # BaseMethod; not imported to avoid circular dep
     *,
     logdensity_fn: Any,
@@ -105,57 +77,43 @@ def _runner(
     num_chains: int = 4,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
-    """Run single-path Pathfinder independently per chain via ``jax.vmap``.
+    """Run single-path Pathfinder via blackjax.pathfinder_adaptation.
 
-    For each chain, one Pathfinder L-BFGS run is performed from the chain's
-    initial position.  A single init position is drawn from the per-chain
-    variational surrogate.  The diagonal of the per-chain L-BFGS inverse
-    Hessian approximation (``PathfinderState.alpha``) is returned as the
-    ``inverse_mass_matrix``.
+    Thin shim around ``blackjax.pathfinder_adaptation(num_chains=num_chains,
+    n_paths=1)`` (single L-BFGS path broadcast across all chains).
 
     Parameters
     ----------
     rng_key
-        JAX random key.  Split internally into ``num_chains`` independent
-        per-chain keys, each used for one Pathfinder run and one draw.
+        JAX random key.
     init_position
-        Initial unconstrained parameter pytree (one chain's worth).  The
-        runner replicates it to ``(num_chains, ...)`` unless the caller
-        pre-batches it (leading dim == ``num_chains``).
+        Initial unconstrained parameter pytree (one chain's worth).
     n_warmup
-        Accepted for interface uniformity; not used.  Pathfinder's
-        optimisation budget is controlled by ``**kwargs`` (e.g. ``maxiter``).
+        Number of dual-averaging adaptation steps per chain.
     base_method
-        ``BaseMethod`` entry.  Used for kernel-state initialisation after
-        the Pathfinder run.
+        ``BaseMethod`` entry.  Used for compatibility check and extra HP defaults.
     logdensity_fn
         BlackJAX-compatible log-density function.
     step_size_default
-        Constant step size assigned to every chain.  Default ``1.0``.
-        The downstream sampler should adapt this via dual-averaging.
+        Initial step size for dual-averaging.  Default ``1.0``.
     num_chains
-        Number of independent chains to initialise.  Default ``4``.
-        The returned ``states`` have leading dim ``num_chains``.
+        Number of independent chains.  Default ``4``.
     **kwargs
-        Forwarded to ``blackjax.pathfinder.approximate`` (e.g. ``maxiter``,
-        ``maxcor``, ``num_samples``).
+        Additional keyword arguments forwarded to ``pathfinder_adaptation``
+        (e.g. ``maxiter``, ``maxcor`` for the L-BFGS optimiser).
 
     Returns
     -------
     states
-        Post-Pathfinder kernel states, batched over ``num_chains``.
-        ``states.position`` has shape ``(num_chains, d)`` (or ``(num_chains, ...)``
-        for dict/pytree positions).
-        The position of each chain is a single draw from the per-chain
-        variational surrogate.
+        Post-adaptation BlackJAX kernel states, batched over ``num_chains``.
+        ``states.position`` has shape ``(num_chains, d)`` or
+        ``(num_chains, ...)`` for dict-based positions.
     adapted_params
         Dict with:
 
-        - ``"step_size"``: ``(num_chains,)`` array, constant ``step_size_default``.
-        - ``"inverse_mass_matrix"``: ``(num_chains, d)``, per-chain ``alpha``
-          (diagonal of L-BFGS inverse Hessian).
-        - ``"_pathfinder_logZ_estimate"``: ``(num_chains,)``, per-chain ELBO
-          (sidecar metadata; underscore prefix marks it as non-HP).
+        - ``"step_size"``: ``(num_chains,)`` per-chain adapted step size.
+        - ``"inverse_mass_matrix"``: ``(num_chains, d, d)`` dense IMM,
+          broadcast from the shared ``(d, d)`` L-BFGS inverse Hessian.
 
     Raises
     ------
@@ -168,100 +126,63 @@ def _runner(
             f"{base_method.name!r}; compatible: {_COMPATIBLE}"
         )
 
-    # Build the unravel function from a SINGLE-chain position.
-    # If init_position is pre-batched (leading dim == num_chains), extract
-    # one chain's worth so that ravel_pytree gives the right (d,) unravel fn.
-    _leaves = jax.tree.leaves(init_position)
-    _is_prebatched = bool(
-        _leaves and _leaves[0].shape and _leaves[0].shape[0] == num_chains
-    )
-    if _is_prebatched:
-        _single_pos = jax.tree.map(lambda x: x[0], init_position)
-    else:
-        _single_pos = init_position
-    _dummy_flat, unravel_fn = ravel_pytree(_single_pos)
-    d = int(_dummy_flat.shape[0])
-
-    # Split key into per-chain Pathfinder keys and per-chain sampling keys.
-    pf_key, sample_key = jax.random.split(rng_key)
-    chain_pf_keys = jax.random.split(pf_key, num_chains)
-    chain_sample_keys = jax.random.split(sample_key, num_chains)
-
-    # Replicate init_position across chains.  Pass-through if pre-batched.
-    init_positions = _maybe_replicate(init_position, num_chains)
-
-    # Pull Pathfinder-specific kwargs; remainder is forwarded to .approximate().
-    num_samples = kwargs.pop("num_samples", 200)
-    pf_kwargs: dict[str, Any] = kwargs
-
-    @jax.vmap
-    def run_one_pathfinder(
-        pf_k: jax.Array, sample_k: jax.Array, x0: Any
-    ) -> tuple[jax.Array, jax.Array, jax.Array]:
-        """Run Pathfinder once; return (flat_init_pos, alpha, elbo)."""
-        pf_state, _info = blackjax.pathfinder.approximate(
-            pf_k, logdensity_fn, x0, num_samples=num_samples, **pf_kwargs
-        )
-        # Ravel the pytree position to a flat (d,) array for bfgs_sample.
-        flat_pos, _ = ravel_pytree(pf_state.position)
-        flat_grad, _ = ravel_pytree(pf_state.grad_position)
-        # Draw one init position from the variational surrogate.
-        # bfgs_sample returns (samples: (1, d), logq: (1,)).
-        drawn_flat, _logq = bfgs_sample(
-            sample_k,
-            1,
-            flat_pos,
-            flat_grad,
-            pf_state.alpha,
-            pf_state.beta,
-            pf_state.gamma,
-        )
-        # drawn_flat: (1, d) → take first sample.
-        init_pos_flat = drawn_flat[0]  # (d,)
-        return init_pos_flat, pf_state.alpha, pf_state.elbo
-
-    flat_init_positions, alpha_per_chain, elbo_per_chain = run_one_pathfinder(
-        chain_pf_keys, chain_sample_keys, init_positions
-    )
-    # flat_init_positions: (num_chains, d)
-    # alpha_per_chain:     (num_chains, d)
-    # elbo_per_chain:      (num_chains,)
-
-    # Convert flat (num_chains, d) positions back to the original pytree
-    # structure: apply unravel_fn independently for each chain.
-    init_positions_pytree = jax.vmap(unravel_fn)(flat_init_positions)
-    # init_positions_pytree: pytree with leading dim num_chains
-
-    # Build the kernel with neutral HPs for state initialisation.
-    # The actual IMM comes from adapted_params; we inject an identity here
-    # just to satisfy the kernel constructor.
-    init_defaults: dict[str, Any] = {}
-    if base_method.needs_mass_matrix:
-        init_defaults["inverse_mass_matrix"] = jnp.ones(d)
-
+    # Build extra kwargs for the algorithm (e.g. num_integration_steps for HMC).
     from tuningfork.calibration.tune import default_value_for_space
 
+    extra_kwargs: dict[str, Any] = dict(kwargs)
     for space in base_method.default_hp_space:
         if space.name not in ("step_size", "inverse_mass_matrix"):
-            if space.name not in init_defaults:
-                init_defaults[space.name] = default_value_for_space(space)
-    init_defaults.setdefault("step_size", step_size_default)
+            if space.name not in extra_kwargs:
+                extra_kwargs[space.name] = default_value_for_space(space)
 
-    kernel = base_method.factory(logdensity_fn, **init_defaults)
+    # n_paths=1 forces PATH B (multichain single-path) in pathfinder_adaptation:
+    # upstream computes effective_n_paths = n_paths if n_paths is not None else num_chains,
+    # so n_paths=None with num_chains=4 would give effective_n_paths=4 → PATH C
+    # (multipathfinder), which calls _psis_weighted_mixture_covariance and fails
+    # on dict-position pytrees.  n_paths=1 always forces PATH A (num_chains=1)
+    # or PATH B (num_chains>1) — single L-BFGS fit, broadcast to all chains.
+    adaptation = blackjax.pathfinder_adaptation(
+        base_method.factory,
+        logdensity_fn,
+        num_chains=num_chains,
+        n_paths=1,  # explicit: effective_n_paths=1 → PATH A/B, never PATH C
+        initial_step_size=step_size_default,
+        **extra_kwargs,
+    )
 
-    @jax.vmap
-    def init_one(pos: Any) -> Any:
-        return kernel.init(pos)
+    results, _info = adaptation.run(rng_key, init_position, num_steps=n_warmup)
+    # results.state:
+    #   num_chains=1 → PATH A → single-chain state (NO leading batch dim)
+    #   num_chains>1 → PATH B → vmapped state (leading dim = num_chains)
+    # results.parameters["step_size"]: scalar (PATH A) or (num_chains,) (PATH B)
+    # results.parameters["inverse_mass_matrix"]: (d, d) shared
 
-    states = init_one(init_positions_pytree)
+    state = results.state
+    if num_chains == 1:
+        # PATH A returns an unbatched single-chain state; add the leading batch
+        # dim of 1 so the multi-chain contract is uniformly satisfied.
+        state = jax.tree.map(lambda x: x[None], state)
+
+    shared_imm = results.parameters["inverse_mass_matrix"]  # (d, d)
+    # Broadcast shared IMM to (num_chains, d, d) to match per-chain contract.
+    imm_per_chain = jnp.broadcast_to(
+        shared_imm[None, :, :], (num_chains,) + shared_imm.shape
+    )
+
+    # Normalise step_size to always be (num_chains,).
+    step_size_raw = results.parameters["step_size"]
+    step_size = (
+        jnp.full((num_chains,), step_size_raw)
+        if jnp.asarray(step_size_raw).ndim == 0
+        else jnp.asarray(step_size_raw)
+    )
 
     adapted_params: dict[str, Any] = {
-        "step_size": jnp.full((num_chains,), step_size_default),
-        "inverse_mass_matrix": alpha_per_chain,  # (num_chains, d)
-        "_pathfinder_logZ_estimate": elbo_per_chain,  # (num_chains,)
+        "step_size": step_size,  # (num_chains,)
+        "inverse_mass_matrix": imm_per_chain,  # (num_chains, d, d)
     }
 
-    return states, adapted_params
+    return state, adapted_params
 
 
 ENTRY = Warmup(
@@ -269,14 +190,14 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=_COMPATIBLE,
     notes=(
-        "Single-path Pathfinder warmup: runs one independent L-BFGS "
-        "Pathfinder optimisation per chain via jax.vmap.  Draws one init "
-        "position from each chain's variational surrogate and returns the "
-        "per-chain L-BFGS inverse-Hessian diagonal (alpha) as the "
-        "inverse_mass_matrix.  No step_size adaptation: returns a constant "
-        "scalar default (1.0) per chain.  Sidecar: "
-        "_pathfinder_logZ_estimate (per-chain ELBO).  "
-        "Compatible: nuts, hmc, mala, rwm, barker.  "
+        "Single-path Pathfinder warmup (thin shim around blackjax.pathfinder_adaptation "
+        "with num_chains and n_paths=None — single L-BFGS path). "
+        "Adapts step size via dual-averaging over n_warmup steps. "
+        "Returns per-chain adapted step_size (num_chains,) and dense (num_chains, d, d) "
+        "IMM broadcast from the shared L-BFGS inverse Hessian. "
+        "NOTE: IMM is now dense (num_chains, d, d); old diagonal (num_chains, d) "
+        "contract changed in PR B (warmup-collapse-pathfinder-shims). "
+        "Compatible: nuts, hmc, mala, rwm, barker. "
         "NOT compatible with mclmc (microcanonical geometry)."
     ),
 )
