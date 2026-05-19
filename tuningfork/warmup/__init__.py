@@ -29,6 +29,10 @@ Pathfinder-based warmups:
 - ``multipathfinder``: multi-path Pathfinder with PSIS importance resampling;
   compatible with hmc, nuts, mala, rwm, barker.  Returns post-PSIS empirical
   variance as the shared IMM.
+- ``multipathfinder_window_adaptation``: paper-canonical composed warmup
+  (Zhang et al. 2022 § 4): multipathfinder init + window_adaptation seeded
+  with dense IMM + medium pseudo-count shrinkage; compatible with hmc, nuts,
+  mala, rwm, barker.
 
 Variational inference warmups:
 - ``meanfield_vi``: mean-field variational inference warmup.
@@ -54,6 +58,9 @@ from tuningfork.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
 from tuningfork.warmup.meads import ENTRY as _meads
 from tuningfork.warmup.meanfield_vi import ENTRY as _meanfield_vi
 from tuningfork.warmup.multipathfinder import ENTRY as _multipathfinder
+from tuningfork.warmup.multipathfinder_window_adaptation import (
+    ENTRY as _multipathfinder_window_adaptation,
+)
 from tuningfork.warmup.no_warmup import ENTRY as _no_warmup
 from tuningfork.warmup.pathfinder import ENTRY as _pathfinder
 from tuningfork.warmup.window_adaptation_dense_imm import (
@@ -72,6 +79,7 @@ WARMUPS: dict[str, Warmup] = {
     _no_warmup.name: _no_warmup,
     _pathfinder.name: _pathfinder,
     _multipathfinder.name: _multipathfinder,
+    _multipathfinder_window_adaptation.name: _multipathfinder_window_adaptation,
     _meads.name: _meads,
     _chees.name: _chees,
     _meanfield_vi.name: _meanfield_vi,
