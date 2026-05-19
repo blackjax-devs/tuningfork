@@ -4,47 +4,49 @@
   "warmup_name": "window_adaptation_diag_imm",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.7202612161636353,
+    "step_size": 0.783676028251648,
     "inverse_mass_matrix": [
-      0.9643641114234924,
-      1.0098583698272705,
-      0.9952629804611206,
-      0.985684335231781,
-      0.9795027375221252,
-      0.9883358478546143,
-      1.0036567449569702,
-      0.889834463596344,
-      0.9783085584640503,
-      1.1046048402786255
+      1.057571530342102,
+      0.9489613771438599,
+      0.9951630234718323,
+      0.824773371219635,
+      0.9710015654563904,
+      0.9162372946739197,
+      1.0355700254440308,
+      0.9333285689353943,
+      0.99281245470047,
+      1.0262962579727173
     ]
   },
   "warmup_params": {
-    "n_warmup": 2000,
+    "n_warmup": 1000,
+    "num_chains": 4,
     "target_acceptance": 0.8
   },
-  "headline_metric": 0.26602745056152344,
+  "headline_metric": 0.25787028670310974,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 4.733143904002645,
-    "n_warmup": 2000,
-    "n_samples": 10000
+    "wall_seconds_estimate": 5.5675722129963106,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.7202612161636353, 'inverse_mass_matrix': [0.9643641114234924, 1.0098583698272705, 0.9952629804611206, 0.985684335231781, 0.9795027375221252, 0.9883358478546143, 1.0036567449569702, 0.889834463596344, 0.9783085584640503, 1.1046048402786255]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2660.\nWall time to produce this recipe: ~4 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.783676028251648, 'inverse_mass_matrix': [1.057571530342102, 0.9489613771438599, 0.9951630234718323, 0.824773371219635, 0.9710015654563904, 0.9162372946739197, 1.0355700254440308, 0.9333285689353943, 0.99281245470047, 1.0262962579727173]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2579.\nWall time to produce this recipe: ~5 s (machine-only).",
   "notes": "",
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0005744943862958,
-      "min_bulk_ess": 17445.17723071633,
+      "rhat_max": 1.0045113745763803,
+      "min_bulk_ess": 6863.270963972786,
       "n_divergences": 0,
       "max_abs_mean_z": null,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0005744943862958,
+          "value": 1.0045113745763803,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -52,7 +54,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 17445.17723071633,
+          "value": 6863.270963972786,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -77,9 +79,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev75+gb094083cc",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-18T23:20:11Z",
+  "timestamp_utc": "2026-05-19T21:47:47Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

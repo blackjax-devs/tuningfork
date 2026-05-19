@@ -16,13 +16,15 @@
 Implements the full ``warmup → sample → auto_gate → Recipe.LOW`` flow for the
 wadapt-hmc-sweep Phase 3.  Each cell runs:
 
-1. ``warmup.runner`` (single chain, ``n_warmup=2000``) to get adapted
-   ``(step_size, inverse_mass_matrix)``.
-2. ``base_method.factory(..., **kernel_params)`` + ``run_inference_algorithm``
-   for ``n_samples=10000`` post-warmup draws.
-3. ``auto_gate(samples, infos)`` to classify PASS / REVIEW / FAIL.
+1. ``warmup.runner(num_chains=4)`` to get per-chain adapted
+   ``(step_size, inverse_mass_matrix)`` for ``n_warmup=1000`` steps each.
+2. ``jax.vmap(run_one_chain)`` over the four chains: each chain rebuilds its
+   own kernel with its own adapted params and runs ``n_samples=1000``
+   post-warmup draws via ``blackjax.util.run_inference_algorithm``.
+3. ``auto_gate(samples, infos)`` over the ``(num_chains, n_samples, *event)``
+   shape to classify PASS / REVIEW / FAIL.
 4. On PASS: saves ``catalog/<model>/recipes/low__<sampler>__<warmup>.json``
-   and an IMM sidecar ``.imm.npz`` when the IMM has more than 50 elements.
+   pinning chain 0's (step_size, IMM); IMM sidecar when ``imm.size > 50``.
 
 Usage (CLI):
 
@@ -34,10 +36,10 @@ Usage (CLI):
 The module is **not** exposed through the public ``tuningfork.recipes``
 ``__init__.py``; it is an internal generator-layer script.
 
-Phase 3 spec (from ``wadapt-hmc-sweep.md`` §8 / §10):
-    - ``n_warmup=2000``, ``n_samples=10000``, ``seed=20260517``
+Phase 3 spec (per worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md):
+    - ``n_warmup=1000``, ``n_samples=1000``, ``num_chains=4`` (quick mode)
+    - ``seed=20260517`` (master); per-chain keys split internally
     - ``target_acceptance`` from ``base_method`` default (default 0.8)
-    - ``n_chunks=4`` (split-Rhat)
     - PASS verdict → emit LOW recipe; FAIL/REVIEW → write note to
       ``/tmp/wadapt-phase3-outcomes.md`` and exit non-zero.
 """
@@ -64,15 +66,19 @@ from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.recipes._base import Effort, Recipe
 from tuningfork.recipes._instructions import render_instructions
 from tuningfork.warmup import WARMUPS
-from tuningfork.warmup._base import squeeze_single_chain
 
 __all__ = ["emit_low_recipe_for_cell", "CellResult"]
 
-# Phase 3 canonical parameters (locked in wadapt-hmc-sweep.md Decision 3)
-PHASE3_N_WARMUP: int = 2000
-PHASE3_N_SAMPLES: int = 10000
+# Phase 3 canonical parameters
+# (4 chains x 1000 samples = "quick mode" non-groundtruth recipe protocol per
+#  worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md § Section 0;
+#  matches auto_gate's `min_bulk_ess >= 400` calibration. Use `quick` for LOW
+#  recipes; MEDIUM/HIGH should bump `n_samples` to 4000 via CLI override.)
+PHASE3_N_WARMUP: int = 1000
+PHASE3_N_SAMPLES: int = 1000
+PHASE3_NUM_CHAINS: int = 4
 PHASE3_SEED: int = 20260517
-PHASE3_N_CHUNKS: int = 4
+PHASE3_N_CHUNKS: int = 4  # for split-R̂; ignored when samples are multi-chain
 PHASE3_TARGET_ACCEPTANCE: float = 0.8
 
 # Catalog root (relative to this file: tuningfork/tuningfork/catalog/)
@@ -200,6 +206,7 @@ def emit_low_recipe_for_cell(
     *,
     n_warmup: int = PHASE3_N_WARMUP,
     n_samples: int = PHASE3_N_SAMPLES,
+    num_chains: int = PHASE3_NUM_CHAINS,
     seed: int = PHASE3_SEED,
     n_chunks: int = PHASE3_N_CHUNKS,
     catalog_root: Path = _CATALOG_ROOT,
@@ -217,13 +224,19 @@ def emit_low_recipe_for_cell(
     sampler_name
         Registry key in ``BASE_METHODS``, e.g. ``"nuts"``.
     n_warmup
-        Warmup steps (default ``PHASE3_N_WARMUP`` = 2000).
+        Warmup steps per chain (default ``PHASE3_N_WARMUP`` = 1000).
     n_samples
-        Post-warmup sampler steps (default ``PHASE3_N_SAMPLES`` = 10000).
+        Post-warmup sampler steps per chain (default ``PHASE3_N_SAMPLES`` = 1000).
+    num_chains
+        Number of independent chains run in parallel via ``jax.vmap``
+        (default ``PHASE3_NUM_CHAINS`` = 4).  The non-groundtruth recipe
+        protocol (per `worklog/decisions/2026-05-11-phase6-visualization-
+        diagnostics.md` § Section 0) is 4 chains × 1000 quick mode.
     seed
         Master JAX random seed (default ``PHASE3_SEED`` = 20260517).
     n_chunks
-        Split-Rhat rechunk count (default 4).
+        Split-Rhat rechunk count if samples come in single-chain layout;
+        ignored when samples are already multi-chain (default 4).
     catalog_root
         Root of the catalog directory (default: ``tuningfork/catalog/``).
     outcomes_file
@@ -306,8 +319,8 @@ def emit_low_recipe_for_cell(
             note=note,
         )
 
-    # --- Warmup (single chain) ---
-    _log(f"  Warmup ({warmup_name}, n_warmup={n_warmup})...")
+    # --- Warmup (multi-chain via warmup.runner's internal vmap) ---
+    _log(f"  Warmup ({warmup_name}, n_warmup={n_warmup}, num_chains={num_chains})...")
     t_warmup0 = time.perf_counter()
     try:
         batched_state, batched_params = warmup.runner(
@@ -316,10 +329,7 @@ def emit_low_recipe_for_cell(
             n_warmup,
             base_method,
             logdensity_fn=logdensity_fn,
-            num_chains=1,
-        )
-        adapted_state, adapted_params = squeeze_single_chain(
-            batched_state, batched_params
+            num_chains=num_chains,
         )
     except Exception as exc:
         note = f"FAIL warmup error: {type(exc).__name__}: {exc}"
@@ -335,15 +345,19 @@ def emit_low_recipe_for_cell(
         )
     t_warmup = time.perf_counter() - t_warmup0
 
-    step_size_val = adapted_params.get("step_size", None)
-    if step_size_val is not None:
-        ss = float(np.asarray(step_size_val).ravel()[0])
-        _log(f"  Warmup done in {t_warmup:.1f}s. step_size={ss:.4g}")
+    step_size_arr = batched_params.get("step_size", None)
+    if step_size_arr is not None:
+        ss_np = np.asarray(step_size_arr).ravel()
+        _log(
+            f"  Warmup done in {t_warmup:.1f}s. "
+            f"step_size per chain: min={float(ss_np.min()):.4g} "
+            f"max={float(ss_np.max()):.4g}"
+        )
     else:
         _log(f"  Warmup done in {t_warmup:.1f}s.")
 
-    # Check for NaN/Inf in adapted params
-    for k, v in adapted_params.items():
+    # Check for NaN/Inf in adapted params (per-chain)
+    for k, v in batched_params.items():
         arr = np.asarray(v)
         if not np.all(np.isfinite(arr)):
             note = f"FAIL warmup produced NaN/Inf in {k}"
@@ -358,42 +372,60 @@ def emit_low_recipe_for_cell(
                 note=note,
             )
 
-    # --- Build kernel params: defaults merged with adapted ---
+    # --- Build shared kernel kwargs (per-chain (step_size, IMM) comes via vmap) ---
     default_params = default_params_for(base_method)
-    clean_adapted = {k: v for k, v in adapted_params.items() if not k.startswith("_")}
-    kernel_params: dict[str, Any] = {**default_params, **clean_adapted}
-
+    # Defaults minus the per-chain-adapted keys
+    shared_kwargs: dict[str, Any] = {
+        k: v
+        for k, v in default_params.items()
+        if k not in ("step_size", "inverse_mass_matrix")
+    }
     # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
     # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
     # Strip the int; blackjax's default `integration_steps_fn` (uniform L in
     # [1, 10)) takes over at the kernel.
     if sampler_name in ("dynamic_hmc", "dmhmc"):
-        kernel_params.pop("num_integration_steps", None)
+        shared_kwargs.pop("num_integration_steps", None)
 
-    # --- Sampling ---
-    _log(f"  Sampling ({sampler_name}, n_samples={n_samples})...")
-    t_sample0 = time.perf_counter()
-    try:
-        kernel = base_method.factory(logdensity_fn, **kernel_params)
+    batched_step_size = batched_params["step_size"]
+    batched_imm = batched_params["inverse_mass_matrix"]
+    needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
 
-        # dynamic_hmc / dmhmc carry `random_generator_arg` in their kernel state
-        # (DynamicHMCState extends HMCState with a `random_generator_arg` field).
-        # The warmup substitutes `blackjax.hmc` per `_laplace_adapter.resolve_warmup_algorithm`
-        # so `adapted_state` is an HMCState (no `random_generator_arg`).  Re-init from
-        # the position to get the correct state structure.
-        if sampler_name in ("dynamic_hmc", "dmhmc"):
-            dyn_init_key, sample_key = jax.random.split(sample_key)
-            initial_state = kernel.init(adapted_state.position, dyn_init_key)
+    def _run_one_chain(rng, init_state, step_size, imm):
+        kernel = base_method.factory(
+            logdensity_fn,
+            step_size=step_size,
+            inverse_mass_matrix=imm,
+            **shared_kwargs,
+        )
+        if needs_dyn_reinit:
+            # DynamicHMCState extends HMCState with `random_generator_arg`;
+            # warmup output (HMC-substituted) is an HMCState, so re-init from
+            # the position to get the correct state structure.
+            reinit_key, run_key = jax.random.split(rng)
+            init_for_run = kernel.init(init_state.position, reinit_key)
         else:
-            initial_state = adapted_state
-
-        _, (states, infos) = run_inference_algorithm(
-            rng_key=sample_key,
+            init_for_run, run_key = init_state, rng
+        _, (st, inf) = run_inference_algorithm(
+            rng_key=run_key,
             inference_algorithm=kernel,
             num_steps=n_samples,
-            initial_state=initial_state,
+            initial_state=init_for_run,
         )
-        positions = states.position  # dict {param: (n_samples, *shape)}
+        return st, inf
+
+    # --- Sampling (multi-chain via jax.vmap) ---
+    _log(
+        f"  Sampling ({sampler_name}, n_samples={n_samples}, "
+        f"num_chains={num_chains})..."
+    )
+    t_sample0 = time.perf_counter()
+    try:
+        chain_keys = jax.random.split(sample_key, num_chains)
+        states, infos = jax.vmap(_run_one_chain)(
+            chain_keys, batched_state, batched_step_size, batched_imm
+        )
+        positions = states.position  # dict {param: (num_chains, n_samples, *shape)}
     except Exception as exc:
         note = f"FAIL sampler error: {type(exc).__name__}: {exc}"
         _log(f"  {note}")
@@ -463,19 +495,35 @@ def emit_low_recipe_for_cell(
         )
 
     # --- Build headline metric ---
-    mc_positions = {k: np.asarray(v)[np.newaxis, ...] for k, v in positions.items()}
+    # positions is already (num_chains, n_samples, *event) — no rechunk needed.
+    mc_positions = {k: np.asarray(v) for k, v in positions.items()}
     grad_evals = total_grad_evals(infos, base_method.grad_count_per_step)
     headline: float | None = None
     if grad_evals > 0:
         headline = float(min_bulk_ess_per_grad(mc_positions, grad_evals))
 
     # --- Build recipe ---
+    # The recipe pins ONE reproducible (step_size, IMM) config — the multi-chain
+    # run was the auto-gate validation, but a recipe is a single replayable
+    # specification, so we pin chain 0's adapted params.  Other chains' values
+    # are functionally equivalent given the deterministic seed + per-chain key.
     _log("  Building LOW recipe...")
-    jsonable_params = _to_jsonable(kernel_params)
+    chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
+    pinned_params: dict[str, Any] = {**shared_kwargs, "step_size": chain0_step_size}
+    jsonable_params = _to_jsonable(pinned_params)
+
     imm_arr: np.ndarray | None = None
-    imm_raw = adapted_params.get("inverse_mass_matrix", None)
-    if imm_raw is not None:
-        imm_arr = np.asarray(imm_raw)
+    imm_raw = batched_params.get("inverse_mass_matrix", None)
+    if imm_raw is not None and hasattr(imm_raw, "_fields"):
+        # Structured IMM (e.g., LowRankInverseMassMatrix NamedTuple).  Each
+        # field is shape (num_chains, *event); pin chain 0 across all fields.
+        # Always sidecar for structured IMMs.
+        imm_arr = None  # sentinel — no flat array
+        jsonable_params["inverse_mass_matrix"] = "sidecar"
+    elif imm_raw is not None:
+        imm_full = np.asarray(imm_raw)
+        # Chain-0 IMM: drop the leading num_chains axis.
+        imm_arr = imm_full[0] if imm_full.ndim >= 1 else imm_full
         if imm_arr.size > 50:
             jsonable_params["inverse_mass_matrix"] = "sidecar"
         else:
@@ -496,6 +544,7 @@ def emit_low_recipe_for_cell(
         base_method_params=jsonable_params,
         warmup_params={
             "n_warmup": n_warmup,
+            "num_chains": num_chains,
             "target_acceptance": PHASE3_TARGET_ACCEPTANCE,
         },
         headline_metric=headline,
@@ -505,6 +554,7 @@ def emit_low_recipe_for_cell(
             "wall_seconds_estimate": t_total,
             "n_warmup": n_warmup,
             "n_samples": n_samples,
+            "num_chains": num_chains,
         },
         difficulty=None,
         instructions="",
