@@ -363,16 +363,35 @@ def emit_low_recipe_for_cell(
     clean_adapted = {k: v for k, v in adapted_params.items() if not k.startswith("_")}
     kernel_params: dict[str, Any] = {**default_params, **clean_adapted}
 
+    # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
+    # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
+    # Strip the int; blackjax's default `integration_steps_fn` (uniform L in
+    # [1, 10)) takes over at the kernel.
+    if sampler_name in ("dynamic_hmc", "dmhmc"):
+        kernel_params.pop("num_integration_steps", None)
+
     # --- Sampling ---
     _log(f"  Sampling ({sampler_name}, n_samples={n_samples})...")
     t_sample0 = time.perf_counter()
     try:
         kernel = base_method.factory(logdensity_fn, **kernel_params)
+
+        # dynamic_hmc / dmhmc carry `random_generator_arg` in their kernel state
+        # (DynamicHMCState extends HMCState with a `random_generator_arg` field).
+        # The warmup substitutes `blackjax.hmc` per `_laplace_adapter.resolve_warmup_algorithm`
+        # so `adapted_state` is an HMCState (no `random_generator_arg`).  Re-init from
+        # the position to get the correct state structure.
+        if sampler_name in ("dynamic_hmc", "dmhmc"):
+            dyn_init_key, sample_key = jax.random.split(sample_key)
+            initial_state = kernel.init(adapted_state.position, dyn_init_key)
+        else:
+            initial_state = adapted_state
+
         _, (states, infos) = run_inference_algorithm(
             rng_key=sample_key,
             inference_algorithm=kernel,
             num_steps=n_samples,
-            initial_state=adapted_state,
+            initial_state=initial_state,
         )
         positions = states.position  # dict {param: (n_samples, *shape)}
     except Exception as exc:
