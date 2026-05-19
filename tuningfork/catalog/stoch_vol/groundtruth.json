@@ -1,37 +1,35 @@
 {
   "model_name": "stoch_vol",
   "base_method_name": "nuts",
-  "warmup_name": "multipathfinder",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
   "base_method_params": {
-    "step_size": 0.035499244928359985,
+    "step_size": 0.03427659720182419,
     "inverse_mass_matrix": "sidecar"
   },
   "warmup_params": {
     "n_warmup": 5000,
     "n_chunks": 4,
     "target_acceptance": 0.99,
-    "max_num_doublings": 15,
-    "multipathfinder_n_paths": 4,
-    "multipathfinder_num_samples_per_path": 200
+    "max_num_doublings": 15
   },
   "headline_metric": null,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 142.4,
+    "wall_seconds_estimate": 99.43789862900303,
     "n_warmup": 5000,
     "n_samples": 40000
   },
   "difficulty": null,
-  "instructions": "**Ground-truth reference recipe** for `stoch_vol`. Sampled via a single long NUTS chain (1×40000 post-warmup, 5000-step multipathfinder+window-adaptation warmup, target_acceptance=0.99). Certified to split-R̂ ≤ 1.01, min per-chunk bulk-ESS ≥ 400, 0 divergences, E-BFMI ≥ 0.3 across 4 contiguous chunks.\n\n**Prior revision 2026-05-18**: mu~Normal(0,5) replaces Cauchy(0,10); phi prior uses Uniform(-1,1)×Beta(4,4) factor (equivalent to phi_01~Beta(4,4), phi=2·phi_01-1), centred at phi_con=0. This reduces divergences from 141 (0.35%) to 0 by shifting the posterior bulk from phi_con≈0.987 to ≈0.961. Acknowledged interpretation change: model now assumes weaker AR(1) persistence by default; data drives phi to ~0.961.\n\nThe samples themselves live at `tuningfork/catalog/stoch_vol/groundtruth_samples/blackjax/` (Git LFS). Load via:\n\n    from tuningfork.catalog import load_idata\n    idata = load_idata('stoch_vol')",
-  "notes": "Prior revision 2026-05-18: Beta(4,4) phi factor + Normal(0,5) mu. Zero divergences at full cert (vs 141/0.35% under original Uniform/Cauchy priors). phi_con posterior mean: 0.961 (vs 0.987 before). mu_std: 0.345 (vs 1.17 before — indirect effect of phi regularisation). Pareto-k from multipathfinder: 1.592 (expected high for this model).",
+  "instructions": "**Ground-truth reference recipe** for `stoch_vol`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.99). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/stoch_vol/draws.npz` (gitignored \u2014 40000 samples \u00d7 dim=503). Load via:\n\n    from tuningfork._cache_io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['stoch_vol'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
+  "notes": "",
   "inverse_mass_matrix_path": "stoch_vol/groundtruth.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0002017020225525,
-      "min_bulk_ess": 3197.2,
+      "rhat_max": 1.00013267993927,
+      "min_bulk_ess": 2871.966796875,
       "n_divergences": 0,
       "max_abs_mean_z": null,
       "verdict": "PASS",
@@ -45,7 +43,9 @@
   },
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",
-  "blackjax_version": "1.6.dev68+g820718a91",
+  "blackjax_version": "1.6.dev75+gb094083cc",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-18T00:00:00Z"
+  "timestamp_utc": "2026-05-19T04:55:30Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
 }
