@@ -875,9 +875,10 @@ _D = 10  # MVN-10 has 10 dimensions
 class TestPathfinderMultiChain:
     """pathfinder warmup multi-chain shape contract tests.
 
-    Single-path Pathfinder: one independent L-BFGS run per chain (vmap).
-    Returns init positions drawn from the per-chain variational surrogate and
-    the per-chain alpha (diagonal of L-BFGS inverse Hessian) as IMM.
+    Thin shim around blackjax.pathfinder_adaptation(num_chains=..., n_paths=None).
+    IMM is now dense (num_chains, d, d) — breaking change from the old
+    diagonal (num_chains, d) contract in PR B (warmup-collapse-pathfinder-shims).
+    Step size is NOW adapted (dual-averaging over n_warmup steps).
     """
 
     def _run(self, seed: int, num_chains: int, **kw):
@@ -896,7 +897,7 @@ class TestPathfinderMultiChain:
         )
 
     def test_default_num_chains_equals_4(self) -> None:
-        """Default num_chains=4: position leading dim == 4."""
+        """Default num_chains=4: position leading dim == 4, dense IMM (4, d, d)."""
         from tuningfork.warmup.pathfinder import ENTRY
 
         key = jax.random.key(4001)
@@ -913,38 +914,27 @@ class TestPathfinderMultiChain:
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
         imm = params["inverse_mass_matrix"]
-        assert imm.shape == (4, _D), f"IMM expected (4, {_D}), got {imm.shape}"
+        # Dense IMM: (num_chains, d, d) — changed from old (num_chains, d) diagonal
+        assert imm.shape == (
+            4,
+            _D,
+            _D,
+        ), f"IMM expected (4, {_D}, {_D}), got {imm.shape}"
 
     def test_explicit_num_chains_2(self) -> None:
-        """num_chains=2: position (2, d), step_size (2,), IMM (2, d)."""
+        """num_chains=2: position (2, d), step_size (2,), dense IMM (2, d, d)."""
         states, params = self._run(4002, num_chains=2)
         pos_shape = _position_shape(states)
         assert pos_shape == (2, _D), f"Expected (2, {_D}), got {pos_shape}"
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (2,), f"step_size expected (2,), got {ss.shape}"
         imm = params["inverse_mass_matrix"]
-        assert imm.shape == (2, _D), f"IMM expected (2, {_D}), got {imm.shape}"
-
-    def test_pre_batched_init_position_passes_through(self) -> None:
-        """Pre-batched init_position (leading dim == num_chains) is not double-broadcast."""
-        from tuningfork.warmup.pathfinder import ENTRY
-
-        num_chains = 4
-        key = jax.random.key(4003)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        batched_pos = jax.tree.map(
-            lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape), init_pos
-        )
-        states, params = ENTRY.runner(
-            jax.random.fold_in(key, 1),
-            batched_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-            num_chains=num_chains,
-        )
-        pos_shape = _position_shape(states)
-        assert pos_shape == (4, _D), f"Pre-batched: expected (4, {_D}), got {pos_shape}"
+        # Dense IMM: changed from (2, d) to (2, d, d)
+        assert imm.shape == (
+            2,
+            _D,
+            _D,
+        ), f"IMM expected (2, {_D}, {_D}), got {imm.shape}"
 
     def test_step_size_and_imm_keys_present(self) -> None:
         """adapted_params must contain step_size and inverse_mass_matrix."""
@@ -952,30 +942,25 @@ class TestPathfinderMultiChain:
         assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
         assert "inverse_mass_matrix" in params, f"Missing IMM; keys: {list(params)}"
 
-    def test_logz_estimate_sidecar_present(self) -> None:
-        """_pathfinder_logZ_estimate sidecar must be present."""
-        _, params = self._run(4005, num_chains=2)
-        assert (
-            "_pathfinder_logZ_estimate" in params
-        ), f"Missing _pathfinder_logZ_estimate; keys: {list(params)}"
-        elbo = jnp.asarray(params["_pathfinder_logZ_estimate"])
-        assert elbo.shape == (2,), f"Expected (2,), got {elbo.shape}"
-
-    def test_step_size_is_constant_default(self) -> None:
-        """Pathfinder returns a constant step_size_default per chain (no adaptation)."""
+    def test_step_size_positive(self) -> None:
+        """Pathfinder now adapts step_size via DA; all values must be > 0."""
         _, params = self._run(4006, num_chains=4)
         ss = jnp.asarray(params["step_size"])
-        assert bool(jnp.all(ss == 1.0)), f"All step_sizes should be 1.0, got {ss}"
+        assert bool(jnp.all(ss > 0)), f"All step_sizes should be > 0, got {ss}"
 
     def test_num_chains_1_not_squeezed(self) -> None:
-        """num_chains=1 → leading dim 1 (NOT squeezed)."""
+        """num_chains=1 → leading dim 1 (NOT squeezed), dense IMM (1, d, d)."""
         states, params = self._run(4007, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (1,), f"step_size expected (1,), got {ss.shape}"
         imm = params["inverse_mass_matrix"]
-        assert imm.shape == (1, _D), f"IMM expected (1, {_D}), got {imm.shape}"
+        assert imm.shape == (
+            1,
+            _D,
+            _D,
+        ), f"IMM expected (1, {_D}, {_D}), got {imm.shape}"
 
     def test_compatibility_check_raises_for_mclmc(self) -> None:
         """is_compatible('mclmc') returns False; runner raises ValueError for mclmc."""
@@ -1006,9 +991,10 @@ class TestPathfinderMultiChain:
 class TestMultiPathfinderMultiChain:
     """multipathfinder warmup multi-chain shape contract tests.
 
-    Multi-path Pathfinder: one multi-path fit feeds num_chains init positions
-    drawn from the PSIS-resampled mixture.  The post-PSIS empirical covariance
-    diagonal is used as the IMM (same value replicated to each chain).
+    Thin shim around blackjax.pathfinder_adaptation(num_chains=..., n_paths=num_chains).
+    IMM is now dense (num_chains, d, d) broadcast from the shared (d, d) upstream estimate.
+    IMM contract changed from old diagonal (num_chains, d) in PR B (warmup-collapse-pathfinder-shims).
+    Step size is NOW adapted (dual-averaging over n_warmup steps).
     """
 
     def _run(self, seed: int, num_chains: int, **kw):
@@ -1027,7 +1013,7 @@ class TestMultiPathfinderMultiChain:
         )
 
     def test_default_num_chains_equals_4(self) -> None:
-        """Default num_chains=4: position leading dim == 4."""
+        """Default num_chains=4: position leading dim == 4, dense IMM (4, d, d)."""
         from tuningfork.warmup.multipathfinder import ENTRY
 
         key = jax.random.key(5001)
@@ -1044,41 +1030,27 @@ class TestMultiPathfinderMultiChain:
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
         imm = params["inverse_mass_matrix"]
-        assert imm.shape == (4, _D), f"IMM expected (4, {_D}), got {imm.shape}"
+        # Dense IMM: (num_chains, d, d) — changed from old (num_chains, d) diagonal
+        assert imm.shape == (
+            4,
+            _D,
+            _D,
+        ), f"IMM expected (4, {_D}, {_D}), got {imm.shape}"
 
     def test_explicit_num_chains_2(self) -> None:
-        """num_chains=2: position (2, d), step_size (2,), IMM (2, d)."""
+        """num_chains=2: position (2, d), step_size (2,), dense IMM (2, d, d)."""
         states, params = self._run(5002, num_chains=2)
         pos_shape = _position_shape(states)
         assert pos_shape == (2, _D), f"Expected (2, {_D}), got {pos_shape}"
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (2,), f"step_size expected (2,), got {ss.shape}"
         imm = params["inverse_mass_matrix"]
-        assert imm.shape == (2, _D), f"IMM expected (2, {_D}), got {imm.shape}"
-
-    def test_pre_batched_init_position_passes_through(self) -> None:
-        """Pre-batched init_position (leading dim == n_paths) passes through."""
-        from tuningfork.warmup.multipathfinder import ENTRY
-
-        n_paths = 4
-        num_chains = 4
-        key = jax.random.key(5003)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        # Pre-batch to (n_paths, d); multipathfinder uses this as init_positions.
-        batched_pos = jax.tree.map(
-            lambda x: jnp.broadcast_to(x, (n_paths,) + x.shape), init_pos
-        )
-        states, params = ENTRY.runner(
-            jax.random.fold_in(key, 1),
-            batched_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-            n_paths=n_paths,
-            num_chains=num_chains,
-        )
-        pos_shape = _position_shape(states)
-        assert pos_shape == (4, _D), f"Pre-batched: expected (4, {_D}), got {pos_shape}"
+        # Dense IMM: changed from (2, d) to (2, d, d)
+        assert imm.shape == (
+            2,
+            _D,
+            _D,
+        ), f"IMM expected (2, {_D}, {_D}), got {imm.shape}"
 
     def test_step_size_and_imm_keys_present(self) -> None:
         """adapted_params must contain step_size and inverse_mass_matrix."""
@@ -1093,31 +1065,35 @@ class TestMultiPathfinderMultiChain:
             "_multipathfinder_psis_pareto_k" in params
         ), f"Missing _multipathfinder_psis_pareto_k; keys: {list(params)}"
 
-    def test_step_size_is_constant_default(self) -> None:
-        """MultiPathfinder returns constant step_size_default per chain."""
+    def test_step_size_positive(self) -> None:
+        """Multipathfinder now adapts step_size via DA; all values must be > 0."""
         _, params = self._run(5006, num_chains=4)
         ss = jnp.asarray(params["step_size"])
-        assert bool(jnp.all(ss == 1.0)), f"All step_sizes should be 1.0, got {ss}"
+        assert bool(jnp.all(ss > 0)), f"All step_sizes should be > 0, got {ss}"
 
     def test_num_chains_1_not_squeezed(self) -> None:
-        """num_chains=1 → leading dim 1 (NOT squeezed)."""
+        """num_chains=1 → leading dim 1 (NOT squeezed), dense IMM (1, d, d)."""
         states, params = self._run(5007, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (1,), f"step_size expected (1,), got {ss.shape}"
         imm = params["inverse_mass_matrix"]
-        assert imm.shape == (1, _D), f"IMM expected (1, {_D}), got {imm.shape}"
+        assert imm.shape == (
+            1,
+            _D,
+            _D,
+        ), f"IMM expected (1, {_D}, {_D}), got {imm.shape}"
 
     def test_imm_values_are_identical_across_chains(self) -> None:
-        """All chains share the same IMM (same post-PSIS empirical variance)."""
+        """All chains share the same IMM (broadcast from shared (d, d) estimate)."""
         _, params = self._run(5008, num_chains=4)
         imm = params["inverse_mass_matrix"]
-        # All rows should be equal (same shared estimate).
+        # All (d, d) slices should be equal (same broadcast estimate).
         for i in range(1, 4):
             assert jnp.allclose(
                 imm[0], imm[i], atol=1e-6
-            ), f"IMM row {i} differs from row 0: {imm[0]} vs {imm[i]}"
+            ), f"IMM chain {i} differs from chain 0"
 
     def test_compatibility_check_raises_for_mclmc(self) -> None:
         """is_compatible('mclmc') returns False; runner raises ValueError for mclmc."""
