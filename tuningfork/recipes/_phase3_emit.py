@@ -53,6 +53,7 @@ from typing import Any
 
 import jax
 import numpy as np
+from blackjax.mcmc.laplace_marginal import laplace_marginal_factory
 from blackjax.util import run_inference_algorithm
 
 from tuningfork._version import __version__ as _tuningfork_version
@@ -66,8 +67,28 @@ from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.recipes._base import Effort, Recipe
 from tuningfork.recipes._instructions import render_instructions
 from tuningfork.warmup import WARMUPS
+from tuningfork.warmup._laplace_adapter import LAPLACE_METHOD_NAMES
 
 __all__ = ["emit_low_recipe_for_cell", "CellResult"]
+
+# ---------------------------------------------------------------------------
+# Laplace phi/theta split table — model-specific
+# ---------------------------------------------------------------------------
+# For laplace_* cells the recipe pipeline needs to split the joint position into
+# phi (hyperparameters, the subspace the sampler operates on) and theta (latent
+# variables that are analytically marginalised via the Laplace approximation).
+#
+# Structure: model_name → (phi_site_names, theta_site_names)
+# All names must match the numpyro.sample site names in the model.
+#
+# Models currently in scope for laplace_* (per §6 Phase 2b eligibility):
+#   eight_schools_ncp: phi=(mu, tau), theta=(theta_raw,)
+#
+# radon and irt_2pl are predicted MEDIUM (not LOW) — not needed here yet.
+# This table is extended as Phase 4 adds more models.
+_LAPLACE_PHI_THETA_SPLITS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "eight_schools_ncp": (("mu", "tau"), ("theta_raw",)),
+}
 
 # Phase 3 canonical parameters
 # (4 chains x 1000 samples = "quick mode" non-groundtruth recipe protocol per
@@ -192,6 +213,48 @@ def _append_outcome(model: str, warmup: str, sampler: str, message: str) -> None
     with _OUTCOMES_FILE.open("a") as fh:
         fh.write(f"- {model} x {warmup} x {sampler}: {message}\n")
     sys.stdout.flush()
+
+
+def _build_laplace_components(
+    model_name: str,
+    full_position: dict[str, Any],
+    joint_logdensity_fn: Any,
+) -> tuple[dict[str, Any], Any, Any, Any] | None:
+    """Build laplace pipeline components from the full joint position.
+
+    Returns ``(phi_init, log_joint_fn, theta_init, marginal_logdensity_fn)``
+    for use in warmup (marginal) and sampling (log_joint_fn + theta_init).
+
+    Returns ``None`` if the model is not in the phi/theta split table.
+
+    Parameters
+    ----------
+    model_name
+        Registry key, e.g. ``"eight_schools_ncp"``.
+    full_position
+        Full unconstrained position dict from ``build_logdensity_fn``.
+    joint_logdensity_fn
+        Joint logdensity ``phi ∪ theta → float`` from ``build_logdensity_fn``.
+        Used to build the factored ``log_joint_fn(theta, phi)`` for the
+        laplace_* kernel.
+    """
+    if model_name not in _LAPLACE_PHI_THETA_SPLITS:
+        return None
+
+    phi_sites, theta_sites = _LAPLACE_PHI_THETA_SPLITS[model_name]
+    phi_init = {k: full_position[k] for k in phi_sites}
+    theta_init = {k: full_position[k] for k in theta_sites}
+
+    def log_joint_fn(theta: dict[str, Any], phi: dict[str, Any]) -> Any:
+        return joint_logdensity_fn({**theta, **phi})
+
+    laplace = laplace_marginal_factory(log_joint_fn, theta_init)
+
+    def marginal_logdensity_fn(phi: dict[str, Any]) -> Any:
+        lp, _theta_star = laplace(phi)
+        return lp
+
+    return phi_init, log_joint_fn, theta_init, marginal_logdensity_fn
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +382,39 @@ def emit_low_recipe_for_cell(
             note=note,
         )
 
+    # --- Laplace-* special path ---
+    # For laplace_* samplers the warmup must run on the Laplace marginal
+    # logdensity over phi (not the joint). The sampling phase then uses
+    # log_joint_fn + theta_init. We build both here if the sampler is laplace_*.
+    is_laplace = sampler_name in LAPLACE_METHOD_NAMES
+    laplace_log_joint_fn: Any = None
+    laplace_theta_init: Any = None
+
+    if is_laplace:
+        laplace_result = _build_laplace_components(
+            model_name, init_position, logdensity_fn
+        )
+        if laplace_result is None:
+            note = (
+                f"ERROR: laplace_* sampler requested but {model_name!r} has no "
+                "phi/theta split in _LAPLACE_PHI_THETA_SPLITS — cannot build "
+                "marginal logdensity. Add the split to the table in _phase3_emit.py."
+            )
+            _log(f"  {note}")
+            _append_outcome(model_name, warmup_name, sampler_name, note)
+            return CellResult(
+                model_name=model_name,
+                warmup_name=warmup_name,
+                sampler_name=sampler_name,
+                verdict="ERROR",
+                note=note,
+            )
+        init_position, laplace_log_joint_fn, laplace_theta_init, logdensity_fn = (
+            laplace_result
+        )
+        # init_position is now phi_init (phi-space only); logdensity_fn is the
+        # marginal logdensity over phi — this is what warmup.runner will use.
+
     # --- Warmup (multi-chain via warmup.runner's internal vmap) ---
     _log(f"  Warmup ({warmup_name}, n_warmup={n_warmup}, num_chains={num_chains})...")
     t_warmup0 = time.perf_counter()
@@ -386,26 +482,56 @@ def emit_low_recipe_for_cell(
     # [1, 10)) takes over at the kernel.
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
+    # laplace_* factories expect `log_joint_fn` and `theta_init` as positional-style
+    # kwargs but NOT `logdensity_fn` (the marginal).  Strip laplace_*-incompatible
+    # defaults from shared_kwargs (laplace_* don't have any standard incompatible
+    # HP defaults currently, but guard explicitly for future-proofing).
+    if is_laplace:
+        # log_joint_fn + theta_init are not in shared_kwargs (they come from the
+        # model decomposition built above); no stripping needed.  Just ensure
+        # they're present as extra kwargs for the factory call below.
+        pass
 
     batched_step_size = batched_params["step_size"]
     batched_imm = batched_params["inverse_mass_matrix"]
     needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
 
+    # Capture laplace extras in closure for _run_one_chain.
+    _laplace_log_joint_fn = laplace_log_joint_fn
+    _laplace_theta_init = laplace_theta_init
+
     def _run_one_chain(rng, init_state, step_size, imm):
-        kernel = base_method.factory(
-            logdensity_fn,
-            step_size=step_size,
-            inverse_mass_matrix=imm,
-            **shared_kwargs,
-        )
-        if needs_dyn_reinit:
-            # DynamicHMCState extends HMCState with `random_generator_arg`;
-            # warmup output (HMC-substituted) is an HMCState, so re-init from
-            # the position to get the correct state structure.
+        if is_laplace:
+            # laplace_* factory: positional-style kwargs log_joint_fn + theta_init;
+            # the `logdensity_fn` arg is present for interface uniformity but unused.
+            kernel = base_method.factory(
+                logdensity_fn,  # unused (marginal — not joint)
+                log_joint_fn=_laplace_log_joint_fn,
+                theta_init=_laplace_theta_init,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            # laplace_hmc / laplace_dhmc / laplace_mhmc / laplace_dmhmc all use
+            # `.init(phi_init)` which runs a cold-start L-BFGS. The warmup state
+            # carries only phi positions (HMC-substituted warmup ran on phi only).
             reinit_key, run_key = jax.random.split(rng)
             init_for_run = kernel.init(init_state.position, reinit_key)
         else:
-            init_for_run, run_key = init_state, rng
+            kernel = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            if needs_dyn_reinit:
+                # DynamicHMCState extends HMCState with `random_generator_arg`;
+                # warmup output (HMC-substituted) is an HMCState, so re-init from
+                # the position to get the correct state structure.
+                reinit_key, run_key = jax.random.split(rng)
+                init_for_run = kernel.init(init_state.position, reinit_key)
+            else:
+                init_for_run, run_key = init_state, rng
         _, (st, inf) = run_inference_algorithm(
             rng_key=run_key,
             inference_algorithm=kernel,
