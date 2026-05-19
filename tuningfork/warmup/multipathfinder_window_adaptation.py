@@ -79,9 +79,8 @@ from typing import Any
 import blackjax
 import jax
 import jax.numpy as jnp
-from blackjax.optimizers.lbfgs import lbfgs_inverse_hessian_formula_1
+from blackjax.adaptation.pathfinder_adaptation import _psis_weighted_mixture_covariance
 from blackjax.vi.multipathfinder import psis_weights
-from jax.flatten_util import ravel_pytree
 
 from tuningfork.warmup._base import Warmup, _maybe_replicate
 from tuningfork.warmup._laplace_adapter import resolve_warmup_algorithm
@@ -90,73 +89,6 @@ __all__ = ["ENTRY"]
 
 # Algorithms compatible with HMC-style inverse_mass_matrix.
 _COMPATIBLE = ("nuts", "hmc", "mala", "rwm", "barker")
-
-
-def _psis_mixture_covariance_flat(
-    path_states: Any,
-    log_weights: jax.Array,
-    num_samples_per_path: int,
-) -> jax.Array:
-    """Compute PSIS-weighted mixture covariance using flattened per-path positions.
-
-    Workaround for the upstream ``_psis_weighted_mixture_covariance`` function
-    which assumes ``path_states.position`` is already a flat ``(n_paths, d)``
-    array.  When the model uses a pytree position (e.g. a dict), the upstream
-    function fails because ``path_states.position`` is still a pytree structure.
-
-    This implementation flattens each path's position via ``ravel_pytree``
-    before computing the mixture covariance.
-
-    Parameters
-    ----------
-    path_states
-        PathfinderState with ``position``, ``alpha``, ``beta``, ``gamma``
-        fields (each vmapped over n_paths).
-    log_weights
-        Normalised log PSIS weights, shape ``(n_paths * num_samples_per_path,)``.
-    num_samples_per_path
-        Number of samples per path (needed to reshape weights to per-path).
-
-    Returns
-    -------
-    jax.Array
-        Dense ``(d, d)`` PSIS-weighted mixture covariance.
-    """
-    n_paths = log_weights.shape[0] // num_samples_per_path
-
-    # Reshape log_weights from (n_paths * num_samples,) to (n_paths, num_samples)
-    log_weights_per_path = log_weights.reshape(n_paths, num_samples_per_path)
-
-    # Aggregate to per-path weights via logsumexp then normalise.
-    log_path_weights = jax.scipy.special.logsumexp(log_weights_per_path, axis=1)
-    log_path_weights_norm = log_path_weights - jax.scipy.special.logsumexp(
-        log_path_weights
-    )
-    w = jnp.exp(log_path_weights_norm)  # (n_paths,)
-
-    # Per-path means: flatten pytree positions to (n_paths, d).
-    # path_states.position is a pytree with leading dim n_paths.
-    # vmap ravel_pytree[0] over the path axis to get (n_paths, d).
-    mu_per_path = jax.vmap(lambda x: ravel_pytree(x)[0])(
-        path_states.position
-    )  # (n_paths, d)
-
-    # Per-path covariance Sigma_i = lbfgs_inverse_hessian_formula_1(alpha_i, beta_i, gamma_i)
-    sigmas = jax.vmap(lbfgs_inverse_hessian_formula_1)(
-        path_states.alpha, path_states.beta, path_states.gamma
-    )  # (n_paths, d, d)
-
-    # Mixture mean: mu_mix = sum_i w_i mu_i
-    mu_mix = jnp.einsum("i,id->d", w, mu_per_path)  # (d,)
-
-    # Within-component term: sum_i w_i Sigma_i
-    sigma_within = jnp.einsum("i,ijk->jk", w, sigmas)  # (d, d)
-
-    # Between-component term: sum_i w_i (mu_i - mu_mix)(mu_i - mu_mix)^T
-    delta = mu_per_path - mu_mix[None, :]  # (n_paths, d)
-    sigma_between = jnp.einsum("i,ij,ik->jk", w, delta, delta)  # (d, d)
-
-    return sigma_within + sigma_between  # (d, d)
 
 
 def _runner(
@@ -261,17 +193,13 @@ def _runner(
     )
 
     # --- Step 2: derive dense (d, d) IMM via PSIS-weighted L-BFGS mixture ----
-    # Uses the same estimator as blackjax.pathfinder_adaptation with
-    # imm_estimator="lbfgs_psis_mixture": analytic law-of-total-variance.
-    # NOTE: we use our local _psis_mixture_covariance_flat rather than the
-    # upstream blackjax._psis_weighted_mixture_covariance because the upstream
-    # function assumes path_states.position is already a flat (n_paths, d) array,
-    # but PathfinderState.position stores the pytree-structured (unravelled) form.
-    # Our implementation flattens via ravel_pytree before computing the einsum.
+    # Delegated to upstream blackjax (which handles pytree positions correctly
+    # post-PR #922).  This is the same estimator that
+    # ``blackjax.pathfinder_adaptation(imm_estimator="lbfgs_psis_mixture")``
+    # uses internally — analytic law-of-total-variance over the per-path
+    # Laplace approximations.
     log_weights, pareto_k = psis_weights(mpf_state)
-    imm_dense = _psis_mixture_covariance_flat(
-        mpf_state.path_states, log_weights, num_samples_per_path
-    )  # (d, d)
+    imm_dense = _psis_weighted_mixture_covariance(mpf_state, log_weights)  # (d, d)
 
     # --- Step 3: PSIS-resample num_chains init positions ----------------------
     total_pool = log_weights.shape[0]
