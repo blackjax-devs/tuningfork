@@ -67,10 +67,42 @@ def test_blackjax_pathfinder_callable():
         )
 
 
+def test_blackjax_pathfinder_adaptation_signature():
+    """Tripwire: blackjax.pathfinder_adaptation must accept num_chains + n_paths kwargs.
+
+    Pinned tripwire: tuningfork/warmup/pathfinder.py and
+    tuningfork/warmup/multipathfinder.py call
+    blackjax.pathfinder_adaptation(algorithm, logdensity_fn, num_chains=..., n_paths=...).
+    If upstream renames or removes these kwargs, fail fast here.
+    """
+    import inspect
+
+    sig = inspect.signature(blackjax.pathfinder_adaptation)
+    for kwarg in ("num_chains", "n_paths", "imm_estimator", "initial_step_size"):
+        assert kwarg in sig.parameters, (
+            f"blackjax.pathfinder_adaptation is missing parameter {kwarg!r}. "
+            f"Current params: {list(sig.parameters)}. "
+            f"Update tuningfork/warmup/pathfinder.py and multipathfinder.py."
+        )
+
+    # Verify AdaptationResults contract: .state + .parameters with step_size + IMM
+    from blackjax.adaptation.base import AdaptationResults
+
+    assert hasattr(AdaptationResults, "_fields"), (
+        "AdaptationResults must be a NamedTuple with _fields. "
+        "Update tuningfork/warmup/pathfinder.py and multipathfinder.py."
+    )
+    for field in ("state", "parameters"):
+        assert field in AdaptationResults._fields, (
+            f"AdaptationResults lost field {field!r}. "
+            f"Update tuningfork/warmup/pathfinder.py and multipathfinder.py."
+        )
+
+
 def test_blackjax_multipathfinder_callable():
     """Tripwire: if upstream multipathfinder API changes, fail fast.
 
-    Pinned tripwire: tuningfork/warmup/multipathfinder.py calls
+    Pinned tripwire: tuningfork/warmup/multipathfinder_window_adaptation.py calls
     blackjax.multipathfinder(logdensity_fn).init(key, positions, num_samples)
     and expects a 2-tuple (MultipathfinderState, PathfinderInfo) back.
     psis_weights(state) must return a 2-tuple (log_weights, pareto_k).
