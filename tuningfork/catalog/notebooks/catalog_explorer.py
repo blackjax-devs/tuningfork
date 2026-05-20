@@ -36,6 +36,7 @@ def _():
     import matplotlib.pyplot as plt
 
     from tuningfork.catalog import (
+        cached_idata_for_recipe,
         list_recipes,
         load_idata,
         load_recipe,
@@ -43,10 +44,13 @@ def _():
         summarize_recipe,
     )
     from tuningfork.model import MODELS
+    from tuningfork.recipes._base import Effort
 
     return (
+        Effort,
         MODELS,
         az,
+        cached_idata_for_recipe,
         list_recipes,
         load_idata,
         load_recipe,
@@ -130,10 +134,7 @@ def _(load_recipe, recipe_dropdown, summarize_recipe):
 
 
 @app.cell
-def _(mo, recipe):
-    from tuningfork.catalog import cached_idata_for_recipe, load_idata
-    from tuningfork.recipes._base import Effort
-
+def _(Effort, cached_idata_for_recipe, load_idata, mo, recipe):
     idata = None
     if recipe is None:
         mo.md("*Pick a recipe to see diagnostic plots.*")
@@ -198,7 +199,17 @@ def _(figs, mo):
     mo.vstack(
         [
             mo.md("### Pair plot (headline params)"),
-            figs["pair"] if figs["pair"] is not None else mo.md(""),
+            (
+                figs["pair"]
+                if figs["pair"] is not None
+                else mo.md(
+                    "*Skipped — the headline-params set has > 6 scalar coords "
+                    "(`headline_params=None` for high-dim single-block models per "
+                    "the 2026-05-18 decision); pair grid would exceed "
+                    '`rcParams["plot.max_subplots"]=40`. Use the forest plot '
+                    "below for the full posterior.*"
+                )
+            ),
         ]
     )
     return
