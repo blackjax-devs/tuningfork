@@ -224,3 +224,112 @@ def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
     ), f"Emitted script failed.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert "DONE" in result.stdout
     assert "n_divergences=" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Multi-chain (num_chains) tests (emit-script-num-chains feature)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_emit_script_num_chains_derived_from_4chain_recipe() -> None:
+    """emit_script(recipe, num_chains=None) derives num_chains=4 for a LOW recipe.
+
+    LOW/MEDIUM recipes record ``num_chains=4`` in warmup_params (and
+    calibration_budget).  When num_chains is not passed explicitly, emit_script
+    reads it from the recipe metadata.
+    """
+    low_recipe_path = (
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    recipe = load_recipe(low_recipe_path)
+    script = emit_script(recipe)
+    # The preamble must declare num_chains = 4.
+    assert "num_chains = 4" in script, (
+        "Expected 'num_chains = 4' in the emitted script preamble for a "
+        f"LOW recipe with num_chains=4 in warmup_params.\nScript start:\n{script[:800]}"
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_num_chains_defaults_to_1_for_groundtruth() -> None:
+    """emit_script(recipe, num_chains=None) falls back to 1 for groundtruth recipes.
+
+    Groundtruth recipes pre-date the num_chains field; both warmup_params and
+    calibration_budget omit it.  The fallback must be 1 (single-chain
+    reproduction).
+    """
+    gt_recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(gt_recipe_path)
+    script = emit_script(recipe)
+    assert "num_chains = 1" in script, (
+        "Expected 'num_chains = 1' in the emitted script preamble for a "
+        "groundtruth recipe that has no num_chains field.\n"
+        f"Script start:\n{script[:800]}"
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_num_chains_override() -> None:
+    """emit_script(recipe, num_chains=8) overrides recipe-derived value.
+
+    Callers can force a specific chain count regardless of what the recipe
+    metadata records.
+    """
+    gt_recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(gt_recipe_path)
+    script = emit_script(recipe, num_chains=8)
+    assert "num_chains = 8" in script, (
+        "Expected 'num_chains = 8' in emitted script when num_chains=8 override "
+        f"is passed.\nScript start:\n{script[:800]}"
+    )
+
+
+@pytest.mark.slow
+def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
+    """Emitted 4-chain script produces _samples with shape (4, num_samples, ...).
+
+    Runs the emitted script via subprocess and checks that the printed shape
+    matches the expected (4, 100, ...) protocol. Uses the eight_schools_ncp
+    groundtruth recipe with num_chains=4 override and num_samples=100 so the
+    test completes quickly (~60 s).
+
+    The shape verification relies on a print statement injected into the
+    emitted script after the inference loop.
+    """
+    gt_recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(gt_recipe_path)
+    _NUM_SAMPLES = 100
+    _NUM_CHAINS = 4
+    script = emit_script(recipe, num_samples=_NUM_SAMPLES, num_chains=_NUM_CHAINS)
+    # Append a shape-verification line that prints the first-leaf shape of _samples.
+    # Use string concat (not f-string) to avoid escaping braces inside the snippet.
+    shape_check = (
+        "\nimport jax as _jax\n"
+        "_first_leaf = _jax.tree.leaves(_samples)[0]\n"
+        'print("SHAPE=" + str(_first_leaf.shape))\n'
+    )
+    script += shape_check
+    script_path = tmp_path / "test_multichain.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Emitted multi-chain script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+    # Shape must start with (num_chains, num_samples, ...)
+    assert f"SHAPE=({_NUM_CHAINS}, {_NUM_SAMPLES}" in result.stdout, (
+        f"Expected _samples shape starting with ({_NUM_CHAINS}, {_NUM_SAMPLES}, ...) "
+        f"but got different output.\nstdout:\n{result.stdout}"
+    )
