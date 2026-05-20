@@ -6,6 +6,15 @@ _warmup = blackjax.window_adaptation(
     target_acceptance_rate=$target_acceptance_rate,
     progress_bar=False,
 )
-(_state_post_warmup, _adapted_params), _ = _warmup.run(
+(_single_state, _adapted_params), _ = _warmup.run(
     jax.random.key($tuning_seed), init_position, $n_warmup
+)
+
+# Broadcast single-chain warmup output to (num_chains, ...) shape.
+# All chains start from the same adapted position — this is reproduction-faithful
+# to the Phase 3 emit protocol (one warmup, all chains share the same init).
+# Per-chain over-dispersed initialisation is a future-extend.
+_state_post_warmup = jax.tree.map(
+    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
+    _single_state,
 )
