@@ -484,3 +484,128 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
         f"should call `blackjax.{expected_algo}` but doesn't. "
         f"Section:\n{warmup_section[:500]}"
     )
+
+
+@pytest.mark.slow
+def test_emit_script_warmup_imm_matches_runner_mhmc_dense() -> None:
+    """L2 fidelity test: emit_script's warmup produces the SAME
+    (step_size, IMM) as the recipe-runner.
+
+    Target recipe: eight_schools_ncp × mhmc × window_adaptation_dense_imm.
+    User-reported bug case (2026-05-20). MHMC is in the standard
+    (non-HMC-substitute) warmup path; the fix puts blackjax.mhmc in
+    the emitted warmup call. Running both paths with the same seed and
+    asserting numerical equivalence on adapted_params confirms the fix
+    closes the protocol-fidelity gap.
+    """
+    import json
+
+    import jax
+    import numpy as np
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+    from tuningfork.warmup import WARMUPS
+
+    recipe = load_recipe(
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "medium__mhmc__window_adaptation_dense_imm.json"
+    )
+
+    # === Path A: recipe-runner's warmup (ground truth) ===
+    posterior = MODELS[recipe.model_name]
+    init_position, logdensity_fn, _ = build_logdensity_fn(
+        jax.random.key(recipe.tuning_seed), posterior
+    )
+
+    warmup = WARMUPS[recipe.warmup_name]
+    base_method = BASE_METHODS[recipe.base_method_name]
+    n_warmup = recipe.warmup_params["n_warmup"]
+    num_chains = recipe.warmup_params["num_chains"]
+    target_acceptance_rate = recipe.warmup_params.get(
+        "target_acceptance_rate", recipe.warmup_params.get("target_acceptance", 0.8)
+    )
+
+    runner_state, runner_params = warmup.runner(
+        jax.random.key(recipe.tuning_seed),
+        init_position,
+        n_warmup,
+        base_method,
+        logdensity_fn=logdensity_fn,
+        num_chains=num_chains,
+        target_acceptance_rate=target_acceptance_rate,
+    )
+
+    # === Path B: emitted script's warmup (executed in subprocess for isolation) ===
+    # Use num_samples=1 to keep the test fast (sampling does almost no work);
+    # we only care about adapted_params, set BEFORE sampling.
+    script = emit_script(recipe, num_samples=1)
+
+    epilogue = """
+import json
+import numpy as np
+
+# adapted_params after warmup: persist for the test process to read.
+_emitted = {
+    "step_size": np.asarray(_adapted_params["step_size"]).tolist(),
+    "inverse_mass_matrix": np.asarray(_adapted_params["inverse_mass_matrix"]).tolist(),
+}
+with open("/tmp/test_emit_script_l2_emitted_params.json", "w") as _f:
+    json.dump(_emitted, _f)
+print("L2 EMITTED OK")
+"""
+
+    tmp_path = Path("/tmp/test_emit_script_l2_mhmc_dense.py")
+    tmp_path.write_text(script + "\n\n" + epilogue)
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "--with",
+            "tuningfork",
+            "--with",
+            "jax",
+            "--with",
+            "blackjax",
+            "--with",
+            "numpyro",
+            "python",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Emitted script crashed (exit {result.returncode}):\n"
+        f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+
+    with open("/tmp/test_emit_script_l2_emitted_params.json") as f:
+        emitted = json.load(f)
+
+    # === Compare ===
+    runner_step_size = np.asarray(runner_params["step_size"])
+    emitted_step_size = np.asarray(emitted["step_size"])
+    np.testing.assert_allclose(
+        runner_step_size,
+        emitted_step_size,
+        rtol=1e-4,
+        err_msg=f"step_size mismatch: runner={runner_step_size}, "
+        f"emitted={emitted_step_size}",
+    )
+
+    runner_imm = np.asarray(runner_params["inverse_mass_matrix"])
+    emitted_imm = np.asarray(emitted["inverse_mass_matrix"])
+    np.testing.assert_allclose(
+        runner_imm,
+        emitted_imm,
+        rtol=1e-4,
+        err_msg=f"IMM mismatch: runner shape={runner_imm.shape}, "
+        f"emitted shape={emitted_imm.shape}",
+    )
