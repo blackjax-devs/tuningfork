@@ -64,12 +64,12 @@ from tuningfork.metrics.grad_counter import total_grad_evals
 from tuningfork.metrics.headline import min_bulk_ess_per_grad
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
-from tuningfork.recipes._base import Effort, Recipe
+from tuningfork.recipes._base import Effort, Recipe, RecipeFailedError
 from tuningfork.recipes._instructions import render_instructions
 from tuningfork.warmup import WARMUPS
 from tuningfork.warmup._laplace_adapter import LAPLACE_METHOD_NAMES
 
-__all__ = ["emit_low_recipe_for_cell", "CellResult"]
+__all__ = ["emit_low_recipe_for_cell", "run_recipe_to_idata", "CellResult"]
 
 # ---------------------------------------------------------------------------
 # Laplace phi/theta split table — model-specific
@@ -754,6 +754,218 @@ def emit_low_recipe_for_cell(
         gate_n_div=gate_verdict.n_divergences,
         wall_seconds=t_total,
         note=f"PASS rhat={gate_verdict.rhat_max:.4f} ess={gate_verdict.min_bulk_ess:.1f} div={gate_verdict.n_divergences}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public helper for on-demand resampling (catalog notebook integration)
+# ---------------------------------------------------------------------------
+
+
+def run_recipe_to_idata(
+    recipe: Recipe,
+    *,
+    n_samples: int | None = None,
+    force_resample: bool = False,
+    catalog_root: Path = _CATALOG_ROOT,
+) -> Any:
+    """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
+
+    On-demand resample helper for the catalog notebook: when the user picks a
+    LOW/MEDIUM recipe, this re-runs the recipe's pinned warmup + sampler config
+    at the protocol specified in the recipe's warmup_params (n_warmup, num_chains,
+    target_acceptance). Returns InferenceData with posterior + sample_stats.
+
+    For FAILED recipes, this raises an error (no valid config to run).
+    For GROUNDTRUTH recipes, this delegates to load_idata (no re-run needed).
+
+    Parameters
+    ----------
+    recipe
+        A Recipe object loaded via ``load_recipe``.
+    n_samples
+        Override the recipe's n_samples. If None, use the recipe's
+        warmup_params["n_samples"] or fall back to PHASE3_N_SAMPLES.
+    force_resample
+        If True, always re-run even if cache exists. Default False.
+    catalog_root
+        Root of the catalog directory.
+
+    Returns
+    -------
+    arviz.InferenceData
+        Posterior group + sample_stats group (if available).
+
+    Raises
+    ------
+    RecipeFailedError
+        If the recipe is FAILED (no gate-passing config).
+    ValueError
+        If the recipe model/warmup/sampler are not in the registries.
+    """
+    from tuningfork.catalog.render import load_idata
+
+    # For GROUNDTRUTH, use the standard load path
+    if recipe.effort == Effort.GROUNDTRUTH:
+        return load_idata(recipe, cache_dir=catalog_root)
+
+    # FAILED recipes cannot be re-run
+    if recipe.effort == Effort.FAILED:
+        raise RecipeFailedError(recipe)
+
+    # Validate registry membership
+    if recipe.model_name not in MODELS:
+        raise ValueError(f"Model {recipe.model_name!r} not in MODELS registry")
+    if recipe.warmup_name not in WARMUPS:
+        raise ValueError(f"Warmup {recipe.warmup_name!r} not in WARMUPS registry")
+    if recipe.base_method_name not in BASE_METHODS:
+        raise ValueError(
+            f"Base method {recipe.base_method_name!r} not in BASE_METHODS registry"
+        )
+
+    posterior = MODELS[recipe.model_name]
+    warmup = WARMUPS[recipe.warmup_name]
+    base_method = BASE_METHODS[recipe.base_method_name]
+
+    # Compatibility check
+    if not warmup.is_compatible(recipe.base_method_name):
+        raise ValueError(
+            f"Warmup {recipe.warmup_name!r} incompatible with sampler "
+            f"{recipe.base_method_name!r}"
+        )
+
+    # Extract protocol from recipe
+    n_warmup = int(recipe.warmup_params.get("n_warmup", PHASE3_N_WARMUP))
+    num_chains = int(recipe.warmup_params.get("num_chains", PHASE3_NUM_CHAINS))
+    target_acceptance = recipe.warmup_params.get("target_acceptance", None)
+    if n_samples is None:
+        n_samples = int(recipe.warmup_params.get("n_samples", PHASE3_N_SAMPLES))
+
+    # Use recipe's tuning_seed (or fallback to PHASE3_SEED if 0)
+    seed = recipe.tuning_seed if recipe.tuning_seed != 0 else PHASE3_SEED
+
+    # Build logdensity and initial position
+    init_key, warmup_key, sample_key = jax.random.split(jax.random.key(seed), 3)
+
+    init_position, logdensity_fn, _model_data = build_logdensity_fn(init_key, posterior)
+
+    # Handle laplace_* special case
+    is_laplace = recipe.base_method_name in LAPLACE_METHOD_NAMES
+    laplace_log_joint_fn: Any = None
+    laplace_theta_init: Any = None
+
+    if is_laplace:
+        laplace_result = _build_laplace_components(
+            recipe.model_name, init_position, logdensity_fn
+        )
+        if laplace_result is None:
+            raise ValueError(
+                f"laplace_* sampler {recipe.base_method_name!r} requested but "
+                f"model {recipe.model_name!r} has no phi/theta split in "
+                "_LAPLACE_PHI_THETA_SPLITS"
+            )
+        init_position, laplace_log_joint_fn, laplace_theta_init, logdensity_fn = (
+            laplace_result
+        )
+
+    # Run warmup
+    batched_state, batched_params = warmup.runner(
+        warmup_key,
+        init_position,
+        n_warmup,
+        base_method,
+        logdensity_fn=logdensity_fn,
+        num_chains=num_chains,
+        target_acceptance_rate=target_acceptance,
+    )
+
+    # Build shared kernel kwargs
+    default_params = default_params_for(base_method)
+    shared_kwargs: dict[str, Any] = {
+        k: v
+        for k, v in default_params.items()
+        if k not in ("step_size", "inverse_mass_matrix")
+    }
+    if recipe.base_method_name in ("dynamic_hmc", "dmhmc"):
+        shared_kwargs.pop("num_integration_steps", None)
+
+    # Inject recipe's base_method_params (overrides defaults)
+    recipe_params = dict(recipe.base_method_params)
+    # Exclude step_size and IMM (they come from warmup)
+    for k in list(recipe_params.keys()):
+        if k not in ("step_size", "inverse_mass_matrix"):
+            shared_kwargs[k] = recipe_params[k]
+
+    batched_step_size = batched_params["step_size"]
+    batched_imm = batched_params["inverse_mass_matrix"]
+    needs_dyn_reinit = recipe.base_method_name in ("dynamic_hmc", "dmhmc")
+
+    _laplace_log_joint_fn = laplace_log_joint_fn
+    _laplace_theta_init = laplace_theta_init
+
+    def _run_one_chain(rng, init_state, step_size, imm):
+        if is_laplace:
+            kernel = base_method.factory(
+                logdensity_fn,
+                log_joint_fn=_laplace_log_joint_fn,
+                theta_init=_laplace_theta_init,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            reinit_key, run_key = jax.random.split(rng)
+            init_for_run = kernel.init(init_state.position, reinit_key)
+        else:
+            kernel = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            if needs_dyn_reinit:
+                reinit_key, run_key = jax.random.split(rng)
+                init_for_run = kernel.init(init_state.position, reinit_key)
+            else:
+                init_for_run, run_key = init_state, rng
+        _, (st, inf) = run_inference_algorithm(
+            rng_key=run_key,
+            inference_algorithm=kernel,
+            num_steps=n_samples,
+            initial_state=init_for_run,
+        )
+        return st, inf
+
+    # Run sampling
+    chain_keys = jax.random.split(sample_key, num_chains)
+    states, infos = jax.vmap(_run_one_chain)(
+        chain_keys, batched_state, batched_step_size, batched_imm
+    )
+    positions = states.position  # shape: (num_chains, n_samples, *event_shape)
+
+    # Convert to InferenceData via the catalog helper
+    from tuningfork.catalog.diagnostics import samples_to_idata
+
+    # positions is already in multi-chain format (num_chains, n_samples, *event)
+    # Convert to dict of arrays
+    positions_dict = {k: np.asarray(v) for k, v in positions.items()}
+
+    # Prepare chain_stats if available (not persisting the full infos here,
+    # but construct minimal chain_stats for the InferenceData)
+    chain_stats = {}
+    if hasattr(infos, "is_divergent"):
+        chain_stats["is_divergent"] = np.asarray(infos.is_divergent)
+    if hasattr(infos, "energy"):
+        chain_stats["energy"] = np.asarray(infos.energy)
+    if hasattr(infos, "acceptance_rate"):
+        chain_stats["acceptance_rate"] = np.asarray(infos.acceptance_rate)
+    if hasattr(infos, "num_integration_steps"):
+        chain_stats["num_integration_steps"] = np.asarray(infos.num_integration_steps)
+
+    return samples_to_idata(
+        positions_dict,
+        is_multichain=True,
+        chain_stats=chain_stats if chain_stats else None,
+        n_chunks=1,  # Already in multi-chain format
     )
 
 
