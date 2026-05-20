@@ -472,21 +472,27 @@ def emit_low_recipe_for_cell(
     else:
         _log(f"  Warmup done in {t_warmup:.1f}s.")
 
-    # Check for NaN/Inf in adapted params (per-chain)
+    # Check for NaN/Inf in adapted params (per-chain). Structured IMMs (e.g.
+    # `LowRankInverseMassMatrix` NamedTuple with sigma/U/lam fields of
+    # heterogeneous shapes) can't be `np.asarray`-ed as a single tensor; flatten
+    # via `jax.tree.leaves` so each leaf is checked individually.
     for k, v in batched_params.items():
-        arr = np.asarray(v)
-        if not np.all(np.isfinite(arr)):
-            note = f"FAIL warmup produced NaN/Inf in {k}"
-            _log(f"  {note}")
-            _append_outcome(model_name, warmup_name, sampler_name, note)
-            return CellResult(
-                model_name=model_name,
-                warmup_name=warmup_name,
-                sampler_name=sampler_name,
-                verdict="FAIL",
-                wall_seconds=time.perf_counter() - t_start,
-                note=note,
-            )
+        leaves = jax.tree.leaves(v)
+        for i, leaf in enumerate(leaves):
+            arr = np.asarray(leaf)
+            if not np.all(np.isfinite(arr)):
+                leaf_id = k if len(leaves) == 1 else f"{k}[leaf={i}]"
+                note = f"FAIL warmup produced NaN/Inf in {leaf_id}"
+                _log(f"  {note}")
+                _append_outcome(model_name, warmup_name, sampler_name, note)
+                return CellResult(
+                    model_name=model_name,
+                    warmup_name=warmup_name,
+                    sampler_name=sampler_name,
+                    verdict="FAIL",
+                    wall_seconds=time.perf_counter() - t_start,
+                    note=note,
+                )
 
     # --- Build shared kernel kwargs (per-chain (step_size, IMM) comes via vmap) ---
     default_params = default_params_for(base_method)
