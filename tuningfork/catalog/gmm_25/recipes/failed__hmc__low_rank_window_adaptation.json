@@ -1,0 +1,43 @@
+{
+  "model_name": "gmm_25",
+  "base_method_name": "hmc",
+  "warmup_name": "low_rank_window_adaptation",
+  "effort": "failed",
+  "failure_diagnosis": "requires_alt_sampler",
+  "attempted_configurations": [],
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "n_warmup": 0,
+    "n_samples": 0,
+    "num_chains": 0
+  },
+  "difficulty": null,
+  "instructions": "",
+  "notes": "25-mode Gaussian mixture; gradient samplers cannot cross mode barriers. W3 IMM does not help. SMC is required.",
+  "tuning_seed": 0,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "workflow": "W3 sweep Group E. gmm_25 x hmc x W3 not attempted; inferred FAIL from nuts outcome. Multimodal barrier."
+}
