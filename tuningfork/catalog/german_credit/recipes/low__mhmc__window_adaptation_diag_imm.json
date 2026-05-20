@@ -1,0 +1,104 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "mhmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "low",
+  "base_method_params": {
+    "num_integration_steps": 64,
+    "step_size": 0.380776971578598,
+    "inverse_mass_matrix": [
+      0.00840031262487173,
+      0.01125289499759674,
+      0.0116602573543787,
+      0.006996583193540573,
+      0.006860732100903988,
+      0.007871477864682674,
+      0.011509264819324017,
+      0.006452673580497503,
+      0.007724856957793236,
+      0.006682505831122398,
+      0.011046291328966618,
+      0.027766678482294083,
+      0.012560087256133556,
+      0.025784045457839966,
+      0.009194477461278439,
+      0.011249826289713383,
+      0.01581680402159691,
+      0.013768537901341915,
+      0.01623927615582943,
+      0.010443981736898422,
+      0.007671769242733717,
+      0.010717709548771381,
+      0.00585971912369132,
+      0.005342862568795681,
+      0.007320802193135023,
+      0.009667547419667244
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": 0.0122452387586236,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 11.575896352995187,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mhmc(logdensity_fn, **{'num_integration_steps': 64, 'step_size': 0.380776971578598, 'inverse_mass_matrix': [0.00840031262487173, 0.01125289499759674, 0.0116602573543787, 0.006996583193540573, 0.006860732100903988, 0.007871477864682674, 0.011509264819324017, 0.006452673580497503, 0.007724856957793236, 0.006682505831122398, 0.011046291328966618, 0.027766678482294083, 0.012560087256133556, 0.025784045457839966, 0.009194477461278439, 0.011249826289713383, 0.01581680402159691, 0.013768537901341915, 0.01623927615582943, 0.010443981736898422, 0.007671769242733717, 0.010717709548771381, 0.00585971912369132, 0.005342862568795681, 0.007320802193135023, 0.009667547419667244]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0122.\nWall time to produce this recipe: ~11 s (machine-only).",
+  "notes": "",
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0034781769617682,
+      "min_bulk_ess": 3168.522950917706,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0034781769617682,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 3168.522950917706,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-19T22:07:17Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

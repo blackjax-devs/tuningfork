@@ -68,11 +68,27 @@ from typing import Any
 
 import blackjax
 
-__all__ = ["LAPLACE_METHOD_NAMES", "resolve_warmup_algorithm"]
+__all__ = [
+    "LAPLACE_METHOD_NAMES",
+    "HMC_SUBSTITUTE_METHOD_NAMES",
+    "resolve_warmup_algorithm",
+]
 
 # The four laplace_* base method names registered in the tuningfork registry.
 LAPLACE_METHOD_NAMES: frozenset[str] = frozenset(
     ("laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc")
+)
+
+# Methods whose `.init` signature requires extra kwargs that the
+# `blackjax.window_adaptation` driver does not supply (laplace_* need
+# `log_joint_fn` + `theta_init`; dynamic_hmc / dmhmc need
+# `random_generator_arg`).  For warmup purposes we substitute standard
+# `blackjax.hmc` — it composes naturally with `window_adaptation` and the
+# adapted `(step_size, IMM)` are functionally equivalent for the downstream
+# sampler.  The downstream sampler then re-inits from `adapted_state.position`
+# with its own state structure (see `_phase3_emit.py`).
+HMC_SUBSTITUTE_METHOD_NAMES: frozenset[str] = LAPLACE_METHOD_NAMES | frozenset(
+    ("dynamic_hmc", "dmhmc")
 )
 
 
@@ -114,13 +130,18 @@ def resolve_warmup_algorithm(
     extra_kwargs
         Possibly filtered extra_kwargs (currently a copy for both paths).
     """
-    if base_method.name not in LAPLACE_METHOD_NAMES:
-        # Non-laplace path: return unchanged — no regression possible.
+    if base_method.name not in HMC_SUBSTITUTE_METHOD_NAMES:
+        # Standard path (hmc, nuts, mhmc, barker, mala): return unchanged — no
+        # regression possible.
         return base_method.factory, dict(extra_kwargs)
 
-    # Laplace path: use standard HMC as the warmup kernel.
-    # The marginal logdensity (phi → float) is already the correct logdensity_fn
-    # for window adaptation — the caller is responsible for providing it.
+    # HMC-substitution path (laplace_*, dynamic_hmc, dmhmc): use standard HMC
+    # as the warmup kernel.  The laplace_* case is detailed in this module's
+    # docstring (phi-only marginal).  The dynamic_hmc / dmhmc case is mechanical:
+    # both extend HMC with a `random_generator_arg`-driven trajectory-length
+    # sampler, which `blackjax.window_adaptation` does not feed at warmup time.
+    # Adapting (step_size, IMM) under standard HMC then handing them to the
+    # dynamic kernel at sample time is functionally equivalent for warmup.
     # HMC accepts num_integration_steps; keep it if present; use 5 as default.
     hmc_kwargs: dict[str, Any] = {}
     if "num_integration_steps" in extra_kwargs:

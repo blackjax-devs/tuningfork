@@ -1,0 +1,76 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_dense_imm",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 0.5615072846412659,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": 0.2189677655696869,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 11.266574153996771,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.5615072846412659, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2190.\nWall time to produce this recipe: ~11 s (machine-only).",
+  "notes": "",
+  "inverse_mass_matrix_path": "german_credit/recipes/low__nuts__window_adaptation_dense_imm.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0029222624792875,
+      "min_bulk_ess": 6169.561772842594,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0029222624792875,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 6169.561772842594,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-19T22:08:33Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

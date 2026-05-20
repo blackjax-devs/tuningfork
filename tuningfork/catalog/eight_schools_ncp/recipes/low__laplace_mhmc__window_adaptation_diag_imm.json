@@ -1,0 +1,80 @@
+{
+  "model_name": "eight_schools_ncp",
+  "base_method_name": "laplace_mhmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "low",
+  "base_method_params": {
+    "num_integration_steps": 10,
+    "step_size": 0.5145131945610046,
+    "inverse_mass_matrix": [
+      11.129048347473145,
+      1.4365400075912476
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": 0.008670234121382236,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 29.00794960699568,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.5145131945610046, 'inverse_mass_matrix': [11.129048347473145, 1.4365400075912476]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0087.\nWall time to produce this recipe: ~29 s (machine-only).",
+  "notes": "",
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0006948451873832,
+      "min_bulk_ess": 2558.314989381347,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0006948451873832,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 2558.314989381347,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-19T22:19:19Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
