@@ -58,6 +58,7 @@ from blackjax.util import run_inference_algorithm
 
 from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
+from tuningfork.base_method._step_policy_registry import build_step_policy
 from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.calibration.tune import default_params_for
 from tuningfork.metrics.grad_counter import total_grad_evals
@@ -277,6 +278,7 @@ def emit_low_recipe_for_cell(
     verbose: bool = True,
     target_acceptance: float | None = None,
     sampler_kwargs_override: dict[str, Any] | None = None,
+    step_policy: dict[str, Any] | None = None,
 ) -> CellResult:
     """Run warmup + sampling + auto-gate for one cell; emit LOW recipe on PASS.
 
@@ -325,6 +327,18 @@ def emit_low_recipe_for_cell(
         ``inverse_mass_matrix``, which always come from warmup adaptation and
         are never overridden here).  Cannot serialise non-JSON-able values
         (e.g., callables); pass ``None`` for those and handle separately.
+    step_policy
+        Step-policy spec dict for ``dynamic_hmc`` / ``dmhmc`` cells,
+        controlling the ``integration_steps_fn`` callable.  ``None``
+        (default) means "use the library default" (V0: uniform integer in
+        [1, 10)).  Non-None specs are passed to
+        ``build_step_policy(spec)`` to construct the callable at execution
+        time; the spec is also stored in ``Recipe.step_policy`` so it
+        round-trips through JSON without closure capture.
+
+        For non-``dynamic_hmc`` / non-``dmhmc`` samplers, this parameter is
+        ignored.  See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md``
+        §5 for valid spec formats.
 
     Returns
     -------
@@ -498,10 +512,16 @@ def emit_low_recipe_for_cell(
     }
     # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
     # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
-    # Strip the int; blackjax's default `integration_steps_fn` (uniform L in
-    # [1, 10)) takes over at the kernel.
+    # Strip the int; then inject the step_policy callable (V0 = library default
+    # when step_policy=None; non-V0 from build_step_policy when spec is provided).
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
+        # Build integration_steps_fn from the step_policy spec.
+        # V0 (spec=None): returns the same callable as blackjax's built-in default,
+        # so behaviour is identical to not specifying it — we still inject explicitly
+        # to make the code path consistent and testable.
+        _integration_steps_fn = build_step_policy(step_policy)
+        shared_kwargs["integration_steps_fn"] = _integration_steps_fn
     # Apply sampler_kwargs_override: caller-supplied values take precedence over
     # defaults.  step_size and inverse_mass_matrix are always excluded — they
     # come from warmup adaptation and must not be overridden here.
@@ -662,7 +682,12 @@ def emit_low_recipe_for_cell(
     # are functionally equivalent given the deterministic seed + per-chain key.
     _log("  Building LOW recipe...")
     chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
-    pinned_params: dict[str, Any] = {**shared_kwargs, "step_size": chain0_step_size}
+    # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
+    # pinned params — it is reconstructed at recipe-run time via step_policy spec.
+    pinned_params: dict[str, Any] = {
+        k: v for k, v in shared_kwargs.items() if k != "integration_steps_fn"
+    }
+    pinned_params["step_size"] = chain0_step_size
     jsonable_params = _to_jsonable(pinned_params)
 
     imm_arr: np.ndarray | None = None
@@ -716,6 +741,9 @@ def emit_low_recipe_for_cell(
         difficulty=None,
         instructions="",
         notes="",
+        # Store the step_policy spec so the recipe JSON is self-describing.
+        # None = library default (V0); non-None = explicit spec from caller.
+        step_policy=step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None,
         tuning_seed=tuning_seed,
         tuningfork_version=_tuningfork_version,
         blackjax_version=_get_blackjax_version(),
@@ -888,12 +916,15 @@ def run_recipe_to_idata(
     }
     if recipe.base_method_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
+        # Wire the step_policy callable from the recipe's stored spec.
+        # None = V0 library default; non-None = reconstructed from spec.
+        shared_kwargs["integration_steps_fn"] = build_step_policy(recipe.step_policy)
 
     # Inject recipe's base_method_params (overrides defaults)
     recipe_params = dict(recipe.base_method_params)
-    # Exclude step_size and IMM (they come from warmup)
+    # Exclude step_size, IMM, and integration_steps_fn (callable; not in recipe params).
     for k in list(recipe_params.keys()):
-        if k not in ("step_size", "inverse_mass_matrix"):
+        if k not in ("step_size", "inverse_mass_matrix", "integration_steps_fn"):
             shared_kwargs[k] = recipe_params[k]
 
     batched_step_size = batched_params["step_size"]
