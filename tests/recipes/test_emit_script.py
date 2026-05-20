@@ -397,3 +397,90 @@ def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> Non
         f"Expected _samples shape starting with ({_NUM_CHAINS}, {_NUM_SAMPLES}, ...) "
         f"but got different output.\nstdout:\n{result.stdout}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Warmup algorithm correctness tests (emit-script-warmup-algo-fix)
+# ---------------------------------------------------------------------------
+
+
+def _extract_warmup_section(script: str) -> str:
+    """Return the substring from `# === WARMUP:` to the next `# === SAMPLER:`."""
+    lines = script.split("\n")
+    start = next(i for i, line in enumerate(lines) if line.startswith("# === WARMUP:"))
+    end = next(
+        i
+        for i, line in enumerate(lines[start:], start=start)
+        if line.startswith("# === SAMPLER:")
+    )
+    return "\n".join(lines[start:end])
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "sampler",
+    [
+        "nuts",
+        "hmc",
+        "mhmc",
+        "dynamic_hmc",
+        "dmhmc",
+    ],
+)
+@pytest.mark.parametrize(
+    "warmup",
+    [
+        "window_adaptation_diag_imm",
+        "window_adaptation_dense_imm",
+        "window_adaptation_low_rank_imm",
+    ],
+)
+def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) -> None:
+    """The emitted script's warmup section references the SAME blackjax
+    algorithm that `resolve_warmup_algorithm` picks.
+
+    Catches the class of bug where templates hardcode an algorithm name
+    (e.g., `blackjax.nuts`) regardless of the recipe's actual sampler.
+    Discovered 2026-05-20 on `medium__mhmc__window_adaptation_dense_imm`.
+
+    Note: laplace_* samplers are deferred to R3.5b-2 (no templates yet).
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+    from tuningfork.warmup import WARMUPS
+    from tuningfork.warmup._laplace_adapter import HMC_SUBSTITUTE_METHOD_NAMES
+
+    # Skip incompatible pairs (e.g., low_rank_window_adaptation may not support
+    # all sampler families).
+    if not WARMUPS[warmup].is_compatible(sampler):
+        pytest.skip(f"{warmup} is not compatible with {sampler}")
+
+    # Create a synthetic Recipe in-memory with minimal required fields.
+    # The emit_script function only uses: model_name, base_method_name, warmup_name,
+    # effort, base_method_params, warmup_params, tuning_seed, calibration_budget,
+    # and gate_evidence. Most of these can be stubbed for the syntax check.
+    recipe = Recipe(
+        model_name="eight_schools_ncp",
+        base_method_name=sampler,
+        warmup_name=warmup,
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1},
+        warmup_params={"n_warmup": 100, "target_acceptance_rate": 0.8},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    script = emit_script(recipe, num_samples=50)
+
+    # Determine the expected warmup algorithm following resolve_warmup_algorithm logic.
+    expected_algo = "hmc" if sampler in HMC_SUBSTITUTE_METHOD_NAMES else sampler
+    warmup_section = _extract_warmup_section(script)
+
+    assert f"blackjax.{expected_algo}" in warmup_section, (
+        f"Emitted script for {sampler} × {warmup}: warmup section "
+        f"should call `blackjax.{expected_algo}` but doesn't. "
+        f"Section:\n{warmup_section[:500]}"
+    )
