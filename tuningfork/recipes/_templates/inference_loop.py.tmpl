@@ -5,5 +5,32 @@ def _one_step(state, rng_key):
 
 
 _NUM_SAMPLES = $num_samples
-_inference_keys = jax.random.split(jax.random.key($sampler_seed), _NUM_SAMPLES)
-_, (_samples, _infos) = jax.lax.scan(_one_step, _state_post_warmup, _inference_keys)
+
+# Ensure _state_post_warmup has a leading chain axis of size num_chains before
+# the vmap-scan loop.  Warmup templates that already produce multi-chain states
+# (pathfinder, multipathfinder, meads, chees, mclmc_tuning, window_adaptation_*)
+# do not set _warmup_init_is_single_chain; the no_warmup template sets it to
+# True because the sampler template initialises from init_position (single chain).
+try:
+    _warmup_init_is_single_chain
+except NameError:
+    _warmup_init_is_single_chain = False
+
+if _warmup_init_is_single_chain:
+    _state_post_warmup = jax.tree.map(
+        lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
+        _state_post_warmup,
+    )
+
+# Multi-chain vmap-scan inference loop.
+# Output shape: (num_chains, num_samples, ...) for all warmup families.
+_chain_keys = jax.random.split(jax.random.key($sampler_seed), num_chains)
+
+
+def _run_one_chain(state, chain_key):
+    step_keys = jax.random.split(chain_key, _NUM_SAMPLES)
+    _, (samples, infos) = jax.lax.scan(_one_step, state, step_keys)
+    return samples, infos
+
+
+_samples, _infos = jax.vmap(_run_one_chain)(_state_post_warmup, _chain_keys)
