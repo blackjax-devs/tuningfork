@@ -14,7 +14,7 @@
 """Phase A reproduction check — V0 step_policy=None.
 
 Confirms that wiring step_policy=None (V0, library default) through the
-_phase3_emit pipeline reproduces the same FAIL verdict as the committed
+_recipe_runner pipeline reproduces the same FAIL verdict as the committed
 FAILED recipes for:
 
   - ill_cond_50 × window_adaptation_diag_imm × dynamic_hmc
@@ -59,7 +59,7 @@ def test_v0_step_policy_reproduces_failed_verdict(
     """V0 step_policy=None on a known-FAIL cell still produces a FAIL verdict.
 
     This is the Phase A sanity check: confirms that wiring step_policy=None
-    through the emit pipeline does not accidentally change the sampler
+    through the recipe runner pipeline does not accidentally change the sampler
     behaviour (it should reproduce the same FAIL outcome as Phase 3/4).
 
     The test does NOT assert exact rhat/ESS values — those may drift slightly
@@ -68,11 +68,11 @@ def test_v0_step_policy_reproduces_failed_verdict(
       2. rhat > 1.01 (chain not converged).
       3. ESS < 400 (insufficient effective samples).
     """
-    from tuningfork.recipes._phase3_emit import (
-        PHASE3_N_SAMPLES,
-        PHASE3_N_WARMUP,
-        PHASE3_NUM_CHAINS,
-        PHASE3_SEED,
+    from tuningfork.recipes._recipe_runner import (
+        RECIPE_N_SAMPLES,
+        RECIPE_N_WARMUP,
+        RECIPE_NUM_CHAINS,
+        RECIPE_SEED,
         emit_low_recipe_for_cell,
     )
 
@@ -80,10 +80,10 @@ def test_v0_step_policy_reproduces_failed_verdict(
         model_name=model_name,
         warmup_name="window_adaptation_diag_imm",
         sampler_name="dynamic_hmc",
-        n_warmup=PHASE3_N_WARMUP,
-        n_samples=PHASE3_N_SAMPLES,
-        num_chains=PHASE3_NUM_CHAINS,
-        seed=PHASE3_SEED,
+        n_warmup=RECIPE_N_WARMUP,
+        n_samples=RECIPE_N_SAMPLES,
+        num_chains=RECIPE_NUM_CHAINS,
+        seed=RECIPE_SEED,
         catalog_root=tmp_path,
         outcomes_file=tmp_path / "outcomes.md",
         verbose=True,

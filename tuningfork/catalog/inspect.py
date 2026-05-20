@@ -157,11 +157,19 @@ def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
     -----
     Fields included:
 
-    - model, effort, sampler, warmup, dim (from gate_evidence)
+    - model, effort, sampler, warmup
+    - num_chains, n_warmup, n_samples (sample-budget fields; see below)
     - stored gate verdict, R̂_max, min_bulk_ESS, n_divergences
     - tuning_seed
     - tuningfork / blackjax / jax versions
     - timestamp_utc
+
+    ``num_chains`` is read from ``warmup_params`` first, then
+    ``calibration_budget`` (legacy groundtruth recipes record it only in
+    ``calibration_budget``).  ``n_warmup`` follows the same fallback pattern.
+    ``n_samples`` is read from ``calibration_budget`` first, then
+    ``warmup_params``.  All three show ``"N/A"`` when the field is absent
+    (e.g., legacy groundtruth recipes that pre-date the protocol).
     """
     import pandas as pd
 
@@ -171,11 +179,24 @@ def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
     n_diverg = auto_gate.get("n_divergences")
     verdict = auto_gate.get("verdict", "NOT_RUN")
 
+    _num_chains = recipe.warmup_params.get(
+        "num_chains", recipe.calibration_budget.get("num_chains")
+    )
+    _n_warmup = recipe.warmup_params.get(
+        "n_warmup", recipe.calibration_budget.get("n_warmup")
+    )
+    _n_samples = recipe.calibration_budget.get(
+        "n_samples", recipe.warmup_params.get("n_samples")
+    )
+
     rows = [
         ("model", recipe.model_name),
         ("effort", recipe.effort.value),
         ("sampler", recipe.base_method_name),
         ("warmup", recipe.warmup_name),
+        ("num_chains", str(int(_num_chains)) if _num_chains is not None else "N/A"),
+        ("n_warmup", str(int(_n_warmup)) if _n_warmup is not None else "N/A"),
+        ("n_samples", str(int(_n_samples)) if _n_samples is not None else "N/A"),
         ("stored gate verdict", verdict),
         ("R_hat_max", f"{rhat:.4f}" if rhat is not None else "N/A"),
         ("min_bulk_ESS", f"{min_ess:.1f}" if min_ess is not None else "N/A"),

@@ -82,6 +82,7 @@ def emit_script(
     *,
     num_samples: int = 2000,
     sampler_seed: int | None = None,
+    num_chains: int | None = None,
 ) -> str:
     """Assemble a recipe-reproduction Python script.
 
@@ -103,6 +104,11 @@ def emit_script(
         RNG seed for the post-warmup sampling. Defaults to
         ``recipe.tuning_seed + 1`` so the emitted script is deterministic
         given the recipe.
+    num_chains : int, optional
+        Number of chains for the vmap-scan inference loop. When ``None``,
+        derived from the recipe: ``recipe.warmup_params.get("num_chains",
+        recipe.calibration_budget.get("num_chains", 1))``. Falls back to 1
+        for legacy groundtruth recipes that pre-date the ``num_chains`` field.
 
     Returns
     -------
@@ -122,6 +128,12 @@ def emit_script(
     """
     if sampler_seed is None:
         sampler_seed = recipe.tuning_seed + 1
+
+    if num_chains is None:
+        num_chains = recipe.warmup_params.get(
+            "num_chains",
+            recipe.calibration_budget.get("num_chains", 1),
+        )
 
     # Normalise warmup_params key spelling: groundtruth recipes use
     # "target_acceptance" (legacy key from certify_reference.py);
@@ -155,6 +167,7 @@ def emit_script(
         "tuning_seed": recipe.tuning_seed,
         "sampler_seed": sampler_seed,
         "num_samples": num_samples,
+        "num_chains": num_chains,
         # warmup_params unrolled (legacy top-level slots — backward compat)
         "target_acceptance_rate": target_acceptance_rate,
         "n_warmup": recipe.warmup_params.get("n_warmup", 1000),

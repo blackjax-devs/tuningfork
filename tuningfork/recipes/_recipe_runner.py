@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase 3 LOW-effort recipe emission — warmup + sampling + auto-gate pipeline.
+"""Recipe-emit pipeline — warmup + sampling + auto-gate for LOW-effort recipes.
 
-Implements the full ``warmup → sample → auto_gate → Recipe.LOW`` flow for the
-wadapt-hmc-sweep Phase 3.  Each cell runs:
+Implements the full ``warmup → sample → auto_gate → Recipe.LOW`` flow.
+Each cell runs:
 
 1. ``warmup.runner(num_chains=4)`` to get per-chain adapted
    ``(step_size, inverse_mass_matrix)`` for ``n_warmup=1000`` steps each.
@@ -28,7 +28,7 @@ wadapt-hmc-sweep Phase 3.  Each cell runs:
 
 Usage (CLI):
 
-    JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._phase3_emit \
+    JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._recipe_runner \
         --model mvn_10 \
         --warmup window_adaptation_diag_imm \
         --sampler nuts
@@ -36,12 +36,12 @@ Usage (CLI):
 The module is **not** exposed through the public ``tuningfork.recipes``
 ``__init__.py``; it is an internal generator-layer script.
 
-Phase 3 spec (per worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md):
+Recipe runner spec (per worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md):
     - ``n_warmup=1000``, ``n_samples=1000``, ``num_chains=4`` (quick mode)
     - ``seed=20260517`` (master); per-chain keys split internally
     - ``target_acceptance`` from ``base_method`` default (default 0.8)
     - PASS verdict → emit LOW recipe; FAIL/REVIEW → write note to
-      ``/tmp/wadapt-phase3-outcomes.md`` and exit non-zero.
+      ``/tmp/recipe-runner-outcomes.md`` and exit non-zero.
 """
 
 import dataclasses
@@ -91,23 +91,23 @@ _LAPLACE_PHI_THETA_SPLITS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
     "eight_schools_ncp": (("mu", "tau"), ("theta_raw",)),
 }
 
-# Phase 3 canonical parameters
+# Recipe runner canonical parameters
 # (4 chains x 1000 samples = "quick mode" non-groundtruth recipe protocol per
 #  worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md § Section 0;
 #  matches auto_gate's `min_bulk_ess >= 400` calibration. Use `quick` for LOW
 #  recipes; MEDIUM/HIGH should bump `n_samples` to 4000 via CLI override.)
-PHASE3_N_WARMUP: int = 1000
-PHASE3_N_SAMPLES: int = 1000
-PHASE3_NUM_CHAINS: int = 4
-PHASE3_SEED: int = 20260517
-PHASE3_N_CHUNKS: int = 4  # for split-R̂; ignored when samples are multi-chain
-PHASE3_TARGET_ACCEPTANCE: float = 0.8
+RECIPE_N_WARMUP: int = 1000
+RECIPE_N_SAMPLES: int = 1000
+RECIPE_NUM_CHAINS: int = 4
+RECIPE_SEED: int = 20260517
+RECIPE_N_CHUNKS: int = 4  # for split-R̂; ignored when samples are multi-chain
+RECIPE_TARGET_ACCEPTANCE: float = 0.8
 
 # Catalog root (relative to this file: tuningfork/tuningfork/catalog/)
 _CATALOG_ROOT: Path = Path(__file__).parent.parent / "catalog"
 
 # Outcomes log for FAIL / REVIEW cells
-_OUTCOMES_FILE: Path = Path("/tmp/wadapt-phase3-outcomes.md")
+_OUTCOMES_FILE: Path = Path("/tmp/recipe-runner-outcomes.md")
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ _OUTCOMES_FILE: Path = Path("/tmp/wadapt-phase3-outcomes.md")
 
 
 class CellResult:
-    """Outcome of one Phase 3 emit attempt.
+    """Outcome of one recipe-runner emit attempt.
 
     Parameters
     ----------
@@ -268,11 +268,11 @@ def emit_low_recipe_for_cell(
     warmup_name: str,
     sampler_name: str,
     *,
-    n_warmup: int = PHASE3_N_WARMUP,
-    n_samples: int = PHASE3_N_SAMPLES,
-    num_chains: int = PHASE3_NUM_CHAINS,
-    seed: int = PHASE3_SEED,
-    n_chunks: int = PHASE3_N_CHUNKS,
+    n_warmup: int = RECIPE_N_WARMUP,
+    n_samples: int = RECIPE_N_SAMPLES,
+    num_chains: int = RECIPE_NUM_CHAINS,
+    seed: int = RECIPE_SEED,
+    n_chunks: int = RECIPE_N_CHUNKS,
     catalog_root: Path = _CATALOG_ROOT,
     outcomes_file: Path = _OUTCOMES_FILE,
     verbose: bool = True,
@@ -291,16 +291,16 @@ def emit_low_recipe_for_cell(
     sampler_name
         Registry key in ``BASE_METHODS``, e.g. ``"nuts"``.
     n_warmup
-        Warmup steps per chain (default ``PHASE3_N_WARMUP`` = 1000).
+        Warmup steps per chain (default ``RECIPE_N_WARMUP`` = 1000).
     n_samples
-        Post-warmup sampler steps per chain (default ``PHASE3_N_SAMPLES`` = 1000).
+        Post-warmup sampler steps per chain (default ``RECIPE_N_SAMPLES`` = 1000).
     num_chains
         Number of independent chains run in parallel via ``jax.vmap``
-        (default ``PHASE3_NUM_CHAINS`` = 4).  The non-groundtruth recipe
+        (default ``RECIPE_NUM_CHAINS`` = 4).  The non-groundtruth recipe
         protocol (per `worklog/decisions/2026-05-11-phase6-visualization-
         diagnostics.md` § Section 0) is 4 chains × 1000 quick mode.
     seed
-        Master JAX random seed (default ``PHASE3_SEED`` = 20260517).
+        Master JAX random seed (default ``RECIPE_SEED`` = 20260517).
     n_chunks
         Split-Rhat rechunk count if samples come in single-chain layout;
         ignored when samples are already multi-chain (default 4).
@@ -431,7 +431,7 @@ def emit_low_recipe_for_cell(
             note = (
                 f"ERROR: laplace_* sampler requested but {model_name!r} has no "
                 "phi/theta split in _LAPLACE_PHI_THETA_SPLITS — cannot build "
-                "marginal logdensity. Add the split to the table in _phase3_emit.py."
+                "marginal logdensity. Add the split to the table in _recipe_runner.py."
             )
             _log(f"  {note}")
             _append_outcome(model_name, warmup_name, sampler_name, note)
@@ -726,7 +726,7 @@ def emit_low_recipe_for_cell(
             "target_acceptance": (
                 target_acceptance
                 if target_acceptance is not None
-                else (base_method.target_acceptance_rate or PHASE3_TARGET_ACCEPTANCE)
+                else (base_method.target_acceptance_rate or RECIPE_TARGET_ACCEPTANCE)
             ),
         },
         headline_metric=headline,
@@ -813,7 +813,7 @@ def run_recipe_to_idata(
         A Recipe object loaded via ``load_recipe``.
     n_samples
         Override the recipe's n_samples. If None, use the recipe's
-        warmup_params["n_samples"] or fall back to PHASE3_N_SAMPLES.
+        warmup_params["n_samples"] or fall back to RECIPE_N_SAMPLES.
     force_resample
         If True, always re-run even if cache exists. Default False.
     catalog_root
@@ -863,14 +863,14 @@ def run_recipe_to_idata(
         )
 
     # Extract protocol from recipe
-    n_warmup = int(recipe.warmup_params.get("n_warmup", PHASE3_N_WARMUP))
-    num_chains = int(recipe.warmup_params.get("num_chains", PHASE3_NUM_CHAINS))
+    n_warmup = int(recipe.warmup_params.get("n_warmup", RECIPE_N_WARMUP))
+    num_chains = int(recipe.warmup_params.get("num_chains", RECIPE_NUM_CHAINS))
     target_acceptance = recipe.warmup_params.get("target_acceptance", None)
     if n_samples is None:
-        n_samples = int(recipe.warmup_params.get("n_samples", PHASE3_N_SAMPLES))
+        n_samples = int(recipe.warmup_params.get("n_samples", RECIPE_N_SAMPLES))
 
-    # Use recipe's tuning_seed (or fallback to PHASE3_SEED if 0)
-    seed = recipe.tuning_seed if recipe.tuning_seed != 0 else PHASE3_SEED
+    # Use recipe's tuning_seed (or fallback to RECIPE_SEED if 0)
+    seed = recipe.tuning_seed if recipe.tuning_seed != 0 else RECIPE_SEED
 
     # Build logdensity and initial position
     init_key, warmup_key, sample_key = jax.random.split(jax.random.key(seed), 3)
@@ -1010,7 +1010,7 @@ def _main() -> None:
 
     Usage::
 
-        JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._phase3_emit \
+        JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._recipe_runner \
             --model mvn_10 \
             --warmup window_adaptation_diag_imm \
             --sampler nuts
@@ -1021,7 +1021,7 @@ def _main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Phase 3 LOW emit: warmup + sample + auto-gate for one "
+            "Recipe runner LOW emit: warmup + sample + auto-gate for one "
             "(model, warmup, sampler) cell.  Exits 0 on PASS."
         )
     )
@@ -1039,20 +1039,20 @@ def _main() -> None:
     parser.add_argument(
         "--n-warmup",
         type=int,
-        default=PHASE3_N_WARMUP,
-        help=f"Warmup steps (default {PHASE3_N_WARMUP})",
+        default=RECIPE_N_WARMUP,
+        help=f"Warmup steps (default {RECIPE_N_WARMUP})",
     )
     parser.add_argument(
         "--n-samples",
         type=int,
-        default=PHASE3_N_SAMPLES,
-        help=f"Post-warmup samples (default {PHASE3_N_SAMPLES})",
+        default=RECIPE_N_SAMPLES,
+        help=f"Post-warmup samples (default {RECIPE_N_SAMPLES})",
     )
     parser.add_argument(
         "--seed",
         type=int,
-        default=PHASE3_SEED,
-        help=f"JAX random seed (default {PHASE3_SEED})",
+        default=RECIPE_SEED,
+        help=f"JAX random seed (default {RECIPE_SEED})",
     )
     parser.add_argument(
         "--target-acceptance",

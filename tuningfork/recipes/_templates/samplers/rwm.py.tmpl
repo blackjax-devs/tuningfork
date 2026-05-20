@@ -4,21 +4,34 @@
 # tuningfork.base_method.rwm._make_rwm).
 from jax.flatten_util import ravel_pytree as _ravel_pytree
 
-_flat_init, _unravel = _ravel_pytree(init_position)
-_n_params = int(_flat_init.shape[0])
-_sigma = _adapted_params.get("step_size", $bm_sigma)
+_flat_init, _ = _ravel_pytree(init_position)
+_default_step_size = $bm_sigma
 
 
-def _rwm_proposal_generator(rng_key, position):
+def _build_kernel(step_size, inverse_mass_matrix):  # noqa: ARG001
+    # RWM uses an isotropic Gaussian proposal scaled by step_size; IMM arg is
+    # present for protocol compatibility with inference_loop.py.tmpl.
+    def _proposal(rng_key, position):
+        flat, unravel = _ravel_pytree(position)
+        noise = jax.random.normal(rng_key, shape=flat.shape) * step_size
+        return unravel(flat + noise)
+
+    return blackjax.rmh(logdensity_fn, proposal_generator=_proposal).step
+
+
+# kernel_builder is the protocol expected by inference_loop.py.tmpl.
+kernel_builder = _build_kernel
+
+
+def _default_rwm_proposal(rng_key, position):
     flat, unravel = _ravel_pytree(position)
-    noise = jax.random.normal(rng_key, shape=flat.shape) * _sigma
-    return unravel(flat + noise)
+    return unravel(flat + jax.random.normal(rng_key, shape=flat.shape) * _default_step_size)
 
-
-_kernel_obj = blackjax.rmh(logdensity_fn, proposal_generator=_rwm_proposal_generator)
-kernel = _kernel_obj.step
 
 try:
     _state_post_warmup
 except NameError:
-    _state_post_warmup = _kernel_obj.init(init_position)
+    _warmup_init_is_single_chain = True
+    _state_post_warmup = blackjax.rmh(
+        logdensity_fn, proposal_generator=_default_rwm_proposal
+    ).init(init_position)

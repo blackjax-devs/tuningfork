@@ -19,7 +19,7 @@ composes correctly for every valid combination of:
 - **4 laplace_* base methods**: laplace_hmc, laplace_dhmc, laplace_mhmc,
   laplace_dmhmc
 - **3 warmup strategies**: window_adaptation_diag_imm,
-  window_adaptation_dense_imm, low_rank_window_adaptation
+  window_adaptation_dense_imm, window_adaptation_low_rank_imm
 
 Testing on ``eight_schools_ncp`` — the canonical hierarchical model with
 phi=(mu, tau) [dim=2] and theta=(theta_raw,) [dim=8].
@@ -73,7 +73,7 @@ LAPLACE_METHODS = [
 WARMUP_STRATEGIES = [
     "window_adaptation_diag_imm",
     "window_adaptation_dense_imm",
-    "low_rank_window_adaptation",
+    "window_adaptation_low_rank_imm",
 ]
 
 
@@ -109,7 +109,7 @@ def test_laplace_marginal_warmup_composition(warmup_name, laplace_name):
     - IMM shape equals (num_chains, dim_phi) [diag] or
       (num_chains, dim_phi, dim_phi) [dense/low-rank projected diagonal].
 
-    Design note: low_rank_window_adaptation returns a
+    Design note: window_adaptation_low_rank_imm returns a
     ``LowRankInverseMassMatrix`` NamedTuple (not a plain array) for
     inverse_mass_matrix.  We check finiteness on sigma/U/lam components
     via ``jax.tree.leaves`` when the result is not a plain ndarray.
@@ -163,7 +163,7 @@ def test_laplace_marginal_warmup_composition(warmup_name, laplace_name):
         assert jnp.all(
             jnp.isfinite(imm)
         ), f"[{warmup_name} x {laplace_name}] IMM NaN/Inf: {imm}"
-    elif warmup_name == "low_rank_window_adaptation":
+    elif warmup_name == "window_adaptation_low_rank_imm":
         # low_rank IMM is a LowRankInverseMassMatrix NamedTuple (sigma, U, lam
         # arrays, batched on the leading num_chains axis).  Check finiteness
         # on all leaves; verify the structural fields exist.

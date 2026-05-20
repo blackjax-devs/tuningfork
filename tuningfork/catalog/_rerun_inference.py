@@ -13,7 +13,7 @@
 # limitations under the License.
 """On-demand resampling with caching for LOW/MEDIUM recipes.
 
-Wrapper around ``tuningfork.recipes._phase3_emit.run_recipe_to_idata`` that
+Wrapper around ``tuningfork.recipes._recipe_runner.run_recipe_to_idata`` that
 caches draws to avoid redundant re-runs in the catalog notebook.
 
 Cache layout (per recipe):
@@ -85,7 +85,7 @@ def cached_idata_for_recipe(
     from pathlib import Path
 
     if catalog_root is None:
-        from tuningfork.recipes._phase3_emit import _CATALOG_ROOT
+        from tuningfork.recipes._recipe_runner import _CATALOG_ROOT
 
         catalog_root = _CATALOG_ROOT
     else:
@@ -111,7 +111,7 @@ def cached_idata_for_recipe(
         return _load_from_cache(draws_cache, stats_cache)
 
     # Cache miss: re-run the recipe
-    from tuningfork.recipes._phase3_emit import run_recipe_to_idata
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     idata = run_recipe_to_idata(recipe, catalog_root=catalog_root)
 

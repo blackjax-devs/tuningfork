@@ -15,7 +15,7 @@
 
 Background
 ----------
-``blackjax.window_adaptation`` (and ``low_rank_window_adaptation``) require
+``blackjax.window_adaptation`` (and ``window_adaptation_low_rank_imm``) require
 an algorithm object with:
 
 - ``algorithm.build_kernel(integrator)`` — returns a raw kernel
@@ -86,7 +86,7 @@ LAPLACE_METHOD_NAMES: frozenset[str] = frozenset(
 # `blackjax.hmc` — it composes naturally with `window_adaptation` and the
 # adapted `(step_size, IMM)` are functionally equivalent for the downstream
 # sampler.  The downstream sampler then re-inits from `adapted_state.position`
-# with its own state structure (see `_phase3_emit.py`).
+# with its own state structure (see `_recipe_runner.py`).
 HMC_SUBSTITUTE_METHOD_NAMES: frozenset[str] = LAPLACE_METHOD_NAMES | frozenset(
     ("dynamic_hmc", "dmhmc")
 )
