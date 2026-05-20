@@ -275,6 +275,8 @@ def emit_low_recipe_for_cell(
     catalog_root: Path = _CATALOG_ROOT,
     outcomes_file: Path = _OUTCOMES_FILE,
     verbose: bool = True,
+    target_acceptance: float | None = None,
+    sampler_kwargs_override: dict[str, Any] | None = None,
 ) -> CellResult:
     """Run warmup + sampling + auto-gate for one cell; emit LOW recipe on PASS.
 
@@ -306,6 +308,23 @@ def emit_low_recipe_for_cell(
         File to append FAIL / REVIEW notes to.
     verbose
         Print progress to stdout.
+    target_acceptance
+        Override for the warmup dual-averaging target acceptance rate.
+        ``None`` (default) uses ``base_method.target_acceptance_rate`` or
+        0.80.  Pass e.g. ``target_acceptance=0.99`` for curvature-sensitive
+        models (banana, lotka_volterra, ill_cond_50) where the groundtruth
+        already required ta=0.99.  The effective value is recorded in
+        ``warmup_params["target_acceptance"]`` of the emitted recipe.
+    sampler_kwargs_override
+        Optional dict merged into ``shared_kwargs`` before building the
+        sampling kernel.  Useful for overriding defaults that differ from
+        the base_method's registered defaults, e.g.
+        ``{"num_integration_steps": 20}`` to tune HMC trajectory length.
+        Keys in this dict take precedence over both the default HP space and
+        the per-chain adapted values (except ``step_size`` and
+        ``inverse_mass_matrix``, which always come from warmup adaptation and
+        are never overridden here).  Cannot serialise non-JSON-able values
+        (e.g., callables); pass ``None`` for those and handle separately.
 
     Returns
     -------
@@ -426,6 +445,7 @@ def emit_low_recipe_for_cell(
             base_method,
             logdensity_fn=logdensity_fn,
             num_chains=num_chains,
+            target_acceptance_rate=target_acceptance,
         )
     except Exception as exc:
         note = f"FAIL warmup error: {type(exc).__name__}: {exc}"
@@ -482,6 +502,13 @@ def emit_low_recipe_for_cell(
     # [1, 10)) takes over at the kernel.
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
+    # Apply sampler_kwargs_override: caller-supplied values take precedence over
+    # defaults.  step_size and inverse_mass_matrix are always excluded — they
+    # come from warmup adaptation and must not be overridden here.
+    if sampler_kwargs_override:
+        for _k, _v in sampler_kwargs_override.items():
+            if _k not in ("step_size", "inverse_mass_matrix"):
+                shared_kwargs[_k] = _v
     # laplace_* factories expect `log_joint_fn` and `theta_init` as positional-style
     # kwargs but NOT `logdensity_fn` (the marginal).  Strip laplace_*-incompatible
     # defaults from shared_kwargs (laplace_* don't have any standard incompatible
@@ -671,7 +698,11 @@ def emit_low_recipe_for_cell(
         warmup_params={
             "n_warmup": n_warmup,
             "num_chains": num_chains,
-            "target_acceptance": PHASE3_TARGET_ACCEPTANCE,
+            "target_acceptance": (
+                target_acceptance
+                if target_acceptance is not None
+                else (base_method.target_acceptance_rate or PHASE3_TARGET_ACCEPTANCE)
+            ),
         },
         headline_metric=headline,
         sample_quality=None,
@@ -780,7 +811,29 @@ def _main() -> None:
         default=PHASE3_SEED,
         help=f"JAX random seed (default {PHASE3_SEED})",
     )
+    parser.add_argument(
+        "--target-acceptance",
+        type=float,
+        default=None,
+        help=(
+            "Override warmup dual-averaging target acceptance rate "
+            "(default: use base_method.target_acceptance_rate or 0.80)"
+        ),
+    )
+    parser.add_argument(
+        "--num-integration-steps",
+        type=int,
+        default=None,
+        help=(
+            "Override num_integration_steps for HMC/mhmc via sampler_kwargs_override "
+            "(ignored for NUTS/dynamic_hmc/dmhmc)"
+        ),
+    )
     args = parser.parse_args()
+
+    sampler_kwargs_override: dict[str, Any] | None = None
+    if args.num_integration_steps is not None:
+        sampler_kwargs_override = {"num_integration_steps": args.num_integration_steps}
 
     result = emit_low_recipe_for_cell(
         model_name=args.model,
@@ -789,6 +842,8 @@ def _main() -> None:
         n_warmup=args.n_warmup,
         n_samples=args.n_samples,
         seed=args.seed,
+        target_acceptance=args.target_acceptance,
+        sampler_kwargs_override=sampler_kwargs_override,
     )
     sys.exit(0 if result.verdict == "PASS" else 1)
 
