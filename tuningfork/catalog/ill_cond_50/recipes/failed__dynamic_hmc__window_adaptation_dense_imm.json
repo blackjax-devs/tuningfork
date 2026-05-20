@@ -1,0 +1,64 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "dynamic_hmc",
+  "warmup_name": "window_adaptation_dense_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.2
+  },
+  "difficulty": null,
+  "instructions": "ill_cond_50 with dense IMM and dynamic_hmc. The dense IMM adaptation reduces effective condition number, but dynamic_hmc's default random-L ∈ [1,10) is still too short for the residual anisotropy at d=50 κ≈1000. Use nuts + window_adaptation_dense_imm (LOW recipe: low__nuts__window_adaptation_dense_imm.json) instead.",
+  "notes": "",
+  "workflow": "Phase 3c (2026-05-19) attempted ill_cond_50 x window_adaptation_dense_imm x dynamic_hmc. The dense IMM captures full posterior covariance (50x50 matrix), reducing effective condition number. However, the residual trajectory-length problem persists: random-L ∈ [1,10) covers at most a fraction of the posterior's long axis even with an optimal dense IMM.\n\nDiagnosis: Dense IMM reduces the condition number in the sampler's working space but cannot eliminate the trajectory-length insufficiency. The no-U-turn criterion requires L ~ sqrt(κ_residual); even if dense IMM reduces κ from 1000 to 10, L=10 is borderline and in practice JAX's random uniform picks a mean of 5. The trajectory typically terminates before reaching U-turn.\n\nAttempted configurations:\n1. Phase 3c default: ta=0.8, random-L ∈ [1,10) -> FAIL.\n\nPhase 4 (Option B): pre-declare FAILED with HARD_DIRECTION. Dense IMM adds warmup cost (50x50 Cholesky each step) without rescuing the trajectory-length issue.\n\nRecommendation: use nuts + window_adaptation_dense_imm (LOW recipe exists: ill_cond_50/recipes/low__nuts__window_adaptation_dense_imm.json).",
+  "attempted_configurations": [
+    {
+      "base_method_params": {
+        "integration_steps_fn": "Uniform(1,10) [blackjax default]"
+      },
+      "warmup_params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      },
+      "seed": 20260517,
+      "gate_verdict": {
+        "verdict": "FAIL",
+        "rhat_max": null,
+        "min_bulk_ess": null,
+        "n_divergences": 0
+      },
+      "wall_seconds": 0.0,
+      "note": "Phase 3c cluster: same random-L failure as W1 variant; W2 dense IMM does not rescue trajectory-length issue"
+    }
+  ],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

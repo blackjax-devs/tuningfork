@@ -1,0 +1,57 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "dynamic_hmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {},
+      "warmup_params": {
+        "target_acceptance": 0.99
+      },
+      "seed": 20260517,
+      "gate_verdict": "FAIL",
+      "wall_seconds": 0.0,
+      "note": "ta=0.8 (Phase 3d): rhat=1.66, ess=6.8, n_div=185. ta=0.99 (Phase 4): rhat=5.10, ess=4.2, n_div=22."
+    }
+  ],
+  "base_method_params": {},
+  "warmup_params": {
+    "target_acceptance": 0.99
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "",
+  "notes": "Stiff ODE + random-L \u2208 [1,10) catastrophically fails \u2014 ta=0.99 isn't enough because L is too short to traverse the long-correlation directions of the (alpha,beta,gamma,delta) posterior.",
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T04:44:53Z",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 5.0988,
+      "min_bulk_ess": 4.2,
+      "n_divergences": 22,
+      "max_abs_mean_z": null,
+      "verdict": "FAIL",
+      "margins": {}
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "inverse_mass_matrix_path": null,
+  "workflow": "Phase 4 cluster (banana / lotka_volterra) retry at ta=0.99 still FAILed. Root cause: Stiff ODE + random-L \u2208 [1,10) catastrophically fails \u2014 ta=0.99 isn't enough because L is too short to traverse the long-correlation directions of the (alpha,beta,gamma,delta) posterior."
+}
