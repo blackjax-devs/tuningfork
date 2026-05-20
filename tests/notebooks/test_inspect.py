@@ -224,3 +224,72 @@ def test_summarize_recipe_empty_gate_shows_na(
     verdict_row = df[df["Property"] == "stored gate verdict"]
     assert len(verdict_row) == 1
     assert verdict_row.iloc[0]["Value"] == "NOT_RUN"
+
+
+# ---------------------------------------------------------------------------
+# Sample-budget rows: num_chains / n_warmup / n_samples (emit-script-num-chains)
+# ---------------------------------------------------------------------------
+
+_CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
+
+
+def test_summarize_recipe_sample_budget_rows_low_recipe() -> None:
+    """summarize_recipe includes num_chains / n_warmup / n_samples for a LOW recipe.
+
+    Uses the committed eight_schools_ncp LOW nuts recipe which has:
+      warmup_params.num_chains = 4, warmup_params.n_warmup = 1000
+      calibration_budget.n_samples = 1000, calibration_budget.num_chains = 4
+    """
+    from tuningfork.catalog.inspect import load_recipe, summarize_recipe
+
+    low_recipe_path = (
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    recipe = load_recipe(low_recipe_path)
+    df = summarize_recipe(recipe)
+    props = dict(zip(df["Property"].tolist(), df["Value"].tolist()))
+
+    assert "num_chains" in props, "summarize_recipe must include 'num_chains' row"
+    assert (
+        props["num_chains"] == "4"
+    ), f"Expected num_chains='4' for LOW recipe, got {props['num_chains']!r}"
+    assert "n_warmup" in props, "summarize_recipe must include 'n_warmup' row"
+    assert (
+        props["n_warmup"] == "1000"
+    ), f"Expected n_warmup='1000' for LOW recipe, got {props['n_warmup']!r}"
+    assert "n_samples" in props, "summarize_recipe must include 'n_samples' row"
+    assert (
+        props["n_samples"] == "1000"
+    ), f"Expected n_samples='1000' for LOW recipe, got {props['n_samples']!r}"
+
+
+def test_summarize_recipe_sample_budget_rows_legacy_groundtruth(
+    minimal_recipe_json: Path,
+) -> None:
+    """summarize_recipe shows 'N/A' for budget fields absent from legacy recipes.
+
+    The minimal_recipe_json fixture has no num_chains in warmup_params or
+    calibration_budget, and no n_samples anywhere — those fields didn't exist
+    when the groundtruth protocol was defined.
+    """
+    from tuningfork.catalog.inspect import load_recipe, summarize_recipe
+
+    recipe = load_recipe(minimal_recipe_json)
+    df = summarize_recipe(recipe)
+    props = dict(zip(df["Property"].tolist(), df["Value"].tolist()))
+
+    # num_chains absent from both warmup_params and calibration_budget
+    assert (
+        props.get("num_chains") == "N/A"
+    ), f"Expected num_chains='N/A' for legacy recipe, got {props.get('num_chains')!r}"
+    # n_warmup present in warmup_params (n_warmup=1000 in the fixture)
+    assert (
+        props.get("n_warmup") == "1000"
+    ), f"Expected n_warmup='1000', got {props.get('n_warmup')!r}"
+    # n_samples absent
+    assert (
+        props.get("n_samples") == "N/A"
+    ), f"Expected n_samples='N/A' for legacy recipe, got {props.get('n_samples')!r}"
