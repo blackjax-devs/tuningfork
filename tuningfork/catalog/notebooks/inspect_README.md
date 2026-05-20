@@ -180,10 +180,10 @@ recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/groundtruth.json")
 script = emit_script(recipe, num_samples=2000)
 
 from pathlib import Path
-Path("run_eight_schools_groundtruth.py").write_text(script)
+Path("run_inference_for_select_recipe.py").write_text(script)
 # Then in a fresh shell:
 #   uv run --with tuningfork --with jax --with blackjax --with numpyro \
-#       python run_eight_schools_groundtruth.py
+#       python run_inference_for_select_recipe.py
 ```
 
 The emitted script's inference choreography shows the exact BlackJAX call

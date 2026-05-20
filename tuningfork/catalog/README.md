@@ -26,9 +26,9 @@ idata = load_idata(recipe)  # on first call: warmup + sample; cached for subsequ
 # Optional: reproduce the recipe in a fresh environment
 script = emit_script(recipe, num_samples=2000)
 from pathlib import Path
-Path("run_eight_schools.py").write_text(script)
+Path("run_inference_for_select_recipe.py").write_text(script)
 # $ uv run --with tuningfork --with jax --with blackjax --with numpyro \
-#       python run_eight_schools.py
+#       python run_inference_for_select_recipe.py
 ```
 
 For GROUNDTRUTH recipes, `load_idata` loads directly from the committed reference cache.
