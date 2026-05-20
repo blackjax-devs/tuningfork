@@ -180,6 +180,19 @@ def emit_script(
     ctx.update({f"bm_{k}": v for k, v in recipe.base_method_params.items()})
     ctx.update({f"wp_{k}": v for k, v in recipe.warmup_params.items()})
 
+    # The warmup template needs to call the right blackjax algorithm. The recipe-
+    # runner uses `resolve_warmup_algorithm` which picks `blackjax.hmc` for the
+    # HMC-substitute family (laplace_*, dynamic_hmc, dmhmc) and the sampler's own
+    # factory otherwise. Reproduce that selection here so the emitted script
+    # faithfully reproduces the runner's warmup protocol.
+    from tuningfork.warmup._laplace_adapter import HMC_SUBSTITUTE_METHOD_NAMES
+
+    if recipe.base_method_name in HMC_SUBSTITUTE_METHOD_NAMES:
+        _warmup_sampler = "hmc"
+    else:
+        _warmup_sampler = recipe.base_method_name
+    ctx["warmup_algorithm"] = f"blackjax.{_warmup_sampler}"
+
     # Use safe_substitute so templates with optional $bm_*/wp_* slots that are
     # absent from the recipe (e.g. $bm_num_integration_steps in a nuts recipe)
     # leave the slot as a literal dollar-prefixed string rather than raising

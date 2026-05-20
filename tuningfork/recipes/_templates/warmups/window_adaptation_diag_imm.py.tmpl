@@ -4,7 +4,7 @@
 # tuningfork.warmup.window_adaptation_diag_imm.runner implementation.
 # All chains share the same init_position (same point, independent trajectories).
 _warmup = blackjax.window_adaptation(
-    blackjax.nuts,
+    $warmup_algorithm,
     logdensity_fn,
     target_acceptance_rate=$target_acceptance_rate,
     progress_bar=False,
