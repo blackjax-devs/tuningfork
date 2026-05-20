@@ -333,3 +333,67 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
         f"Expected _samples shape starting with ({_NUM_CHAINS}, {_NUM_SAMPLES}, ...) "
         f"but got different output.\nstdout:\n{result.stdout}"
     )
+
+
+@pytest.mark.slow
+def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> None:
+    """Per-chain warmup produces _adapted_params["step_size"] shape (4,) in emitted script.
+
+    Uses the LOW recipe for eight_schools_ncp x nuts x window_adaptation_diag_imm
+    which encodes num_chains=4.  Verifies that:
+    - _adapted_params["step_size"] has shape (4,)  (NOT scalar — per-chain warmup)
+    - _samples has shape (4, n_samples, ...)        (multi-chain output)
+
+    This is the regression test for the warmup vmap fix: before the fix,
+    warmup templates did single-chain warmup and broadcast the state, so
+    _adapted_params["step_size"] was a scalar even when num_chains=4.
+    """
+    low_recipe_path = (
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    recipe = load_recipe(low_recipe_path)
+    _NUM_SAMPLES = 50
+    _NUM_CHAINS = 4
+    script = emit_script(recipe, num_samples=_NUM_SAMPLES)
+    # Inject verification prints after the warmup and after the inference loop.
+    verification = (
+        "\nimport jax as _jax\n"
+        "import numpy as _np\n"
+        # Check _adapted_params["step_size"] shape — must be (4,) for per-chain warmup.
+        "_ss = _adapted_params['step_size']\n"
+        'print("STEP_SIZE_SHAPE=" + str(tuple(_np.shape(_ss))))\n'
+        # Check _samples shape — first leaf must start with (4, _NUM_SAMPLES, ...).
+        "_first_leaf = _jax.tree.leaves(_samples)[0]\n"
+        'print("SAMPLES_SHAPE=" + str(_first_leaf.shape))\n'
+    )
+    script += verification
+    script_path = tmp_path / "test_perchain_warmup.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Per-chain warmup emitted script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+    # _adapted_params["step_size"] must be shape (4,) — one value per chain.
+    assert f"STEP_SIZE_SHAPE=({_NUM_CHAINS},)" in result.stdout, (
+        f"Expected _adapted_params['step_size'] shape ({_NUM_CHAINS},) "
+        f"but got different output (scalar would indicate single-chain warmup bug).\n"
+        f"stdout:\n{result.stdout}"
+    )
+    # _samples must have shape (4, n_samples, ...).
+    assert f"SAMPLES_SHAPE=({_NUM_CHAINS}, {_NUM_SAMPLES}" in result.stdout, (
+        f"Expected _samples shape starting with ({_NUM_CHAINS}, {_NUM_SAMPLES}, ...) "
+        f"but got different output.\nstdout:\n{result.stdout}"
+    )
