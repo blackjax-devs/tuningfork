@@ -62,8 +62,9 @@ keep using `recipe_diagnostics.md` (in this directory).
 | Function | Returns | Notes |
 |---|---|---|
 | `load_recipe(path)` | `Recipe` | Resolves relative paths against repo root |
-| `summarize_recipe(recipe)` | `pd.DataFrame` | Auto-renders inline; IMM excluded |
+| `summarize_recipe(recipe)` | `pd.DataFrame` | Auto-renders inline; IMM excluded; 16 rows including num_chains / n_warmup / n_samples |
 | `load_idata(recipe)` | `az.InferenceData` / `DataTree` | **Recommended.** Posterior + sample_stats; GROUNDTRUTH gets enrichment |
+| `cached_idata_for_recipe(recipe)` | `az.InferenceData` | LOW/MEDIUM on-demand resample with per-recipe caching. Under the hood of `load_idata` for non-groundtruth recipes. |
 | `load_samples(recipe)` | `dict[str, jax.Array]` | Advanced: raw draws. Raises `FileNotFoundError` on cache miss |
 | `load_chain_stats(recipe)` | `dict[str, np.ndarray] \| None` | Advanced: raw chain_stats. `None` on miss (non-fatal) |
 | `samples_to_idata(samples, chain_stats=None)` | `az.InferenceData` / `DataTree` | Manual conversion |
@@ -79,19 +80,36 @@ Raises `FileNotFoundError` with a clear message if the file cannot be found.
 
 ### `summarize_recipe(recipe)`
 
-Returns a 13-row `pd.DataFrame(columns=["Property", "Value"])` covering:
-model, effort, sampler, warmup, stored gate verdict, R̂_max, min_bulk_ESS,
-n_divergences, tuning_seed, tuningfork / blackjax / jax versions, timestamp.
+Returns a 16-row `pd.DataFrame(columns=["Property", "Value"])` covering:
+model, effort, sampler, warmup, **num_chains**, **n_warmup**, **n_samples**,
+stored gate verdict, R̂_max, min_bulk_ESS, n_divergences, tuning_seed,
+tuningfork / blackjax / jax versions, timestamp.
 
 The `inverse_mass_matrix` field is intentionally excluded (too verbose for a
 summary table; inspect `recipe.base_method_params` directly for the IMM).
 
+The three sample-budget fields (`num_chains`, `n_warmup`, `n_samples`) read
+from `warmup_params` with fallback to `calibration_budget` (or vice versa for
+`n_samples`); legacy groundtruth recipes that pre-date these fields show
+`"N/A"`.
+
 ### `load_idata(recipe)`
 
-The recommended entry point for inspection. Returns an `InferenceData` with:
+The recommended entry point for inspection. Dispatches transparently based on
+`recipe.effort`:
 
-- **posterior** — the cached samples, shape `(1, n_draws, *event)` (single
-  long chain promoted to multi-chain layout for ArviZ).
+- **GROUNDTRUTH**: loads directly from the committed reference cache at
+  `<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz`.
+- **LOW / MEDIUM**: calls `cached_idata_for_recipe` which warmup+samples on first
+  access and persists to `<model>/_cache/<recipe_stem>.{draws,chain_stats}.npz`
+  (gitignored). Subsequent calls return the cache instantly (5 s → 0.0 s after
+  first run).
+- **FAILED**: raises `FileNotFoundError` — no gate-passing configuration exists.
+
+Returns an `InferenceData` with:
+
+- **posterior** — samples, shape `(num_chains, n_draws, *event)` for multi-chain
+  LOW/MEDIUM recipes; `(1, n_draws, *event)` for single-chain GROUNDTRUTH.
 - **sample_stats** — per-step NUTS diagnostics mapped to ArviZ canonical
   names: `diverging`, `energy`, `acceptance_rate`, `n_steps`, `tree_depth`,
   plus a prefixed `tuningfork_is_turning`.
@@ -105,12 +123,12 @@ makes these work out of the box.
 
 ### `load_samples(recipe)`
 
-Cache-only in v1 — no re-run path. Only GROUNDTRUTH recipes have a populated
-reference cache today. For other effort tiers, raises `FileNotFoundError` with
-a message pointing at the Phase 0 sweep documentation.
-
-To populate the cache, run the Phase 0 ground-truth sweep:
-`tuningfork reference <model_name>`.
+GROUNDTRUTH recipes load directly from the reference cache at
+`<model>/groundtruth_samples/blackjax/draws.npz`. LOW/MEDIUM recipes load
+from the per-recipe on-demand cache populated by `cached_idata_for_recipe`
+(PR #37); call `load_idata(recipe)` first to populate the cache if it doesn't
+exist yet. FAILED recipes raise `FileNotFoundError` (no gate-passing config
+exists to sample from).
 
 ### `load_chain_stats(recipe)`
 
@@ -130,6 +148,21 @@ For multi-chain outputs (e.g., from your own warmup+sampler run), pass
 When `chain_stats` is provided, the function projects it into the
 `sample_stats` group using `_CHAIN_STATS_TO_SAMPLE_STATS` (renames
 `is_divergent → diverging`, `num_integration_steps → n_steps`, etc.).
+
+## Effort-aware loading
+
+`load_idata(recipe)` dispatches on `recipe.effort` with three branches matching
+what the `catalog_explorer.py` marimo notebook does:
+
+| `recipe.effort` | Behaviour |
+|---|---|
+| `"groundtruth"` | Loads from committed reference cache (`groundtruth_samples/blackjax/`). Instant. |
+| `"low"` / `"medium"` | Runs warmup + sampling on first call via `cached_idata_for_recipe`; persists to `<model>/_cache/<recipe_stem>.*` (gitignored). Fast on cache hit. |
+| `"failed"` | Raises `FileNotFoundError`. No gate-passing config exists. Inspect the recipe's `attempted_configurations` field for the investigation trail. |
+| `"high"` | Not yet shipped. Will follow the LOW/MEDIUM path when available. |
+
+To force a fresh resample for a LOW/MEDIUM recipe, delete
+`<model>/_cache/<recipe_stem>.draws.npz` and re-call `load_idata`.
 
 ## Reproducing a recipe
 

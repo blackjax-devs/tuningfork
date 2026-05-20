@@ -10,6 +10,7 @@ from tuningfork.catalog import (
     emit_script,         # Recipe → standalone reproduction .py script
 )
 
+# GROUNDTRUTH recipe — loads directly from committed reference cache
 recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/groundtruth.json")
 summarize_recipe(recipe)                 # Recipe metadata table
 idata = load_idata(recipe)               # ArviZ-ready InferenceData
@@ -18,6 +19,10 @@ import arviz as az
 az.plot_trace(idata)
 az.summary(idata)
 
+# LOW recipe — warmup + sample on first call; cached for subsequent calls
+recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/recipes/low__nuts__window_adaptation_diag_imm.json")
+idata = load_idata(recipe)  # on first call: warmup + sample; cached for subsequent calls
+
 # Optional: reproduce the recipe in a fresh environment
 script = emit_script(recipe, num_samples=2000)
 from pathlib import Path
@@ -25,6 +30,11 @@ Path("run_eight_schools.py").write_text(script)
 # $ uv run --with tuningfork --with jax --with blackjax --with numpyro \
 #       python run_eight_schools.py
 ```
+
+For GROUNDTRUTH recipes, `load_idata` loads directly from the committed reference cache.
+For LOW/MEDIUM recipes, it transparently calls `cached_idata_for_recipe` which warmup+samples
+on first access and persists draws + chain_stats to `<model>/_cache/<recipe_stem>.{draws,chain_stats}.npz`
+(gitignored).
 
 See [`notebooks/inspect_README.md`](notebooks/inspect_README.md) for the full API + a worked example. The repo-root [`README.md`](../../README.md) covers the broader design (generator-vs-catalog two-layer split, recipe matrix, calibration pipeline).
 
@@ -104,10 +114,35 @@ These models support direct posterior sampling (closed-form or rejection-free); 
 - **Wall** is the certification run wall time (warmup + sampling on a single CPU chain). On GPU expect 5-20× speedup depending on model.
 - **Difficulty** is informal — formally all rows ship as `Effort.GROUNDTRUTH` per the recipe schema. The tier here reflects the certification cost (tuning effort + wall) needed to clear the gate.
 
+## Consuming LOW / MEDIUM recipes
+
+`load_idata(recipe)` works uniformly across GROUNDTRUTH, LOW, and MEDIUM effort tiers:
+
+- **GROUNDTRUTH**: loads directly from the committed reference cache at
+  `<model>/groundtruth_samples/blackjax/{draws,chain_stats}.npz` (via Git LFS).
+- **LOW / MEDIUM**: transparently calls `cached_idata_for_recipe` which runs the
+  warmup + sampling on first access and persists draws + chain_stats to
+  `<model>/_cache/<recipe_stem>.{draws,chain_stats}.npz` (gitignored). Subsequent
+  calls return the cached result instantly.
+- **FAILED**: raises `FileNotFoundError` — no gate-passing configuration exists to
+  sample from. FAILED recipes carry an `attempted_configurations` field documenting
+  the forking-path investigation but have no idata path.
+
+The **catalog explorer marimo notebook** (`catalog_explorer.py`) branches on
+`recipe.effort`: GROUNDTRUTH → direct cache; LOW/MEDIUM → cached resample via
+`cached_idata_for_recipe`; FAILED → error/no-plots message.
+
+**Cache invalidation**: delete `<model>/_cache/<recipe_stem>.*` to force a fresh
+resample (files are gitignored; no commit needed).
+
+**Wall time**: LOW recipes typically take 5–60 s per cell on CPU. MEDIUM recipes
+may run longer depending on what made them MEDIUM (smaller step_size, tighter
+target_acceptance, more warmup steps, etc.).
+
 ## Pointers
 
 - **Per-model `lessons.md`** files capture the sampling-quirks history for each model — start there if you're curious about why a specific cell is the way it is.
-- **`recipes/` subdirectories** will fill out as Recipe Phase 1+ emits LOW/MEDIUM/HIGH recipes per (model × warmup × sampler) cell. R5 (2026-05-17) shipped 7 canonical **FAILED** recipes documenting hard-exclusion categories — see [`gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json`](gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json) for the multimodal × single-chain-gradient exclusion example.
+- **`recipes/` subdirectories** are populated by the Recipe Generation Phase pipeline. **LOW** recipes shipped during Phase 3 (2026-05, 45 LOW recipes across 12 models). **MEDIUM** recipes are shipping during Phase 4 (2026-05). **7 canonical FAILED** recipes from R5 (2026-05-17) document hard-exclusion categories — see [`gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json`](gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json) for the multimodal × single-chain-gradient exclusion example. HIGH recipes are not yet shipped.
 - **Recipe matrix** (full 24 × 10 × 14 cell-by-cell colour verdict) lives at [`../../RECIPE_GENERATION.md`](../../RECIPE_GENERATION.md).
 - **Architecture** (generator-vs-catalog two-layer split) at [`../../README.md`](../../README.md) § Layout.
 - **API details** (load_recipe, load_idata, emit_script, ...) at [`notebooks/inspect_README.md`](notebooks/inspect_README.md).
