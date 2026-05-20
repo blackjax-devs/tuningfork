@@ -23,14 +23,23 @@ benchmarks/results.json
 # reference/<artifacts>.json, _cache/<gitignored>}.
 # =============================================================================
 
-# Reference draws — large; gitignored. Live under <model>/_cache/draws.npz.
-tuningfork/catalog/*/_cache/draws.npz
-
-# Per-step chain_stats from NUTS cert runs — diagnostic-only, ~1–2 MB per
-# model. Written on every cert run (incl. failed runs, for statistician
-# inspection). See worklog/decisions/2026-05-11-phase0-reference-protocol-
-# refinements.md § 3.
-tuningfork/catalog/*/_cache/chain_stats.npz
+# Runtime cache — gitignored entirely.
+#
+# Two writers populate <model>/_cache/:
+#   1. NUTS reference cert runs (`certify_reference.py`): writes
+#      `draws.npz` and `chain_stats.npz` per model (the per-model
+#      groundtruth-equivalent for analytic models).
+#   2. The catalog notebook's on-demand resample pipeline (PR #37,
+#      `tuningfork.catalog._rerun_inference.cached_idata_for_recipe`):
+#      writes `<recipe_stem>.draws.npz` and `<recipe_stem>.chain_stats.npz`
+#      per LOW/MEDIUM recipe inspected (e.g., `low__nuts__window_adaptation
+#      _diag_imm.draws.npz`).
+#
+# The whole `_cache/` dir is workflow artifact — never gate-bearing,
+# never committed. See:
+#   - worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md § 3
+#   - PR #37 for the resample-cache layout
+tuningfork/catalog/*/_cache/
 
 # Warmup checkpoints — workflow artifact written by certify_reference_nuts
 # immediately after warmup. Enables resume-after-crash via ``pre_adapted=...``
