@@ -86,7 +86,7 @@ LAPLACE_METHOD_NAMES: frozenset[str] = frozenset(
 # `blackjax.hmc` — it composes naturally with `window_adaptation` and the
 # adapted `(step_size, IMM)` are functionally equivalent for the downstream
 # sampler.  The downstream sampler then re-inits from `adapted_state.position`
-# with its own state structure (see `_phase3_emit.py`).
+# with its own state structure (see `_recipe_runner.py`).
 HMC_SUBSTITUTE_METHOD_NAMES: frozenset[str] = LAPLACE_METHOD_NAMES | frozenset(
     ("dynamic_hmc", "dmhmc")
 )
