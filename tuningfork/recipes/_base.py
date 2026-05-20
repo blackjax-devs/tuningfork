@@ -318,6 +318,32 @@ class Recipe:
     instructions: str
     notes: str = ""
 
+    # ---- Callable-injection policy ----
+    # Callable-injection policy for samplers that accept a distribution over
+    # integration steps (``dynamic_hmc``, ``dmhmc``).  Stored as a plain JSON
+    # dict so the recipe is fully serialisable; the registry at
+    # ``tuningfork.base_method._step_policy_registry.build_step_policy`` reconstructs
+    # the callable at execution time.
+    #
+    # ``None`` (default) means "use the library default": for ``dynamic_hmc`` /
+    # ``dmhmc`` that is ``lambda key: jax.random.randint(key, (), 1, 10)``
+    # (V0, uniform integer in [1, 10)).  Existing recipes without this field
+    # round-trip cleanly — ``Recipe.load`` falls back to ``None`` via
+    # ``d.setdefault("step_policy", None)``.
+    #
+    # Path A (parametric) examples::
+    #
+    #   {"kind": "uniform_int", "low": 1, "high": 10}   # V0 — library default
+    #   {"kind": "uniform_int", "low": 50, "high": 200}  # V2 — long trajectory
+    #
+    # Path B (empirical)::
+    #
+    #   {"kind": "empirical", "values": [...], "weights": [...]}  # V7 oracle
+    #
+    # See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md`` §5 for the
+    # full spec.  See also ``tuningfork.base_method._step_policy_registry.build_step_policy``.
+    step_policy: dict[str, Any] | None = None
+
     inverse_mass_matrix_path: str | None = None
     # Path (relative to the recipe JSON's directory) to a .npz sidecar holding the
     # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM
@@ -440,6 +466,9 @@ class Recipe:
         else:
             # Ensure default if key missing
             d.setdefault("attempted_configurations", [])
+        # Backward compat: step_policy absent in recipes written before Phase A.
+        # None means "library default" (V0).
+        d.setdefault("step_policy", None)
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────

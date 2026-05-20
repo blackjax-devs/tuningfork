@@ -1168,3 +1168,114 @@ class TestFailedRecipe:
         assert recipe.failure_diagnosis == expected_diagnosis
         assert len(recipe.workflow) > 50, "workflow must be non-trivial prose"
         assert recipe.gate_evidence["auto"]["verdict"] == "FAIL"
+
+
+# ---------------------------------------------------------------------------
+# Test: step_policy field — JSON round-trip and backward-compat load
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_recipe(**overrides: Any) -> Recipe:
+    """Helper: build a minimal valid Recipe for round-trip tests."""
+    defaults: dict[str, Any] = dict(
+        model_name="test_model",
+        base_method_name="dynamic_hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1},
+        warmup_params={"n_warmup": 1000},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"trials": 0, "wall_seconds_estimate": 1.0},
+        difficulty=None,
+        instructions="test instructions",
+        notes="",
+        tuning_seed=42,
+        tuningfork_version="0.0.0.dev0",
+        blackjax_version="1.0.0",
+        jax_version="0.4.0",
+        timestamp_utc="2026-05-20T00:00:00Z",
+    )
+    defaults.update(overrides)
+    return Recipe(**defaults)
+
+
+@pytest.mark.fast
+def test_step_policy_defaults_to_none() -> None:
+    """step_policy defaults to None when not specified in the constructor."""
+    recipe = _make_minimal_recipe()
+    assert recipe.step_policy is None
+
+
+@pytest.mark.fast
+def test_step_policy_none_round_trips(tmp_path: Path) -> None:
+    """Recipe with step_policy=None saves to JSON and loads back as None."""
+    recipe = _make_minimal_recipe(step_policy=None)
+    saved = recipe.save(tmp_path)
+    loaded = Recipe.load(saved)
+    assert loaded.step_policy is None
+
+
+@pytest.mark.fast
+def test_step_policy_uniform_int_round_trips(tmp_path: Path) -> None:
+    """Recipe with step_policy={'kind':'uniform_int','low':1,'high':10} round-trips."""
+    spec = {"kind": "uniform_int", "low": 1, "high": 10}
+    recipe = _make_minimal_recipe(step_policy=spec)
+    saved = recipe.save(tmp_path)
+    loaded = Recipe.load(saved)
+    assert loaded.step_policy == spec
+    assert loaded.step_policy["kind"] == "uniform_int"
+    assert loaded.step_policy["low"] == 1
+    assert loaded.step_policy["high"] == 10
+
+
+@pytest.mark.fast
+def test_step_policy_uniform_int_v2_round_trips(tmp_path: Path) -> None:
+    """V2 long-trajectory spec (low=50, high=200) round-trips correctly."""
+    spec = {"kind": "uniform_int", "low": 50, "high": 200}
+    recipe = _make_minimal_recipe(step_policy=spec)
+    saved = recipe.save(tmp_path)
+    loaded = Recipe.load(saved)
+    assert loaded.step_policy == spec
+
+
+@pytest.mark.fast
+def test_step_policy_backward_compat_load(tmp_path: Path) -> None:
+    """A JSON without 'step_policy' key loads with step_policy=None (old recipe compat)."""
+    import json
+
+    # Build a recipe dict without the step_policy field (simulates old on-disk format)
+    recipe = _make_minimal_recipe()
+    saved = recipe.save(tmp_path)
+    raw = json.loads(saved.read_text())
+    assert "step_policy" in raw  # save() now writes it
+    del raw["step_policy"]  # simulate old recipe missing the field
+    saved.write_text(json.dumps(raw, indent=2) + "\n")
+
+    loaded = Recipe.load(saved)
+    assert loaded.step_policy is None  # defaults to None
+
+
+@pytest.mark.fast
+def test_step_policy_in_saved_json(tmp_path: Path) -> None:
+    """save() writes 'step_policy' key to the JSON file."""
+    import json
+
+    spec = {"kind": "uniform_int", "low": 1, "high": 10}
+    recipe = _make_minimal_recipe(step_policy=spec)
+    saved = recipe.save(tmp_path)
+    raw = json.loads(saved.read_text())
+    assert "step_policy" in raw
+    assert raw["step_policy"] == spec
+
+
+@pytest.mark.fast
+def test_step_policy_none_written_as_null(tmp_path: Path) -> None:
+    """save() writes step_policy=None as JSON null (not omitted)."""
+    import json
+
+    recipe = _make_minimal_recipe(step_policy=None)
+    saved = recipe.save(tmp_path)
+    raw = json.loads(saved.read_text())
+    assert "step_policy" in raw
+    assert raw["step_policy"] is None
