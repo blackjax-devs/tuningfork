@@ -1,0 +1,88 @@
+{
+  "model_name": "mvn_10",
+  "base_method_name": "hmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "medium",
+  "base_method_params": {
+    "num_integration_steps": 5,
+    "step_size": 0.9656344056129456,
+    "inverse_mass_matrix": [
+      0.8516578674316406,
+      0.9607414603233337,
+      1.1044212579727173,
+      1.048734426498413,
+      0.9696203470230103,
+      1.052366018295288,
+      1.0949674844741821,
+      0.8125845789909363,
+      0.9518898129463196,
+      0.9985338449478149
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.65
+  },
+  "headline_metric": 0.04048620164394379,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 2.670656850008527,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.hmc(logdensity_fn, **{'num_integration_steps': 5, 'step_size': 0.9656344056129456, 'inverse_mass_matrix': [0.8516578674316406, 0.9607414603233337, 1.1044212579727173, 1.048734426498413, 0.9696203470230103, 1.052366018295288, 1.0949674844741821, 0.8125845789909363, 0.9518898129463196, 0.9985338449478149]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0405.\nWall time to produce this recipe: ~2 s (machine-only).",
+  "notes": "",
+  "inverse_mass_matrix_path": null,
+  "workflow": "Phase 3b' FAILed at default L=64 (rhat=1.15, ess=18) \u2014 classic HMC resonance: L*step\u224864*0.78\u224850 \u2248 8 oscillations near return point. Cluster 2 sweep L\u2208{5,10,20,40,80}, \u03c0/2 heuristic predicts L=5 for mvn_10 step\u22480.78 \u2192 L=5 PASSes: rhat=1.0048, ess=810, n_div=0.",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0048210339792119,
+      "min_bulk_ess": 810.3380769128005,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0048210339792119,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 810.3380769128005,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T04:42:54Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
