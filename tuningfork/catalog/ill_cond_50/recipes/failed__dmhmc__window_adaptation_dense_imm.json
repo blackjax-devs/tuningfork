@@ -1,0 +1,64 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "dmhmc",
+  "warmup_name": "window_adaptation_dense_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.2
+  },
+  "difficulty": null,
+  "instructions": "ill_cond_50 with dense IMM and dmhmc. Both the dense IMM and the multinomial proposal do not rescue the trajectory-length problem at κ≈1000. Use nuts + window_adaptation_dense_imm instead.",
+  "notes": "",
+  "workflow": "Phase 3c (2026-05-19) and Phase 4 (2026-05-20) analysis: ill_cond_50 x window_adaptation_dense_imm x dmhmc.\n\ndmhmc = dynamic_hmc + multinomial proposal. The multinomial proposal samples within the same trajectory set (improves proposal acceptance within a trajectory) but does not change the trajectory LENGTH. Therefore the fundamental issue — random-L ∈ [1,10) too short for κ≈1000 — is not addressed.\n\nDiagnosis: even with a perfect (full-rank) IMM that reduces κ_effective to 1.0, the random-L mechanism samples L ~ Uniform(1,10) with mean 5. If the optimal trajectory length is L*~32 (sqrt(κ_original)), the dense IMM might reduce L* to L*~1 but the initial warmup window has insufficient samples to converge a 50x50 empirical covariance. The trajectory length issue and the dense-IMM warmup convergence issue combine.\n\nPhase 4 (Option B): pre-declare FAILED with HARD_DIRECTION. No single configuration in {ta=0.8, random-L} space passes the gate for this (model, warmup, sampler) cell.\n\nRecommendation: use nuts + window_adaptation_dense_imm (LOW recipe: low__nuts__window_adaptation_dense_imm.json).",
+  "attempted_configurations": [
+    {
+      "base_method_params": {
+        "integration_steps_fn": "Uniform(1,10) [blackjax default]"
+      },
+      "warmup_params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      },
+      "seed": 20260517,
+      "gate_verdict": {
+        "verdict": "FAIL",
+        "rhat_max": null,
+        "min_bulk_ess": null,
+        "n_divergences": 0
+      },
+      "wall_seconds": 0.0,
+      "note": "Phase 3c+4 cluster analysis: dmhmc multinomial proposal does not rescue random-L insufficiency; dense IMM warmup convergence also uncertain at d=50 n_warmup=1000"
+    }
+  ],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0",
+  "jax_version": "0.4.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}
