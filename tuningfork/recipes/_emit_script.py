@@ -193,6 +193,36 @@ def emit_script(
         _warmup_sampler = recipe.base_method_name
     ctx["warmup_algorithm"] = f"blackjax.{_warmup_sampler}"
 
+    # The warmup template also needs to pass any kernel-construction kwargs
+    # that the chosen blackjax algorithm requires beyond `logdensity_fn`,
+    # `step_size`, and `inverse_mass_matrix` (which come from adaptation
+    # itself). The recipe-runner injects these via
+    # `default_value_for_space` on the base_method's HP space; the
+    # HMC-substitute path hardcodes `num_integration_steps=5`. Reproduce
+    # both branches here so e.g. an mhmc warmup gets its required
+    # `num_integration_steps` kwarg (without it, `blackjax.mhmc` raises
+    # TypeError at warmup time — a second fidelity gap, distinct from the
+    # algorithm-selection gap above).
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.calibration.tune import default_value_for_space
+
+    _warmup_extra: dict[str, object]
+    if recipe.base_method_name in HMC_SUBSTITUTE_METHOD_NAMES:
+        # Substituted to blackjax.hmc; runner's hmc_kwargs default.
+        _warmup_extra = {"num_integration_steps": 5}
+    else:
+        _bm = BASE_METHODS[recipe.base_method_name]
+        _warmup_extra = {}
+        for _space in _bm.default_hp_space:
+            if _space.name not in ("step_size", "inverse_mass_matrix"):
+                _warmup_extra[_space.name] = default_value_for_space(_space)
+
+    # Render as ", k1=v1, k2=v2" so the template can inject it after the
+    # base kwargs without re-thinking comma placement. Empty for nuts
+    # (which only adapts step_size + IMM; needs no extra kernel kwargs).
+    _warmup_extra_str = "".join(f", {k}={v!r}" for k, v in _warmup_extra.items())
+    ctx["warmup_extra_kwargs"] = _warmup_extra_str
+
     # Use safe_substitute so templates with optional $bm_*/wp_* slots that are
     # absent from the recipe (e.g. $bm_num_integration_steps in a nuts recipe)
     # leave the slot as a literal dollar-prefixed string rather than raising

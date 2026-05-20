@@ -6,7 +6,7 @@
 _warmup = blackjax.window_adaptation(
     $warmup_algorithm,
     logdensity_fn,
-    target_acceptance_rate=$target_acceptance_rate,
+    target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
     progress_bar=False,
 )
 _warmup_keys = jax.random.split(jax.random.key($tuning_seed), num_chains)
