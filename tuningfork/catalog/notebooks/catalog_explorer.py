@@ -130,19 +130,35 @@ def _(load_recipe, recipe_dropdown, summarize_recipe):
 
 
 @app.cell
-def _(load_idata, mo, recipe):
-    if recipe is not None and recipe.effort == "groundtruth":
+def _(mo, recipe):
+    from tuningfork.catalog import cached_idata_for_recipe, load_idata
+    from tuningfork.recipes._base import Effort
+
+    idata = None
+    if recipe is None:
+        mo.md("*Pick a recipe to see diagnostic plots.*")
+    elif recipe.effort == Effort.GROUNDTRUTH:
+        # Groundtruth: load from cache (already persisted)
         try:
             idata = load_idata(recipe)
             mo.md(f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`")
         except FileNotFoundError:
-            idata = None
-            mo.md(
-                "*Cache miss — only GROUNDTRUTH recipes have populated draws caches today.*"
-            )
+            mo.md("*Cache miss for GROUNDTRUTH recipe (git lfs pull may be needed).*")
+    elif recipe.effort in (Effort.LOW, Effort.MEDIUM):
+        # LOW/MEDIUM: resample with caching
+        try:
+            idata = cached_idata_for_recipe(recipe)
+            mo.md(f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`")
+        except Exception as e:
+            mo.md(f"*Failed to sample recipe: {type(e).__name__}: {e}*")
+    elif recipe.effort == Effort.FAILED:
+        # FAILED: no valid config to run
+        mo.md(
+            "*FAILED recipes have no gate-passing configuration to sample. "
+            "See the recipe notes for attempted configurations and diagnostics.*"
+        )
     else:
-        idata = None
-        mo.md("*Pick a GROUNDTRUTH recipe to see diagnostic plots.*")
+        mo.md(f"*Unsupported recipe effort: {recipe.effort}*")
     return (idata,)
 
 
