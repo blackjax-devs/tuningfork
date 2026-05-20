@@ -4,10 +4,10 @@
 # tuningfork.warmup.window_adaptation_dense_imm.runner implementation.
 # All chains share the same init_position (same point, independent trajectories).
 _warmup = blackjax.window_adaptation(
-    blackjax.nuts,
+    $warmup_algorithm,
     logdensity_fn,
     is_mass_matrix_diagonal=False,
-    target_acceptance_rate=$target_acceptance_rate,
+    target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
     progress_bar=False,
 )
 _warmup_keys = jax.random.split(jax.random.key($tuning_seed), num_chains)

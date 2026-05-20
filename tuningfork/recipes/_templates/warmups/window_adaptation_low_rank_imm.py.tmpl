@@ -3,11 +3,11 @@
 # derived from the tuning_seed, matching the Stan/NumPyro convention and the
 # tuningfork.warmup.window_adaptation_low_rank_imm.runner implementation.
 # All chains share the same init_position (same point, independent trajectories).
-_warmup = blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation(
-    blackjax.nuts,
+_warmup = blackjax.window_adaptation_low_rank(
+    $warmup_algorithm,
     logdensity_fn,
     max_rank=$wp_max_rank,
-    target_acceptance_rate=$target_acceptance_rate,
+    target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
     progress_bar=False,
 )
 _warmup_keys = jax.random.split(jax.random.key($tuning_seed), num_chains)

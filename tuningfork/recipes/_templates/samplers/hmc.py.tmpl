@@ -6,7 +6,14 @@ _n_params = int(_flat_init.shape[0])
 
 _default_step_size = $bm_step_size
 _default_imm = jnp.ones(_n_params)
-_num_steps = int(_adapted_params.get("num_integration_steps", $bm_num_integration_steps))
+# num_integration_steps is a recipe-pinned HP (NOT adapted by warmup). Use the
+# value from the recipe directly. (Earlier templates pulled from
+# `_adapted_params.get("num_integration_steps", ...)` with a fallback — that
+# only worked when the warmup didn't pass num_integration_steps to
+# `blackjax.window_adaptation`. With the 2026-05-20 fix to faithfully reproduce
+# the runner's warmup_kwargs, num_integration_steps appears in adapted_params
+# as a (num_chains,)-batched array, breaking the `int()` cast.)
+_num_steps = $bm_num_integration_steps
 
 
 def _build_kernel(step_size, inverse_mass_matrix):
