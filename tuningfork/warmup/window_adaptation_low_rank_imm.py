@@ -200,7 +200,7 @@ def _runner(
 
 
 ENTRY = Warmup(
-    name="low_rank_window_adaptation",
+    name="window_adaptation_low_rank_imm",
     runner=_runner,
     compatible_methods=(
         "hmc",

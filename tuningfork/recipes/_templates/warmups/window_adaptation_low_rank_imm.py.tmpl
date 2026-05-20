@@ -1,7 +1,7 @@
-# === WARMUP: low_rank_window_adaptation (max_rank=$wp_max_rank, target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
+# === WARMUP: window_adaptation_low_rank_imm (max_rank=$wp_max_rank, target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
 # Per-chain independent warmup via jax.vmap — each chain receives its own RNG key
 # derived from the tuning_seed, matching the Stan/NumPyro convention and the
-# tuningfork.warmup.low_rank_window_adaptation.runner implementation.
+# tuningfork.warmup.window_adaptation_low_rank_imm.runner implementation.
 # All chains share the same init_position (same point, independent trajectories).
 _warmup = blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation(
     blackjax.nuts,

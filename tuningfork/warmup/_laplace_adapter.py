@@ -15,7 +15,7 @@
 
 Background
 ----------
-``blackjax.window_adaptation`` (and ``low_rank_window_adaptation``) require
+``blackjax.window_adaptation`` (and ``window_adaptation_low_rank_imm``) require
 an algorithm object with:
 
 - ``algorithm.build_kernel(integrator)`` — returns a raw kernel
