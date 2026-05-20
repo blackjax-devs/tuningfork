@@ -372,6 +372,27 @@ def render_universal_summary(
     return fig
 
 
+def _count_scalar_coords(posterior: Any, var_names: list[str]) -> int:
+    """Total scalar coords across ``var_names`` in ``posterior``.
+
+    For each variable ``v``, the scalar count is the product of all dims of
+    ``posterior[v]`` other than ``chain`` and ``draw``.  Used to budget the
+    ``arviz_plots.plot_pair`` subplot grid (which is N×N where N is this
+    sum).  See ``plot_recipe_diagnostics`` for the use-site.
+    """
+    total = 0
+    for v in var_names:
+        if v not in posterior.data_vars:
+            continue
+        arr = posterior[v]
+        event_dims = [d for d in arr.dims if d not in ("chain", "draw")]
+        if not event_dims:
+            total += 1
+        else:
+            total += int(np.prod([arr.sizes[d] for d in event_dims]))
+    return total
+
+
 def plot_recipe_diagnostics(
     idata: Any,
     posterior_entry: Any,
@@ -452,7 +473,20 @@ def plot_recipe_diagnostics(
         pair_kwargs["coords"] = coords
 
     trace_plot = azp.plot_trace_dist(idata, **trace_kwargs)
-    pair_plot = azp.plot_pair(idata, **pair_kwargs)
+
+    # Pair plot subplot budget.  arviz_plots.plot_pair draws an N×N grid where
+    # N = sum of scalar coords across `headline_var_names`.  At N>6 we exceed
+    # arviz_plots's default `rcParams["plot.max_subplots"]=40` and the call
+    # raises.  For high-dim "no qualitatively distinguished subset" models
+    # (`headline_params is None` for ill_cond_50 / mvn_10 / german_credit per
+    # the 2026-05-18 headline-params decision), the forest plot is the
+    # canonical alternative — skip pair entirely in that case rather than
+    # truncating to a misleading 6×6 corner.
+    pair_total_coords = _count_scalar_coords(posterior, headline_var_names)
+    if pair_total_coords**2 > 36:
+        pair_plot = None
+    else:
+        pair_plot = azp.plot_pair(idata, **pair_kwargs)
 
     # Forest on bulk
     forest_plot = None
