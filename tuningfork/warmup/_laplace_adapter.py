@@ -70,7 +70,7 @@ import blackjax
 
 __all__ = [
     "LAPLACE_METHOD_NAMES",
-    "HMC_SUBSTITUTE_METHOD_NAMES",
+    "WARMUP_SUBSTITUTE_METHOD_NAMES",
     "resolve_warmup_algorithm",
 ]
 
@@ -79,15 +79,18 @@ LAPLACE_METHOD_NAMES: frozenset[str] = frozenset(
     ("laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc")
 )
 
-# Methods whose `.init` signature requires extra kwargs that the
-# `blackjax.window_adaptation` driver does not supply (laplace_* need
-# `log_joint_fn` + `theta_init`; dynamic_hmc / dmhmc need
-# `random_generator_arg`).  For warmup purposes we substitute standard
-# `blackjax.hmc` — it composes naturally with `window_adaptation` and the
-# adapted `(step_size, IMM)` are functionally equivalent for the downstream
-# sampler.  The downstream sampler then re-inits from `adapted_state.position`
-# with its own state structure (see `_recipe_runner.py`).
-HMC_SUBSTITUTE_METHOD_NAMES: frozenset[str] = LAPLACE_METHOD_NAMES | frozenset(
+# Methods whose `.init` / `.build_kernel` signature requires extra kwargs that
+# the `blackjax.window_adaptation` driver does not supply (laplace_* need
+# `log_joint_fn` + `theta_init` and operate on a `LaplaceMarginal` object;
+# dynamic_hmc / dmhmc need `random_generator_arg` at warmup step).  For warmup
+# purposes we substitute standard `blackjax.nuts` — it composes naturally with
+# `window_adaptation` (Stan-style canonical warmup kernel), needs no extra
+# kernel kwargs at warmup time (NUTS picks its own trajectory length), and
+# the adapted `(step_size, IMM)` are functionally equivalent for the
+# downstream sampler.  The downstream sampler then re-inits from
+# `adapted_state.position` with its own state structure (see
+# `_recipe_runner.py`).
+WARMUP_SUBSTITUTE_METHOD_NAMES: frozenset[str] = LAPLACE_METHOD_NAMES | frozenset(
     ("dynamic_hmc", "dmhmc")
 )
 
@@ -101,53 +104,50 @@ def resolve_warmup_algorithm(
     For standard HMC-family methods (hmc, nuts, mhmc, …) the existing
     ``(base_method.factory, extra_kwargs)`` pair is returned unchanged.
 
-    For laplace_* methods the function substitutes ``blackjax.hmc`` as the
-    warmup algorithm (standard HMC on the marginal logdensity) and strips any
-    kwargs that HMC does not understand (there are none currently, but the
-    function future-proofs against laplace-specific kwargs being injected by
-    callers).
+    For laplace_* / dynamic_hmc / dmhmc methods the function substitutes
+    ``blackjax.nuts`` as the warmup algorithm.  NUTS composes naturally with
+    ``window_adaptation`` (Stan convention) and needs no extra kernel kwargs at
+    warmup time (NUTS picks its own trajectory length).  The adapted
+    ``(step_size, IMM)`` are then passed at sample time to the actual kernel,
+    which handles its own state-type / random-generator requirements.
 
     The caller is responsible for passing the laplace marginal logdensity
-    ``log p̂(phi | y)`` as ``logdensity_fn`` to ``blackjax.window_adaptation``.
-    The adapter does NOT build or validate the marginal logdensity — it only
-    selects the right algorithm object.
+    ``log p̂(phi | y)`` as ``logdensity_fn`` to ``blackjax.window_adaptation``
+    for the laplace_* case.  The adapter does NOT build or validate the
+    marginal logdensity — it only selects the right algorithm object.
 
     Parameters
     ----------
     base_method
         A ``BaseMethod`` entry from the tuningfork registry.  The ``.name``
-        attribute is used to detect laplace_* methods.
+        attribute is used to detect substitute-family methods.
     extra_kwargs
         The ``extra_kwargs`` dict already prepared by the caller (default HP
-        values injected, caller overrides applied).  For laplace_* the
-        ``num_integration_steps`` key is preserved (HMC also uses it).
+        values injected, caller overrides applied).  For the substitute path
+        these kwargs are discarded — NUTS does not need them.
 
     Returns
     -------
     algorithm
-        Either ``base_method.factory`` (non-laplace path) or ``blackjax.hmc``
-        (laplace path).
+        Either ``base_method.factory`` (standard path) or ``blackjax.nuts``
+        (substitute path).
     extra_kwargs
-        Possibly filtered extra_kwargs (currently a copy for both paths).
+        ``dict(extra_kwargs)`` (standard path) or ``{}`` (substitute path —
+        NUTS needs no extra kernel kwargs).
     """
-    if base_method.name not in HMC_SUBSTITUTE_METHOD_NAMES:
+    if base_method.name not in WARMUP_SUBSTITUTE_METHOD_NAMES:
         # Standard path (hmc, nuts, mhmc, barker, mala): return unchanged — no
         # regression possible.
         return base_method.factory, dict(extra_kwargs)
 
-    # HMC-substitution path (laplace_*, dynamic_hmc, dmhmc): use standard HMC
+    # Substitute-family path (laplace_*, dynamic_hmc, dmhmc): use standard NUTS
     # as the warmup kernel.  The laplace_* case is detailed in this module's
-    # docstring (phi-only marginal).  The dynamic_hmc / dmhmc case is mechanical:
-    # both extend HMC with a `random_generator_arg`-driven trajectory-length
-    # sampler, which `blackjax.window_adaptation` does not feed at warmup time.
-    # Adapting (step_size, IMM) under standard HMC then handing them to the
-    # dynamic kernel at sample time is functionally equivalent for warmup.
-    # HMC accepts num_integration_steps; keep it if present; use 5 as default.
-    hmc_kwargs: dict[str, Any] = {}
-    if "num_integration_steps" in extra_kwargs:
-        hmc_kwargs["num_integration_steps"] = extra_kwargs["num_integration_steps"]
-    else:
-        # Sensible default for warmup — short trajectories are fine here.
-        hmc_kwargs["num_integration_steps"] = 5
-
-    return blackjax.hmc, hmc_kwargs
+    # docstring (phi-only marginal — caller passes the Laplace marginal
+    # logdensity as ``logdensity_fn``).  The dynamic_hmc / dmhmc case is
+    # mechanical: both extend HMC with a `random_generator_arg`-driven
+    # trajectory-length sampler, which `blackjax.window_adaptation` does not
+    # feed at warmup time.  NUTS adapts (step_size, IMM) using its own
+    # trajectory-termination criterion; the dynamic_hmc-family kernels then
+    # consume those adapted params at sample time with their own state
+    # structure (see ``_recipe_runner.py`` ``_run_one_chain``).
+    return blackjax.nuts, {}

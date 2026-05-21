@@ -447,7 +447,7 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
     """
     from tuningfork.recipes._base import Effort, Recipe
     from tuningfork.warmup import WARMUPS
-    from tuningfork.warmup._laplace_adapter import HMC_SUBSTITUTE_METHOD_NAMES
+    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
 
     # Skip incompatible pairs (e.g., low_rank_window_adaptation may not support
     # all sampler families).
@@ -476,7 +476,7 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
     script = emit_script(recipe, num_samples=50)
 
     # Determine the expected warmup algorithm following resolve_warmup_algorithm logic.
-    expected_algo = "hmc" if sampler in HMC_SUBSTITUTE_METHOD_NAMES else sampler
+    expected_algo = "nuts" if sampler in WARMUP_SUBSTITUTE_METHOD_NAMES else sampler
     warmup_section = _extract_warmup_section(script)
 
     assert f"blackjax.{expected_algo}" in warmup_section, (
