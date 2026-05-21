@@ -4,22 +4,22 @@
   "warmup_name": "window_adaptation_dense_imm",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.6666114926338196,
+    "step_size": 0.5452845692634583,
     "inverse_mass_matrix": [
       [
-        0.6535645723342896,
-        0.31262847781181335,
-        0.24824082851409912
+        0.7554671168327332,
+        0.4677894413471222,
+        0.26994583010673523
       ],
       [
-        0.31262844800949097,
-        0.8525670766830444,
-        0.11483024060726166
+        0.4677893817424774,
+        1.0086297988891602,
+        0.15800727903842926
       ],
       [
-        0.24824079871177673,
-        0.11483024805784225,
-        1.4269715547561646
+        0.26994583010673523,
+        0.15800724923610687,
+        1.7200268507003784
       ]
     ]
   },
@@ -28,30 +28,31 @@
     "num_chains": 4,
     "target_acceptance": 0.8
   },
-  "headline_metric": 0.07522725313901901,
+  "headline_metric": 0.09436888247728348,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 8.303797102998942,
+    "wall_seconds_estimate": 1.5999806959953276,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.6666114926338196, 'inverse_mass_matrix': [[0.6535645723342896, 0.31262847781181335, 0.24824082851409912], [0.31262844800949097, 0.8525670766830444, 0.11483024060726166], [0.24824079871177673, 0.11483024805784225, 1.4269715547561646]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0752.\nWall time to produce this recipe: ~8 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.5452845692634583, 'inverse_mass_matrix': [[0.7554671168327332, 0.4677894413471222, 0.26994583010673523], [0.4677893817424774, 1.0086297988891602, 0.15800727903842926], [0.26994583010673523, 0.15800724923610687, 1.7200268507003784]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0944.\nWall time to produce this recipe: ~1 s (machine-only).",
   "notes": "",
+  "step_policy": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0018521467826784,
-      "min_bulk_ess": 1792.0567613298317,
-      "n_divergences": 1,
+      "rhat_max": 1.0018145745099993,
+      "min_bulk_ess": 2184.7008083886612,
+      "n_divergences": 0,
       "max_abs_mean_z": null,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0018521467826784,
+          "value": 1.0018145745099993,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -59,7 +60,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 1792.0567613298317,
+          "value": 2184.7008083886612,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -67,7 +68,7 @@
           "review_hi": 400.0
         },
         "n_divergences": {
-          "value": 1.0,
+          "value": 0.0,
           "band": "PASS",
           "pass_lo": 0,
           "pass_hi": 6,
@@ -82,11 +83,11 @@
       "decision": ""
     }
   },
-  "tuning_seed": 682737,
+  "tuning_seed": 4089912102,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-19T21:58:59Z",
+  "timestamp_utc": "2026-05-21T04:21:07Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
