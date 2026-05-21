@@ -34,6 +34,7 @@ import pytest
 from tuningfork.base_method._step_policy_registry import (
     build_step_policy,
     harvest_oracle_spec,
+    harvest_oracle_spec_from_array,
 )
 
 pytestmark = pytest.mark.fast
@@ -221,7 +222,48 @@ def test_empirical_empty_values_raises_value_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# harvest_oracle_spec — Phase B
+# harvest_oracle_spec_from_array — Phase B (Path B: raw array variant)
+# ---------------------------------------------------------------------------
+
+
+def test_harvest_oracle_spec_from_array_basic() -> None:
+    """harvest_oracle_spec_from_array returns correct spec from a plain array."""
+    nis = np.array([5] * 100 + [10] * 200 + [15] * 100, dtype=np.int32)
+    spec = harvest_oracle_spec_from_array(nis)
+    assert spec["kind"] == "empirical"
+    assert set(spec["values"]) == {5, 10, 15}
+    assert abs(sum(spec["weights"]) - 1.0) < 1e-6
+    idx5 = spec["values"].index(5)
+    idx10 = spec["values"].index(10)
+    idx15 = spec["values"].index(15)
+    assert abs(spec["weights"][idx5] - 0.25) < 1e-6
+    assert abs(spec["weights"][idx10] - 0.50) < 1e-6
+    assert abs(spec["weights"][idx15] - 0.25) < 1e-6
+
+
+def test_harvest_oracle_spec_from_array_2d() -> None:
+    """harvest_oracle_spec_from_array handles 2D (num_chains, n_warmup) arrays."""
+    nis = np.full((4, 1000), 87, dtype=np.int32)
+    spec = harvest_oracle_spec_from_array(nis)
+    assert spec["kind"] == "empirical"
+    assert spec["values"] == [87]
+    assert abs(spec["weights"][0] - 1.0) < 1e-6
+
+
+def test_harvest_oracle_spec_from_array_empty_raises() -> None:
+    """harvest_oracle_spec_from_array raises ValueError for empty array."""
+    with pytest.raises(ValueError, match="empty"):
+        harvest_oracle_spec_from_array(np.array([], dtype=np.int32))
+
+
+def test_harvest_oracle_spec_from_array_all_zero_raises() -> None:
+    """harvest_oracle_spec_from_array raises ValueError for all-zero NIS."""
+    with pytest.raises(ValueError, match="degenerate chain"):
+        harvest_oracle_spec_from_array(np.zeros(100, dtype=np.int32))
+
+
+# ---------------------------------------------------------------------------
+# harvest_oracle_spec — Phase B (Path A: file-based variant)
 # ---------------------------------------------------------------------------
 
 

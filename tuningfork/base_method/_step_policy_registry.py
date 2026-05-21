@@ -40,8 +40,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-__all__ = ["build_step_policy", "harvest_oracle_spec"]
+__all__ = ["build_step_policy", "harvest_oracle_spec", "harvest_oracle_spec_from_array"]
 
 # Library-default V0 step policy (uniform integer in [1, 10)).
 # Matches blackjax.mcmc.dynamic_hmc's built-in default integration_steps_fn.
@@ -192,73 +193,55 @@ def build_step_policy(spec: dict | None) -> Callable:
     )
 
 
-def harvest_oracle_spec(
-    chain_stats_path: Path | str,
+def harvest_oracle_spec_from_array(
+    nis_array: Any,
     *,
     max_values: int = 512,
 ) -> dict:
-    """Extract a step_policy empirical spec from a NUTS chain_stats.npz.
+    """Extract a step_policy empirical spec from a raw NIS integer array.
 
-    Reads ``num_integration_steps`` from the chain_stats file and builds the
-    V7 empirical oracle spec for use with ``build_step_policy``.  The spec
-    stores the empirical NIS distribution so that ``dynamic_hmc`` / ``dmhmc``
-    can sample trajectory lengths that mirror the NUTS distribution.
+    Core implementation used by both ``harvest_oracle_spec`` (file-based)
+    and by the recipe runner (live warmup_info harvest).
+
+    The recipe runner extracts ``warmup_info["num_integration_steps"]`` from
+    the NUTS warmup call and passes it here directly — no separate file I/O
+    required.  This is **Path B** in the Phase B design:
+
+    - Path A (``harvest_oracle_spec``): harvest from a pre-existing
+      ``chain_stats.npz`` file.
+    - Path B (this function): harvest from the live ``warmup_info`` returned
+      by the same NUTS warmup run being used to adapt (step_size, IMM).
+      Cheaper: no separate run needed; oracle and warmup are co-produced.
 
     Parameters
     ----------
-    chain_stats_path
-        Path to a ``<model>/_cache/<recipe_stem>.chain_stats.npz`` file from
-        any passing ``nuts × window_adapt*`` recipe for the target model.
-        May also point to a groundtruth ``chain_stats.npz`` file.
+    nis_array
+        Integer array of ``num_integration_steps`` values.  Any shape;
+        ravelled before processing.
     max_values
-        Cap on the number of distinct L values stored in the returned spec.
-        For models with a narrow NIS range (lotka_volterra NIS_med=87,
-        radon NIS_med=15), the raw bincount is almost always under this
-        threshold and all distinct values are stored directly.
-        For high-variance models (horseshoe NIS up to 1023), histogram
-        binning reduces to ``max_values`` bin-centre integers.
+        Cap on distinct L values in the returned spec.  For high-variance
+        models (horseshoe, gp_regression), histogram binning reduces to
+        ``max_values`` bin-centre integers.  Default 512.
 
     Returns
     -------
     dict
-        A step_policy spec: ``{"kind": "empirical", "values": [...], "weights": [...]}``.
-        ``values`` is a list of sorted distinct integer L values;
-        ``weights`` is the corresponding normalised probability vector.
+        ``{"kind": "empirical", "values": [...], "weights": [...]}``.
 
     Raises
     ------
-    KeyError
-        If the chain_stats file does not contain ``num_integration_steps``.
     ValueError
         If the NIS array is empty or all-zero.
-
-    Examples
-    --------
-    >>> spec = harvest_oracle_spec("catalog/lotka_volterra/_cache/low__nuts__diag.chain_stats.npz")
-    >>> spec["kind"]
-    'empirical'
-    >>> len(spec["values"]) > 0
-    True
     """
     import numpy as np
 
-    chain_stats_path = Path(chain_stats_path)
-    data = np.load(str(chain_stats_path))
-    if "num_integration_steps" not in data.files:
-        raise KeyError(
-            f"chain_stats file at {chain_stats_path} does not contain "
-            f"'num_integration_steps'; available keys: {list(data.files)}"
-        )
-    nis = data["num_integration_steps"].ravel().astype(int)
+    nis = np.asarray(nis_array).ravel().astype(int)
     if len(nis) == 0:
-        raise ValueError(
-            f"chain_stats file at {chain_stats_path} contains empty "
-            f"'num_integration_steps' array"
-        )
+        raise ValueError("NIS array is empty — cannot harvest oracle spec")
     if nis.sum() == 0:
         raise ValueError(
-            f"chain_stats file at {chain_stats_path}: all num_integration_steps "
-            f"values are zero — degenerate chain"
+            "All num_integration_steps values are zero — degenerate chain; "
+            "cannot harvest oracle spec"
         )
 
     min_l, max_l = int(nis.min()), int(nis.max())
@@ -282,3 +265,52 @@ def harvest_oracle_spec(
         "values": l_values.tolist(),
         "weights": weights.tolist(),
     }
+
+
+def harvest_oracle_spec(
+    chain_stats_path: Path | str,
+    *,
+    max_values: int = 512,
+) -> dict:
+    """Extract a step_policy empirical spec from a NUTS chain_stats.npz (Path A).
+
+    Reads ``num_integration_steps`` from the chain_stats file and delegates to
+    ``harvest_oracle_spec_from_array``.  This is **Path A** of the oracle
+    harvest workflow — used when a pre-existing chain_stats file is available
+    (e.g., from a previously-run nuts×wadapt recipe cache).
+
+    For in-line harvest from a live warmup run, use
+    ``harvest_oracle_spec_from_array`` directly (Path B).
+
+    Parameters
+    ----------
+    chain_stats_path
+        Path to a ``<model>/_cache/<recipe_stem>.chain_stats.npz`` file from
+        any passing ``nuts × window_adapt*`` recipe for the target model.
+        May also point to a groundtruth ``chain_stats.npz`` file.
+    max_values
+        Forwarded to ``harvest_oracle_spec_from_array``.
+
+    Returns
+    -------
+    dict
+        ``{"kind": "empirical", "values": [...], "weights": [...]}``.
+
+    Raises
+    ------
+    KeyError
+        If the chain_stats file does not contain ``num_integration_steps``.
+    ValueError
+        If the NIS array is empty or all-zero.
+    """
+    import numpy as np
+
+    chain_stats_path = Path(chain_stats_path)
+    data = np.load(str(chain_stats_path))
+    if "num_integration_steps" not in data.files:
+        raise KeyError(
+            f"chain_stats file at {chain_stats_path} does not contain "
+            f"'num_integration_steps'; available keys: {list(data.files)}"
+        )
+    nis = data["num_integration_steps"]
+    return harvest_oracle_spec_from_array(nis, max_values=max_values)
