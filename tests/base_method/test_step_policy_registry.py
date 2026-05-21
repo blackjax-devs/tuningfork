@@ -11,21 +11,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Fast unit tests for the step-policy registry (Phase A scope).
+"""Fast unit tests for the step-policy registry (Phase A + Phase B scope).
 
 Tests cover:
 - ``build_step_policy(None)`` → V0 library default callable
 - ``build_step_policy({"kind": "uniform_int", ...})`` → correct bounds callable
-- Phase-B deferred kinds raise ``NotImplementedError``
+- ``build_step_policy({"kind": "empirical", ...})`` → V7 empirical oracle
+- ``harvest_oracle_spec(path)`` → correct empirical spec from synthetic npz
+- Phase-C+ deferred kinds raise ``NotImplementedError``
 - Unknown kinds raise ``NotImplementedError``
-- Invalid ``uniform_int`` specs raise ``ValueError``
+- Invalid specs raise ``ValueError``
 
-All tests are ``@pytest.mark.fast`` (no JAX compilation / chain execution).
+All tests are ``@pytest.mark.fast`` (no JAX compilation / chain execution,
+except for the distribution-shape tests which run <100 ms).
 """
 
+from pathlib import Path
+
+import numpy as np
 import pytest
 
-from tuningfork.base_method._step_policy_registry import build_step_policy
+from tuningfork.base_method._step_policy_registry import (
+    build_step_policy,
+    harvest_oracle_spec,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -129,17 +138,163 @@ def test_uniform_int_missing_high_raises_value_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase-B deferred kinds raise NotImplementedError
+# empirical (V7) — Phase B
+# ---------------------------------------------------------------------------
+
+
+def test_empirical_returns_callable() -> None:
+    """build_step_policy with empirical spec returns a callable."""
+    spec = {"kind": "empirical", "values": [60, 80, 100], "weights": [0.3, 0.5, 0.2]}
+    fn = build_step_policy(spec)
+    assert callable(fn)
+
+
+def test_empirical_samples_only_in_values() -> None:
+    """empirical fn(key) only returns values that appear in spec['values']."""
+    import jax
+    import jax.numpy as jnp
+
+    values = [60, 80, 100, 120]
+    weights = [0.25, 0.25, 0.25, 0.25]
+    spec = {"kind": "empirical", "values": values, "weights": weights}
+    fn = build_step_policy(spec)
+    key = jax.random.key(42)
+    keys = jax.random.split(key, 500)
+    samples = jnp.array([fn(k) for k in keys])
+    values_set = set(values)
+    for s in np.asarray(samples):
+        assert int(s) in values_set, f"sample {s} not in values {values_set}"
+
+
+def test_empirical_distribution_matches_weights() -> None:
+    """empirical fn samples match input weights within Monte-Carlo tolerance.
+
+    Uses 10k samples and checks that empirical frequencies are within
+    3 * sqrt(p*(1-p)/n) of the target probabilities (roughly 3-sigma).
+    """
+    import jax
+    import jax.numpy as jnp
+
+    values = [10, 20, 30, 40]
+    weights = [0.1, 0.4, 0.4, 0.1]
+    spec = {"kind": "empirical", "values": values, "weights": weights}
+    fn = build_step_policy(spec)
+
+    n = 10_000
+    key = jax.random.key(0)
+    keys = jax.random.split(key, n)
+    samples = np.asarray(jnp.array([fn(k) for k in keys]))
+
+    for v, w in zip(values, weights):
+        empirical_freq = np.sum(samples == v) / n
+        tol = 3.0 * np.sqrt(w * (1 - w) / n)
+        assert abs(empirical_freq - w) < tol, (
+            f"value {v}: empirical_freq={empirical_freq:.4f} expected={w:.4f} "
+            f"(3-sigma tol={tol:.4f})"
+        )
+
+
+def test_empirical_missing_values_raises_value_error() -> None:
+    """empirical spec missing 'values' raises ValueError."""
+    with pytest.raises(ValueError, match="'values' and 'weights'"):
+        build_step_policy({"kind": "empirical", "weights": [1.0]})
+
+
+def test_empirical_missing_weights_raises_value_error() -> None:
+    """empirical spec missing 'weights' raises ValueError."""
+    with pytest.raises(ValueError, match="'values' and 'weights'"):
+        build_step_policy({"kind": "empirical", "values": [5]})
+
+
+def test_empirical_mismatched_lengths_raises_value_error() -> None:
+    """empirical spec with mismatched values/weights lengths raises ValueError."""
+    with pytest.raises(ValueError, match="same length"):
+        build_step_policy(
+            {"kind": "empirical", "values": [1, 2, 3], "weights": [0.5, 0.5]}
+        )
+
+
+def test_empirical_empty_values_raises_value_error() -> None:
+    """empirical spec with empty values raises ValueError."""
+    with pytest.raises(ValueError, match="non-empty"):
+        build_step_policy({"kind": "empirical", "values": [], "weights": []})
+
+
+# ---------------------------------------------------------------------------
+# harvest_oracle_spec — Phase B
+# ---------------------------------------------------------------------------
+
+
+def test_harvest_oracle_spec_basic(tmp_path: Path) -> None:
+    """harvest_oracle_spec returns correct kind='empirical' spec from synthetic npz."""
+    # Create synthetic chain_stats.npz with known NIS distribution
+    # NIS values: [5]*100 + [10]*200 + [15]*100 → weights 0.25, 0.50, 0.25
+    nis = np.array([5] * 100 + [10] * 200 + [15] * 100, dtype=np.int32)
+    stats_path = tmp_path / "test.chain_stats.npz"
+    np.savez(str(stats_path), num_integration_steps=nis)
+
+    spec = harvest_oracle_spec(stats_path)
+    assert spec["kind"] == "empirical"
+    assert set(spec["values"]) == {5, 10, 15}
+    # Check weights sum to 1
+    assert abs(sum(spec["weights"]) - 1.0) < 1e-6
+    # Check individual weights
+    idx5 = spec["values"].index(5)
+    idx10 = spec["values"].index(10)
+    idx15 = spec["values"].index(15)
+    assert abs(spec["weights"][idx5] - 0.25) < 1e-6
+    assert abs(spec["weights"][idx10] - 0.50) < 1e-6
+    assert abs(spec["weights"][idx15] - 0.25) < 1e-6
+
+
+def test_harvest_oracle_spec_multichain_shape(tmp_path: Path) -> None:
+    """harvest_oracle_spec handles 2D (num_chains, n_samples) arrays via ravel."""
+    # Simulate 4 chains x 1000 samples shape
+    nis = np.full((4, 1000), 87, dtype=np.int32)
+    nis[0, :500] = 60  # vary first chain to get two values
+    stats_path = tmp_path / "mc.chain_stats.npz"
+    np.savez(str(stats_path), num_integration_steps=nis)
+
+    spec = harvest_oracle_spec(stats_path)
+    assert spec["kind"] == "empirical"
+    assert 87 in spec["values"]
+    assert abs(sum(spec["weights"]) - 1.0) < 1e-6
+
+
+def test_harvest_oracle_spec_max_values_binning(tmp_path: Path) -> None:
+    """harvest_oracle_spec bins when distinct values exceed max_values."""
+    # Create NIS distribution with 100 distinct values (1..100)
+    nis = np.repeat(np.arange(1, 101, dtype=np.int32), 10)  # each value 10 times
+    stats_path = tmp_path / "wide.chain_stats.npz"
+    np.savez(str(stats_path), num_integration_steps=nis)
+
+    # max_values=5 forces histogram binning
+    spec = harvest_oracle_spec(stats_path, max_values=5)
+    assert spec["kind"] == "empirical"
+    assert len(spec["values"]) <= 5
+    assert abs(sum(spec["weights"]) - 1.0) < 1e-6
+
+
+def test_harvest_oracle_spec_missing_key_raises(tmp_path: Path) -> None:
+    """harvest_oracle_spec raises KeyError when 'num_integration_steps' missing."""
+    stats_path = tmp_path / "bad.npz"
+    np.savez(str(stats_path), some_other_key=np.array([1, 2, 3]))
+    with pytest.raises(KeyError, match="num_integration_steps"):
+        harvest_oracle_spec(stats_path)
+
+
+# ---------------------------------------------------------------------------
+# Phase-C+ deferred kinds raise NotImplementedError
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "kind",
-    ["log_uniform_int", "poisson", "pow2_choice", "empirical"],
+    ["log_uniform_int", "poisson", "pow2_choice"],
 )
 def test_deferred_kind_raises_not_implemented(kind: str) -> None:
-    """Phase-B deferred kinds raise NotImplementedError with 'deferred to Phase B'."""
-    with pytest.raises(NotImplementedError, match="deferred to Phase B"):
+    """Phase-C+ deferred kinds raise NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="deferred to Phase C"):
         build_step_policy({"kind": kind})
 
 
