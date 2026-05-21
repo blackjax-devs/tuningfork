@@ -181,14 +181,18 @@ def emit_script(
     ctx.update({f"wp_{k}": v for k, v in recipe.warmup_params.items()})
 
     # The warmup template needs to call the right blackjax algorithm. The recipe-
-    # runner uses `resolve_warmup_algorithm` which picks `blackjax.hmc` for the
-    # HMC-substitute family (laplace_*, dynamic_hmc, dmhmc) and the sampler's own
-    # factory otherwise. Reproduce that selection here so the emitted script
-    # faithfully reproduces the runner's warmup protocol.
-    from tuningfork.warmup._laplace_adapter import HMC_SUBSTITUTE_METHOD_NAMES
+    # runner uses `resolve_warmup_algorithm` which substitutes `blackjax.nuts` for
+    # the warmup-substitute family (laplace_*, dynamic_hmc, dmhmc — methods whose
+    # interface doesn't compose with `blackjax.window_adaptation` directly:
+    # laplace_* needs `log_joint_fn` + `theta_init`; dynamic_hmc / dmhmc need
+    # `random_generator_arg` at warmup step). For all other samplers we use the
+    # sampler's own factory (= `blackjax.<base_method_name>`). Reproduce that
+    # selection here so the emitted script faithfully reproduces the runner's
+    # warmup protocol.
+    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
 
-    if recipe.base_method_name in HMC_SUBSTITUTE_METHOD_NAMES:
-        _warmup_sampler = "hmc"
+    if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES:
+        _warmup_sampler = "nuts"
     else:
         _warmup_sampler = recipe.base_method_name
     ctx["warmup_algorithm"] = f"blackjax.{_warmup_sampler}"
@@ -198,18 +202,18 @@ def emit_script(
     # `step_size`, and `inverse_mass_matrix` (which come from adaptation
     # itself). The recipe-runner injects these via
     # `default_value_for_space` on the base_method's HP space; the
-    # HMC-substitute path hardcodes `num_integration_steps=5`. Reproduce
-    # both branches here so e.g. an mhmc warmup gets its required
+    # substitute path (uses NUTS) needs no extra kwargs. Reproduce both
+    # branches here so e.g. an mhmc warmup gets its required
     # `num_integration_steps` kwarg (without it, `blackjax.mhmc` raises
-    # TypeError at warmup time — a second fidelity gap, distinct from the
-    # algorithm-selection gap above).
+    # TypeError at warmup time).
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.calibration.tune import default_value_for_space
 
     _warmup_extra: dict[str, object]
-    if recipe.base_method_name in HMC_SUBSTITUTE_METHOD_NAMES:
-        # Substituted to blackjax.hmc; runner's hmc_kwargs default.
-        _warmup_extra = {"num_integration_steps": 5}
+    if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES:
+        # Substituted to blackjax.nuts; NUTS picks its own trajectory length
+        # and needs no extra kernel kwargs at warmup time.
+        _warmup_extra = {}
     else:
         _bm = BASE_METHODS[recipe.base_method_name]
         _warmup_extra = {}
