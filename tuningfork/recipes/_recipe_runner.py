@@ -279,6 +279,8 @@ def emit_low_recipe_for_cell(
     target_acceptance: float | None = None,
     sampler_kwargs_override: dict[str, Any] | None = None,
     step_policy: dict[str, Any] | None = None,
+    policy_tag: str | None = None,
+    effort: Effort = Effort.LOW,
 ) -> CellResult:
     """Run warmup + sampling + auto-gate for one cell; emit LOW recipe on PASS.
 
@@ -339,6 +341,18 @@ def emit_low_recipe_for_cell(
         For non-``dynamic_hmc`` / non-``dmhmc`` samplers, this parameter is
         ignored.  See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md``
         §5 for valid spec formats.
+    policy_tag
+        Optional filename tag for policy-variant MEDIUM recipes, e.g.
+        ``"policy_v7-empirical-oracle"``.  When provided, the emitted recipe
+        filename becomes
+        ``<effort>__<sampler>__<warmup>__<policy_tag>.json`` and the
+        ``effort`` parameter should be set to ``Effort.MEDIUM``.
+        ``None`` (default) preserves the canonical ``<effort>__<sampler>__<warmup>.json``
+        filename (backward-compatible with all existing callers).
+    effort
+        Effort tier for the emitted recipe (default ``Effort.LOW``).
+        Pass ``Effort.MEDIUM`` together with ``policy_tag`` for MEDIUM
+        policy-variant recipes.  Behaviour for other tiers is not tested.
 
     Returns
     -------
@@ -680,7 +694,7 @@ def emit_low_recipe_for_cell(
     # run was the auto-gate validation, but a recipe is a single replayable
     # specification, so we pin chain 0's adapted params.  Other chains' values
     # are functionally equivalent given the deterministic seed + per-chain key.
-    _log("  Building LOW recipe...")
+    _log(f"  Building {effort.value.upper()} recipe...")
     chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
     # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
     # pinned params — it is reconstructed at recipe-run time via step_policy spec.
@@ -718,7 +732,7 @@ def emit_low_recipe_for_cell(
         model_name=posterior.name,
         base_method_name=base_method.name,
         warmup_name=warmup.name,
-        effort=Effort.LOW,
+        effort=effort,
         base_method_params=jsonable_params,
         warmup_params={
             "n_warmup": n_warmup,
@@ -757,16 +771,18 @@ def emit_low_recipe_for_cell(
     recipe = Recipe(**recipe_kwargs)
 
     # --- Save recipe ---
-    recipe_path = recipe.save(catalog_root)
+    recipe_path = recipe.save(catalog_root, filename_tag=policy_tag)
     _log(f"  Saved recipe: {recipe_path}")
 
     # --- Save IMM sidecar if needed ---
     imm_sidecar_rel: str | None = None
     if imm_arr is not None and imm_arr.size > 50:
-        imm_sidecar_rel = recipe.save_imm_sidecar(catalog_root, imm_arr)
+        imm_sidecar_rel = recipe.save_imm_sidecar(
+            catalog_root, imm_arr, filename_tag=policy_tag
+        )
         # Rebuild recipe with sidecar path (Recipe is frozen)
         recipe = dataclasses.replace(recipe, inverse_mass_matrix_path=imm_sidecar_rel)
-        recipe.save(catalog_root)
+        recipe.save(catalog_root, filename_tag=policy_tag)
         _log(f"  Saved IMM sidecar: {imm_sidecar_rel}")
 
     _log(f"  PASS. headline={headline:.4g}" if headline is not None else "  PASS.")

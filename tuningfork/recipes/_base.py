@@ -393,7 +393,7 @@ class Recipe:
 
     # ── persistence ──────────────────────────────────────────────────────────
 
-    def save(self, root: Path) -> Path:
+    def save(self, root: Path, *, filename_tag: str | None = None) -> Path:
         """Write the recipe to its canonical location under ``root``.
 
         Per the catalog layout (post-R2, 2026-05-17):
@@ -401,12 +401,21 @@ class Recipe:
         - GROUNDTRUTH recipes go to ``<root>/<model_name>/groundtruth.json``
           (no filename suffix — there's exactly one groundtruth path per model).
         - All other efforts (LOW / MEDIUM / HIGH / FAILED) go to
-          ``<root>/<model_name>/recipes/<effort>__<base_method>__<warmup>.json``.
+          ``<root>/<model_name>/recipes/<effort>__<base_method>__<warmup>.json``
+          or, when ``filename_tag`` is supplied:
+          ``<root>/<model_name>/recipes/<effort>__<base_method>__<warmup>__<tag>.json``.
+          This is used for policy-variant MEDIUM recipes (e.g.
+          ``medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json``).
 
         Parameters
         ----------
         root
             Catalog root directory (e.g., ``tuningfork/catalog/``).
+        filename_tag
+            Optional tag appended to the recipe filename stem, e.g.
+            ``"policy_v7-empirical-oracle"``.  Ignored for GROUNDTRUTH recipes.
+            ``None`` (default) preserves the canonical ``<effort>__<method>__<warmup>.json``
+            filename.
 
         Returns
         -------
@@ -419,9 +428,10 @@ class Recipe:
             filename = "groundtruth.json"
         else:
             target_dir = model_dir / "recipes"
-            filename = (
-                f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.json"
-            )
+            stem = f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}"
+            if filename_tag:
+                stem = f"{stem}__{filename_tag}"
+            filename = f"{stem}.json"
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / filename
         d = asdict(self)
@@ -940,7 +950,13 @@ class Recipe:
 
     # ── IMM sidecar helpers ───────────────────────────────────────────────────
 
-    def save_imm_sidecar(self, root: Path, imm: jax.Array) -> str:
+    def save_imm_sidecar(
+        self,
+        root: Path,
+        imm: jax.Array,
+        *,
+        filename_tag: str | None = None,
+    ) -> str:
         """Save an inverse mass matrix as a .npz sidecar next to this recipe.
 
         Returns the path STRING (relative to ``root``) to embed in
@@ -956,6 +972,8 @@ class Recipe:
 
         - For GROUNDTRUTH recipes: ``<root>/<model>/groundtruth.imm.npz``
         - For other efforts: ``<root>/<model>/recipes/<effort>__<sampler>__<warmup>.imm.npz``
+          or with ``filename_tag``:
+          ``<root>/<model>/recipes/<effort>__<sampler>__<warmup>__<tag>.imm.npz``
 
         Parameters
         ----------
@@ -964,6 +982,9 @@ class Recipe:
         imm
             The inverse mass matrix to persist (any shape; saved under key
             ``"imm"`` in the compressed npz).
+        filename_tag
+            Optional tag appended to the sidecar filename stem (must match the
+            tag passed to ``save()`` for the corresponding recipe JSON).
 
         Returns
         -------
@@ -979,7 +1000,10 @@ class Recipe:
             filename = "groundtruth.imm.npz"
         else:
             sidecar_dir = model_dir / "recipes"
-            filename = f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}.imm.npz"
+            stem = f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}"
+            if filename_tag:
+                stem = f"{stem}__{filename_tag}"
+            filename = f"{stem}.imm.npz"
         sidecar_dir.mkdir(parents=True, exist_ok=True)
         sidecar_path = sidecar_dir / filename
         np.savez_compressed(sidecar_path, imm=np.asarray(imm))
