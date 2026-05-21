@@ -52,9 +52,17 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
         "mvn_10",
         "window_adaptation_diag_imm",
         "dynamic_hmc",
-        n_warmup=500,
-        n_samples=500,
-        num_chains=2,
+        # Use the canonical sample budget. Smaller budgets (500/500/2 was the
+        # original 2026-05-21 setting) give ~5× less MC headroom for the rhat
+        # estimator and flap mvn_10 × dynamic_hmc between PASS (rhat<1.01)
+        # and REVIEW (rhat∈[1.01,1.05)) — see CI failure 2026-05-21 at
+        # https://github.com/blackjax-devs/tuningfork/actions/runs/26229936187
+        # which observed rhat=1.0158 (REVIEW). At 1000/1000/4 the on-disk
+        # recipe shows rhat=1.0037 (well within PASS). Cost: ~5-10 s wall
+        # per test.
+        n_warmup=1000,
+        n_samples=1000,
+        num_chains=4,
         seed=20260517,
         catalog_root=tmp_path,
         outcomes_file=tmp_path / "outcomes.md",
@@ -64,7 +72,8 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
         effort=Effort.MEDIUM,
     )
 
-    # mvn_10 with any sane step_policy should PASS
+    # mvn_10 with any sane step_policy passes the auto-gate cleanly at
+    # canonical 1000/1000/4 sample budget (on-disk recipe: rhat=1.0037).
     assert result.verdict == "PASS", (
         f"Expected PASS for mvn_10×dynamic_hmc with empirical policy; "
         f"got {result.verdict} (rhat={result.gate_rhat_max}, ess={result.gate_min_ess})"
@@ -100,9 +109,17 @@ def test_medium_with_policy_tag_none_preserves_low(tmp_path):
         "mvn_10",
         "window_adaptation_diag_imm",
         "dynamic_hmc",
-        n_warmup=500,
-        n_samples=500,
-        num_chains=2,
+        # Use the canonical sample budget. Smaller budgets (500/500/2 was the
+        # original 2026-05-21 setting) give ~5× less MC headroom for the rhat
+        # estimator and flap mvn_10 × dynamic_hmc between PASS (rhat<1.01)
+        # and REVIEW (rhat∈[1.01,1.05)) — see CI failure 2026-05-21 at
+        # https://github.com/blackjax-devs/tuningfork/actions/runs/26229936187
+        # which observed rhat=1.0158 (REVIEW). At 1000/1000/4 the on-disk
+        # recipe shows rhat=1.0037 (well within PASS). Cost: ~5-10 s wall
+        # per test.
+        n_warmup=1000,
+        n_samples=1000,
+        num_chains=4,
         seed=20260517,
         catalog_root=tmp_path,
         outcomes_file=tmp_path / "outcomes.md",
