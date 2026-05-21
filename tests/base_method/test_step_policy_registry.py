@@ -318,11 +318,24 @@ def test_harvest_oracle_spec_max_values_binning(tmp_path: Path) -> None:
 
 
 def test_harvest_oracle_spec_missing_key_raises(tmp_path: Path) -> None:
-    """harvest_oracle_spec raises KeyError when 'num_integration_steps' missing."""
+    """harvest_oracle_spec raises KeyError when both NIS key variants missing."""
     stats_path = tmp_path / "bad.npz"
     np.savez(str(stats_path), some_other_key=np.array([1, 2, 3]))
     with pytest.raises(KeyError, match="num_integration_steps"):
         harvest_oracle_spec(stats_path)
+
+
+def test_harvest_oracle_spec_n_steps_fallback(tmp_path: Path) -> None:
+    """harvest_oracle_spec falls back to 'n_steps' key for older cache format."""
+    # Older caches use 'n_steps' instead of 'num_integration_steps'
+    nis = np.array([30] * 200 + [50] * 100 + [70] * 100, dtype=np.int32)
+    stats_path = tmp_path / "old_format.chain_stats.npz"
+    np.savez(str(stats_path), n_steps=nis)  # old key name
+
+    spec = harvest_oracle_spec(stats_path)
+    assert spec["kind"] == "empirical"
+    assert set(spec["values"]) == {30, 50, 70}
+    assert abs(sum(spec["weights"]) - 1.0) < 1e-6
 
 
 # ---------------------------------------------------------------------------

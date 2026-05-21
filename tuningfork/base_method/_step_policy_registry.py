@@ -307,10 +307,16 @@ def harvest_oracle_spec(
 
     chain_stats_path = Path(chain_stats_path)
     data = np.load(str(chain_stats_path))
-    if "num_integration_steps" not in data.files:
+    # Support both key names: newer NUTS uses "num_integration_steps";
+    # older caches may use "n_steps" (HMC warmup substitute per-step count).
+    if "num_integration_steps" in data.files:
+        nis = data["num_integration_steps"]
+    elif "n_steps" in data.files:
+        nis = data["n_steps"]
+    else:
         raise KeyError(
             f"chain_stats file at {chain_stats_path} does not contain "
-            f"'num_integration_steps'; available keys: {list(data.files)}"
+            f"'num_integration_steps' or 'n_steps'; "
+            f"available keys: {list(data.files)}"
         )
-    nis = data["num_integration_steps"]
     return harvest_oracle_spec_from_array(nis, max_values=max_values)
