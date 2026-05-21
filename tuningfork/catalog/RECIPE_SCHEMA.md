@@ -94,15 +94,16 @@ Schema:
 2. Each **subsequent** warmup is called with the previous warmup's output state's `position` as its `init_position`. The previous warmup's `adapted_params` may be passed as additional kwargs (e.g., pathfinder produces a dense IMM that window_adaptation can use as `initial_inverse_mass_matrix`).
 3. The **final** warmup's `(state, adapted_params, warmup_info)` is what flows into the sampler stage (via `transform_warmup_state` per §3.3).
 
-Backward-compat: when `Recipe.load` encounters a recipe with `warmup_name` + `warmup_params` (single-warmup schema), it constructs `warmups = [{"name": warmup_name, "params": warmup_params}]` internally. The legacy fields are kept as **properties** that read from `warmups[0]` for code that hasn't migrated.
+Backward-compat: at the `warmups` schema-add point (Phase X) the legacy `warmup_name`/`warmup_params` are dropped from `Recipe.save` output (per §2.4 — Q1 resolved 2026-05-21 in favour of immediate deprecation since there's no downstream consumer of recipe JSON beyond this project). `Recipe.load` continues to accept legacy recipes by constructing `warmups = [{"name": warmup_name, "params": warmup_params}]` for one transition cycle so on-disk recipes (the LOW/MEDIUM/FAILED inventory) keep loading.
 
-Filename: chain composition uses `+` separator. The `pathfinder + window_adaptation_diag_imm` chain becomes:
+Filename for multi-step chains: rather than concatenating warmup names with separators (which scales poorly past 2–3 steps), each canonical chain composition gets a **single named entry in the mix-warmup glossary** (§2.5) of the form `mix_warmup_v{N}`. The filename stays short:
 
 ```
-low__nuts__pathfinder+window_adaptation_diag_imm.json
+low__nuts__mix_warmup_v1.json         ← chain defined in glossary §2.5
+low__nuts__mix_warmup_v2.json         ← different chain, also in glossary
 ```
 
-A 3-step chain would be `<a>+<b>+<c>`. The total filename length grows with chain length; if it exceeds OS limits (~255 chars typical), the runner falls back to a short hash of the chain spec + a sidecar `chain_spec.json` documenting the full chain.
+This trades a tiny indirection (filename → glossary) for stable, short, sortable filenames. The recipe JSON itself records the FULL `warmups` list inline, so the recipe is self-documenting even without consulting the glossary.
 
 ### §2.3 — Extreme case: slow/fast adaptation isolated
 
@@ -133,13 +134,27 @@ Until then, `warmups: [{"name": "window_adaptation_diag_imm", ...}]` is the cano
 
 ### §2.4 — Migration path
 
-**Phase X (schema add)**: Add `warmups: list[dict] | None = None` to `Recipe`. `Recipe.load` populates from legacy fields if absent. `Recipe.save` writes `warmups` (canonical) AND `warmup_name`/`warmup_params` (for legacy readers) for one release cycle.
+Per Q1 ratification (§8, 2026-05-21): there's no downstream consumer of recipe JSON outside this project, so the deprecation is immediate rather than staged.
 
-**Phase Y (legacy fade)**: `Recipe.save` writes `warmups` only. Legacy readers must upgrade. Mass-migration script available.
+**Phase X (schema add)**: Add `warmups: list[dict]` to `Recipe`. `Recipe.save` writes `warmups` only (no legacy fields emitted). `Recipe.load` accepts EITHER `warmups` OR legacy `warmup_name`/`warmup_params` — old recipes on disk continue to load via construction `warmups = [{"name": warmup_name, "params": warmup_params}]`. The legacy load path stays indefinitely so existing recipe JSONs in the catalog don't need regen.
 
-**Phase Z (legacy removal)**: `warmup_name`/`warmup_params` removed from `Recipe` dataclass. `Recipe.load` raises on encountering them.
+**Phase Y (mass migration, optional)**: Re-emit existing recipes (44 LOW + 7 MEDIUM + 20 FAILED) under the new schema for filename / on-disk-JSON cleanliness. No runtime difference; pure prettification. Defer until a different schema change forces re-emission anyway.
 
-Timeline: weeks between phases; coordinated with W3 / Phase C work in `worklog/threads/d-hmc-integration-steps-fn-matrix.md`.
+### §2.5 — Mix-warmup glossary
+
+Canonical named compositions for multi-step warmup chains. Each entry has a stable version number; entries are append-only (no v1 redefinition once landed).
+
+| Slug | Composition | Use case |
+|---|---|---|
+| `mix_warmup_v1` | `[pathfinder, window_adaptation_diag_imm]` (placeholder spec — actual params TBD when first recipe uses it) | Heavy-tailed posteriors where pathfinder init mitigates poor random-init mode-capture, then standard window adaptation tunes (step_size, IMM). |
+
+(Initial glossary is empty pending first real use. When Phase B-2 or a future statistician workflow needs a composite warmup, the entry lands here in the same PR.)
+
+Glossary maintenance:
+
+- Slugs are append-only — `mix_warmup_v1` never gets redefined. New compositions get new version numbers.
+- Each entry's full composition spec (warmup names + per-step params) is documented in the recipe JSON itself; the glossary entry is human-facing prose explaining *what the chain is for*, not a parsing contract.
+- For one-off compositions that don't deserve a glossary entry, the recipe filename can use the explicit fallback `mix_warmup_adhoc` slug and the JSON body fully defines the chain — but this is discouraged in favour of named versions.
 
 ## §3 — `warmup_inner_kernel` field
 
@@ -191,7 +206,7 @@ Lives at `tuningfork/base_method/_warmup_to_sampler_transform.py` (new module).
 | `mala` (matches base) | `mala` | `{step_size, IMM}` (identity) |
 | `barker` (matches base) | `barker` | `{step_size, IMM}` (identity) |
 
-`harvest_oracle_spec_from_array(nis_array, max_values=512)` is the helper that powers the `step_policy=empirical(...)` cell (§4.3 below).
+`harvest_oracle_spec_from_array(nis_array, max_values=24)` is the helper that powers the `step_policy=empirical(...)` cell (§4.3 below).
 
 ### §3.5 — Filename convention
 
@@ -236,7 +251,7 @@ Bounds semantics per kind:
 | `poisson` | `lam` = mean; `low` floor via `jnp.maximum`; `high` = `null` means no ceiling; numeric `high` triggers `jax.lax.while_loop` rejection |
 | `pow2_choice` | `options` = explicit list (replaces `low`/`high`) |
 
-**Path B — Empirical histogram**:
+**Path B — Empirical histogram** (compressed):
 
 ```json
 {"kind": "empirical",
@@ -244,7 +259,11 @@ Bounds semantics per kind:
  "weights": [0.05, 0.10, 0.20, 0.30, 0.25, 0.10]}
 ```
 
-`values` are sorted distinct integer L values; `weights` are normalised probabilities. Inverse-CDF sampling via `jnp.searchsorted`.
+`values` are sorted distinct integer L values (or bin centres after histogram-binning); `weights` are normalised probabilities. Inverse-CDF sampling via `jnp.searchsorted`.
+
+**Compression rule (Q5 resolved 2026-05-21)**: the empirical spec is ALWAYS a compressed representation of the true NIS histogram, **capped at 24 distinct entries** ("24-bit cap" — see note below on interpretation). For low-variance NIS distributions (radon NIS_med=15, irt_2pl NIS_med=31), distinct integer L values are typically < 24 and stored directly. For high-variance distributions (horseshoe NIS up to 1023, gp_regression up to ~500), the harvest function histogram-bins into ≤24 bin-centres covering the observed range. Compression is lossy but bounded; the recipe stays JSON-readable; storage ≈ 24 × (small-int + small-float) ≈ 600 bytes per spec.
+
+Interpretation note on "24 bits": the user's directive (2026-05-21) was *"cap it at 24 bits"*. The natural reading for a histogram-compression context is 24 distinct bins (= 24-entry-cap), which is what the implementation uses. If a stricter binary-encoding ("each entry packed in 24 bits = 12 bits L + 12 bits weight") was intended, the change is mechanical — the schema doc would specify binary packing of `values`/`weights` and the storage drops to ~72 bytes per spec at the cost of JSON readability. Flag this for clarification when implementation lands.
 
 ### §4.2 — Path A registry
 
@@ -320,15 +339,15 @@ No regen needed on schema-add. Regen IS needed when the **runtime behaviour** ch
 | Substitute-family resolution | `tuningfork/warmup/_laplace_adapter.py:WARMUP_SUBSTITUTE_METHOD_NAMES + resolve_warmup_algorithm` |
 | Catalog inspection (consumer) | `tuningfork/catalog/inspect.py:load_recipe + summarize_recipe` |
 
-## §8 — Open questions
+## §8 — Open questions (ALL RESOLVED 2026-05-21)
 
-| # | Question | Current status |
+| # | Question | Resolution |
 |---|---|---|
-| 1 | When `warmups` (list) lands, do we deprecate `warmup_name`/`warmup_params` immediately, or keep both? | Lean: keep both for 1 release cycle (§2.4 Phase X) |
-| 2 | Filename length for chained warmups: hash + sidecar at what threshold? | Open. Lean: when `len(filename) > 200`, hash chain and write `<recipe>.chain_spec.json` sidecar. |
-| 3 | Does `warmup_inner_kernel` need a corresponding `warmup_inner_kwargs` field for kernel-build params (`num_integration_steps` for HMC-substitute, etc.)? | Currently the substitute-family kwargs are hardcoded in `resolve_warmup_algorithm`. For Phase B-2, the recipe could pin them explicitly. Lean: defer. |
-| 4 | Multi-chain warmup_info shape for `transform_warmup_state`: ravel across chains, or per-chain transforms? | Lean: ravel. The transform produces a per-chain or per-batched-state callable; the empirical spec is shared across chains. |
-| 5 | When `kind="empirical"` storage exceeds 8 KB (horseshoe / gp_regression cases), sidecar to `.npz`? | Lean: defer until >100 empirical recipes exist. |
+| 1 | When `warmups` (list) lands, deprecate `warmup_name`/`warmup_params` immediately, or keep both? | **RESOLVED — (a) deprecate immediately**. No downstream consumer of recipe JSON outside this project; clean break. `Recipe.save` emits only `warmups`. `Recipe.load` accepts legacy fields for backward-load of on-disk recipes (no mass regen needed). See §2.4. |
+| 2 | Filename length for multi-step warmup chains: separator-concatenation vs. some other notation? | **RESOLVED — glossary + `mix_warmup_v{N}` slug**. Each canonical chain composition gets a named glossary entry (§2.5); filename uses the short slug. Avoids separator-concatenation entirely; scales gracefully past 2–3 steps. |
+| 3 | Does `warmup_inner_kernel` need a corresponding `warmup_inner_kwargs` field? | **RESOLVED — (a) defer**. Implicit kwargs via `default_value_for_space` works; revisit when a concrete cell needs explicit pinning. |
+| 4 | Multi-chain `warmup_info` shape for `transform_warmup_state`: ravel across chains, or per-chain transforms? | **RESOLVED — (a) ravel**. Pool across chains for one canonical L distribution / median; ensures all chains run the same sampling protocol (necessary for cross-chain rhat). |
+| 5 | When `kind="empirical"` storage exceeds 8 KB, sidecar to `.npz`? | **RESOLVED — compress always, cap at 24-bit equivalent**. Empirical spec is always a compressed histogram with ≤24 distinct entries (§4.1 Path B). Storage stays ≈ 600 bytes per spec; no sidecar needed. Interpretation note on "24 bits" filed in §4.1 (current implementation: 24 bin-centres; tighter binary packing possible as a follow-up if user prefers). |
 
 ## §9 — Versioning
 
@@ -349,3 +368,4 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 | Date | Change |
 |---|---|
 | 2026-05-21 | Initial schema doc. Extracted from `worklog/threads/d-hmc-integration-steps-fn-matrix.md` §5, §10, §12. Added §2 repeated-warmup proposal (per user direction). |
+| 2026-05-21 (same day, later) | Locked all 5 §8 open questions per user direction: Q1 immediate-deprecate; Q2 `mix_warmup_v{N}` glossary in lieu of separator-concatenation; Q3 defer `warmup_inner_kwargs`; Q4 ravel across chains; Q5 always-compress empirical spec with ≤24-entry cap. §2.5 mix-warmup glossary section added (initially empty pending first real use). `max_values` default in `harvest_oracle_spec*` updated 512 → 24. |
