@@ -175,7 +175,13 @@ def _runner(
     )
 
     # Construct the low-rank window adaptation.
-    warmup = blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation(
+    # NB: blackjax PR #923 (2026-05-20, on main 2026-05-20) renamed the upstream
+    # function `low_rank_window_adaptation` → `window_adaptation_low_rank` with
+    # no deprecation alias. The top-level symbol `blackjax.window_adaptation_low_rank`
+    # is the new entry point; the legacy module path
+    # `blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation` no
+    # longer exists (caused the test-slow failure on main 2026-05-21).
+    warmup = blackjax.window_adaptation_low_rank(
         warmup_algorithm,
         logdensity_fn,
         max_rank=max_rank,
@@ -200,7 +206,7 @@ def _runner(
 
 
 ENTRY = Warmup(
-    name="low_rank_window_adaptation",
+    name="window_adaptation_low_rank_imm",
     runner=_runner,
     compatible_methods=(
         "hmc",

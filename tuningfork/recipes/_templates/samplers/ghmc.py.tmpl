@@ -4,34 +4,62 @@
 # When a warmup (e.g. window_adaptation_diag_imm) provides inverse_mass_matrix, it is used here
 # as momentum_inverse_scale.
 # The state is always re-initialised because GHMCState has different fields
-# (momentum, slice) than the HMCState / NUTSState produced by window_adaptation_diag_imm warmup.
-# We extract the warmup's end position (if available) so adaptation is not wasted.
+# (momentum, slice) than the HMCState / NUTSState produced by window_adaptation warmup.
+# Re-init is handled per-chain inside the inference loop vmap via _state_reinit.
 from jax.flatten_util import ravel_pytree as _ravel_pytree
 
 _flat_init, _ = _ravel_pytree(init_position)
 _n_params = int(_flat_init.shape[0])
 
-_step_size = _adapted_params.get("step_size", $bm_step_size)
-# inverse_mass_matrix from warmup serves as momentum_inverse_scale for GHMC.
-_mom_inv_scale = _adapted_params.get(
-    "inverse_mass_matrix", jnp.ones(_n_params)
-)
+_default_step_size = $bm_step_size
+_default_imm = jnp.ones(_n_params)
+# alpha and delta are scalar (not per-chain) recipe hyperparameters.
 _alpha = float(_adapted_params.get("alpha", $bm_alpha))
 _delta = float(_adapted_params.get("delta", $bm_delta))
 
-_kernel_obj = blackjax.ghmc(
-    logdensity_fn,
-    step_size=_step_size,
-    momentum_inverse_scale=_mom_inv_scale,
-    alpha=_alpha,
-    delta=_delta,
-)
-kernel = _kernel_obj.step
 
-# Extract end-warmup position if warmup produced a state, otherwise use init_position.
+def _build_kernel(step_size, inverse_mass_matrix):
+    # inverse_mass_matrix from warmup serves as momentum_inverse_scale for GHMC.
+    return blackjax.ghmc(
+        logdensity_fn,
+        step_size=step_size,
+        momentum_inverse_scale=inverse_mass_matrix,
+        alpha=_alpha,
+        delta=_delta,
+    ).step
+
+
+# kernel_builder is the protocol expected by inference_loop.py.tmpl.
+kernel_builder = _build_kernel
+
+
+def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):
+    """Re-init per-chain GHMCState from (position, rng_key).
+
+    Called inside inference_loop.py.tmpl's per-chain vmap when _state_reinit
+    is defined. The rng_key initialises the persistent momentum and slice variables.
+    """
+    return blackjax.ghmc(
+        logdensity_fn,
+        step_size=step_size,
+        momentum_inverse_scale=inverse_mass_matrix,
+        alpha=_alpha,
+        delta=_delta,
+    ).init(position, rng_key)
+
+
+# _state_post_warmup: window_adaptation warmup produces NUTSState; ghmc
+# requires GHMCState. The _state_reinit function handles per-chain
+# re-init inside the inference loop vmap. We still need a valid _state_post_warmup
+# so inference_loop.py.tmpl can pass its .position to _state_reinit.
 try:
-    _ghmc_start_pos = _state_post_warmup.position
+    _state_post_warmup
 except NameError:
-    _ghmc_start_pos = init_position
-_ghmc_init_key = jax.random.key($tuning_seed)
-_state_post_warmup = _kernel_obj.init(_ghmc_start_pos, _ghmc_init_key)
+    # no_warmup path: initialise a placeholder NUTSState from init_position.
+    # _state_reinit will replace it per-chain inside the vmap.
+    _warmup_init_is_single_chain = True
+    _state_post_warmup = blackjax.nuts(
+        logdensity_fn,
+        step_size=_default_step_size,
+        inverse_mass_matrix=_default_imm,
+    ).init(init_position)

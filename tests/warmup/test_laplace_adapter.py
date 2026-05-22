@@ -13,8 +13,9 @@
 # limitations under the License.
 """Unit tests for ``tuningfork.warmup._laplace_adapter``.
 
-Tests the adapter helper that routes laplace_* base methods through
-``blackjax.hmc`` for window adaptation, without touching the non-laplace path.
+Tests the adapter helper that routes laplace_* / dynamic_hmc / dmhmc base methods
+through ``blackjax.nuts`` for window adaptation, without touching the non-substitute
+path.
 
 All tests here are pure logic / dataclass checks (no JAX trace) — fast.
 """
@@ -27,6 +28,7 @@ import pytest
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.warmup._laplace_adapter import (
     LAPLACE_METHOD_NAMES,
+    WARMUP_SUBSTITUTE_METHOD_NAMES,
     resolve_warmup_algorithm,
 )
 
@@ -42,8 +44,17 @@ def test_laplace_method_names_set():
     assert len(LAPLACE_METHOD_NAMES) == 4
 
 
-def test_resolve_non_laplace_returns_factory_unchanged():
-    """Non-laplace base method: (base_method.factory, unchanged_kwargs) returned."""
+def test_warmup_substitute_method_names_set():
+    """WARMUP_SUBSTITUTE_METHOD_NAMES = LAPLACE_METHOD_NAMES ∪ {dynamic_hmc, dmhmc}."""
+    assert WARMUP_SUBSTITUTE_METHOD_NAMES == LAPLACE_METHOD_NAMES | {
+        "dynamic_hmc",
+        "dmhmc",
+    }
+    assert len(WARMUP_SUBSTITUTE_METHOD_NAMES) == 6
+
+
+def test_resolve_non_substitute_returns_factory_unchanged():
+    """Non-substitute base method: (base_method.factory, unchanged_kwargs) returned."""
     hmc = BASE_METHODS["hmc"]
     extra = {"num_integration_steps": 10}
     algo, kw = resolve_warmup_algorithm(hmc, extra)
@@ -51,8 +62,8 @@ def test_resolve_non_laplace_returns_factory_unchanged():
     assert kw == {"num_integration_steps": 10}
 
 
-def test_resolve_non_laplace_does_not_mutate_input():
-    """Non-laplace path returns a copy of extra_kwargs, not the original dict."""
+def test_resolve_non_substitute_does_not_mutate_input():
+    """Non-substitute path returns a copy of extra_kwargs, not the original dict."""
     nuts = BASE_METHODS["nuts"]
     extra = {"some_key": 42}
     _, kw = resolve_warmup_algorithm(nuts, extra)
@@ -62,51 +73,60 @@ def test_resolve_non_laplace_does_not_mutate_input():
 
 @pytest.mark.parametrize(
     "method_name",
-    ["laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc"],
+    [
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+        "dynamic_hmc",
+        "dmhmc",
+    ],
 )
-def test_resolve_laplace_returns_blackjax_hmc(method_name):
-    """All 4 laplace_* variants resolve to blackjax.hmc as warmup algorithm."""
+def test_resolve_substitute_returns_blackjax_nuts(method_name):
+    """All 6 substitute-family methods resolve to blackjax.nuts as warmup algorithm.
+
+    NUTS is the canonical Stan-style warmup kernel and needs no extra kernel kwargs
+    at warmup time (NUTS picks its own trajectory length).  Prior to 2026-05-21 the
+    substitute kernel was blackjax.hmc; the change to NUTS simplifies the substitute
+    path (no num_integration_steps injection needed) and aligns with Stan convention.
+    """
     method = BASE_METHODS[method_name]
     algo, _ = resolve_warmup_algorithm(method, {})
-    assert algo is blackjax.hmc, f"Expected blackjax.hmc for {method_name}, got {algo}"
+    assert (
+        algo is blackjax.nuts
+    ), f"Expected blackjax.nuts for {method_name}, got {algo}"
 
 
 @pytest.mark.parametrize(
     "method_name",
-    ["laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc"],
+    [
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+        "dynamic_hmc",
+        "dmhmc",
+    ],
 )
-def test_resolve_laplace_preserves_num_integration_steps(method_name):
-    """Laplace path: caller-supplied num_integration_steps is preserved."""
+def test_resolve_substitute_discards_extra_kwargs(method_name):
+    """Substitute path discards extra_kwargs — NUTS needs no extra kernel kwargs.
+
+    Even if the caller passes num_integration_steps (or any other HP), the substitute
+    path returns an empty dict.  This is intentional: NUTS picks its own trajectory
+    length via the no-U-turn criterion, and any HP that's specific to the downstream
+    sampler (e.g. mhmc's num_integration_steps) is irrelevant at warmup time when
+    NUTS is the warmup kernel.  The downstream sampler gets its HPs from the recipe
+    at sample time.
+    """
     method = BASE_METHODS[method_name]
-    algo, kw = resolve_warmup_algorithm(method, {"num_integration_steps": 7})
-    assert kw["num_integration_steps"] == 7
+    _, kw = resolve_warmup_algorithm(method, {"num_integration_steps": 7})
+    assert kw == {}, f"Expected empty kwargs for {method_name}, got {kw}"
 
 
-@pytest.mark.parametrize(
-    "method_name",
-    ["laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc"],
-)
-def test_resolve_laplace_default_num_integration_steps(method_name):
-    """Laplace path without NIS in kwargs: default of 5 is applied."""
-    method = BASE_METHODS[method_name]
-    _, kw = resolve_warmup_algorithm(method, {})
-    assert kw["num_integration_steps"] == 5
-
-
-def test_blackjax_hmc_has_required_interface():
-    """blackjax.hmc exposes .build_kernel and .init needed by window_adaptation."""
-    assert hasattr(blackjax.hmc, "build_kernel"), "Missing .build_kernel"
-    assert hasattr(blackjax.hmc, "init"), "Missing .init"
+def test_blackjax_nuts_has_required_interface():
+    """blackjax.nuts exposes .build_kernel and .init needed by window_adaptation."""
+    assert hasattr(blackjax.nuts, "build_kernel"), "Missing .build_kernel"
+    assert hasattr(blackjax.nuts, "init"), "Missing .init"
     # build_kernel must accept at least one parameter (integrator)
-    params = inspect.signature(blackjax.hmc.build_kernel).parameters
+    params = inspect.signature(blackjax.nuts.build_kernel).parameters
     assert len(params) > 0, "build_kernel should accept integrator param"
-
-
-def test_laplace_kwargs_only_contain_num_integration_steps():
-    """Laplace path returns only num_integration_steps — no laplace-specific extras."""
-    laplace_hmc = BASE_METHODS["laplace_hmc"]
-    # If extra_kwargs contains non-HMC keys, they should NOT appear in result
-    # (adapter strips them to avoid passing them to window_adaptation)
-    extra = {"num_integration_steps": 3}
-    _, kw = resolve_warmup_algorithm(laplace_hmc, extra)
-    assert set(kw.keys()) == {"num_integration_steps"}

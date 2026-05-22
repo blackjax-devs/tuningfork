@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for low_rank_window_adaptation warmup."""
+"""Tests for window_adaptation_low_rank_imm warmup."""
 
 import jax
 import jax.numpy as jnp
@@ -25,16 +25,18 @@ from tuningfork.warmup import WARMUPS
 pytestmark = pytest.mark.slow
 
 
-def test_low_rank_window_adaptation_returns_metric():
-    """Verify that low_rank_window_adaptation returns a LowRankInverseMassMatrix.
+def test_window_adaptation_low_rank_imm_returns_metric():
+    """Verify that window_adaptation_low_rank_imm returns a LowRankInverseMassMatrix.
 
     Since blackjax#917 (b094083c, 2026-05-18) the inverse_mass_matrix returned
-    by ``low_rank_window_adaptation`` is a ``LowRankInverseMassMatrix`` NamedTuple
-    with public (sigma, U, lam) array fields — pytree-flat and vmap-compatible.
+    by ``window_adaptation_low_rank_imm`` (wrapping the upstream
+    ``blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation``) is a
+    ``LowRankInverseMassMatrix`` NamedTuple with public (sigma, U, lam) array
+    fields — pytree-flat and vmap-compatible.
     """
     ill_cond_50 = MODELS["ill_cond_50"]
     nuts = BASE_METHODS["nuts"]
-    warmup = WARMUPS["low_rank_window_adaptation"]
+    warmup = WARMUPS["window_adaptation_low_rank_imm"]
 
     # Build logdensity and init position
     key = jax.random.key(42)

@@ -82,6 +82,7 @@ def emit_script(
     *,
     num_samples: int = 2000,
     sampler_seed: int | None = None,
+    num_chains: int | None = None,
 ) -> str:
     """Assemble a recipe-reproduction Python script.
 
@@ -103,6 +104,11 @@ def emit_script(
         RNG seed for the post-warmup sampling. Defaults to
         ``recipe.tuning_seed + 1`` so the emitted script is deterministic
         given the recipe.
+    num_chains : int, optional
+        Number of chains for the vmap-scan inference loop. When ``None``,
+        derived from the recipe: ``recipe.warmup_params.get("num_chains",
+        recipe.calibration_budget.get("num_chains", 1))``. Falls back to 1
+        for legacy groundtruth recipes that pre-date the ``num_chains`` field.
 
     Returns
     -------
@@ -122,6 +128,12 @@ def emit_script(
     """
     if sampler_seed is None:
         sampler_seed = recipe.tuning_seed + 1
+
+    if num_chains is None:
+        num_chains = recipe.warmup_params.get(
+            "num_chains",
+            recipe.calibration_budget.get("num_chains", 1),
+        )
 
     # Normalise warmup_params key spelling: groundtruth recipes use
     # "target_acceptance" (legacy key from certify_reference.py);
@@ -155,6 +167,7 @@ def emit_script(
         "tuning_seed": recipe.tuning_seed,
         "sampler_seed": sampler_seed,
         "num_samples": num_samples,
+        "num_chains": num_chains,
         # warmup_params unrolled (legacy top-level slots — backward compat)
         "target_acceptance_rate": target_acceptance_rate,
         "n_warmup": recipe.warmup_params.get("n_warmup", 1000),
@@ -166,6 +179,53 @@ def emit_script(
     # them reference $bm_step_size, $bm_num_integration_steps, $wp_n_warmup, etc.
     ctx.update({f"bm_{k}": v for k, v in recipe.base_method_params.items()})
     ctx.update({f"wp_{k}": v for k, v in recipe.warmup_params.items()})
+
+    # The warmup template needs to call the right blackjax algorithm. The recipe-
+    # runner uses `resolve_warmup_algorithm` which substitutes `blackjax.nuts` for
+    # the warmup-substitute family (laplace_*, dynamic_hmc, dmhmc — methods whose
+    # interface doesn't compose with `blackjax.window_adaptation` directly:
+    # laplace_* needs `log_joint_fn` + `theta_init`; dynamic_hmc / dmhmc need
+    # `random_generator_arg` at warmup step). For all other samplers we use the
+    # sampler's own factory (= `blackjax.<base_method_name>`). Reproduce that
+    # selection here so the emitted script faithfully reproduces the runner's
+    # warmup protocol.
+    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
+
+    if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES:
+        _warmup_sampler = "nuts"
+    else:
+        _warmup_sampler = recipe.base_method_name
+    ctx["warmup_algorithm"] = f"blackjax.{_warmup_sampler}"
+
+    # The warmup template also needs to pass any kernel-construction kwargs
+    # that the chosen blackjax algorithm requires beyond `logdensity_fn`,
+    # `step_size`, and `inverse_mass_matrix` (which come from adaptation
+    # itself). The recipe-runner injects these via
+    # `default_value_for_space` on the base_method's HP space; the
+    # substitute path (uses NUTS) needs no extra kwargs. Reproduce both
+    # branches here so e.g. an mhmc warmup gets its required
+    # `num_integration_steps` kwarg (without it, `blackjax.mhmc` raises
+    # TypeError at warmup time).
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.calibration.tune import default_value_for_space
+
+    _warmup_extra: dict[str, object]
+    if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES:
+        # Substituted to blackjax.nuts; NUTS picks its own trajectory length
+        # and needs no extra kernel kwargs at warmup time.
+        _warmup_extra = {}
+    else:
+        _bm = BASE_METHODS[recipe.base_method_name]
+        _warmup_extra = {}
+        for _space in _bm.default_hp_space:
+            if _space.name not in ("step_size", "inverse_mass_matrix"):
+                _warmup_extra[_space.name] = default_value_for_space(_space)
+
+    # Render as ", k1=v1, k2=v2" so the template can inject it after the
+    # base kwargs without re-thinking comma placement. Empty for nuts
+    # (which only adapts step_size + IMM; needs no extra kernel kwargs).
+    _warmup_extra_str = "".join(f", {k}={v!r}" for k, v in _warmup_extra.items())
+    ctx["warmup_extra_kwargs"] = _warmup_extra_str
 
     # Use safe_substitute so templates with optional $bm_*/wp_* slots that are
     # absent from the recipe (e.g. $bm_num_integration_steps in a nuts recipe)

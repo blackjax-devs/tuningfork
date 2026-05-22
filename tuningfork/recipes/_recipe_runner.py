@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase 3 LOW-effort recipe emission — warmup + sampling + auto-gate pipeline.
+"""Recipe-emit pipeline — warmup + sampling + auto-gate for LOW-effort recipes.
 
-Implements the full ``warmup → sample → auto_gate → Recipe.LOW`` flow for the
-wadapt-hmc-sweep Phase 3.  Each cell runs:
+Implements the full ``warmup → sample → auto_gate → Recipe.LOW`` flow.
+Each cell runs:
 
 1. ``warmup.runner(num_chains=4)`` to get per-chain adapted
    ``(step_size, inverse_mass_matrix)`` for ``n_warmup=1000`` steps each.
@@ -28,7 +28,7 @@ wadapt-hmc-sweep Phase 3.  Each cell runs:
 
 Usage (CLI):
 
-    JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._phase3_emit \
+    JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._recipe_runner \
         --model mvn_10 \
         --warmup window_adaptation_diag_imm \
         --sampler nuts
@@ -36,12 +36,12 @@ Usage (CLI):
 The module is **not** exposed through the public ``tuningfork.recipes``
 ``__init__.py``; it is an internal generator-layer script.
 
-Phase 3 spec (per worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md):
+Recipe runner spec (per worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md):
     - ``n_warmup=1000``, ``n_samples=1000``, ``num_chains=4`` (quick mode)
     - ``seed=20260517`` (master); per-chain keys split internally
     - ``target_acceptance`` from ``base_method`` default (default 0.8)
     - PASS verdict → emit LOW recipe; FAIL/REVIEW → write note to
-      ``/tmp/wadapt-phase3-outcomes.md`` and exit non-zero.
+      ``/tmp/recipe-runner-outcomes.md`` and exit non-zero.
 """
 
 import dataclasses
@@ -58,6 +58,7 @@ from blackjax.util import run_inference_algorithm
 
 from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
+from tuningfork.base_method._step_policy_registry import build_step_policy
 from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.calibration.tune import default_params_for
 from tuningfork.metrics.grad_counter import total_grad_evals
@@ -90,23 +91,23 @@ _LAPLACE_PHI_THETA_SPLITS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
     "eight_schools_ncp": (("mu", "tau"), ("theta_raw",)),
 }
 
-# Phase 3 canonical parameters
+# Recipe runner canonical parameters
 # (4 chains x 1000 samples = "quick mode" non-groundtruth recipe protocol per
 #  worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md § Section 0;
 #  matches auto_gate's `min_bulk_ess >= 400` calibration. Use `quick` for LOW
 #  recipes; MEDIUM/HIGH should bump `n_samples` to 4000 via CLI override.)
-PHASE3_N_WARMUP: int = 1000
-PHASE3_N_SAMPLES: int = 1000
-PHASE3_NUM_CHAINS: int = 4
-PHASE3_SEED: int = 20260517
-PHASE3_N_CHUNKS: int = 4  # for split-R̂; ignored when samples are multi-chain
-PHASE3_TARGET_ACCEPTANCE: float = 0.8
+RECIPE_N_WARMUP: int = 1000
+RECIPE_N_SAMPLES: int = 1000
+RECIPE_NUM_CHAINS: int = 4
+RECIPE_SEED: int = 20260517
+RECIPE_N_CHUNKS: int = 4  # for split-R̂; ignored when samples are multi-chain
+RECIPE_TARGET_ACCEPTANCE: float = 0.8
 
 # Catalog root (relative to this file: tuningfork/tuningfork/catalog/)
 _CATALOG_ROOT: Path = Path(__file__).parent.parent / "catalog"
 
 # Outcomes log for FAIL / REVIEW cells
-_OUTCOMES_FILE: Path = Path("/tmp/wadapt-phase3-outcomes.md")
+_OUTCOMES_FILE: Path = Path("/tmp/recipe-runner-outcomes.md")
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +116,7 @@ _OUTCOMES_FILE: Path = Path("/tmp/wadapt-phase3-outcomes.md")
 
 
 class CellResult:
-    """Outcome of one Phase 3 emit attempt.
+    """Outcome of one recipe-runner emit attempt.
 
     Parameters
     ----------
@@ -267,16 +268,19 @@ def emit_low_recipe_for_cell(
     warmup_name: str,
     sampler_name: str,
     *,
-    n_warmup: int = PHASE3_N_WARMUP,
-    n_samples: int = PHASE3_N_SAMPLES,
-    num_chains: int = PHASE3_NUM_CHAINS,
-    seed: int = PHASE3_SEED,
-    n_chunks: int = PHASE3_N_CHUNKS,
+    n_warmup: int = RECIPE_N_WARMUP,
+    n_samples: int = RECIPE_N_SAMPLES,
+    num_chains: int = RECIPE_NUM_CHAINS,
+    seed: int = RECIPE_SEED,
+    n_chunks: int = RECIPE_N_CHUNKS,
     catalog_root: Path = _CATALOG_ROOT,
     outcomes_file: Path = _OUTCOMES_FILE,
     verbose: bool = True,
     target_acceptance: float | None = None,
     sampler_kwargs_override: dict[str, Any] | None = None,
+    step_policy: dict[str, Any] | None = None,
+    policy_tag: str | None = None,
+    effort: Effort = Effort.LOW,
 ) -> CellResult:
     """Run warmup + sampling + auto-gate for one cell; emit LOW recipe on PASS.
 
@@ -289,16 +293,16 @@ def emit_low_recipe_for_cell(
     sampler_name
         Registry key in ``BASE_METHODS``, e.g. ``"nuts"``.
     n_warmup
-        Warmup steps per chain (default ``PHASE3_N_WARMUP`` = 1000).
+        Warmup steps per chain (default ``RECIPE_N_WARMUP`` = 1000).
     n_samples
-        Post-warmup sampler steps per chain (default ``PHASE3_N_SAMPLES`` = 1000).
+        Post-warmup sampler steps per chain (default ``RECIPE_N_SAMPLES`` = 1000).
     num_chains
         Number of independent chains run in parallel via ``jax.vmap``
-        (default ``PHASE3_NUM_CHAINS`` = 4).  The non-groundtruth recipe
+        (default ``RECIPE_NUM_CHAINS`` = 4).  The non-groundtruth recipe
         protocol (per `worklog/decisions/2026-05-11-phase6-visualization-
         diagnostics.md` § Section 0) is 4 chains × 1000 quick mode.
     seed
-        Master JAX random seed (default ``PHASE3_SEED`` = 20260517).
+        Master JAX random seed (default ``RECIPE_SEED`` = 20260517).
     n_chunks
         Split-Rhat rechunk count if samples come in single-chain layout;
         ignored when samples are already multi-chain (default 4).
@@ -325,6 +329,30 @@ def emit_low_recipe_for_cell(
         ``inverse_mass_matrix``, which always come from warmup adaptation and
         are never overridden here).  Cannot serialise non-JSON-able values
         (e.g., callables); pass ``None`` for those and handle separately.
+    step_policy
+        Step-policy spec dict for ``dynamic_hmc`` / ``dmhmc`` cells,
+        controlling the ``integration_steps_fn`` callable.  ``None``
+        (default) means "use the library default" (V0: uniform integer in
+        [1, 10)).  Non-None specs are passed to
+        ``build_step_policy(spec)`` to construct the callable at execution
+        time; the spec is also stored in ``Recipe.step_policy`` so it
+        round-trips through JSON without closure capture.
+
+        For non-``dynamic_hmc`` / non-``dmhmc`` samplers, this parameter is
+        ignored.  See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md``
+        §5 for valid spec formats.
+    policy_tag
+        Optional filename tag for policy-variant MEDIUM recipes, e.g.
+        ``"policy_v7-empirical-oracle"``.  When provided, the emitted recipe
+        filename becomes
+        ``<effort>__<sampler>__<warmup>__<policy_tag>.json`` and the
+        ``effort`` parameter should be set to ``Effort.MEDIUM``.
+        ``None`` (default) preserves the canonical ``<effort>__<sampler>__<warmup>.json``
+        filename (backward-compatible with all existing callers).
+    effort
+        Effort tier for the emitted recipe (default ``Effort.LOW``).
+        Pass ``Effort.MEDIUM`` together with ``policy_tag`` for MEDIUM
+        policy-variant recipes.  Behaviour for other tiers is not tested.
 
     Returns
     -------
@@ -417,7 +445,7 @@ def emit_low_recipe_for_cell(
             note = (
                 f"ERROR: laplace_* sampler requested but {model_name!r} has no "
                 "phi/theta split in _LAPLACE_PHI_THETA_SPLITS — cannot build "
-                "marginal logdensity. Add the split to the table in _phase3_emit.py."
+                "marginal logdensity. Add the split to the table in _recipe_runner.py."
             )
             _log(f"  {note}")
             _append_outcome(model_name, warmup_name, sampler_name, note)
@@ -504,10 +532,16 @@ def emit_low_recipe_for_cell(
     }
     # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
     # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
-    # Strip the int; blackjax's default `integration_steps_fn` (uniform L in
-    # [1, 10)) takes over at the kernel.
+    # Strip the int; then inject the step_policy callable (V0 = library default
+    # when step_policy=None; non-V0 from build_step_policy when spec is provided).
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
+        # Build integration_steps_fn from the step_policy spec.
+        # V0 (spec=None): returns the same callable as blackjax's built-in default,
+        # so behaviour is identical to not specifying it — we still inject explicitly
+        # to make the code path consistent and testable.
+        _integration_steps_fn = build_step_policy(step_policy)
+        shared_kwargs["integration_steps_fn"] = _integration_steps_fn
     # Apply sampler_kwargs_override: caller-supplied values take precedence over
     # defaults.  step_size and inverse_mass_matrix are always excluded — they
     # come from warmup adaptation and must not be overridden here.
@@ -666,9 +700,14 @@ def emit_low_recipe_for_cell(
     # run was the auto-gate validation, but a recipe is a single replayable
     # specification, so we pin chain 0's adapted params.  Other chains' values
     # are functionally equivalent given the deterministic seed + per-chain key.
-    _log("  Building LOW recipe...")
+    _log(f"  Building {effort.value.upper()} recipe...")
     chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
-    pinned_params: dict[str, Any] = {**shared_kwargs, "step_size": chain0_step_size}
+    # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
+    # pinned params — it is reconstructed at recipe-run time via step_policy spec.
+    pinned_params: dict[str, Any] = {
+        k: v for k, v in shared_kwargs.items() if k != "integration_steps_fn"
+    }
+    pinned_params["step_size"] = chain0_step_size
     jsonable_params = _to_jsonable(pinned_params)
 
     imm_arr: np.ndarray | None = None
@@ -699,7 +738,7 @@ def emit_low_recipe_for_cell(
         model_name=posterior.name,
         base_method_name=base_method.name,
         warmup_name=warmup.name,
-        effort=Effort.LOW,
+        effort=effort,
         base_method_params=jsonable_params,
         warmup_params={
             "n_warmup": n_warmup,
@@ -707,7 +746,7 @@ def emit_low_recipe_for_cell(
             "target_acceptance": (
                 target_acceptance
                 if target_acceptance is not None
-                else (base_method.target_acceptance_rate or PHASE3_TARGET_ACCEPTANCE)
+                else (base_method.target_acceptance_rate or RECIPE_TARGET_ACCEPTANCE)
             ),
         },
         headline_metric=headline,
@@ -722,6 +761,9 @@ def emit_low_recipe_for_cell(
         difficulty=None,
         instructions="",
         notes="",
+        # Store the step_policy spec so the recipe JSON is self-describing.
+        # None = library default (V0); non-None = explicit spec from caller.
+        step_policy=step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None,
         tuning_seed=tuning_seed,
         tuningfork_version=_tuningfork_version,
         blackjax_version=_get_blackjax_version(),
@@ -735,16 +777,18 @@ def emit_low_recipe_for_cell(
     recipe = Recipe(**recipe_kwargs)
 
     # --- Save recipe ---
-    recipe_path = recipe.save(catalog_root)
+    recipe_path = recipe.save(catalog_root, filename_tag=policy_tag)
     _log(f"  Saved recipe: {recipe_path}")
 
     # --- Save IMM sidecar if needed ---
     imm_sidecar_rel: str | None = None
     if imm_arr is not None and imm_arr.size > 50:
-        imm_sidecar_rel = recipe.save_imm_sidecar(catalog_root, imm_arr)
+        imm_sidecar_rel = recipe.save_imm_sidecar(
+            catalog_root, imm_arr, filename_tag=policy_tag
+        )
         # Rebuild recipe with sidecar path (Recipe is frozen)
         recipe = dataclasses.replace(recipe, inverse_mass_matrix_path=imm_sidecar_rel)
-        recipe.save(catalog_root)
+        recipe.save(catalog_root, filename_tag=policy_tag)
         _log(f"  Saved IMM sidecar: {imm_sidecar_rel}")
 
     _log(f"  PASS. headline={headline:.4g}" if headline is not None else "  PASS.")
@@ -791,7 +835,7 @@ def run_recipe_to_idata(
         A Recipe object loaded via ``load_recipe``.
     n_samples
         Override the recipe's n_samples. If None, use the recipe's
-        warmup_params["n_samples"] or fall back to PHASE3_N_SAMPLES.
+        warmup_params["n_samples"] or fall back to RECIPE_N_SAMPLES.
     force_resample
         If True, always re-run even if cache exists. Default False.
     catalog_root
@@ -841,14 +885,14 @@ def run_recipe_to_idata(
         )
 
     # Extract protocol from recipe
-    n_warmup = int(recipe.warmup_params.get("n_warmup", PHASE3_N_WARMUP))
-    num_chains = int(recipe.warmup_params.get("num_chains", PHASE3_NUM_CHAINS))
+    n_warmup = int(recipe.warmup_params.get("n_warmup", RECIPE_N_WARMUP))
+    num_chains = int(recipe.warmup_params.get("num_chains", RECIPE_NUM_CHAINS))
     target_acceptance = recipe.warmup_params.get("target_acceptance", None)
     if n_samples is None:
-        n_samples = int(recipe.warmup_params.get("n_samples", PHASE3_N_SAMPLES))
+        n_samples = int(recipe.warmup_params.get("n_samples", RECIPE_N_SAMPLES))
 
-    # Use recipe's tuning_seed (or fallback to PHASE3_SEED if 0)
-    seed = recipe.tuning_seed if recipe.tuning_seed != 0 else PHASE3_SEED
+    # Use recipe's tuning_seed (or fallback to RECIPE_SEED if 0)
+    seed = recipe.tuning_seed if recipe.tuning_seed != 0 else RECIPE_SEED
 
     # Build logdensity and initial position
     init_key, warmup_key, sample_key = jax.random.split(jax.random.key(seed), 3)
@@ -894,12 +938,15 @@ def run_recipe_to_idata(
     }
     if recipe.base_method_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
+        # Wire the step_policy callable from the recipe's stored spec.
+        # None = V0 library default; non-None = reconstructed from spec.
+        shared_kwargs["integration_steps_fn"] = build_step_policy(recipe.step_policy)
 
     # Inject recipe's base_method_params (overrides defaults)
     recipe_params = dict(recipe.base_method_params)
-    # Exclude step_size and IMM (they come from warmup)
+    # Exclude step_size, IMM, and integration_steps_fn (callable; not in recipe params).
     for k in list(recipe_params.keys()):
-        if k not in ("step_size", "inverse_mass_matrix"):
+        if k not in ("step_size", "inverse_mass_matrix", "integration_steps_fn"):
             shared_kwargs[k] = recipe_params[k]
 
     batched_step_size = batched_params["step_size"]
@@ -985,7 +1032,7 @@ def _main() -> None:
 
     Usage::
 
-        JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._phase3_emit \
+        JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.recipes._recipe_runner \
             --model mvn_10 \
             --warmup window_adaptation_diag_imm \
             --sampler nuts
@@ -996,7 +1043,7 @@ def _main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Phase 3 LOW emit: warmup + sample + auto-gate for one "
+            "Recipe runner LOW emit: warmup + sample + auto-gate for one "
             "(model, warmup, sampler) cell.  Exits 0 on PASS."
         )
     )
@@ -1014,20 +1061,20 @@ def _main() -> None:
     parser.add_argument(
         "--n-warmup",
         type=int,
-        default=PHASE3_N_WARMUP,
-        help=f"Warmup steps (default {PHASE3_N_WARMUP})",
+        default=RECIPE_N_WARMUP,
+        help=f"Warmup steps (default {RECIPE_N_WARMUP})",
     )
     parser.add_argument(
         "--n-samples",
         type=int,
-        default=PHASE3_N_SAMPLES,
-        help=f"Post-warmup samples (default {PHASE3_N_SAMPLES})",
+        default=RECIPE_N_SAMPLES,
+        help=f"Post-warmup samples (default {RECIPE_N_SAMPLES})",
     )
     parser.add_argument(
         "--seed",
         type=int,
-        default=PHASE3_SEED,
-        help=f"JAX random seed (default {PHASE3_SEED})",
+        default=RECIPE_SEED,
+        help=f"JAX random seed (default {RECIPE_SEED})",
     )
     parser.add_argument(
         "--target-acceptance",

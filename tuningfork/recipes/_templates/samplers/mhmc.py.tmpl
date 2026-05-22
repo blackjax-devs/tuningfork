@@ -1,24 +1,44 @@
-# === SAMPLER: mhmc (multinomial HMC; step_size + IMM from warmup; num_integration_steps from recipe) ===
+# === SAMPLER: mhmc (multinomial HMC; step_size + IMM per-chain from warmup; num_integration_steps from recipe) ===
 from jax.flatten_util import ravel_pytree as _ravel_pytree
 
 _flat_init, _ = _ravel_pytree(init_position)
 _n_params = int(_flat_init.shape[0])
 
-_step_size = _adapted_params.get("step_size", $bm_step_size)
-_imm = _adapted_params.get("inverse_mass_matrix", jnp.ones(_n_params))
-_num_steps = int(_adapted_params.get("num_integration_steps", $bm_num_integration_steps))
+_default_step_size = $bm_step_size
+_default_imm = jnp.ones(_n_params)
+# num_integration_steps is a recipe-pinned HP (NOT adapted by warmup). Use the
+# value from the recipe directly. (Earlier templates pulled from
+# `_adapted_params.get("num_integration_steps", ...)` with a fallback — that
+# only worked when the warmup didn't pass num_integration_steps to
+# `blackjax.window_adaptation`. With the 2026-05-20 fix to faithfully reproduce
+# the runner's warmup_kwargs, num_integration_steps appears in adapted_params
+# as a (num_chains,)-batched array, breaking the `int()` cast.)
+_num_steps = $bm_num_integration_steps
 
-_kernel_obj = blackjax.mhmc(
-    logdensity_fn,
-    step_size=_step_size,
-    inverse_mass_matrix=_imm,
-    num_integration_steps=_num_steps,
-)
-kernel = _kernel_obj.step
+
+def _build_kernel(step_size, inverse_mass_matrix):
+    return blackjax.mhmc(
+        logdensity_fn,
+        step_size=step_size,
+        inverse_mass_matrix=inverse_mass_matrix,
+        num_integration_steps=_num_steps,
+    ).step
+
+
+# kernel_builder is the protocol expected by inference_loop.py.tmpl when
+# _adapted_params is multi-chain: each chain builds its own kernel from its
+# own adapted step_size and inverse_mass_matrix.
+kernel_builder = _build_kernel
 
 # Bind _state_post_warmup: warmup template sets it when adaptation runs.
 # For no_warmup, initialise from the init_position.
 try:
     _state_post_warmup
 except NameError:
-    _state_post_warmup = _kernel_obj.init(init_position)
+    _warmup_init_is_single_chain = True
+    _state_post_warmup = blackjax.mhmc(
+        logdensity_fn,
+        step_size=_default_step_size,
+        inverse_mass_matrix=_default_imm,
+        num_integration_steps=_num_steps,
+    ).init(init_position)
