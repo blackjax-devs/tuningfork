@@ -1,0 +1,56 @@
+{
+  "model_name": "banana",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {},
+      "warmup_params": {
+        "target_acceptance": 0.8
+      },
+      "seed": 20260517,
+      "gate_verdict": "FAIL",
+      "wall_seconds": 6.4,
+      "note": "ta=0.8 (W3 sweep): rhat=1.0135, ess=171.1, n_div=51. Same Rosenbrock-curvature failure as W1/W2 x nuts (Phase 4 cluster 3)."
+    }
+  ],
+  "base_method_params": {},
+  "warmup_params": {
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 6.4,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "",
+  "notes": "Rosenbrock-shape banana defeats step-size + IMM adaptation at any configuration. W3 low-rank IMM does not capture the Rosenbrock curvature (non-linear manifold, not a correlation issue). ta=0.99 was shown in Phase 4 to eliminate divergences but collapse ESS. Out of scope for this sweep.",
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": 1.0135,
+      "min_bulk_ess": 171.1,
+      "n_divergences": 51,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "workflow": "W3 sweep Group E. banana x nuts x W3 FAILs as expected. Low-rank IMM cannot capture Rosenbrock non-linear curvature. Phase 4 cluster 3 established hard_direction for W1/W2; W3 confirms."
+}

@@ -1,0 +1,56 @@
+{
+  "model_name": "neals_funnel",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {},
+      "warmup_params": {
+        "target_acceptance": 0.8
+      },
+      "seed": 20260517,
+      "gate_verdict": "FAIL",
+      "wall_seconds": 8.8,
+      "note": "ta=0.8 (W3 sweep): rhat=1.0610, ess=51.0, n_div=16. Funnel geometry; W3 low-rank IMM does not resolve funnel neck/top scale mismatch."
+    }
+  ],
+  "base_method_params": {},
+  "warmup_params": {
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 8.8,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "",
+  "notes": "Neal's funnel v~N(0,3), theta_std=exp(v/2) ranging 9-24 units. The funnel geometry is a scale-coupling problem, not a correlation problem; W3 low-rank IMM captures correlations but cannot resolve the 1000x scale ratio between funnel neck and top. Phase 2b predicted MEDIUM for nuts+W1 (funnel geometry); W3 confirms same failure mode.",
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": 1.061,
+      "min_bulk_ess": 51.0,
+      "n_divergences": 16,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "workflow": "W3 sweep Group E. neals_funnel x nuts x W3 FAILs rhat=1.06 ess=51 div=16. Funnel scale-coupling geometry defeats W3 as it does W1/W2 (Phase 2b predicted MEDIUM at best for nuts+funnel). Riemannian metric required."
+}

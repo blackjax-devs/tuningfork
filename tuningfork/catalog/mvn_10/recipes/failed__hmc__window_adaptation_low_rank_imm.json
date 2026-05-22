@@ -1,0 +1,56 @@
+{
+  "model_name": "mvn_10",
+  "base_method_name": "hmc",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {},
+      "warmup_params": {
+        "target_acceptance": 0.8
+      },
+      "seed": 20260517,
+      "gate_verdict": "FAIL",
+      "wall_seconds": 5.1,
+      "note": "ta=0.8 (W3 sweep): rhat=1.1540, ess=17.5, n_div=0. Fixed-L HMC (default num_integration_steps) does not cover the resonance frequency of the isotropic-d=10 Hamiltonian under low-rank IMM. Same pattern as W1/W2 hmc on mvn_10."
+    }
+  ],
+  "base_method_params": {},
+  "warmup_params": {
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 5.1,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "",
+  "notes": "Fixed-L HMC fails on mvn_10 regardless of IMM type (W1/W2/W3). The default integration-steps does not match the Hamiltonian resonance at d=10. L=5 with W1/W2 passes as MEDIUM (Phase 4 cluster 2). W3 analogue not attempted; superseded by low__nuts__window_adaptation_low_rank_imm.json.",
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": 1.154,
+      "min_bulk_ess": 17.5,
+      "n_divergences": 0,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "workflow": "W3 sweep Group A. HMC fixed-L fails on mvn_10 (rhat=1.15, ess=18). Same pattern as W1/W2 hmc: default num_integration_steps mismatch on isotropic d=10 geometry. L=5 recovers for W1/W2 (MEDIUM, Phase 4 cluster 2); W3 analogue not attempted since low__nuts__window_adaptation_low_rank_imm already provides a LOW recipe for this model."
+}
