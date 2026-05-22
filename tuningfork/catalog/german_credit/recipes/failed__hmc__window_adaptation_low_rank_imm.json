@@ -1,0 +1,56 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "hmc",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "failed",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {},
+      "warmup_params": {
+        "target_acceptance": 0.8
+      },
+      "seed": 20260517,
+      "gate_verdict": "FAIL",
+      "wall_seconds": 12.9,
+      "note": "ta=0.8 (W3 sweep): rhat=1.0570, ess=47.0, n_div=0. Fixed-L HMC at d=26 with low-rank IMM. Same pattern as W1 x hmc (Phase 4 cluster 2: rhat=1.065, ess=49)."
+    }
+  ],
+  "base_method_params": {},
+  "warmup_params": {
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 12.9,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "",
+  "notes": "Fixed-L HMC fails on german_credit \u00d7 W3 (rhat=1.057, ess=47). W1 \u00d7 hmc also failed; W1 \u00d7 hmc at L=5 passed as MEDIUM (Phase 4 cluster 2). W3 analogue not attempted. Superseded by low__nuts__window_adaptation_low_rank_imm.",
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": 1.057,
+      "min_bulk_ess": 47.0,
+      "n_divergences": 0,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "workflow": "W3 sweep Group D. HMC fixed-L fails on german_credit \u00d7 W3 (rhat=1.06, ess=47). Pattern consistent with W1/W2 hmc failures: default num_integration_steps too long for d=26, step=0.31. L=5 would likely rescue (per Phase 4 cluster 2 pattern) but W3 analogue not attempted."
+}
