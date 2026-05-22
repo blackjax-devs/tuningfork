@@ -1,0 +1,84 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "dmhmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "failed",
+  "base_method_params": {
+    "step_policy": {
+      "kind": "uniform_int",
+      "low": 5,
+      "high": 50
+    }
+  },
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.99
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 60.0,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "Phase B Option-C FAILED recipe: lotka_volterra x window_adaptation_diag_imm x dmhmc with V1 parametric step_policy [5,50) at ta=0.99. Same adaptation convergence result as dynamic_hmc cell (step_sizes 0.034-0.039). ESS collapse worse than dynamic_hmc: ESS=98 (FAIL). dmhmc's dual momentum update does not help ESS when L is too short. Root cause: V1 L_mean=27 under-traverses lotka_volterra (NIS_med=87). Next candidate: V2 [50,200) at ta=0.99.",
+  "notes": "Option C from BLOCKED.md: ta=0.99 warmup (tight convergence) + V1 parametric step_policy. Per-chain adapted step_sizes: [0.034, 0.038, 0.039, 0.039] (min=0.034, max=0.039). Same warmup quality as dynamic_hmc cell. dmhmc FAIL (rhat=1.029, ESS=98.5, n_div=0) is worse than dynamic_hmc REVIEW (ESS=240). Under-traversal effects are more pronounced for dmhmc's momentum-reuse scheme at very short trajectories.",
+  "step_policy": {
+    "kind": "uniform_int",
+    "low": 5,
+    "high": 50
+  },
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0285798706117388,
+      "min_bulk_ess": 98.48256237981475,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "FAIL",
+      "margins": {}
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.0.0rc1",
+  "jax_version": "0.5.3",
+  "timestamp_utc": "2026-05-22T00:00:00Z",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {
+        "step_policy": {
+          "kind": "uniform_int",
+          "low": 5,
+          "high": 50
+        },
+        "target_acceptance": 0.99
+      },
+      "warmup_params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.99
+      },
+      "seed": 20260517,
+      "gate_verdict": {
+        "verdict": "FAIL",
+        "rhat_max": 1.0285798706117388,
+        "min_bulk_ess": 98.48256237981475,
+        "n_divergences": 0
+      },
+      "wall_seconds": 60.0,
+      "note": "Option C: ta=0.99 warmup + V1 [5,50). Per-chain step_sizes: min=0.034, max=0.039 (tight, ~14% spread -- confirms ta=0.99 fixes adaptation convergence). rhat=1.029, ESS=98.5, n_div=0. FAIL -- ESS far below gate (400 required). V1 L_mean=27 severely under-traverses lotka_volterra NIS_med=87. dmhmc worse than dynamic_hmc (98 vs 240 ESS). Next: V2 [50,200) at ta=0.99."
+    }
+  ]
+}
