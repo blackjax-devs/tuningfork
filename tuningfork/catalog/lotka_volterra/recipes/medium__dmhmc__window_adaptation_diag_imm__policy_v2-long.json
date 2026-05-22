@@ -1,0 +1,89 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "dmhmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.03857136145234108,
+    "inverse_mass_matrix": [
+      0.0010207617888227105,
+      0.0009081244934350252,
+      0.0008696161676198244,
+      0.0010169103043153882,
+      0.0068977512419223785,
+      0.0002744178636930883,
+      0.0004994210321456194
+    ]
+  },
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.99
+  },
+  "headline_metric": 0.0032091548200696707,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 77.65839487500489,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(window_adaptation_diag_imm, dmhmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dmhmc(logdensity_fn, **{'step_size': 0.03857136145234108, 'inverse_mass_matrix': [0.0010207617888227105, 0.0009081244934350252, 0.0008696161676198244, 0.0010169103043153882, 0.0068977512419223785, 0.0002744178636930883, 0.0004994210321456194]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0032.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "",
+  "step_policy": {
+    "kind": "uniform_int",
+    "low": 50,
+    "high": 200
+  },
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.002017772799373,
+      "min_bulk_ess": 1611.5663236429928,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.002017772799373,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 1611.5663236429928,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev81+ga8998469a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-22T14:16:08Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
