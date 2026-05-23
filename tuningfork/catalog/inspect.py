@@ -189,23 +189,41 @@ def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
         "n_samples", recipe.warmup_params.get("n_samples")
     )
 
+    # Phase B-2: warmup_inner_kernel shown only when explicitly set (non-None).
+    # Omitting it for legacy / default-None recipes keeps the summary compact;
+    # it only adds noise for the standard case where the implicit substitute-
+    # family logic picks the kernel.
+    _warmup_inner_kernel = getattr(recipe, "warmup_inner_kernel", None)
+
     rows = [
         ("model", recipe.model_name),
         ("effort", recipe.effort.value),
         ("sampler", recipe.base_method_name),
         ("warmup", recipe.warmup_name),
-        ("num_chains", str(int(_num_chains)) if _num_chains is not None else "N/A"),
-        ("n_warmup", str(int(_n_warmup)) if _n_warmup is not None else "N/A"),
-        ("n_samples", str(int(_n_samples)) if _n_samples is not None else "N/A"),
-        ("stored gate verdict", verdict),
-        ("R_hat_max", f"{rhat:.4f}" if rhat is not None else "N/A"),
-        ("min_bulk_ESS", f"{min_ess:.1f}" if min_ess is not None else "N/A"),
-        ("n_divergences", str(int(n_diverg)) if n_diverg is not None else "N/A"),
-        ("tuning_seed", str(recipe.tuning_seed)),
-        ("tuningfork_version", recipe.tuningfork_version),
-        ("blackjax_version", recipe.blackjax_version),
-        ("jax_version", recipe.jax_version),
-        ("timestamp_utc", recipe.timestamp_utc),
     ]
+    if _warmup_inner_kernel is not None:
+        rows.append(("warmup_inner_kernel", _warmup_inner_kernel))
+    rows.extend(
+        [
+            (
+                "num_chains",
+                str(int(_num_chains)) if _num_chains is not None else "N/A",
+            ),
+            ("n_warmup", str(int(_n_warmup)) if _n_warmup is not None else "N/A"),
+            ("n_samples", str(int(_n_samples)) if _n_samples is not None else "N/A"),
+            ("stored gate verdict", verdict),
+            ("R_hat_max", f"{rhat:.4f}" if rhat is not None else "N/A"),
+            ("min_bulk_ESS", f"{min_ess:.1f}" if min_ess is not None else "N/A"),
+            (
+                "n_divergences",
+                str(int(n_diverg)) if n_diverg is not None else "N/A",
+            ),
+            ("tuning_seed", str(recipe.tuning_seed)),
+            ("tuningfork_version", recipe.tuningfork_version),
+            ("blackjax_version", recipe.blackjax_version),
+            ("jax_version", recipe.jax_version),
+            ("timestamp_utc", recipe.timestamp_utc),
+        ]
+    )
 
     return pd.DataFrame(rows, columns=["Property", "Value"])
