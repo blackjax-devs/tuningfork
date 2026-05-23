@@ -125,19 +125,40 @@ def _load_from_cache(
     draws_cache: Path,
     stats_cache: Path,
 ) -> arviz.InferenceData:
-    """Load cached draws and chain_stats; reconstruct as InferenceData."""
-    from tuningfork.catalog.diagnostics import samples_to_idata
+    """Load cached draws and chain_stats; reconstruct as InferenceData.
+
+    Cache files store ArviZ-canonical sample_stats names (``diverging``,
+    ``n_steps``, etc.) because ``_save_to_cache`` reads ``idata.sample_stats``
+    after ``samples_to_idata`` has already projected raw blackjax names →
+    canonical. Reverse-map them back to raw names here so that
+    ``samples_to_idata``'s ``_chain_stats_to_sample_stats`` projection
+    finds them and re-emits them as canonical. Without this reverse map,
+    every cache hit drops ``diverging`` + ``n_steps`` silently because
+    those keys aren't on the LHS of the rename map.
+    """
+    from tuningfork.catalog.diagnostics import (
+        _CHAIN_STATS_TO_SAMPLE_STATS,
+        samples_to_idata,
+    )
 
     # Load draws
     draws_data = np.load(str(draws_cache))
     samples_dict = {k: np.asarray(draws_data[k]) for k in draws_data.files}
+
+    # Reverse map: ArviZ canonical → raw blackjax field name.
+    _SAMPLE_STATS_TO_CHAIN_STATS = {
+        canonical: raw for raw, canonical in _CHAIN_STATS_TO_SAMPLE_STATS.items()
+    }
 
     # Load chain_stats (optional; None if file missing or invalid)
     chain_stats = None
     if stats_cache.exists():
         try:
             stats_data = np.load(str(stats_cache))
-            chain_stats = {k: np.asarray(stats_data[k]) for k in stats_data.files}
+            chain_stats = {
+                _SAMPLE_STATS_TO_CHAIN_STATS.get(k, k): np.asarray(stats_data[k])
+                for k in stats_data.files
+            }
         except Exception:
             # Silently ignore corrupt/invalid stats cache
             chain_stats = None
