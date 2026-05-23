@@ -190,7 +190,7 @@ def emit_script(
     # selection here so the emitted script faithfully reproduces the runner's
     # warmup protocol.
     #
-    # Phase B-2: `recipe.warmup_inner_kernel` overrides the implicit selection when
+    # Schema extension (warmup_inner_kernel): `recipe.warmup_inner_kernel` overrides the implicit selection when
     # it is set AND differs from the implicit default.  This is the exact mirror of
     # `resolve_warmup_inner_kernel` in `_warmup_to_sampler_transform.py` so that
     # the emitted script is bit-faithful to what the runner did.
