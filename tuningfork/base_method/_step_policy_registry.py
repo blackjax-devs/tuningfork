@@ -22,7 +22,7 @@ Schema wiring (PR #39):
 - ``spec is None`` → V0 library default: ``lambda key: jax.random.randint(key, (), 1, 10)``
 - ``spec["kind"] == "uniform_int"`` → V0/V1/V2 uniform integer in [low, high)
 
-V7 empirical-oracle work (this module):
+NUTS-harvested step_policy work (this module):
 
 - ``spec["kind"] == "empirical"`` → NUTS-harvested step_policy via inverse-CDF
   sampling over a normalised histogram ``{"values": [...], "weights": [...]}``.
@@ -125,7 +125,7 @@ def build_step_policy(spec: dict | None) -> Callable:
           in [L, H) (``low`` inclusive, ``high`` exclusive;
           matches ``jax.random.randint`` semantics).
         - ``{"kind": "empirical", "values": [...], "weights": [...]}`` →
-          V7 empirical oracle: inverse-CDF sampling over a discrete NIS
+          NUTS-harvested step_policy: inverse-CDF sampling over a discrete NIS
           histogram harvested from a NUTS chain.
 
         Other kinds (``"log_uniform_int"``, ``"poisson"``, ``"pow2_choice"``)

@@ -206,7 +206,7 @@ Lives at `tuningfork/base_method/_warmup_to_sampler_transform.py` (new module fo
 | `mala` (matches base) | `mala` | `{step_size, IMM}` (identity) |
 | `barker` (matches base) | `barker` | `{step_size, IMM}` (identity) |
 
-`harvest_oracle_spec_from_array(nis_array, max_values=24)` is the helper that powers the `step_policy=empirical(...)` cell (§4.3 below).
+`harvest_step_policy_from_nis(nis_array, max_values=24)` is the helper that powers the `step_policy=empirical(...)` cell (§4.3 below).
 
 ### §3.5 — Filename convention
 
@@ -269,21 +269,21 @@ Interpretation note on "24 bits": the user's directive (2026-05-21) was *"cap it
 
 `build_step_policy(spec)` in `tuningfork/base_method/_step_policy_registry.py` reconstructs the runtime callable from the JSON spec. Schema wiring (PR #39) completes the end-to-end path.
 
-### §4.3 — Oracle harvest (two sources)
+### §4.3 — NUTS-harvested step_policy (two sources)
 
 The `kind: "empirical"` policy can be harvested from two sources:
 
-**Path A — Post-warmup chain_stats** (`harvest_oracle_spec(chain_stats_path)`):
+**Path A — Post-warmup chain_stats** (`harvest_step_policy_from_chain_stats(chain_stats_path)`):
 
 Loads `<model>/_cache/<recipe_stem>.chain_stats.npz`, reads `num_integration_steps`, builds the empirical histogram. Requires the matching nuts recipe to have been run first (populates the cache via `tuningfork.catalog._rerun_inference.cached_idata_for_recipe`).
 
 Statistically cleaner: post-warmup is steady-state.
 
-**Path B — Live warmup_info** (`harvest_oracle_spec_from_array(nis_array)`):
+**Path B — Live warmup_info** (`harvest_step_policy_from_nis(nis_array)`):
 
 Takes a raw integer array (from the **current run's** NUTS warmup_info), builds the empirical histogram. No dependency on a separate cache. Cheaper.
 
-The V7 empirical-oracle work used Path B for `ill_cond_50 × W1 × dynamic_hmc` (and the dmhmc sibling): the same run's NUTS warmup produces the L distribution, which becomes the step_policy for the sampling stage. The recipe pins the harvested spec.
+The NUTS-harvested step_policy work used Path B for `ill_cond_50 × W1 × dynamic_hmc` (and the dmhmc sibling): the same run's NUTS warmup produces the L distribution, which becomes the step_policy for the sampling stage. The recipe pins the harvested spec.
 
 ### §4.4 — Filename convention
 
@@ -291,7 +291,7 @@ When `step_policy` is non-None AND differs from V0 default, append `__policy_<sl
 
 ```
 low__dynamic_hmc__window_adaptation_diag_imm.json                              ← V0 default
-medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json   ← V7 oracle (V7 empirical-oracle work)
+medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json   ← V7 (NUTS-harvested step_policy work)
 medium__dynamic_hmc__window_adaptation_diag_imm__policy_v2-long.json              ← V2 parametric
 ```
 
@@ -357,7 +357,7 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 
 ## §10 — Related documents
 
-- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog (V0–V7), per-cell prediction matrix, V7 empirical-oracle work execution log
+- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog (V0–V7), per-cell prediction matrix, NUTS-harvested step_policy work execution log
 - **Effort taxonomy** decision: [`worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md)
 - **Catalog README**: [`catalog/README.md`](README.md) — user-facing consumption guide
 - **Inspection API**: [`catalog/notebooks/inspect_README.md`](notebooks/inspect_README.md)
@@ -368,4 +368,4 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 | Date | Change |
 |---|---|
 | 2026-05-21 | Initial schema doc. Extracted from `worklog/threads/d-hmc-integration-steps-fn-matrix.md` §5, §10, §12. Added §2 repeated-warmup proposal (per user direction). |
-| 2026-05-21 (same day, later) | Locked all 5 §8 open questions per user direction: Q1 immediate-deprecate; Q2 `mix_warmup_v{N}` glossary in lieu of separator-concatenation; Q3 defer `warmup_inner_kwargs`; Q4 ravel across chains; Q5 always-compress empirical spec with ≤24-entry cap. §2.5 mix-warmup glossary section added (initially empty pending first real use). `max_values` default in `harvest_oracle_spec*` updated 512 → 24. |
+| 2026-05-21 (same day, later) | Locked all 5 §8 open questions per user direction: Q1 immediate-deprecate; Q2 `mix_warmup_v{N}` glossary in lieu of separator-concatenation; Q3 defer `warmup_inner_kwargs`; Q4 ravel across chains; Q5 always-compress empirical spec with ≤24-entry cap. §2.5 mix-warmup glossary section added (initially empty pending first real use). `max_values` default in `harvest_step_policy_from_*` updated 512 → 24. |

@@ -616,7 +616,7 @@ This is the "everything works and we know it" tier. NUTS + window_adaptation_dia
 
 - **LOW** if library defaults produce gate-passing samples at first emit (the green cells in the matrix below).
 - **MEDIUM** if the default emit fails the gate and a Statistician workaround (seed change, init change, bug fix) recovers it (the yellow cells; matches the matrix's "workflow narrative required" tier).
-- **HIGH** if both LOW and MEDIUM fail and the Statistician must run an oracle comparison + BO over warmup hyperparameters + inject model-specific parameters (the red-leaning cells where defaults are insufficient).
+- **HIGH** if both LOW and MEDIUM fail and the Statistician must run Bayesian workflow + BO over warmup hyperparameters + inject model-specific parameters (the red-leaning cells where defaults are insufficient).
 
 Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `notes` capturing the workaround; red cells either emit at HIGH with the full `workflow` narrative or are documented as skipped.
 

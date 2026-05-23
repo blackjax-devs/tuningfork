@@ -103,7 +103,7 @@ MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
 # Effort taxonomy (see _base.py), LOW recipes operate on these conventional
 # pairings; MEDIUM recipes explore unconventional but technically-possible
 # combinations (e.g., window_adaptation_diag_imm + mala, window_adaptation_diag_imm + rmhmc); HIGH recipes
-# add oracle-tuned warmup HPs and model-specific injection.
+# add tuned warmup HPs and model-specific injection.
 NATURAL_WARMUP_FOR_SAMPLER: dict[str, str] = {
     # Window-adaptation family (window_adaptation_diag_imm's compatible_methods)
     "hmc": "window_adaptation_diag_imm",
