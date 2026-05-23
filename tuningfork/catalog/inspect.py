@@ -189,7 +189,7 @@ def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
         "n_samples", recipe.warmup_params.get("n_samples")
     )
 
-    # Phase B-2: warmup_inner_kernel shown only when explicitly set (non-None).
+    # Schema extension: warmup_inner_kernel shown only when explicitly set (non-None).
     # Omitting it for legacy / default-None recipes keeps the summary compact;
     # it only adds noise for the standard case where the implicit substitute-
     # family logic picks the kernel.

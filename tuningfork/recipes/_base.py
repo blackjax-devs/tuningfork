@@ -105,7 +105,7 @@ class Effort(str, Enum):
              When the HIGH cell consumes groundtruth samples for oracle comparison,
              ``wall_seconds_estimate`` MUST = ``groundtruth_wall + extra_engineering_wall``
              (i.e., include the upstream groundtruth generation cost). The convention
-             applies from Recipe Phase 7 onward.
+             applies from future specialised-sampler work onward.
 
     GROUNDTRUTH — Long-NUTS reference run (1×100k samples, 10-chunk split-R̂
                   certification). Not a recommendation; not part of the
@@ -344,13 +344,13 @@ class Recipe:
     # full spec.  See also ``tuningfork.base_method._step_policy_registry.build_step_policy``.
     step_policy: dict[str, Any] | None = None
 
-    # ---- Warmup sequence (Phase B-2 schema) ----
+    # ---- Warmup sequence (schema extension for warmups list) ----
     # Ordered list of warmup stages; each stage is a dict with "name" and "params"
     # keys.  Replaces the legacy ``warmup_name`` / ``warmup_params`` flat fields
     # in the JSON serialisation (§2.4: immediate deprecation on schema-add,
     # 2026-05-21).  ``Recipe.save`` emits only ``warmups``; ``Recipe.load``
     # accepts EITHER the new ``warmups`` list OR legacy ``warmup_name`` /
-    # ``warmup_params`` flat fields so that on-disk pre-Phase-B-2 recipes
+    # ``warmup_params`` flat fields so that on-disk legacy recipes
     # continue to load without regen.
     #
     # Single-stage example (current default)::
@@ -364,7 +364,7 @@ class Recipe:
     #    {"name": "window_adaptation_diag_imm",  "params": {...}}]
     warmups: list[dict[str, Any]] = field(default_factory=list)
 
-    # ---- Warmup inner kernel (Phase B-2 schema; §3) ----
+    # ---- Warmup inner kernel (schema extension for warmup_inner_kernel; §3) ----
     # When ``None`` (default), the runner resolves the warmup kernel via
     # ``resolve_warmup_algorithm(base_method)`` — the current implicit
     # substitute-family logic (NUTS for laplace_*/dynamic_hmc/dmhmc; the
@@ -482,7 +482,7 @@ class Recipe:
             if hasattr(d["failure_diagnosis"], "value"):
                 d["failure_diagnosis"] = d["failure_diagnosis"].value
             # else it's already a string from default=str
-        # Phase B-2 (§2.4): drop legacy flat fields from save output; emit only
+        # Schema extension (§2.4): drop legacy flat fields from save output; emit only
         # the ``warmups`` list so new recipes use the consolidated schema.
         # ``warmup_name`` / ``warmup_params`` are retained as instance fields
         # for backward-compat within the Python process (read from ``warmups``
@@ -519,10 +519,10 @@ class Recipe:
         else:
             # Ensure default if key missing
             d.setdefault("attempted_configurations", [])
-        # Backward compat: step_policy absent in recipes written before Phase A.
+        # Backward compat: step_policy absent in recipes written before schema wiring.
         # None means "library default" (V0).
         d.setdefault("step_policy", None)
-        # Phase B-2 backward-compat (§2.4): accept EITHER the new ``warmups`` list
+        # Schema-extension backward-compat (§2.4): accept EITHER the new ``warmups`` list
         # OR the legacy ``warmup_name`` / ``warmup_params`` flat fields.
         #
         # Case 1 — New format (warmups list present, no flat fields):
@@ -546,7 +546,7 @@ class Recipe:
                 ]
             d.setdefault("warmup_name", "")
             d.setdefault("warmup_params", {})
-        # Phase B-2: warmup_inner_kernel absent in pre-Phase-B-2 recipes.
+        # Schema extension: warmup_inner_kernel absent in pre-extension recipes.
         d.setdefault("warmup_inner_kernel", None)
         return cls(**d)
 

@@ -48,7 +48,7 @@ def load_samples(
     which delegates to ``tuningfork._cache_io.try_load_cached_draws``.
 
     Only GROUNDTRUTH recipes have a populated cache today. For other effort
-    tiers, this raises ``FileNotFoundError`` with a pointer to the Phase 0
+    tiers, this raises ``FileNotFoundError`` with a pointer to the groundtruth certification
     sweep documentation.
 
     Parameters
@@ -68,7 +68,7 @@ def load_samples(
     ------
     FileNotFoundError
         On cache miss, with a message pointing the user at the recipe
-        diagnostics notebook and Phase 0 sweep.
+        diagnostics notebook and groundtruth certification sweep.
     """
     result = recipe.load_cached_samples(cache_dir=cache_dir)
     if result is None:
@@ -77,7 +77,7 @@ def load_samples(
             f"effort={recipe.effort.value!r}, sampler={recipe.base_method_name!r}. "
             "Possible causes:\n"
             "  1. The reference cache for this model has not been generated yet.\n"
-            "     Run the Phase 0 ground-truth sweep or see recipe_diagnostics.md "
+            "     Run the groundtruth certification sweep or see recipe_diagnostics.md "
             "for the full warmup+sampler path.\n"
             "  2. This recipe's effort tier is not GROUNDTRUTH. Only GROUNDTRUTH "
             "recipes have a pre-generated reference cache in v1.\n"

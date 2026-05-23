@@ -18,7 +18,7 @@ None documented yet. R1+ will backfill FAILED recipes for hard-excluded cells in
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during Recipe Phase 1+, case studies will be logged to `worklog/lessons/case-studies/banana/`.
+No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/banana/`.
 
 ## Citations
 

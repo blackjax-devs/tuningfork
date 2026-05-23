@@ -229,7 +229,7 @@ tuningfork/
 ## Version history
 
 - 2026-05-12 (notebook-arviz-redesign): initial public API.
-  NUTS/HMC only; family B/C/D/E deferred to Recipe Phases 2-6.
+  NUTS/HMC only; family B/C/D/E deferred to future recipe sweeps.
 - 2026-05-12 (`samples_to_idata` + `load_idata` extension): added
   `load_idata` one-call helper + `load_chain_stats`; `samples_to_idata`
   gains `chain_stats` kwarg projecting to ArviZ canonical `sample_stats`

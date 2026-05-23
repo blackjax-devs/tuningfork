@@ -36,7 +36,7 @@ Usage (CLI):
 The module is **not** exposed through the public ``tuningfork.recipes``
 ``__init__.py``; it is an internal generator-layer script.
 
-Recipe runner spec (per worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md):
+Recipe runner spec (per the visualization-diagnostics decision record):
     - ``n_warmup=1000``, ``n_samples=1000``, ``num_chains=4`` (quick mode)
     - ``seed=20260517`` (master); per-chain keys split internally
     - ``target_acceptance`` from ``base_method`` default (default 0.8)
@@ -83,18 +83,18 @@ __all__ = ["emit_low_recipe_for_cell", "run_recipe_to_idata", "CellResult"]
 # Structure: model_name → (phi_site_names, theta_site_names)
 # All names must match the numpyro.sample site names in the model.
 #
-# Models currently in scope for laplace_* (per §6 Phase 2b eligibility):
+# Models currently in scope for laplace_* (per laplace-marginal preflight eligibility):
 #   eight_schools_ncp: phi=(mu, tau), theta=(theta_raw,)
 #
 # radon and irt_2pl are predicted MEDIUM (not LOW) — not needed here yet.
-# This table is extended as Phase 4 adds more models.
+# This table is extended as more recipe sweeps add models.
 _LAPLACE_PHI_THETA_SPLITS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "eight_schools_ncp": (("mu", "tau"), ("theta_raw",)),
 }
 
 # Recipe runner canonical parameters
 # (4 chains x 1000 samples = "quick mode" non-groundtruth recipe protocol per
-#  worklog/decisions/2026-05-11-phase6-visualization-diagnostics.md § Section 0;
+#  the visualization-diagnostics decision record;
 #  matches auto_gate's `min_bulk_ess >= 400` calibration. Use `quick` for LOW
 #  recipes; MEDIUM/HIGH should bump `n_samples` to 4000 via CLI override.)
 RECIPE_N_WARMUP: int = 1000
@@ -428,7 +428,7 @@ def emit_low_recipe_for_cell(
         When set to ``"nuts"`` for a non-substitute-family sampler (e.g.
         ``sampler_name="hmc"``), the warmup runs with NUTS instead of HMC,
         capturing NIS to derive ``num_integration_steps`` via
-        ``transform_warmup_state``.  This is the Phase B-2 inner-kernel opt-in
+        ``transform_warmup_state``.  This is the schema-extension inner-kernel opt-in
         path (§3 of RECIPE_SCHEMA.md).  The ``__inner_<kernel>`` filename
         modifier is appended when this differs from the implicit default (§3.5).
 
@@ -554,7 +554,7 @@ def emit_low_recipe_for_cell(
     batched_warmup_info: Any = None  # captured only when warmup_inner_kernel is set
     try:
         if warmup_inner_kernel is not None:
-            # Phase B-2: explicit inner kernel path — run window_adaptation with
+            # Schema extension: explicit inner kernel path — run window_adaptation with
             # the specified kernel (e.g. NUTS for HMC sampling) and capture NIS.
             batched_state, batched_params, batched_warmup_info = (
                 _run_warmup_with_inner_kernel(
@@ -634,7 +634,7 @@ def emit_low_recipe_for_cell(
         if k not in ("step_size", "inverse_mass_matrix")
     }
 
-    # --- Phase B-2: transform_warmup_state dispatch ---
+    # --- Schema extension: transform_warmup_state dispatch ---
     # When warmup_inner_kernel is set (explicit opt-in), run the resolution table:
     #   nuts → hmc/mhmc  : inject num_integration_steps = median(NIS)
     #   nuts → dynamic_hmc/dmhmc : inject step_policy = empirical(NIS)
@@ -1112,7 +1112,7 @@ def run_recipe_to_idata(
         if k not in ("step_size", "inverse_mass_matrix")
     }
 
-    # Phase B-2: transform_warmup_state for explicit inner kernel recipes.
+    # Schema extension: transform_warmup_state for explicit inner kernel recipes.
     if recipe.warmup_inner_kernel is not None and _recipe_warmup_info is not None:
         _rtransform = transform_warmup_state(
             recipe.warmup_inner_kernel,

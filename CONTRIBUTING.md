@@ -18,7 +18,7 @@ tests/
 ├── tuning/                 # Optuna BO tests (formerly tier_b)
 ├── notebooks/              # tuningfork.catalog.inspect / render tests
 ├── numpyro/                # NumPyro integration helpers
-├── e2e/                    # End-to-end phase-gate tests
+├── e2e/                    # End-to-end gate tests
 │
 ├── test_api_pins_mcmc.py   # BlackJAX MCMC contract tripwires (cross-cutting)
 ├── test_api_pins_warmup.py # BlackJAX warmup contract tripwires
@@ -39,7 +39,7 @@ Five markers classify tests by cost and dependency:
 |--------|---------|-----------|----------|
 | `fast` | Pure logic, dataclass, schema — no JAX trace or chain. | <100 ms | Yes |
 | `slow` | Runs a chain or warmup with JAX compilation. | >1 s | Yes |
-| `e2e` | End-to-end phase gate; multiple algorithms × models. | >10 s | Yes |
+| `e2e` | End-to-end gate test; multiple algorithms × models. | >10 s | Yes |
 | `requires_posteriordb` | Needs the posteriordb data cache; fails offline. | N/A | Yes |
 | `benchmark` | pytest-benchmark perf-regression suite. Lives under `benchmarks/`, not `tests/`. | <240 s per cell (D5 cap) | No (`make benchmark` opt-in; weekly CI) |
 
@@ -54,7 +54,7 @@ See `tests/conftest.py` for marker registration (source of truth — markers are
 | Inner-loop dev (structural tests only) | `make test-fast` |
 | Default contributor flow (skip e2e) | `make test` |
 | Just slow tests | `make test-slow` |
-| Phase gate (everything) | `make test-full` |
+| Full gate (everything) | `make test-full` |
 | End-to-end suite only | `make test-e2e` |
 | Before heavy runs: kill orphan processes | `make clean-orphans` |
 

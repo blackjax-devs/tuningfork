@@ -17,12 +17,12 @@ Reconstructs the ``integration_steps_fn`` callable from a JSON-serialisable
 spec dict stored in ``Recipe.step_policy``.  The spec uses a ``kind`` field to
 select the distribution family; family-specific fields parameterise it.
 
-Phase A (merged, PR #39):
+Schema wiring (PR #39):
 
 - ``spec is None`` → V0 library default: ``lambda key: jax.random.randint(key, (), 1, 10)``
 - ``spec["kind"] == "uniform_int"`` → V0/V1/V2 uniform integer in [low, high)
 
-Phase B (this module):
+V7 empirical-oracle work (this module):
 
 - ``spec["kind"] == "empirical"`` → V7 empirical oracle via inverse-CDF
   sampling over a normalised histogram ``{"values": [...], "weights": [...]}``.
@@ -33,7 +33,7 @@ References
 - ``worklog/threads/d-hmc-integration-steps-fn-matrix.md`` §5 — full spec
   (Path A parametric + Path B empirical).
 - ``worklog/decisions/2026-05-21-step-policy-catalog.md`` — design-doc
-  anchors (not yet created; Phase B task per §10 of the plan).
+  anchors (not yet created; deferred per §10 of the plan).
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def build_step_policy(spec: dict | None) -> Callable:
           histogram harvested from a NUTS chain.
 
         Other kinds (``"log_uniform_int"``, ``"poisson"``, ``"pow2_choice"``)
-        raise ``NotImplementedError`` (deferred to Phase C+).
+        raise ``NotImplementedError`` (deferred follow-up).
 
     Returns
     -------
@@ -136,7 +136,7 @@ def build_step_policy(spec: dict | None) -> Callable:
     Raises
     ------
     NotImplementedError
-        For kinds deferred to Phase C+ or unknown kinds.
+        For kinds deferred to future work or unknown kinds.
     ValueError
         For a ``uniform_int`` spec with invalid or missing ``low``/``high``,
         or an ``empirical`` spec missing ``values``/``weights``.
@@ -179,11 +179,11 @@ def build_step_policy(spec: dict | None) -> Callable:
     if kind == "empirical":
         return _build_empirical_step_policy(spec)
 
-    # All other kinds are deferred to Phase C+.
+    # All other kinds are deferred to future work.
     _DEFERRED_KINDS = ("log_uniform_int", "poisson", "pow2_choice")
     if kind in _DEFERRED_KINDS:
         raise NotImplementedError(
-            f"step_policy kind {kind!r} is deferred to Phase C+; "
+            f"step_policy kind {kind!r} is deferred to future work; "
             f"currently supported: None (V0), 'uniform_int', 'empirical'."
         )
 
@@ -205,7 +205,7 @@ def harvest_oracle_spec_from_array(
 
     The recipe runner extracts ``warmup_info["num_integration_steps"]`` from
     the NUTS warmup call and passes it here directly — no separate file I/O
-    required.  This is **Path B** in the Phase B design:
+    required.  This is **Path B** in the empirical-oracle design:
 
     - Path A (``harvest_oracle_spec``): harvest from a pre-existing
       ``chain_stats.npz`` file.

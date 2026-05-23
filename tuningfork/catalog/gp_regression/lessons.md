@@ -10,11 +10,11 @@ hard-model NUTS (n_warmup=5000, target_acceptance=0.99, max_num_doublings=12; JA
 
 ## Sampling quirks
 
-Dense RBF kernel matrix (`200 × 200` points on [0,1]) with float32 + JITTER=1e-6 produces silent NaN in Cholesky gradients (eigenvalue floor below float32 precision); fix is float64 + JITTER≥1e-4. Latent GP requires 4× standard warmup budget (n_warmup ≥5000 for d=203) to adapt diagonal-IMM; 500 steps leaves metric uniform and step_size catastrophically small. Posterior has strong +0.737 correlation between log_lengthscale and log_kernel_scale (classic GP-regression identifiability issue); diagonal-IMM zig-zags along the ridge. Low-rank IMM (rank 2-3) would capture the ridge better but is not yet implemented; workaround is high target_acceptance to keep step_size large. Wall cost O(d² · n_samples) ≈ 50× more expensive per-step than peer models due to dense kernel matrix-vector products (50h budget for full Phase 0 cert).
+Dense RBF kernel matrix (`200 × 200` points on [0,1]) with float32 + JITTER=1e-6 produces silent NaN in Cholesky gradients (eigenvalue floor below float32 precision); fix is float64 + JITTER≥1e-4. Latent GP requires 4× standard warmup budget (n_warmup ≥5000 for d=203) to adapt diagonal-IMM; 500 steps leaves metric uniform and step_size catastrophically small. Posterior has strong +0.737 correlation between log_lengthscale and log_kernel_scale (classic GP-regression identifiability issue); diagonal-IMM zig-zags along the ridge. Low-rank IMM (rank 2-3) would capture the ridge better but is not yet implemented; workaround is high target_acceptance to keep step_size large. Wall cost O(d² · n_samples) ≈ 50× more expensive per-step than peer models due to dense kernel matrix-vector products (50h budget for full groundtruth certification).
 
 ## Known-bad combinations
 
-None documented yet. FAILED recipes will be backfilled in R5 once the recipe matrix is populated.
+No detailed investigations recorded yet. If sampling pathologies emerge as recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/gp_regression/`.
 
 ## History
 

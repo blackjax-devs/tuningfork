@@ -20,7 +20,7 @@ BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategie
 
 ## Status
 
-**Recipe generation phase.** Phase 5 (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 10 warmups × 6 SMC variants × 14 models. Recipe-generation prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Recipe Phase 1 onward emits per-cell `Recipe` artifacts that pass the auto-gate. The library will be open-sourced once the initial set of recipes lands.
+**Recipe generation.** Inventory close-out (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 10 warmups × 6 SMC variants × 14 models. Recipe-generation prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Per-cell `Recipe` artifacts that pass the auto-gate are emitted as recipe sweeps execute. The library will be open-sourced once the initial set of recipes lands.
 
 ## Suite (14 models)
 
@@ -39,13 +39,13 @@ BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategie
 | 11 | 25-mode Gaussian mixture | 2 | Multimodal |
 | 12 | Stochastic volatility | 503 | Latent-Gaussian / state-space |
 | 13 | Lotka–Volterra ODE inverse | 7 | Nonlinear, expensive likelihood |
-| 14 | GP regression (1D) | ~200 | Latent-Gaussian (latent GPs not yet marginalised — Recipe Phase 7 probe) |
+| 14 | GP regression (1D) | ~200 | Latent-Gaussian (latent GPs not yet marginalised — future GP-latent marginalisation work) |
 
 ## Recipe matrix (excerpt)
 
 The statistician-drafted recipe matrix (full version in [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md)) assigns a per-cell colour verdict across the full inventory. Legend: **G** = LOW effort (library defaults pass the auto-gate at first emit), **Y** = MEDIUM (one statistician-led workaround recovers), **R** = HIGH (full Bayesian-workflow investigation) OR hard-excluded category.
 
-The canonical baseline table — `window_adaptation_diag_imm` warmup × NUTS-family samplers — is the Recipe Phase 1 build target:
+The canonical baseline table — `window_adaptation_diag_imm` warmup × NUTS-family samplers — is the window-adaptation × HMC-family sweep build target:
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -56,7 +56,7 @@ The canonical baseline table — `window_adaptation_diag_imm` warmup × NUTS-fam
 | window_adaptation_diag_imm + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
 | window_adaptation_diag_imm + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
 
-Gaps in Table 1 are filled by other warmup families: **MCLMC + `mclmc_tuning`** is green on `stoch_vol` (d=503) — the canonical case where NUTS `default_works=False` (Recipe Phase 2 target). **SMC + `adaptive_tempered`** is green on `gmm_25` — the only viable path for the 25-mode mixture, since any single-chain gradient sampler gets trapped (Recipe Phase 5 target).
+Gaps in Table 1 are filled by other warmup families: **MCLMC + `mclmc_tuning`** is green on `stoch_vol` (d=503) — the canonical case where NUTS `default_works=False` (the MCLMC recipe sweep target). **SMC + `adaptive_tempered`** is green on `gmm_25` — the only viable path for the 25-mode mixture, since any single-chain gradient sampler gets trapped (the SMC recipe sweep target).
 
 ### Cell-count summary
 
@@ -152,7 +152,7 @@ Per-model artifacts live under `tuningfork/catalog/<model>/`:
 - **`groundtruth.json`** — canonical long-NUTS reference recipe (for NUTS-path models) or analytic sampler config
 - **`groundtruth.imm.npz`** — high-dim inverse-mass-matrix sidecar (5 high-d models: gp_regression, horseshoe, irt_2pl, radon, stoch_vol)
 - **`reference/{metadata,summary,adaptation,xcheck}.json`** — committed cert artifacts (long-NUTS gold-standard run)
-- **`recipes/{low,medium,high,failed}__*.json`** — per-cell recipes from the Recipe Generation Phase pipeline. 7 canonical FAILED recipes ship today documenting the [hard-exclusion categories](RECIPE_GENERATION.md#hard-exclusions) (e.g., `gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json` documents the "multimodal × single-chain gradient" exclusion). LOW/MEDIUM/HIGH recipes land as Recipe Phase 1+ executes.
+- **`recipes/{low,medium,high,failed}__*.json`** — per-cell recipes from the recipe-generation pipeline. 7 canonical FAILED recipes ship today documenting the [hard-exclusion categories](RECIPE_GENERATION.md#hard-exclusions) (e.g., `gmm_25/recipes/failed__nuts__window_adaptation_diag_imm.json` documents the "multimodal × single-chain gradient" exclusion). LOW/MEDIUM/HIGH recipes land as recipe sweeps execute.
 
 ## Layout
 
@@ -195,7 +195,7 @@ tuningfork/
 │           │   ├── metadata.json, summary.json
 │           │   ├── adaptation.json (NUTS-path only)
 │           │   └── xcheck.json     (posteriordb cross-check; eight_schools_ncp + radon)
-│           ├── recipes/            # per-cell recipes (Recipe Phase 1+ output)
+│           ├── recipes/            # per-cell recipes (from recipe sweeps)
 │           │   └── {low,medium,high,failed}__<sampler>__<warmup>.json
 │           └── _cache/             # gitignored runtime cache
 │               ├── draws.npz, chain_stats.npz

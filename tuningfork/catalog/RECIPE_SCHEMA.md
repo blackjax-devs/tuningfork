@@ -62,7 +62,7 @@ class Recipe:
 
 **Current state**: `warmup_name` is a single string (one warmup runs before sampling).
 
-**Limitation**: Real workflows often chain warmups. E.g., `multipathfinder_window_adaptation` (PR #25) was a single fused warmup but conceptually a chain: multipathfinder for init + window_adaptation for (step_size, IMM). Likewise the user-proposed slow/fast adaptation split would isolate `window_adaptation`'s slow phase (Welford + step_size tracking) from its fast phase (final step_size tuning, IMM frozen) — two distinct stages currently fused inside `blackjax.window_adaptation`.
+**Limitation**: Real workflows often chain warmups. E.g., `multipathfinder_window_adaptation` (PR #25) was a single fused warmup but conceptually a chain: multipathfinder for init + window_adaptation for (step_size, IMM). Likewise the user-proposed slow/fast adaptation split would isolate `window_adaptation`'s slow phase (Welford + step_size tracking) from its fast phase (final step_size tuning, IMM frozen) — two distinct stages currently fused inside `blackjax.window_adaptation`. These would be handled via extended schema work (future warmup-list / warmup_inner_kernel expansion).
 
 ### §2.1 — Single-warmup design (current)
 
@@ -136,9 +136,9 @@ Until then, `warmups: [{"name": "window_adaptation_diag_imm", ...}]` is the cano
 
 Per Q1 ratification (§8, 2026-05-21): there's no downstream consumer of recipe JSON outside this project, so the deprecation is immediate rather than staged.
 
-**Phase X (schema add)**: Add `warmups: list[dict]` to `Recipe`. `Recipe.save` writes `warmups` only (no legacy fields emitted). `Recipe.load` accepts EITHER `warmups` OR legacy `warmup_name`/`warmup_params` — old recipes on disk continue to load via construction `warmups = [{"name": warmup_name, "params": warmup_params}]`. The legacy load path stays indefinitely so existing recipe JSONs in the catalog don't need regen.
+**Schema extension for warmups list** (future): Add `warmups: list[dict]` to `Recipe`. `Recipe.save` writes `warmups` only (no legacy fields emitted). `Recipe.load` accepts EITHER `warmups` OR legacy `warmup_name`/`warmup_params` — old recipes on disk continue to load via construction `warmups = [{"name": warmup_name, "params": warmup_params}]`. The legacy load path stays indefinitely so existing recipe JSONs in the catalog don't need regen.
 
-**Phase Y (mass migration, optional)**: Re-emit existing recipes (44 LOW + 7 MEDIUM + 20 FAILED) under the new schema for filename / on-disk-JSON cleanliness. No runtime difference; pure prettification. Defer until a different schema change forces re-emission anyway.
+**Optional recipe catalog refresh** (future): Re-emit existing recipes (44 LOW + 7 MEDIUM + 20 FAILED) under the new schema for filename / on-disk-JSON cleanliness. No runtime difference; pure prettification. Defer until a different schema change forces re-emission anyway.
 
 ### §2.5 — Mix-warmup glossary
 
@@ -148,7 +148,7 @@ Canonical named compositions for multi-step warmup chains. Each entry has a stab
 |---|---|---|
 | `mix_warmup_v1` | `[pathfinder, window_adaptation_diag_imm]` (placeholder spec — actual params TBD when first recipe uses it) | Heavy-tailed posteriors where pathfinder init mitigates poor random-init mode-capture, then standard window adaptation tunes (step_size, IMM). |
 
-(Initial glossary is empty pending first real use. When Phase B-2 or a future statistician workflow needs a composite warmup, the entry lands here in the same PR.)
+(Initial glossary is empty pending first real use. When schema extension for warmups list / warmup_inner_kernel (PR #54) or a future statistician workflow needs a composite warmup, the entry lands here in the same PR.)
 
 Glossary maintenance:
 
@@ -176,7 +176,7 @@ warmup_inner_kernel: str | None = None
 - `"nuts"`: warmup uses `blackjax.nuts` regardless of `base_method_name`. Forced for substitute family; opt-in for standard family.
 - `"hmc"` / `"mhmc"` / `"mala"` / ...: warmup uses that kernel. Default for the matching `base_method_name` on the standard path.
 
-Backward-compat: recipes without `warmup_inner_kernel` (pre-Phase B-2 era) load with `None` → resolved at run time. No regen needed.
+Backward-compat: recipes without `warmup_inner_kernel` (before schema extension for warmups list / warmup_inner_kernel) load with `None` → resolved at run time. No regen needed.
 
 ### §3.3 — Transform-callable abstraction
 
@@ -192,7 +192,7 @@ def transform_warmup_state(
     """Returns sampler init kwargs: {step_size, IMM, [num_integration_steps], [step_policy], ...}."""
 ```
 
-Lives at `tuningfork/base_method/_warmup_to_sampler_transform.py` (new module).
+Lives at `tuningfork/base_method/_warmup_to_sampler_transform.py` (new module for schema extension for warmups list / warmup_inner_kernel, PR #54).
 
 ### §3.4 — Resolution table
 
@@ -267,7 +267,7 @@ Interpretation note on "24 bits": the user's directive (2026-05-21) was *"cap it
 
 ### §4.2 — Path A registry
 
-`build_step_policy(spec)` in `tuningfork/base_method/_step_policy_registry.py` reconstructs the runtime callable from the JSON spec. Phase A wired this end-to-end (PR #39).
+`build_step_policy(spec)` in `tuningfork/base_method/_step_policy_registry.py` reconstructs the runtime callable from the JSON spec. Schema wiring (PR #39) completes the end-to-end path.
 
 ### §4.3 — Oracle harvest (two sources)
 
@@ -283,7 +283,7 @@ Statistically cleaner: post-warmup is steady-state.
 
 Takes a raw integer array (from the **current run's** NUTS warmup_info), builds the empirical histogram. No dependency on a separate cache. Cheaper.
 
-Phase B used Path B for `ill_cond_50 × W1 × dynamic_hmc` (and the dmhmc sibling): the same run's NUTS warmup produces the L distribution, which becomes the step_policy for the sampling stage. The recipe pins the harvested spec.
+The V7 empirical-oracle work used Path B for `ill_cond_50 × W1 × dynamic_hmc` (and the dmhmc sibling): the same run's NUTS warmup produces the L distribution, which becomes the step_policy for the sampling stage. The recipe pins the harvested spec.
 
 ### §4.4 — Filename convention
 
@@ -291,7 +291,7 @@ When `step_policy` is non-None AND differs from V0 default, append `__policy_<sl
 
 ```
 low__dynamic_hmc__window_adaptation_diag_imm.json                              ← V0 default
-medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json   ← V7 oracle (Phase B)
+medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json   ← V7 oracle (V7 empirical-oracle work)
 medium__dynamic_hmc__window_adaptation_diag_imm__policy_v2-long.json              ← V2 parametric
 ```
 
@@ -308,9 +308,9 @@ Recipe filename structure (after all modifiers compose):
 Examples:
 
 - `low__nuts__window_adaptation_diag_imm.json` (baseline)
-- `medium__hmc__window_adaptation_dense_imm.json` (Phase 4 MEDIUM — no modifiers)
-- `medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json` (Phase B V7)
-- `low__hmc__window_adaptation_diag_imm__inner_nuts.json` (hypothetical Phase B-3 hmc-via-NUTS-warmup)
+- `medium__hmc__window_adaptation_dense_imm.json` (MEDIUM — no modifiers)
+- `medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json` (V7 empirical-oracle work)
+- `low__hmc__window_adaptation_diag_imm__inner_nuts.json` (hypothetical hmc-via-NUTS-warmup variant)
 - `low__nuts__pathfinder+window_adaptation_diag_imm.json` (hypothetical chained warmup — §2.2)
 
 **Ordering of modifier slots** (left to right): `inner_*`, `policy_*`, then any future modifiers (e.g., `init_*` for over-dispersed init strategy). Stable order so filenames sort meaningfully.
@@ -335,7 +335,7 @@ No regen needed on schema-add. Regen IS needed when the **runtime behaviour** ch
 | emit_script (reproduction-script codegen) | `tuningfork/recipes/_emit_script.py` |
 | Templates (warmup / sampler / inference loop) | `tuningfork/recipes/_templates/{warmups,samplers,...}/*.py.tmpl` |
 | step_policy registry | `tuningfork/base_method/_step_policy_registry.py` |
-| Transform callable (§3.3) | `tuningfork/base_method/_warmup_to_sampler_transform.py` (new for Phase B-2) |
+| Transform callable (§3.3) | `tuningfork/base_method/_warmup_to_sampler_transform.py` (new for schema extension for warmups list / warmup_inner_kernel) |
 | Substitute-family resolution | `tuningfork/warmup/_laplace_adapter.py:WARMUP_SUBSTITUTE_METHOD_NAMES + resolve_warmup_algorithm` |
 | Catalog inspection (consumer) | `tuningfork/catalog/inspect.py:load_recipe + summarize_recipe` |
 
@@ -357,7 +357,7 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 
 ## §10 — Related documents
 
-- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog (V0–V7), per-cell prediction matrix, Phase B execution log
+- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog (V0–V7), per-cell prediction matrix, V7 empirical-oracle work execution log
 - **Effort taxonomy** decision: [`worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md)
 - **Catalog README**: [`catalog/README.md`](README.md) — user-facing consumption guide
 - **Inspection API**: [`catalog/notebooks/inspect_README.md`](notebooks/inspect_README.md)
