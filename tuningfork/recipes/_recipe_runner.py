@@ -59,6 +59,7 @@ from blackjax.util import run_inference_algorithm
 from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.base_method._step_policy_registry import build_step_policy
+from tuningfork.base_method._warmup_to_sampler_transform import transform_warmup_state
 from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.calibration.tune import default_params_for
 from tuningfork.metrics.grad_counter import total_grad_evals
@@ -216,6 +217,71 @@ def _append_outcome(model: str, warmup: str, sampler: str, message: str) -> None
     sys.stdout.flush()
 
 
+def _run_warmup_with_inner_kernel(
+    warmup_key: Any,
+    init_position: Any,
+    n_warmup: int,
+    logdensity_fn: Any,
+    warmup_inner_kernel_name: str,
+    num_chains: int,
+    target_acceptance: float | None,
+    is_mass_matrix_diagonal: bool = True,
+) -> tuple[Any, dict[str, Any], Any]:
+    """Run window_adaptation with an explicitly specified inner kernel.
+
+    Used when ``warmup_inner_kernel`` is set and differs from the implicit
+    default for the base method (e.g. NUTS warmup for HMC sampling).
+
+    Returns ``(states, adapted_params, warmup_info)`` where ``warmup_info``
+    is the stacked per-chain warmup trace info (contains NIS for NUTS kernel).
+    The warmup_info has a leading ``num_chains`` axis from vmap.
+
+    Parameters
+    ----------
+    warmup_key
+        JAX random key.
+    init_position
+        Single-chain initial position (replicated internally across chains).
+    n_warmup
+        Number of warmup steps per chain.
+    logdensity_fn
+        Log-density callable.
+    warmup_inner_kernel_name
+        Name of the blackjax kernel to use (e.g. ``"nuts"``).
+    num_chains
+        Number of parallel chains.
+    target_acceptance
+        Target acceptance rate or None (uses 0.8 default).
+    is_mass_matrix_diagonal
+        True for diagonal mass matrix, False for dense.
+    """
+    import blackjax
+
+    from tuningfork.warmup._base import _maybe_replicate
+
+    kernel_factory = getattr(blackjax, warmup_inner_kernel_name)
+    target = target_acceptance or 0.8
+
+    warmup = blackjax.window_adaptation(
+        kernel_factory,
+        logdensity_fn,
+        is_mass_matrix_diagonal=is_mass_matrix_diagonal,
+        target_acceptance_rate=target,
+    )
+
+    chain_keys = jax.random.split(warmup_key, num_chains)
+    init_positions = _maybe_replicate(init_position, num_chains)
+
+    @jax.vmap
+    def run_one(k: Any, x0: Any) -> tuple[Any, Any, Any]:
+        (state, params), info = warmup.run(k, x0, n_warmup)
+        return state, params, info
+
+    states, adapted_params_raw, warmup_info = run_one(chain_keys, init_positions)
+    adapted_params = dict(adapted_params_raw)
+    return states, adapted_params, warmup_info
+
+
 def _build_laplace_components(
     model_name: str,
     full_position: dict[str, Any],
@@ -281,6 +347,7 @@ def emit_low_recipe_for_cell(
     step_policy: dict[str, Any] | None = None,
     policy_tag: str | None = None,
     effort: Effort = Effort.LOW,
+    warmup_inner_kernel: str | None = None,
 ) -> CellResult:
     """Run warmup + sampling + auto-gate for one cell; emit LOW recipe on PASS.
 
@@ -353,6 +420,17 @@ def emit_low_recipe_for_cell(
         Effort tier for the emitted recipe (default ``Effort.LOW``).
         Pass ``Effort.MEDIUM`` together with ``policy_tag`` for MEDIUM
         policy-variant recipes.  Behaviour for other tiers is not tested.
+    warmup_inner_kernel
+        Optional explicit warmup inner kernel name (e.g. ``"nuts"``).
+        ``None`` (default) preserves the current implicit substitute-family
+        logic (``resolve_warmup_algorithm``): NUTS for laplace_*/dynamic_hmc/
+        dmhmc; sampler's own kernel for all other methods.
+        When set to ``"nuts"`` for a non-substitute-family sampler (e.g.
+        ``sampler_name="hmc"``), the warmup runs with NUTS instead of HMC,
+        capturing NIS to derive ``num_integration_steps`` via
+        ``transform_warmup_state``.  This is the Phase B-2 inner-kernel opt-in
+        path (§3 of RECIPE_SCHEMA.md).  The ``__inner_<kernel>`` filename
+        modifier is appended when this differs from the implicit default (§3.5).
 
     Returns
     -------
@@ -463,18 +541,43 @@ def emit_low_recipe_for_cell(
         # marginal logdensity over phi — this is what warmup.runner will use.
 
     # --- Warmup (multi-chain via warmup.runner's internal vmap) ---
-    _log(f"  Warmup ({warmup_name}, n_warmup={n_warmup}, num_chains={num_chains})...")
+    # When warmup_inner_kernel is set, run with explicit kernel (captures NIS for
+    # transform_warmup_state). When None, use the normal warmup.runner path
+    # (backward-compat: current implicit substitute-family logic).
+    _log(
+        f"  Warmup ({warmup_name}, n_warmup={n_warmup}, "
+        f"num_chains={num_chains}"
+        + (f", inner_kernel={warmup_inner_kernel}" if warmup_inner_kernel else "")
+        + ")..."
+    )
     t_warmup0 = time.perf_counter()
+    batched_warmup_info: Any = None  # captured only when warmup_inner_kernel is set
     try:
-        batched_state, batched_params = warmup.runner(
-            warmup_key,
-            init_position,
-            n_warmup,
-            base_method,
-            logdensity_fn=logdensity_fn,
-            num_chains=num_chains,
-            target_acceptance_rate=target_acceptance,
-        )
+        if warmup_inner_kernel is not None:
+            # Phase B-2: explicit inner kernel path — run window_adaptation with
+            # the specified kernel (e.g. NUTS for HMC sampling) and capture NIS.
+            batched_state, batched_params, batched_warmup_info = (
+                _run_warmup_with_inner_kernel(
+                    warmup_key,
+                    init_position,
+                    n_warmup,
+                    logdensity_fn,
+                    warmup_inner_kernel_name=warmup_inner_kernel,
+                    num_chains=num_chains,
+                    target_acceptance=target_acceptance,
+                )
+            )
+        else:
+            # Legacy path: warmup.runner handles implicit substitute-family logic.
+            batched_state, batched_params = warmup.runner(
+                warmup_key,
+                init_position,
+                n_warmup,
+                base_method,
+                logdensity_fn=logdensity_fn,
+                num_chains=num_chains,
+                target_acceptance_rate=target_acceptance,
+            )
     except Exception as exc:
         note = f"FAIL warmup error: {type(exc).__name__}: {exc}"
         _log(f"  {note}")
@@ -530,17 +633,46 @@ def emit_low_recipe_for_cell(
         for k, v in default_params.items()
         if k not in ("step_size", "inverse_mass_matrix")
     }
+
+    # --- Phase B-2: transform_warmup_state dispatch ---
+    # When warmup_inner_kernel is set (explicit opt-in), run the resolution table:
+    #   nuts → hmc/mhmc  : inject num_integration_steps = median(NIS)
+    #   nuts → dynamic_hmc/dmhmc : inject step_policy = empirical(NIS)
+    #   (other rows: identity — step_size + IMM only)
+    # When warmup_inner_kernel is None (legacy): keep the existing implicit path
+    # (build_step_policy(step_policy) for dynamic_hmc/dmhmc; no change elsewhere).
+    _effective_step_policy = step_policy  # may be overwritten by transform below
+    if warmup_inner_kernel is not None and batched_warmup_info is not None:
+        # Explicit inner-kernel path: use transform_warmup_state resolution table.
+        # Pass step_policy as override only when an explicit spec was provided by
+        # the caller (prevents re-harvesting from warmup_info on recipe re-run).
+        _transform_result = transform_warmup_state(
+            warmup_inner_kernel,
+            sampler_name,
+            batched_params,
+            batched_warmup_info,
+            step_policy_override=step_policy if step_policy is not None else None,
+        )
+        # Inject transform results into shared_kwargs (excluding step_size and IMM
+        # which are handled per-chain via vmap below).
+        for _tk, _tv in _transform_result.items():
+            if _tk not in ("step_size", "inverse_mass_matrix"):
+                if _tk == "step_policy":
+                    _effective_step_policy = _tv
+                elif _tk == "num_integration_steps":
+                    shared_kwargs["num_integration_steps"] = _tv
+
     # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
     # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
     # Strip the int; then inject the step_policy callable (V0 = library default
     # when step_policy=None; non-V0 from build_step_policy when spec is provided).
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
-        # Build integration_steps_fn from the step_policy spec.
+        # Build integration_steps_fn from the (possibly transform-updated) spec.
         # V0 (spec=None): returns the same callable as blackjax's built-in default,
         # so behaviour is identical to not specifying it — we still inject explicitly
         # to make the code path consistent and testable.
-        _integration_steps_fn = build_step_policy(step_policy)
+        _integration_steps_fn = build_step_policy(_effective_step_policy)
         shared_kwargs["integration_steps_fn"] = _integration_steps_fn
     # Apply sampler_kwargs_override: caller-supplied values take precedence over
     # defaults.  step_size and inverse_mass_matrix are always excluded — they
@@ -734,21 +866,32 @@ def emit_low_recipe_for_cell(
         "override": {"reason": "", "statistician_id": "", "decision": ""},
     }
 
+    # Determine the effective step_policy to store in the recipe.
+    # For dynamic_hmc/dmhmc: use _effective_step_policy (may be updated by transform).
+    # For all other samplers: None.
+    _recipe_step_policy = (
+        _effective_step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None
+    )
+
+    _warmup_params_dict: dict[str, Any] = {
+        "n_warmup": n_warmup,
+        "num_chains": num_chains,
+        "target_acceptance": (
+            target_acceptance
+            if target_acceptance is not None
+            else (base_method.target_acceptance_rate or RECIPE_TARGET_ACCEPTANCE)
+        ),
+    }
+
     recipe_kwargs: dict[str, Any] = dict(
         model_name=posterior.name,
         base_method_name=base_method.name,
         warmup_name=warmup.name,
         effort=effort,
         base_method_params=jsonable_params,
-        warmup_params={
-            "n_warmup": n_warmup,
-            "num_chains": num_chains,
-            "target_acceptance": (
-                target_acceptance
-                if target_acceptance is not None
-                else (base_method.target_acceptance_rate or RECIPE_TARGET_ACCEPTANCE)
-            ),
-        },
+        warmup_params=_warmup_params_dict,
+        warmups=[{"name": warmup.name, "params": _warmup_params_dict}],
+        warmup_inner_kernel=warmup_inner_kernel,
         headline_metric=headline,
         sample_quality=None,
         calibration_budget={
@@ -762,8 +905,9 @@ def emit_low_recipe_for_cell(
         instructions="",
         notes="",
         # Store the step_policy spec so the recipe JSON is self-describing.
-        # None = library default (V0); non-None = explicit spec from caller.
-        step_policy=step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None,
+        # None = library default (V0); non-None = explicit spec from caller or
+        # harvested by transform_warmup_state.
+        step_policy=_recipe_step_policy,
         tuning_seed=tuning_seed,
         tuningfork_version=_tuningfork_version,
         blackjax_version=_get_blackjax_version(),
@@ -776,19 +920,36 @@ def emit_low_recipe_for_cell(
     recipe_kwargs["instructions"] = render_instructions(provisional)
     recipe = Recipe(**recipe_kwargs)
 
+    # --- Compute filename tag for inner-kernel modifier (§3.5) ---
+    # Append __inner_<kernel> when warmup_inner_kernel is explicitly set AND
+    # differs from the implicit default for this base_method.
+    # Implicit default: substitute-family → "nuts"; others → base_method_name.
+    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
+
+    _implicit_default = (
+        "nuts" if sampler_name in WARMUP_SUBSTITUTE_METHOD_NAMES else sampler_name
+    )
+    _inner_tag: str | None = None
+    if warmup_inner_kernel is not None and warmup_inner_kernel != _implicit_default:
+        _inner_tag = f"inner_{warmup_inner_kernel}"
+
+    # Compose filename_tag: inner_tag + policy_tag (ordering per §5).
+    _all_tags = [t for t in [_inner_tag, policy_tag] if t]
+    _combined_tag = "__".join(_all_tags) if _all_tags else None
+
     # --- Save recipe ---
-    recipe_path = recipe.save(catalog_root, filename_tag=policy_tag)
+    recipe_path = recipe.save(catalog_root, filename_tag=_combined_tag)
     _log(f"  Saved recipe: {recipe_path}")
 
     # --- Save IMM sidecar if needed ---
     imm_sidecar_rel: str | None = None
     if imm_arr is not None and imm_arr.size > 50:
         imm_sidecar_rel = recipe.save_imm_sidecar(
-            catalog_root, imm_arr, filename_tag=policy_tag
+            catalog_root, imm_arr, filename_tag=_combined_tag
         )
         # Rebuild recipe with sidecar path (Recipe is frozen)
         recipe = dataclasses.replace(recipe, inverse_mass_matrix_path=imm_sidecar_rel)
-        recipe.save(catalog_root, filename_tag=policy_tag)
+        recipe.save(catalog_root, filename_tag=_combined_tag)
         _log(f"  Saved IMM sidecar: {imm_sidecar_rel}")
 
     _log(f"  PASS. headline={headline:.4g}" if headline is not None else "  PASS.")
@@ -918,16 +1079,30 @@ def run_recipe_to_idata(
             laplace_result
         )
 
-    # Run warmup
-    batched_state, batched_params = warmup.runner(
-        warmup_key,
-        init_position,
-        n_warmup,
-        base_method,
-        logdensity_fn=logdensity_fn,
-        num_chains=num_chains,
-        target_acceptance_rate=target_acceptance,
-    )
+    # Run warmup — use explicit inner kernel if recipe.warmup_inner_kernel is set.
+    _recipe_warmup_info: Any = None
+    if recipe.warmup_inner_kernel is not None:
+        batched_state, batched_params, _recipe_warmup_info = (
+            _run_warmup_with_inner_kernel(
+                warmup_key,
+                init_position,
+                n_warmup,
+                logdensity_fn,
+                warmup_inner_kernel_name=recipe.warmup_inner_kernel,
+                num_chains=num_chains,
+                target_acceptance=target_acceptance,
+            )
+        )
+    else:
+        batched_state, batched_params = warmup.runner(
+            warmup_key,
+            init_position,
+            n_warmup,
+            base_method,
+            logdensity_fn=logdensity_fn,
+            num_chains=num_chains,
+            target_acceptance_rate=target_acceptance,
+        )
 
     # Build shared kernel kwargs
     default_params = default_params_for(base_method)
@@ -936,6 +1111,23 @@ def run_recipe_to_idata(
         for k, v in default_params.items()
         if k not in ("step_size", "inverse_mass_matrix")
     }
+
+    # Phase B-2: transform_warmup_state for explicit inner kernel recipes.
+    if recipe.warmup_inner_kernel is not None and _recipe_warmup_info is not None:
+        _rtransform = transform_warmup_state(
+            recipe.warmup_inner_kernel,
+            recipe.base_method_name,
+            batched_params,
+            _recipe_warmup_info,
+            step_policy_override=recipe.step_policy,  # use pinned spec from recipe
+        )
+        for _rtk, _rtv in _rtransform.items():
+            if _rtk not in ("step_size", "inverse_mass_matrix"):
+                if _rtk == "step_policy":
+                    pass  # handled below via build_step_policy(recipe.step_policy)
+                elif _rtk == "num_integration_steps":
+                    shared_kwargs["num_integration_steps"] = _rtv
+
     if recipe.base_method_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
         # Wire the step_policy callable from the recipe's stored spec.

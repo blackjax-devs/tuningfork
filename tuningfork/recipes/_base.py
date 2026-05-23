@@ -344,6 +344,42 @@ class Recipe:
     # full spec.  See also ``tuningfork.base_method._step_policy_registry.build_step_policy``.
     step_policy: dict[str, Any] | None = None
 
+    # ---- Warmup sequence (Phase B-2 schema) ----
+    # Ordered list of warmup stages; each stage is a dict with "name" and "params"
+    # keys.  Replaces the legacy ``warmup_name`` / ``warmup_params`` flat fields
+    # in the JSON serialisation (§2.4: immediate deprecation on schema-add,
+    # 2026-05-21).  ``Recipe.save`` emits only ``warmups``; ``Recipe.load``
+    # accepts EITHER the new ``warmups`` list OR legacy ``warmup_name`` /
+    # ``warmup_params`` flat fields so that on-disk pre-Phase-B-2 recipes
+    # continue to load without regen.
+    #
+    # Single-stage example (current default)::
+    #
+    #   [{"name": "window_adaptation_diag_imm",
+    #     "params": {"n_warmup": 1000, "num_chains": 4, "target_acceptance": 0.8}}]
+    #
+    # Multi-stage example (future use; §2.2)::
+    #
+    #   [{"name": "pathfinder",                  "params": {...}},
+    #    {"name": "window_adaptation_diag_imm",  "params": {...}}]
+    warmups: list[dict[str, Any]] = field(default_factory=list)
+
+    # ---- Warmup inner kernel (Phase B-2 schema; §3) ----
+    # When ``None`` (default), the runner resolves the warmup kernel via
+    # ``resolve_warmup_algorithm(base_method)`` — the current implicit
+    # substitute-family logic (NUTS for laplace_*/dynamic_hmc/dmhmc; the
+    # sampler itself for all other methods).
+    #
+    # When set explicitly (e.g. ``"nuts"``), the specified kernel is used for
+    # all window-adaptation warmup stages, overriding the implicit default.
+    # This enables opt-in NUTS warmup for non-substitute-family samplers (e.g.
+    # ``hmc + inner_nuts`` where NUTS's tree-based trajectory adapts (step_size,
+    # IMM) more robustly on some geometries).
+    #
+    # See RECIPE_SCHEMA.md §3 and ``_warmup_to_sampler_transform.py`` for the
+    # resolution-table semantics.
+    warmup_inner_kernel: str | None = None
+
     inverse_mass_matrix_path: str | None = None
     # Path (relative to the recipe JSON's directory) to a .npz sidecar holding the
     # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM
@@ -446,6 +482,13 @@ class Recipe:
             if hasattr(d["failure_diagnosis"], "value"):
                 d["failure_diagnosis"] = d["failure_diagnosis"].value
             # else it's already a string from default=str
+        # Phase B-2 (§2.4): drop legacy flat fields from save output; emit only
+        # the ``warmups`` list so new recipes use the consolidated schema.
+        # ``warmup_name`` / ``warmup_params`` are retained as instance fields
+        # for backward-compat within the Python process (read from ``warmups``
+        # in Recipe.load) but must NOT be written to new JSON files.
+        d.pop("warmup_name", None)
+        d.pop("warmup_params", None)
         target.write_text(json.dumps(d, indent=2, default=str) + "\n")
         return target
 
@@ -479,6 +522,32 @@ class Recipe:
         # Backward compat: step_policy absent in recipes written before Phase A.
         # None means "library default" (V0).
         d.setdefault("step_policy", None)
+        # Phase B-2 backward-compat (§2.4): accept EITHER the new ``warmups`` list
+        # OR the legacy ``warmup_name`` / ``warmup_params`` flat fields.
+        #
+        # Case 1 — New format (warmups list present, no flat fields):
+        #   Derive ``warmup_name`` / ``warmup_params`` from ``warmups[0]`` so the
+        #   Python dataclass fields are populated correctly.
+        #
+        # Case 2 — Legacy format (flat fields present, no warmups list):
+        #   Construct ``warmups = [{"name": warmup_name, "params": warmup_params}]``
+        #   so new code that reads ``recipe.warmups`` works correctly.
+        if "warmups" in d and d["warmups"]:
+            # New format: derive flat fields from first warmup stage.
+            first = d["warmups"][0]
+            d.setdefault("warmup_name", first.get("name", ""))
+            d.setdefault("warmup_params", first.get("params", {}))
+        else:
+            # Legacy format: construct warmups list from flat fields.
+            d.setdefault("warmups", [])
+            if "warmup_name" in d:
+                d["warmups"] = [
+                    {"name": d["warmup_name"], "params": d.get("warmup_params", {})}
+                ]
+            d.setdefault("warmup_name", "")
+            d.setdefault("warmup_params", {})
+        # Phase B-2: warmup_inner_kernel absent in pre-Phase-B-2 recipes.
+        d.setdefault("warmup_inner_kernel", None)
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────
@@ -528,6 +597,7 @@ class Recipe:
             effort=Effort.LOW,
             base_method_params=params,
             warmup_params={},
+            warmups=[{"name": "no_warmup", "params": {}}],
             # headline_metric is None when no MCMC has been run; may be filled later
             headline_metric=None,
             sample_quality=None,
@@ -663,13 +733,15 @@ class Recipe:
         # a typed-key Array; jax.random.bits() is the portable extraction path.
         tuning_seed = int(jax.random.bits(rng_key, dtype="uint32"))
 
+        _warmup_params_dict = {"n_warmup": n_warmup}
         recipe_kwargs: dict[str, Any] = dict(
             model_name=posterior.name,
             base_method_name=base_method.name,
             warmup_name=warmup.name,
             effort=Effort.MEDIUM,
             base_method_params=base_params,
-            warmup_params={"n_warmup": n_warmup},
+            warmup_params=_warmup_params_dict,
+            warmups=[{"name": warmup.name, "params": _warmup_params_dict}],
             # headline_metric is None for MEDIUM: no post-warmup samples taken;
             # May be filled later via a measurement run.
             headline_metric=None,
@@ -756,6 +828,7 @@ class Recipe:
             effort=Effort.HIGH,
             base_method_params=base_params,
             warmup_params={},
+            warmups=[{"name": warmup.name, "params": {}}],
             headline_metric=float(tuning_result.best_score),
             sample_quality=None,
             calibration_budget=calibration_budget,
@@ -896,6 +969,7 @@ class Recipe:
             effort=Effort.GROUNDTRUTH,
             base_method_params=base_method_params,
             warmup_params=warmup_params,
+            warmups=[{"name": "window_adaptation_diag_imm", "params": warmup_params}],
             headline_metric=None,
             sample_quality=None,
             calibration_budget=calibration_budget,
