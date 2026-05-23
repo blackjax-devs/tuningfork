@@ -1,0 +1,83 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "mhmc",
+  "effort": "low",
+  "base_method_params": {
+    "num_integration_steps": 63,
+    "step_size": 0.07531190663576126,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "headline_metric": 0.0023631074000149965,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 32.94599997898331,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mhmc(logdensity_fn, **{'num_integration_steps': 63, 'step_size': 0.07531190663576126, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0024.\nWall time to produce this recipe: ~32 s (machine-only).",
+  "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.95
+      }
+    }
+  ],
+  "warmup_inner_kernel": "nuts",
+  "inverse_mass_matrix_path": "irt_2pl/recipes/low__mhmc__window_adaptation_diag_imm__inner_nuts.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0077610078292851,
+      "min_bulk_ess": 759.920871379581,
+      "n_divergences": 1,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0077610078292851,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 759.920871379581,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 1.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev81+ga8998469a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-23T20:21:21Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
