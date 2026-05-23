@@ -486,6 +486,141 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
     )
 
 
+@pytest.mark.fast
+def test_emit_script_warmup_inner_kernel_override_emits_correct_algo() -> None:
+    """Phase B-2: warmup_inner_kernel=nuts overrides hmc recipe to emit blackjax.nuts.
+
+    When recipe.warmup_inner_kernel is explicitly set AND differs from the
+    implicit default (hmc -> hmc is implicit; hmc + inner_nuts overrides to nuts),
+    the emitted script's warmup section must reference blackjax.nuts, not
+    blackjax.hmc.
+
+    This mirrors the runner logic in _warmup_to_sampler_transform.resolve_warmup_inner_kernel.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    # hmc with explicit warmup_inner_kernel="nuts" (non-default override)
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "num_integration_steps": 10},
+        warmup_params={"n_warmup": 200, "target_acceptance_rate": 0.8},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {"n_warmup": 200, "target_acceptance_rate": 0.8},
+            }
+        ],
+        warmup_inner_kernel="nuts",  # Phase B-2 explicit override
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    script = emit_script(recipe, num_samples=50)
+    warmup_section = _extract_warmup_section(script)
+
+    # hmc's implicit default is "hmc" (not in WARMUP_SUBSTITUTE_METHOD_NAMES);
+    # the override to "nuts" must appear in the warmup section.
+    assert "blackjax.nuts" in warmup_section, (
+        "Phase B-2: warmup_inner_kernel='nuts' override should make the emitted "
+        f"script use blackjax.nuts in the warmup section.\nSection:\n{warmup_section[:500]}"
+    )
+    # hmc itself should NOT appear as the warmup algorithm
+    # (it would be blackjax.hmc if the override didn't work).
+    assert "blackjax.hmc" not in warmup_section, (
+        "Phase B-2: blackjax.hmc should NOT appear in the warmup section when "
+        f"warmup_inner_kernel='nuts' overrides it.\nSection:\n{warmup_section[:500]}"
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_warmup_inner_kernel_none_uses_implicit() -> None:
+    """Phase B-2: warmup_inner_kernel=None falls back to implicit substitute-family logic.
+
+    For hmc (not in WARMUP_SUBSTITUTE_METHOD_NAMES), the implicit default is
+    blackjax.hmc. Setting warmup_inner_kernel=None must NOT change this.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "num_integration_steps": 10},
+        warmup_params={"n_warmup": 200, "target_acceptance_rate": 0.8},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {"n_warmup": 200, "target_acceptance_rate": 0.8},
+            }
+        ],
+        warmup_inner_kernel=None,  # explicit None — must use implicit default
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    script = emit_script(recipe, num_samples=50)
+    warmup_section = _extract_warmup_section(script)
+
+    # hmc's implicit default is "hmc": warmup section must reference blackjax.hmc.
+    assert "blackjax.hmc" in warmup_section, (
+        "Phase B-2: warmup_inner_kernel=None for hmc should emit blackjax.hmc "
+        f"(the implicit default).\nSection:\n{warmup_section[:500]}"
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_warmup_inner_kernel_substitute_family_unchanged() -> None:
+    """Phase B-2: warmup_inner_kernel=None for dynamic_hmc still uses blackjax.nuts.
+
+    dynamic_hmc is in WARMUP_SUBSTITUTE_METHOD_NAMES; its implicit default is nuts.
+    warmup_inner_kernel=None must preserve this existing behaviour.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="dynamic_hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1},
+        warmup_params={"n_warmup": 200, "target_acceptance_rate": 0.8},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {"n_warmup": 200, "target_acceptance_rate": 0.8},
+            }
+        ],
+        warmup_inner_kernel=None,
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    script = emit_script(recipe, num_samples=50)
+    warmup_section = _extract_warmup_section(script)
+
+    # dynamic_hmc is in the substitute family -> implicit default is nuts
+    assert "blackjax.nuts" in warmup_section, (
+        "Phase B-2: warmup_inner_kernel=None for dynamic_hmc should keep "
+        f"blackjax.nuts (substitute-family implicit default).\nSection:\n{warmup_section[:500]}"
+    )
+
+
 @pytest.mark.slow
 def test_emit_script_warmup_imm_matches_runner_mhmc_dense() -> None:
     """L2 fidelity test: emit_script's warmup produces the SAME

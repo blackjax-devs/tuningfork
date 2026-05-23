@@ -189,12 +189,27 @@ def emit_script(
     # sampler's own factory (= `blackjax.<base_method_name>`). Reproduce that
     # selection here so the emitted script faithfully reproduces the runner's
     # warmup protocol.
+    #
+    # Phase B-2: `recipe.warmup_inner_kernel` overrides the implicit selection when
+    # it is set AND differs from the implicit default.  This is the exact mirror of
+    # `resolve_warmup_inner_kernel` in `_warmup_to_sampler_transform.py` so that
+    # the emitted script is bit-faithful to what the runner did.
     from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
 
-    if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES:
-        _warmup_sampler = "nuts"
+    _implicit_warmup_default = (
+        "nuts"
+        if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES
+        else recipe.base_method_name
+    )
+    if (
+        recipe.warmup_inner_kernel is not None
+        and recipe.warmup_inner_kernel != _implicit_warmup_default
+    ):
+        # Explicit override: the runner used a non-default inner kernel for
+        # warmup (e.g. nuts driving an hmc recipe). Use it directly.
+        _warmup_sampler = recipe.warmup_inner_kernel
     else:
-        _warmup_sampler = recipe.base_method_name
+        _warmup_sampler = _implicit_warmup_default
     ctx["warmup_algorithm"] = f"blackjax.{_warmup_sampler}"
 
     # The warmup template also needs to pass any kernel-construction kwargs
@@ -210,9 +225,12 @@ def emit_script(
     from tuningfork.calibration.tune import default_value_for_space
 
     _warmup_extra: dict[str, object]
-    if recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES:
-        # Substituted to blackjax.nuts; NUTS picks its own trajectory length
-        # and needs no extra kernel kwargs at warmup time.
+    if (
+        _warmup_sampler == "nuts"
+        or recipe.base_method_name in WARMUP_SUBSTITUTE_METHOD_NAMES
+    ):
+        # NUTS (explicit or via substitute-family) picks its own trajectory
+        # length and needs no extra kernel kwargs at warmup time.
         _warmup_extra = {}
     else:
         _bm = BASE_METHODS[recipe.base_method_name]
