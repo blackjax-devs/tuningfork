@@ -348,8 +348,8 @@ def test_harvest_oracle_spec_n_steps_fallback(tmp_path: Path) -> None:
     ["log_uniform_int", "poisson", "pow2_choice"],
 )
 def test_deferred_kind_raises_not_implemented(kind: str) -> None:
-    """Phase-C+ deferred kinds raise NotImplementedError."""
-    with pytest.raises(NotImplementedError, match="deferred to Phase C"):
+    """Deferred kinds raise NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="deferred to future work"):
         build_step_policy({"kind": kind})
 
 
