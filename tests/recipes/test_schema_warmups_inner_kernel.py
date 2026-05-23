@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase B-2 schema tests: Recipe.save/load round-trips + transform_warmup_state.
+"""Schema extension unit tests: Recipe.save/load round-trips + transform_warmup_state.
 
 Fast unit tests — no JAX traces, no MCMC, no chain runs.
 

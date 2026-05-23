@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase A reproduction check — V0 step_policy=None.
+"""Schema wiring reproduction check — V0 step_policy=None baseline.
 
 Confirms that wiring step_policy=None (V0, library default) through the
 _recipe_runner pipeline reproduces the same FAIL verdict as the committed
@@ -20,13 +20,13 @@ FAILED recipes for:
   - ill_cond_50 × window_adaptation_diag_imm × dynamic_hmc
   - lotka_volterra × window_adaptation_diag_imm × dynamic_hmc
 
-These cells FAILed in Phase 3/4 because the library default
+These cells FAILed in earlier work because the library default
 integration_steps_fn (uniform L in [1, 10)) is too short for:
   - ill_cond_50 (κ≈1000, needs L ~ sqrt(κ) ≈ 32+)
   - lotka_volterra (stiff ODE; NIS_med=87 far exceeds L_max=10)
 
 Purpose: confirm the step_policy schema wiring does NOT change V0 behaviour
-before Phase B introduces non-V0 variants.
+before introducing non-V0 variants.
 
 Exact numeric match is NOT required (PRNG / JAX version drift is expected).
 The test confirms:
@@ -58,9 +58,9 @@ def test_v0_step_policy_reproduces_failed_verdict(
 ) -> None:
     """V0 step_policy=None on a known-FAIL cell still produces a FAIL verdict.
 
-    This is the Phase A sanity check: confirms that wiring step_policy=None
+    This is the schema-wiring sanity check: confirms that wiring step_policy=None
     through the recipe runner pipeline does not accidentally change the sampler
-    behaviour (it should reproduce the same FAIL outcome as Phase 3/4).
+    behaviour (it should reproduce the same FAIL outcome as earlier work).
 
     The test does NOT assert exact rhat/ESS values — those may drift slightly
     across JAX/BlackJAX versions.  It asserts only that:
@@ -95,7 +95,7 @@ def test_v0_step_policy_reproduces_failed_verdict(
     assert result.verdict != "PASS", (
         f"{model_name} × dynamic_hmc with V0 step_policy unexpectedly PASSED "
         f"(rhat={result.gate_rhat_max}, ESS={result.gate_min_ess}). "
-        f"Something changed upstream — investigate before Phase B."
+        f"Something changed upstream — investigate."
     )
 
     # 2. rhat must be out-of-spec (chain not converged)

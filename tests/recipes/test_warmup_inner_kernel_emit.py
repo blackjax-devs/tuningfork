@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase B-2 slow integration test — warmup_inner_kernel emit path.
+"""Schema extension slow integration test — warmup_inner_kernel emit path.
 
 Tests that ``emit_low_recipe_for_cell`` with ``warmup_inner_kernel="nuts"``
 and ``sampler_name="hmc"`` produces a LOW recipe with:
@@ -26,7 +26,7 @@ and ``sampler_name="hmc"`` produces a LOW recipe with:
 Cell: mvn_10 × window_adaptation_diag_imm × hmc + inner_nuts
 Budget: canonical 4 chains × 1000 warmup × 1000 samples (~30-60 s on CPU).
 
-This is the Phase B-2 "inner-kernel substitution rescue path" — NUTS warmup
+This is the "inner-kernel substitution rescue path" — NUTS warmup
 adapts (step_size, IMM) for an HMC sampler, with the median NUTS NIS injected
 as ``num_integration_steps`` for HMC. The emission should create the file:
   ``low__hmc__window_adaptation_diag_imm__inner_nuts.json``
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.slow
 def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     """LOW recipe for hmc + inner_nuts warmup passes auto-gate on mvn_10.
 
-    Verifies the full Phase B-2 pipeline:
+    Verifies the schema-extension pipeline:
     1. emit_low_recipe_for_cell(warmup_inner_kernel="nuts", sampler_name="hmc")
     2. NUTS drives window_adaptation; NIS captured in warmup_info
     3. transform_warmup_state injects median(NIS) as num_integration_steps
@@ -65,7 +65,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         catalog_root=tmp_path,
         outcomes_file=tmp_path / "outcomes.md",
         verbose=False,
-        warmup_inner_kernel="nuts",  # Phase B-2 explicit NUTS warmup for HMC
+        warmup_inner_kernel="nuts",  # Schema extension: explicit NUTS warmup for HMC
     )
 
     # --- Gate must PASS ---
@@ -95,7 +95,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     assert recipe.base_method_name == "hmc"
     assert recipe.warmup_name == "window_adaptation_diag_imm"
 
-    # Phase B-2: warmup_inner_kernel persisted correctly.
+    # Schema extension: warmup_inner_kernel persisted correctly.
     assert (
         recipe.warmup_inner_kernel == "nuts"
     ), f"Expected warmup_inner_kernel='nuts', got {recipe.warmup_inner_kernel!r}"

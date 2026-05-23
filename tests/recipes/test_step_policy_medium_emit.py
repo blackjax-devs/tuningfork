@@ -11,12 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase B slow integration test — MEDIUM-with-policy emit path.
+"""step_policy harvest slow integration test — MEDIUM-with-policy emit path.
 
 Tests that ``emit_low_recipe_for_cell`` with ``policy_tag`` + ``Effort.MEDIUM``
 produces a MEDIUM recipe with the correct filename, effort, and step_policy.
 
-Uses ``mvn_10 × window_adaptation_diag_imm × dynamic_hmc`` with a V7-style
+Uses ``mvn_10 × window_adaptation_diag_imm × dynamic_hmc`` with a NUTS-harvested
 empirical spec as the integration cell (fast-converging model; avoids the
 known-FAIL ill_cond_50 cell which would make this test slow AND non-deterministic).
 
