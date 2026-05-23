@@ -232,16 +232,42 @@ def transform_warmup_state(
 def _extract_nis(warmup_info: Any) -> np.ndarray | None:
     """Extract ``num_integration_steps`` from warmup_info; ravel to 1-D.
 
-    Handles both dict-like and NamedTuple warmup_info objects.  Returns
-    ``None`` if NIS is not available (e.g. non-NUTS warmup).
+    Handles the following warmup_info shapes:
+
+    1. **``blackjax.window_adaptation`` AdaptationInfo** (most common for
+       Phase B-2): the NIS lives at ``warmup_info.info.num_integration_steps``
+       where ``info`` is the stacked inner-kernel NUTSInfo (or HMCInfo, etc.).
+       Shape is ``(num_chains, n_warmup_steps)`` after vmap.
+    2. **Direct attribute** ``warmup_info.num_integration_steps`` — older
+       wrapper-level callers that already unwrap the inner info.
+    3. **Dict-like** ``warmup_info["num_integration_steps"]`` — for callers
+       that convert warmup_info to a plain dict before passing here.
+
+    Returns ``None`` if NIS is not available (e.g. non-NUTS warmup, or the
+    inner kernel is HMC which does not record NIS per step in the same way).
 
     §8-Q4: ravel to 1-D across chains for one canonical L distribution.
     """
     nis = None
+
+    # Priority 1: direct attribute ``warmup_info.num_integration_steps``.
+    # Covers: older wrappers, test mocks, and any object that exposes NIS
+    # directly.
     if hasattr(warmup_info, "num_integration_steps"):
         nis = warmup_info.num_integration_steps
+    # Priority 2: dict-like.
     elif isinstance(warmup_info, dict) and "num_integration_steps" in warmup_info:
         nis = warmup_info["num_integration_steps"]
+    # Priority 3: blackjax.window_adaptation wraps inner kernel info in the
+    # ``info`` field of AdaptationInfo (``AdaptationInfo.info`` is the inner
+    # kernel's NUTSInfo / HMCInfo / etc.).  NUTS records NIS here; HMC does not.
+    # This is checked last so that any object exposing NIS directly (Priority 1)
+    # takes precedence over the wrapper path — avoids double-unwrapping for
+    # callers that already extracted the inner info.
+    elif hasattr(warmup_info, "info") and hasattr(
+        warmup_info.info, "num_integration_steps"
+    ):
+        nis = warmup_info.info.num_integration_steps
 
     if nis is None:
         return None

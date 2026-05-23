@@ -433,6 +433,34 @@ class TestTransformWarmupState:
         expected_median = int(np.median(rav))
         assert result["num_integration_steps"] == expected_median
 
+    def test_adaptation_info_nested_nis_path(self) -> None:
+        """_extract_nis extracts NIS from AdaptationInfo.info.num_integration_steps.
+
+        blackjax.window_adaptation returns AdaptationInfo with NIS nested at
+        .info.num_integration_steps (the inner kernel's NUTSInfo).  This tests
+        the Priority-3 path in _extract_nis — when the outer object has no
+        direct num_integration_steps attribute but its .info does.
+
+        Uses SimpleNamespace as the outer object so hasattr(outer, "num_integration_steps")
+        correctly returns False (unlike MagicMock which auto-creates any attribute).
+        """
+        from types import SimpleNamespace
+
+        from tuningfork.base_method._warmup_to_sampler_transform import _extract_nis
+
+        # inner_info: has num_integration_steps directly (like real NUTSInfo)
+        inner_info = MagicMock()
+        nis_values = np.array([7, 14, 21, 28])
+        inner_info.num_integration_steps = nis_values
+
+        # outer_info: no num_integration_steps directly, but has .info
+        # (mirrors the real blackjax AdaptationInfo namedtuple structure)
+        outer_info = SimpleNamespace(info=inner_info)
+
+        result = _extract_nis(outer_info)
+        assert result is not None, "_extract_nis must find NIS via .info path"
+        np.testing.assert_array_equal(result, nis_values.ravel())
+
 
 # ---------------------------------------------------------------------------
 # (d) Backward-compat: loading a legacy on-disk recipe produces correct step_size
