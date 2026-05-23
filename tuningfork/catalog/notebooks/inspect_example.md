@@ -14,7 +14,7 @@ kernelspec:
 # Worked Example: Inspecting an eight_schools_ncp Groundtruth Recipe
 
 This notebook shows the full ArviZ-direct inspection flow for the
-`eight_schools_ncp` NUTS groundtruth recipe — the canonical Phase 0 reference.
+`eight_schools_ncp` NUTS groundtruth recipe — the canonical groundtruth reference.
 
 It uses `tuningfork.catalog` (load_recipe, load_idata, summarize_recipe) (4 functions) and then calls ArviZ directly.
 No custom render functions; no custom wrapper code.
@@ -124,7 +124,7 @@ if "reached_max_treedepth" in idata["sample_stats"].data_vars:
   posterior-curvature issues — see `STATISTICIAN_DIAGNOSTICS_RECIPE.md`.
 - **`reached_max_treedepth`**: should be 0%. If non-zero, NUTS hit the tree
   doubling cap (e.g., `max_num_doublings=10` → 1024 leapfrog steps) — bump
-  `max_num_doublings` in the recipe's warmup_params (Phase 0 statistician
+  `max_num_doublings` in the recipe's warmup_params (earlier statistician
   precedent: horseshoe used 15).
 
 If any of these look pathological for a groundtruth recipe, escalate to the TL
