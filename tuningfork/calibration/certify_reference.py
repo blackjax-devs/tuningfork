@@ -85,7 +85,7 @@ class PreAdaptedWarmup(NamedTuple):
 
     Notes
     -----
-    Introduced 2026-05-13 for the gp_regression Phase 0 closeout where
+    Introduced 2026-05-13 for the gp_regression groundtruth certification closeout where
     n_warmup=5000 at ta=0.99 takes ~7h wall and an intermediate review
     of adapted parameters (step_size, IMM diag per site, divergence rate
     in late warmup) prevents committing the ~30-50h sampling phase to
@@ -533,7 +533,7 @@ def certify_reference_nuts(
         default; allows up to 2^10=1024 leapfrog steps per trajectory).
         Raise to 12-15 for high-d models with naturally long trajectories
         (horseshoe priors, latent GPs) where the no-U-turn condition fires
-        late. Empirically captured 2026-05-12 by the Phase 0 statistician
+        late. Empirically captured 2026-05-12 in the earlier statistician
         investigation (worklog/threads/phase0-statistician-3holdouts.md).
 
     Returns
