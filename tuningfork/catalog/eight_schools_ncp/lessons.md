@@ -15,10 +15,10 @@ Well-conditioned post-NCP geometry; library defaults pass at LOW. Notable supers
 
 ## Known-bad combinations
 
-- **`laplace_hmc` + `window_adaptation_dense_imm`** (REVIEW): fixed-L HMC on the marginal log-density under a dense 2×2 IMM under-mixes; min_bulk_ESS=241 misses the 400 gate. The `laplace_dhmc` (dynamic-L) variant of the same cell PASSes cleanly. Prefer dhmc/dmhmc for laplace cells whenever the trajectory-length distribution matters — confirmed by the wadapt-hmc-sweep Phase 3c run (`worklog/threads/wadapt-hmc-sweep.md` § 11 surprise #5).
+- **`laplace_hmc` + `window_adaptation_dense_imm`** (REVIEW): fixed-L HMC on the marginal log-density under a dense 2×2 IMM under-mixes; min_bulk_ESS=241 misses the 400 gate. The `laplace_dhmc` (dynamic-L) variant of the same cell PASSes cleanly. Prefer dhmc/dmhmc for laplace cells whenever the trajectory-length distribution matters — confirmed by the wadapt-hmc-sweep investigation (`worklog/threads/wadapt-hmc-sweep.md` § 11 surprise #5).
 - **fixed-L `hmc` + dense IMM** on this model: 16 divergences at ta=0.8 (the default `num_integration_steps` doesn't match the resonance of the dense-IMM-transformed Hamiltonian). Use NUTS or dynamic_hmc to side-step.
 
-## Laplace supersession claim (wadapt-hmc-sweep Phase 3c, 2026-05-19)
+## Laplace supersession claim (wadapt-hmc-sweep investigation, 2026-05-19)
 
 | Cell | Effort | ESS | Note |
 |---|---|---|---|
@@ -33,8 +33,8 @@ The empirical pattern: dynamic-L laplace variants (`laplace_dhmc`, `laplace_dmhm
 
 ## History
 
-- 2026-05-19 (Phase 3c): full laplace_* × {diag, dense} sweep run. 7/8 cells PASS; W2×laplace_hmc REVIEW surfaces the supersession claim above.
-- 2026-05-18 (Phase 2a): laplace-marginal warmup pathway verified end-to-end via `_laplace_adapter.resolve_warmup_algorithm` substituting `blackjax.hmc` at warmup time. E2E test at `tests/inference/warmup/test_laplace_e2e_verify.py` PASSes (n_warmup=500, n_samples=1000, IMM (2,2) phi-dimensional, 0 divergence rate).
+- 2026-05-19: full laplace_* × {diag, dense} sweep run. 7/8 cells PASS; W2×laplace_hmc REVIEW surfaces the supersession claim above.
+- 2026-05-18: laplace-marginal preflight — warmup pathway verified end-to-end via `_laplace_adapter.resolve_warmup_algorithm` substituting `blackjax.hmc` at warmup time. E2E test at `tests/inference/warmup/test_laplace_e2e_verify.py` PASSes (n_warmup=500, n_samples=1000, IMM (2,2) phi-dimensional, 0 divergence rate).
 
 ## Citations
 
