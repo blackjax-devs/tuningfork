@@ -389,7 +389,7 @@ _RECIPE_KWARGS_MINIMAL: dict[str, Any] = dict(
 
 
 @pytest.mark.fast
-def test_recipe_has_phase5_fields() -> None:
+def test_recipe_has_new_schema_fields() -> None:
     """new schema fields default to the expected values."""
     recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
 
@@ -424,7 +424,7 @@ def test_recipe_has_phase5_fields() -> None:
 
 
 @pytest.mark.fast
-def test_recipe_phase5_fields_save_load_roundtrip(tmp_path: Path) -> None:
+def test_recipe_new_schema_fields_save_load_roundtrip(tmp_path: Path) -> None:
     """non-default schema field values round-trip through save/load."""
     custom_gate_evidence = {
         "auto": {

@@ -631,7 +631,7 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 
 **Target**: `mclmc_tuning` × {mclmc} + `adjusted_mclmc_tuning` × {adjusted_mclmc, adjusted_mclmc_dynamic} for the 10 non-excluded models.
 
-**Rationale**: MCLMC is the primary competitor to NUTS at high-d. The stoch_vol (d=503) and irt_2pl (d=144) cells where NUTS shows default_works=False (P4.9 outcome) are exactly where MCLMC shines. This phase establishes the MCLMC efficiency story.
+**Rationale**: MCLMC is the primary competitor to NUTS at high-d. The stoch_vol (d=503) and irt_2pl (d=144) cells where NUTS shows default_works=False (P4.9 outcome) are exactly where MCLMC shines. This sweep establishes the MCLMC efficiency story.
 
 **Sequence**: stoch_vol first (the main claim), then irt_2pl, radon, then the easy models as baselines.
 
@@ -698,7 +698,7 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 **1. Cell count by colour**: approximately 480 green / 180 yellow / 420 red across all tables in the matrix. The green cells are concentrated in: NUTS+window_adaptation_diag_imm (easy+hierarchical models ≈ 60 cells), MCLMC family (high-d smooth models ≈ 40 cells), SMC family (adaptive variants for all models including gmm_25 ≈ 100 cells), VI (applicable models ≈ 20 cells), plus pathfinder/multipathfinder variants (≈ 60 cells). Red cells are dominated by: (a) gmm_25 × non-SMC samplers (~20 cells), (b) high-d models × no_warmup gradient samplers (~30 cells), (c) VI exclusions × 4 pathological models (~40 cells), (d) SMC inner-kernel viability not a concern (all 8 inner kernels are green/yellow for most models), (e) Laplace-marginal family on 10/14 non-applicable models (~40 cells).
 
 **2. Top 3 supersession verdicts that simplify recipe generation most**:
-- **(a) adaptive_tempered_smc dominates tempered_smc**: skip building `tempered_smc` recipes entirely except for a single "overhead benchmark" variant on mvn_10. This eliminates ~14 redundant recipe cells and focuses SMC phase on the adaptive variants that have a defensible geometry argument.
+- **(a) adaptive_tempered_smc dominates tempered_smc**: skip building `tempered_smc` recipes entirely except for a single "overhead benchmark" variant on mvn_10. This eliminates ~14 redundant recipe cells and focuses the SMC recipe sweep on the adaptive variants that have a defensible geometry argument.
 - **(b) MCLMC + mclmc_tuning at stoch_vol (d=503) should be the MCLMC recipe sweep's first build target** because it is the ONLY case in the matrix where NUTS `default_works=False` (P4.9 result) and MCLMC is the clinically recommended alternative. Building this cell first validates the whole MCLMC-vs-NUTS discrimination story.
 - **(c) pathfinder warmup supersedes no_warmup for all green NUTS/HMC cells without extra work**: every `window_adaptation_diag_imm + nuts` green cell should have a corresponding `pathfinder + nuts` recipe at negligible extra engineering cost (same base sampler, better init). The warmup-variants sweep can piggyback on baseline infrastructure with minimal new recipe logic.
 
