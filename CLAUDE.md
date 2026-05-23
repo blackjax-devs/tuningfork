@@ -10,6 +10,31 @@ Architecture decisions: 14-model suite, calibration protocol (certified referenc
 
 This is a **sibling repo** to `blackjax/` and `sampling-book/`, not a subdir of either. Heavy deps (Optuna, datasets, plotting) live here so `blackjax/` core stays light.
 
+## Internal vs external naming
+
+This file uses internal project-phase names for historical accuracy (so an agent
+reading the file can trace work to commits/PRs). External docs in `README.md`,
+`RECIPE_GENERATION.md`, `catalog/README.md`, etc. use plain-language names.
+When writing new external-facing docs, use the **External** column.
+
+| Internal | External |
+|---|---|
+| Phase 5 (closed 2026-05-10, `32613f4`) | Inventory close-out |
+| Recipe Generation Phase | recipe generation |
+| Recipe Phase 1 | the window-adaptation × HMC-family sweep |
+| Recipe Phase 2 | the MCLMC recipe sweep |
+| Recipe Phase 3 | the SMC recipe sweep |
+| Recipe Phase 4 | the pathfinder warmup sweep |
+| Phase 0 | groundtruth certification / reference certification |
+| Phase 3 (in recipe-emit context) | the LOW recipe sweep |
+| Phase 4 (in recipe-emit context) | the MEDIUM recipe sweep |
+| Phase A (step-policy) | Schema wiring (PR #39) |
+| Phase B (step-policy) | step_policy harvest work |
+| Phase B-2 (step-policy) | Schema extension for warmups list / warmup_inner_kernel (PR #54) |
+| Phase C+ (step-policy) | Deferred follow-up work |
+| "empirical oracle" / "V7 oracle" | "NUTS-harvested step_policy" |
+| `harvest_oracle_spec` / `harvest_oracle_spec_from_array` | `harvest_step_policy_from_chain_stats` / `harvest_step_policy_from_nis` |
+
 ## Commands
 
 **Package manager:** [`uv`](https://docs.astral.sh/uv/) — use `uv run` instead of activating the venv.
