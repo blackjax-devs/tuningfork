@@ -488,7 +488,7 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
 
 @pytest.mark.fast
 def test_emit_script_warmup_inner_kernel_override_emits_correct_algo() -> None:
-    """Phase B-2: warmup_inner_kernel=nuts overrides hmc recipe to emit blackjax.nuts.
+    """Schema extension: warmup_inner_kernel=nuts overrides hmc recipe to emit blackjax.nuts.
 
     When recipe.warmup_inner_kernel is explicitly set AND differs from the
     implicit default (hmc -> hmc is implicit; hmc + inner_nuts overrides to nuts),
@@ -513,7 +513,7 @@ def test_emit_script_warmup_inner_kernel_override_emits_correct_algo() -> None:
                 "params": {"n_warmup": 200, "target_acceptance_rate": 0.8},
             }
         ],
-        warmup_inner_kernel="nuts",  # Phase B-2 explicit override
+        warmup_inner_kernel="nuts",  # Schema extension explicit override
         headline_metric=None,
         sample_quality=None,
         calibration_budget={},
@@ -528,20 +528,20 @@ def test_emit_script_warmup_inner_kernel_override_emits_correct_algo() -> None:
     # hmc's implicit default is "hmc" (not in WARMUP_SUBSTITUTE_METHOD_NAMES);
     # the override to "nuts" must appear in the warmup section.
     assert "blackjax.nuts" in warmup_section, (
-        "Phase B-2: warmup_inner_kernel='nuts' override should make the emitted "
+        "Schema extension: warmup_inner_kernel='nuts' override should make the emitted "
         f"script use blackjax.nuts in the warmup section.\nSection:\n{warmup_section[:500]}"
     )
     # hmc itself should NOT appear as the warmup algorithm
     # (it would be blackjax.hmc if the override didn't work).
     assert "blackjax.hmc" not in warmup_section, (
-        "Phase B-2: blackjax.hmc should NOT appear in the warmup section when "
+        "Schema extension: blackjax.hmc should NOT appear in the warmup section when "
         f"warmup_inner_kernel='nuts' overrides it.\nSection:\n{warmup_section[:500]}"
     )
 
 
 @pytest.mark.fast
 def test_emit_script_warmup_inner_kernel_none_uses_implicit() -> None:
-    """Phase B-2: warmup_inner_kernel=None falls back to implicit substitute-family logic.
+    """Schema extension: warmup_inner_kernel=None falls back to implicit substitute-family logic.
 
     For hmc (not in WARMUP_SUBSTITUTE_METHOD_NAMES), the implicit default is
     blackjax.hmc. Setting warmup_inner_kernel=None must NOT change this.
@@ -575,14 +575,14 @@ def test_emit_script_warmup_inner_kernel_none_uses_implicit() -> None:
 
     # hmc's implicit default is "hmc": warmup section must reference blackjax.hmc.
     assert "blackjax.hmc" in warmup_section, (
-        "Phase B-2: warmup_inner_kernel=None for hmc should emit blackjax.hmc "
+        "Schema extension: warmup_inner_kernel=None for hmc should emit blackjax.hmc "
         f"(the implicit default).\nSection:\n{warmup_section[:500]}"
     )
 
 
 @pytest.mark.fast
 def test_emit_script_warmup_inner_kernel_substitute_family_unchanged() -> None:
-    """Phase B-2: warmup_inner_kernel=None for dynamic_hmc still uses blackjax.nuts.
+    """Schema extension: warmup_inner_kernel=None for dynamic_hmc still uses blackjax.nuts.
 
     dynamic_hmc is in WARMUP_SUBSTITUTE_METHOD_NAMES; its implicit default is nuts.
     warmup_inner_kernel=None must preserve this existing behaviour.
@@ -616,7 +616,7 @@ def test_emit_script_warmup_inner_kernel_substitute_family_unchanged() -> None:
 
     # dynamic_hmc is in the substitute family -> implicit default is nuts
     assert "blackjax.nuts" in warmup_section, (
-        "Phase B-2: warmup_inner_kernel=None for dynamic_hmc should keep "
+        "Schema extension: warmup_inner_kernel=None for dynamic_hmc should keep "
         f"blackjax.nuts (substitute-family implicit default).\nSection:\n{warmup_section[:500]}"
     )
 

@@ -139,7 +139,7 @@ def test_uniform_int_missing_high_raises_value_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# empirical (V7) — Phase B
+# empirical (V7) — step_policy harvest work
 # ---------------------------------------------------------------------------
 
 

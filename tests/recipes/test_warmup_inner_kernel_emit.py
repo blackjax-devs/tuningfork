@@ -56,7 +56,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         "mvn_10",
         "window_adaptation_diag_imm",
         "hmc",
-        # Canonical Phase B-2 budget: 4 chains × 1000 warmup × 1000 samples.
+        # Canonical schema-extension budget: 4 chains × 1000 warmup × 1000 samples.
         # mvn_10 is well-behaved; any reasonable (step_size, L) passes the gate.
         n_warmup=1000,
         n_samples=1000,
@@ -100,17 +100,19 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         recipe.warmup_inner_kernel == "nuts"
     ), f"Expected warmup_inner_kernel='nuts', got {recipe.warmup_inner_kernel!r}"
 
-    # Phase B-2: warmups list populated (not just flat fields).
-    assert recipe.warmups, "recipe.warmups must be non-empty after Phase B-2 save/load"
+    # Schema extension: warmups list populated (not just flat fields).
+    assert (
+        recipe.warmups
+    ), "recipe.warmups must be non-empty after schema-extension save/load"
     assert recipe.warmups[0]["name"] == "window_adaptation_diag_imm", (
         f"Expected warmups[0].name='window_adaptation_diag_imm', "
         f"got {recipe.warmups[0]['name']!r}"
     )
 
-    # Phase B-2: transform_warmup_state must have injected num_integration_steps
+    # Schema extension: transform_warmup_state must have injected num_integration_steps
     # (nuts → hmc row in the resolution table: NIS median injection).
     assert "num_integration_steps" in recipe.base_method_params, (
-        "Phase B-2 nuts→hmc transform must inject num_integration_steps into "
+        "Schema-extension nuts→hmc transform must inject num_integration_steps into "
         "base_method_params from NUTS warmup NIS median; field is missing. "
         f"Actual base_method_params keys: {list(recipe.base_method_params.keys())}"
     )
@@ -119,16 +121,16 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         isinstance(nis_value, int) and nis_value >= 1
     ), f"num_integration_steps must be a positive int, got {nis_value!r}"
 
-    # Phase B-2: the recipe must NOT write legacy flat warmup fields to JSON.
+    # Schema extension: the recipe must NOT write legacy flat warmup fields to JSON.
     import json
 
     raw = json.loads(expected_path.read_text())
     assert "warmups" in raw, "New-format recipe JSON must contain 'warmups' key"
     assert "warmup_name" not in raw, (
-        "Phase B-2 §2.4: Recipe.save must NOT write legacy 'warmup_name' field; "
+        "Schema extension §2.4: Recipe.save must NOT write legacy 'warmup_name' field; "
         f"found it in {expected_path}"
     )
     assert "warmup_params" not in raw, (
-        "Phase B-2 §2.4: Recipe.save must NOT write legacy 'warmup_params' field; "
+        "Schema extension §2.4: Recipe.save must NOT write legacy 'warmup_params' field; "
         f"found it in {expected_path}"
     )

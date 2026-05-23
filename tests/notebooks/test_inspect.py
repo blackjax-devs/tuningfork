@@ -296,14 +296,14 @@ def test_summarize_recipe_sample_budget_rows_legacy_groundtruth(
 
 
 # ---------------------------------------------------------------------------
-# Phase B-2: warmup_inner_kernel surfacing in summarize_recipe
+# Schema extension: warmup_inner_kernel surfacing in summarize_recipe
 # ---------------------------------------------------------------------------
 
 
 def test_summarize_recipe_warmup_inner_kernel_shown_when_set() -> None:
     """summarize_recipe includes warmup_inner_kernel row when explicitly set.
 
-    Phase B-2: when a recipe has warmup_inner_kernel='nuts', the summary
+    Schema extension: when a recipe has warmup_inner_kernel='nuts', the summary
     DataFrame must include a row ('warmup_inner_kernel', 'nuts') so the
     Statistician can immediately see the inner-kernel override without
     digging into recipe.warmup_inner_kernel directly.
@@ -319,7 +319,7 @@ def test_summarize_recipe_warmup_inner_kernel_shown_when_set() -> None:
         base_method_params={"step_size": 0.1, "num_integration_steps": 10},
         warmup_params={"n_warmup": 200},
         warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 200}}],
-        warmup_inner_kernel="nuts",  # Phase B-2 explicit override
+        warmup_inner_kernel="nuts",  # Schema extension explicit override
         headline_metric=None,
         sample_quality=None,
         calibration_budget={},
@@ -332,7 +332,7 @@ def test_summarize_recipe_warmup_inner_kernel_shown_when_set() -> None:
     props = dict(zip(df["Property"].tolist(), df["Value"].tolist()))
 
     assert "warmup_inner_kernel" in props, (
-        "Phase B-2: summarize_recipe must include 'warmup_inner_kernel' row "
+        "Schema extension: summarize_recipe must include 'warmup_inner_kernel' row "
         "when recipe.warmup_inner_kernel is explicitly set."
     )
     assert (
@@ -343,7 +343,7 @@ def test_summarize_recipe_warmup_inner_kernel_shown_when_set() -> None:
 def test_summarize_recipe_warmup_inner_kernel_absent_when_none() -> None:
     """summarize_recipe omits warmup_inner_kernel row when the field is None.
 
-    Phase B-2: legacy recipes (and new recipes without an explicit override)
+    Schema extension: legacy recipes (and new recipes without an explicit override)
     have warmup_inner_kernel=None. The summary must NOT include a
     warmup_inner_kernel row in that case — it would only add noise since
     the implicit substitute-family default is already well-known.
@@ -372,6 +372,6 @@ def test_summarize_recipe_warmup_inner_kernel_absent_when_none() -> None:
     props = set(df["Property"].tolist())
 
     assert "warmup_inner_kernel" not in props, (
-        "Phase B-2: summarize_recipe must NOT include 'warmup_inner_kernel' row "
+        "Schema extension: summarize_recipe must NOT include 'warmup_inner_kernel' row "
         "when recipe.warmup_inner_kernel is None (avoids noise for legacy recipes)."
     )
