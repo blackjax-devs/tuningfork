@@ -23,7 +23,7 @@
 | `meanfield_vi` | nuts, hmc, mala, rwm, barker |
 | `fullrank_vi` | nuts, hmc, mala, rwm, barker |
 
-**Note**: `laps` and `low_rank_window_adaptation` were added in P5.16.5 (commits `a1ef6d9`/`b0e1e2b`/`79e1f8f`) but are NOT in the current `main` WARMUPS registry — they were committed after the P5 merge. Recipe Generation Phase must register them first; they are covered in the supersession section.
+**Note**: `laps` and `low_rank_window_adaptation` were added in P5.16.5 (commits `a1ef6d9`/`b0e1e2b`/`79e1f8f`) but are NOT in the current `main` WARMUPS registry — they were committed after the inventory close-out. Recipe generation must register them first; they are covered in the supersession section.
 
 ### Base Methods (24 registered)
 
@@ -86,7 +86,7 @@ For `mhmc` and `rmhmc`: `window_adaptation_diag_imm` is also compatible (they ac
 - gp_regression + nuts G: conjugate structure means marginalised latent GP reduces to kernel hyperparameter inference (~5 dim); NUTS + window_adaptation_diag_imm is the obvious choice.
 - stoch_vol + nuts Y: d=503, AR(1) tridiagonal structure; NUTS adapts step size but the high dimension slows ESS/grad. Feasible but 4× longer chains needed.
 - stoch_vol + mala/barker R: d=503 Langevin at this dim with random-walk proposals — mixing too slow; min ESS/grad negligible.
-- stoch_vol + rmhmc R: Riemannian metric at d=503 requires a user-defined callable; not composable with window_adaptation_diag_imm without significant Recipe Generation Phase work.
+- stoch_vol + rmhmc R: Riemannian metric at d=503 requires a user-defined callable; not composable with window_adaptation_diag_imm without significant recipe-generation engineering work.
 
 ---
 
@@ -200,7 +200,7 @@ Adjusted MCLMC has the MH correction (target_acceptance=0.9), so it's safer on g
 
 #### Subgroup H: LAPS warmup — compatible: adjusted_mclmc only (not yet in WARMUPS registry)
 
-LAPS (Late Adjusted Parallel Sampler, EMAUS-paper) adapts `adjusted_mclmc` using cross-chain information. Requires mesh infrastructure; P5.16.5 flagged the IMM extraction as a known limitation (placeholder `jnp.ones(ndims)`). Recipe Generation Phase must register it and fix the IMM path before recipe use.
+LAPS (Late Adjusted Parallel Sampler, EMAUS-paper) adapts `adjusted_mclmc` using cross-chain information. Requires mesh infrastructure; P5.16.5 flagged the IMM extraction as a known limitation (placeholder `jnp.ones(ndims)`). Recipe generation must register it and fix the IMM path before recipe use.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -264,7 +264,7 @@ CHEES adapts both step_size and the trajectory-length distribution for dynamic_h
 
 ## Table 5 — `no_warmup` (compatible: all)
 
-No adaptation; default hyperparameters from HP space. Low effort only for gradient-free or pre-adapted recipes. For gradient-based samplers this is the baseline "cold start" that Recipe Generation Phase wants to compare against.
+No adaptation; default hyperparameters from HP space. Low effort only for gradient-free or pre-adapted recipes. For gradient-based samplers this is the baseline "cold start" that recipe generation wants to compare against.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -285,7 +285,7 @@ No adaptation; default hyperparameters from HP space. Low effort only for gradie
 
 ## Table 6 — Specialised Base Methods (no standard warmup path)
 
-These samplers use `extra_required_kwargs` — they cannot use `no_warmup` without external integration. Recipe Generation Phase must wire up the recipe-runner to supply these kwargs from `PosteriorEntry`.
+These samplers use `extra_required_kwargs` — they cannot use `no_warmup` without external integration. Recipe generation must wire up the recipe-runner to supply these kwargs from `PosteriorEntry`.
 
 ### 6A — Elliptical Slice + mgrad_gaussian (requires: prior_cov, prior_mean)
 
@@ -357,7 +357,7 @@ Orbital HMC stores full orbit per state; lower bound on grad_count (period-many 
 
 ### 6F — rmhmc (requires: mass_matrix_fn callable)
 
-Riemannian HMC uses a position-dependent metric. The `window_adaptation_diag_imm` warmup provides a constant IMM (compatible with rmhmc as diagonal mass matrix), but the Riemannian character requires a callable `mass_matrix_fn`. Recipe Generation Phase must define what callable to supply per model — this is the non-trivial engineering task.
+Riemannian HMC uses a position-dependent metric. The `window_adaptation_diag_imm` warmup provides a constant IMM (compatible with rmhmc as diagonal mass matrix), but the Riemannian character requires a callable `mass_matrix_fn`. Recipe generation must define what callable to supply per model — this is the non-trivial engineering task.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -461,7 +461,7 @@ Now applying the outer-method distinction:
 - `pathfinder` (single-path) preferred when the posterior is **well-approximated by a single Gaussian** (mvn_10, logistic_syn, german_credit) — multi-path adds compute cost for no quality gain. PSIS Pareto-k > 0.7 for truly multimodal posteriors means multipathfinder degrades silently; the sidecar Pareto-k diagnostic should gate this.
 - For GMM_25: both fail (Pareto-k collapses). Use SMC instead.
 
-**Recipe Generation Phase sequencing**: build `pathfinder` warmup recipes first; add `multipathfinder` as a "better init" variant only for models where pathfinder's per-chain ELBO is low (< -2*d as a heuristic).
+**Recipe generation sequencing**: build `pathfinder` warmup recipes first; add `multipathfinder` as a "better init" variant only for models where pathfinder's per-chain ELBO is low (< -2*d as a heuristic).
 
 ### 4. `meanfield_vi` vs `fullrank_vi` (from P5.12 kickoff)
 
@@ -471,7 +471,7 @@ Now applying the outer-method distinction:
 
 **Hard exclusions** apply identically to both: gmm_25, neals_funnel, horseshoe, stoch_vol, banana.
 
-**Recipe Generation Phase**: build meanfield_vi warmup recipes across all 10 applicable models first; add fullrank_vi for the 5 low-d smooth models as an upgrade variant.
+**Recipe generation**: build meanfield_vi warmup recipes across all 10 applicable models first; add fullrank_vi for the 5 low-d smooth models as an upgrade variant.
 
 ### 5. `mhmc` vs `hmc`
 
@@ -483,7 +483,7 @@ Now applying the outer-method distinction:
 
 ### 6. `dmhmc` vs `dynamic_hmc`
 
-**Verdict**: `dmhmc` (dynamic + multinomial) vs `dynamic_hmc` (dynamic + binomial) follows the same logic as `mhmc` vs `hmc`. CHEES warmup adapts both equally. Skip `dmhmc` as a Recipe Generation Phase recipe target unless there is a specific benchmark question about multinomial vs binomial within a dynamic trajectory.
+**Verdict**: `dmhmc` (dynamic + multinomial) vs `dynamic_hmc` (dynamic + binomial) follows the same logic as `mhmc` vs `hmc`. CHEES warmup adapts both equally. Skip `dmhmc` as a recipe-generation target unless there is a specific benchmark question about multinomial vs binomial within a dynamic trajectory.
 
 **Exception**: `dmhmc` may outperform `dynamic_hmc` in heavy-tailed posteriors (horseshoe) where the trajectory's midpoint is a better sample than the endpoint. This is worth a targeted benchmark but not a general-purpose recipe.
 
@@ -501,7 +501,7 @@ Now applying the outer-method distinction:
 - Posteriors with highly variable curvature (neals_funnel, horseshoe): NUTS adapts per-sample; dynamic_hmc's fixed distribution may be mis-calibrated.
 - New/unfamiliar model geometry: NUTS is the safe default.
 
-**Recipe Generation Phase recommendation**: run `nuts + window_adaptation_diag_imm` as the primary recipe for all models; run `dynamic_hmc + chees` as a "efficiency benchmark" variant for the 5 easy + 3 hierarchical NCP models where predictable trajectory lengths are expected.
+**Recipe generation recommendation**: run `nuts + window_adaptation_diag_imm` as the primary recipe for all models; run `dynamic_hmc + chees` as a "efficiency benchmark" variant for the 5 easy + 3 hierarchical NCP models where predictable trajectory lengths are expected.
 
 ### 8. `rmhmc` vs `nuts`
 
@@ -511,9 +511,9 @@ Now applying the outer-method distinction:
 
 **When rmhmc is NOT worth it**: any model where the posterior geometry is well-approximated by a global diagonal rescaling (mvn_10, logistic_syn, ill_cond_50 with window_adaptation_diag_imm diagonal IMM). The Riemannian metric provides no benefit and adds per-step cost.
 
-**When rmhmc IS worth it**: models with position-dependent curvature — banana (the banana manifold has varying Gaussian curvature), neals_funnel (curvature varies dramatically between funnel neck and body). However, the current Phase 5 implementation uses `window_adaptation_diag_imm` which provides a constant IMM → this degenerates to HMC. The true Riemannian advantage requires a non-constant `mass_matrix_fn` callable. **This is deferred to Recipe Generation Phase as a separate "rmhmc Riemannian" variant requiring custom metric functions per model**.
+**When rmhmc IS worth it**: models with position-dependent curvature — banana (the banana manifold has varying Gaussian curvature), neals_funnel (curvature varies dramatically between funnel neck and body). However, the current implementation uses `window_adaptation_diag_imm` which provides a constant IMM → this degenerates to HMC. The true Riemannian advantage requires a non-constant `mass_matrix_fn` callable. **This is deferred to recipe generation as a separate "rmhmc Riemannian" variant requiring custom metric functions per model**.
 
-**Recipe Generation Phase recommendation**: build rmhmc recipes with constant metric (= HMC) first (these are green for easy models); tag the Riemannian-callable path as a separate Phase 7 task.
+**Recipe generation recommendation**: build rmhmc recipes with constant metric (= HMC) first (these are green for easy models); tag the Riemannian-callable path as a separate future task (GP-latent marginalisation work).
 
 ### 9. Four Laplace-marginal samplers vs standard NUTS on hierarchical models
 
@@ -523,7 +523,7 @@ Now applying the outer-method distinction:
 
 **When NOT to use**: any hierarchical model without an explicit Gaussian latent layer (eight_schools NCP, radon NCP, irt_2pl — these have non-Gaussian hyperparameter posteriors or non-Gaussian observation likelihoods that break the Laplace marginalization guarantee).
 
-**Recipe Generation Phase priority**: Laplace-marginal family is Yellow for radon/irt_2pl (requires careful theta_init construction from PosteriorEntry) and Green for gp_regression/stoch_vol. Build gp_regression + stoch_vol Laplace recipes first (Green cells, high-value showcase).
+**Recipe generation priority**: Laplace-marginal family is Yellow for radon/irt_2pl (requires careful theta_init construction from PosteriorEntry) and Green for gp_regression/stoch_vol. Build gp_regression + stoch_vol Laplace recipes first (Green cells, high-value showcase).
 
 ### 10. `low_rank_window_adaptation` vs `window_adaptation_diag_imm`
 
@@ -536,13 +536,13 @@ Now applying the outer-method distinction:
 
 **When window_adaptation_diag_imm is sufficient**: smooth, nearly-diagonal posteriors (mvn_10, logistic_syn, german_credit, eight_schools). The low-rank correction adds compute for no quality gain.
 
-**Recipe Generation Phase recommendation**: build window_adaptation_diag_imm recipes first for all models; then run low_rank_window_adaptation as a "correlation-structure" variant for ill_cond_50 + radon + horseshoe + irt_2pl as a benchmark comparison.
+**Recipe generation recommendation**: build window_adaptation_diag_imm recipes first for all models; then run low_rank_window_adaptation as a "correlation-structure" variant for ill_cond_50 + radon + horseshoe + irt_2pl as a benchmark comparison.
 
 **Pre-requisite**: low_rank_window_adaptation must be registered in WARMUPS __init__ (missing from current main — P5.16.5 commits not merged to main yet).
 
 ### 11. `laps` vs `adjusted_mclmc_tuning`
 
-**Verdict**: LAPS is the Phase 2 of adjusted_mclmc adaptation. LAPS runs parallel chains with cross-chain information sharing to find better step_size/L. `adjusted_mclmc_tuning` is single-chain (vmapped).
+**Verdict**: LAPS is the second stage of adjusted_mclmc adaptation. LAPS runs parallel chains with cross-chain information sharing to find better step_size/L. `adjusted_mclmc_tuning` is single-chain (vmapped).
 
 **When LAPS is strictly better**:
 - High-d models where single-chain tuning has high variance in the adapted L estimate (stoch_vol d=503 is the canonical case — LAPS's cross-chain averaging should give a tighter estimate).
@@ -550,13 +550,13 @@ Now applying the outer-method distinction:
 
 **Critical blocker**: P5.16.5 flagged that LAPS IMM output is a placeholder `jnp.ones(ndims)` — the actual diagonal IMM from phase-1 burn-in is not exposed by `laps()`. Until this is fixed (upstream change or alternative extraction path), LAPS cannot provide a valid IMM for the sampler. **Do not build LAPS recipes until the IMM extraction is resolved**.
 
-**Recipe Generation Phase recommendation**: LAPS as a "parallel adaptation benchmark" for adjusted_mclmc only, on stoch_vol + radon + irt_2pl (high-d models where single-chain tuning variance is highest). Defer until IMM placeholder resolved.
+**Recipe generation recommendation**: LAPS as a "parallel adaptation benchmark" for adjusted_mclmc only, on stoch_vol + radon + irt_2pl (high-d models where single-chain tuning variance is highest). Defer until IMM placeholder resolved.
 
 ---
 
 ## Hard Exclusions
 
-These are model-family × sampler-family pairs where no amount of tuning produces a useful recipe. Skip these cells entirely. Do not spend any Recipe Generation Phase effort on them.
+These are model-family × sampler-family pairs where no amount of tuning produces a useful recipe. Skip these cells entirely. Do not spend any recipe-generation effort on them.
 
 ### Category 1 — Multimodal models (gmm_25)
 
@@ -592,7 +592,7 @@ The surrogate collapses these posteriors to a poor Gaussian approximation. The I
 
 ### Category 6 — Riemannian HMC without callable metric
 
-**rmhmc with window_adaptation_diag_imm IMM** for horseshoe (requires model-specific callable), stoch_vol (d=503; Hessian computation intractable), radon (d=390): the Riemannian character requires a position-dependent `mass_matrix_fn` callable. Using a constant diagonal IMM from window_adaptation_diag_imm degenerates to HMC. While the resulting sampler is not wrong, it is simply HMC — the rmhmc entry provides no advantage and the `extra_required_kwargs=("mass_matrix_fn",)` integration adds engineering overhead for no benefit. Mark R for these cells; the true Riemannian recipes are Phase 7 scope.
+**rmhmc with window_adaptation_diag_imm IMM** for horseshoe (requires model-specific callable), stoch_vol (d=503; Hessian computation intractable), radon (d=390): the Riemannian character requires a position-dependent `mass_matrix_fn` callable. Using a constant diagonal IMM from window_adaptation_diag_imm degenerates to HMC. While the resulting sampler is not wrong, it is simply HMC — the rmhmc entry provides no advantage and the `extra_required_kwargs=("mass_matrix_fn",)` integration adds engineering overhead for no benefit. Mark R for these cells; the true Riemannian recipes are future scope (GP-latent marginalisation work).
 
 ### Category 7 — Laplace-marginal for non-hierarchical / non-Gaussian models
 
@@ -604,9 +604,9 @@ The surrogate collapses these posteriors to a poor Gaussian approximation. The I
 
 ---
 
-## Recipe Generation Phase Sequencing Recommendation
+## Recipe Generation Sequencing Recommendation
 
-### Recipe Phase 1 — NUTS-family + window_adaptation_diag_imm, all 14 models (highest ROI)
+### The window-adaptation × HMC-family sweep — NUTS-family + window_adaptation_diag_imm, all 14 models (highest ROI)
 
 **Target**: `window_adaptation_diag_imm` × {nuts, hmc} × all 14 models.
 
@@ -627,7 +627,7 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 - For HMC: BO on `num_integration_steps`; range [5, 50] for easy, [20, 100] for high-d.
 - Exclude: neals_funnel + hmc (Y→skip HMC for funnel, stick with NUTS).
 
-### Recipe Phase 2 — MCLMC family, smooth + high-d models
+### The MCLMC recipe sweep — MCLMC family, smooth + high-d models
 
 **Target**: `mclmc_tuning` × {mclmc} + `adjusted_mclmc_tuning` × {adjusted_mclmc, adjusted_mclmc_dynamic} for the 10 non-excluded models.
 
@@ -637,19 +637,19 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 
 **Exclude**: gmm_25, neals_funnel (mclmc), stoch_vol + neals_funnel (mclmc vanilla, R).
 
-### Recipe Phase 3 — GHMC + MEADS + dynamic_hmc + CHEES
+### Additional sampler variants — GHMC + MEADS + dynamic_hmc + CHEES
 
 **Target**: `meads` × ghmc + `chees` × dynamic_hmc/dmhmc for all 12 applicable models (exclude gmm_25, exclude red cells).
 
 **Rationale**: these are the intrinsically multi-chain adaptation procedures. They need multi-chain infrastructure (already landed in P5.0c) and have strong theoretical motivation for hierarchical posteriors. Build after the NUTS and MCLMC baselines exist so you can compare ESS/grad.
 
-### Recipe Phase 4 — Pathfinder + multipathfinder warmup variants
+### Warmup variants — Pathfinder + multipathfinder warmup variants
 
 **Target**: `pathfinder` × {nuts, hmc} + `multipathfinder` × {nuts, hmc} for all green cells.
 
 **Rationale**: Pathfinder warmup improves convergence speed (warmup budget reduction) without changing the sampler quality asymptotically. These are "same colour as window_adaptation_diag_imm but cheaper warmup" variants — high value if the warmup budget is the bottleneck. Build after 6.1 baselines so you can show the warmup speedup.
 
-### Recipe Phase 5 — SMC family, prioritize adaptive variants + gmm_25
+### The SMC recipe sweep — SMC family, prioritize adaptive variants + gmm_25
 
 **Target**: `adaptive_tempered_smc` × {rwm, nuts} × all 14 models. Then `adaptive_persistent_sampling_smc` × {rwm, nuts}.
 
@@ -657,21 +657,21 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 
 **gmm_25 verification**: confirm mode coverage (all 25 modes ≥ 1% of particles) as the recipe gate. This is the Tier-A multimodal exception protocol (WORKLOG: analytic sampling for gmm_25 uses mode-coverage check).
 
-### Recipe Phase 6 — VI as sampler, VI warmup upgrade pass
+### VI as sampler — VI as sampler, VI warmup upgrade pass
 
 **Target**: `meanfield_vi` + `fullrank_vi` as base_methods for applicable cells; then `meanfield_vi` warmup + `fullrank_vi` warmup for all applicable cells.
 
 **Rationale**: lower priority than MCMC — VI recipes answer specific benchmark questions (VI quality, warmup cost comparison). Build after MCMC baselines.
 
-### Recipe Phase 7 — Specialised samplers (Laplace, elliptical, mgrad, orbital, additive_step_rw)
+### Specialised samplers — Laplace, elliptical, mgrad, orbital, additive_step_rw (future)
 
 **Target**: the specialised sampler recipes for gp_regression + stoch_vol (elliptical_slice, mgrad_gaussian, Laplace-marginal family); orbital_hmc for easy models; additive_step_rw with Cauchy proposal for horseshoe/neals_funnel.
 
-**Rationale**: these are showcase recipes for their respective niches, not general-purpose baselines. Build last.
+**Rationale**: these are showcase recipes for their respective niches, not general-purpose baselines. Build in future work.
 
-### Recipe Phase 8 — low_rank_window_adaptation + laps (pre-requisites must land first)
+### Advanced warmup methods — low_rank_window_adaptation + laps (pre-requisites must land first)
 
-**Pre-requisites before Recipe Phase 8 can start**:
+**Pre-requisites before advanced warmup methods can start**:
 1. Register `low_rank_window_adaptation` and `laps` in WARMUPS __init__ (P5.16.5 commits not in current main).
 2. Fix LAPS IMM placeholder (`jnp.ones(ndims)` → actual adaptation output) via upstream change or alternative extraction.
 3. Validate `low_rank_window_adaptation` dense IMM reconstruction correctness on ill_cond_50 (analytical cross-check available).
@@ -689,7 +689,7 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 | Red | ~420 |
 | **Total** | **~1080** |
 
-**Notes on counting methodology**: the 1080 total is across the full combinatorial space including SMC × inner_kernel × model = 6 × 8 × 14 = 672 SMC cells, plus the warmup × base_method × model = main tables above. The SMC table dominates the count. Green cells are the primary Recipe Generation Phase build target; yellow cells require workflow investment; red cells are hard excludes.
+**Notes on counting methodology**: the 1080 total is across the full combinatorial space including SMC × inner_kernel × model = 6 × 8 × 14 = 672 SMC cells, plus the warmup × base_method × model = main tables above. The SMC table dominates the count. Green cells are the primary recipe-generation build target; yellow cells require workflow investment; red cells are hard excludes.
 
 ---
 
@@ -697,12 +697,12 @@ Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `note
 
 **1. Cell count by colour**: approximately 480 green / 180 yellow / 420 red across all tables in the matrix. The green cells are concentrated in: NUTS+window_adaptation_diag_imm (easy+hierarchical models ≈ 60 cells), MCLMC family (high-d smooth models ≈ 40 cells), SMC family (adaptive variants for all models including gmm_25 ≈ 100 cells), VI (applicable models ≈ 20 cells), plus pathfinder/multipathfinder variants (≈ 60 cells). Red cells are dominated by: (a) gmm_25 × non-SMC samplers (~20 cells), (b) high-d models × no_warmup gradient samplers (~30 cells), (c) VI exclusions × 4 pathological models (~40 cells), (d) SMC inner-kernel viability not a concern (all 8 inner kernels are green/yellow for most models), (e) Laplace-marginal family on 10/14 non-applicable models (~40 cells).
 
-**2. Top 3 supersession verdicts that simplify Recipe Generation Phase most**:
+**2. Top 3 supersession verdicts that simplify recipe generation most**:
 - **(a) adaptive_tempered_smc dominates tempered_smc**: skip building `tempered_smc` recipes entirely except for a single "overhead benchmark" variant on mvn_10. This eliminates ~14 redundant recipe cells and focuses SMC phase on the adaptive variants that have a defensible geometry argument.
-- **(b) MCLMC + mclmc_tuning at stoch_vol (d=503) should be Recipe Phase 2's first build target** because it is the ONLY case in the matrix where NUTS `default_works=False` (P4.9 result) and MCLMC is the clinically recommended alternative. Building this cell first validates the whole MCLMC-vs-NUTS discrimination story that motivated Phase 5's MCLMC wrapper investment.
-- **(c) pathfinder warmup supersedes no_warmup for all green NUTS/HMC cells without extra work**: every `window_adaptation_diag_imm + nuts` green cell should have a corresponding `pathfinder + nuts` recipe at negligible extra engineering cost (same base sampler, better init). Recipe Phase 4 can piggyback on 6.1 infrastructure with minimal new recipe logic.
+- **(b) MCLMC + mclmc_tuning at stoch_vol (d=503) should be the MCLMC recipe sweep's first build target** because it is the ONLY case in the matrix where NUTS `default_works=False` (P4.9 result) and MCLMC is the clinically recommended alternative. Building this cell first validates the whole MCLMC-vs-NUTS discrimination story.
+- **(c) pathfinder warmup supersedes no_warmup for all green NUTS/HMC cells without extra work**: every `window_adaptation_diag_imm + nuts` green cell should have a corresponding `pathfinder + nuts` recipe at negligible extra engineering cost (same base sampler, better init). The warmup-variants sweep can piggyback on baseline infrastructure with minimal new recipe logic.
 
 **3. Items requiring a numerical probe before plan locks**:
-- **LAPS IMM placeholder**: the `jnp.ones(ndims)` placeholder in laps warmup means LAPS recipes cannot be validated statistically until the upstream IMM extraction path is fixed. Before Recipe Phase 8 locks, run a 200-step LAPS warmup on stoch_vol and verify the adapted IMM is model-informative (not uniform). If it stays uniform, escalate to upstream as a bug before building any LAPS recipes.
-- **Laplace-marginal theta_init for NCP hierarchical models** (eight_schools, radon, irt_2pl): these are flagged Yellow not Red, but the theta_init construction from NCP PosteriorEntry parameters is not yet designed. A 30-minute spike on eight_schools would determine whether the Laplace optimum in NCP coordinates is well-defined and easy to construct — or whether these cells should be downgraded to Red for Recipe Generation Phase and deferred to Phase 7.
+- **LAPS IMM placeholder**: the `jnp.ones(ndims)` placeholder in laps warmup means LAPS recipes cannot be validated statistically until the upstream IMM extraction path is fixed. Before advanced warmup methods lock, run a 200-step LAPS warmup on stoch_vol and verify the adapted IMM is model-informative (not uniform). If it stays uniform, escalate to upstream as a bug before building any LAPS recipes.
+- **Laplace-marginal theta_init for NCP hierarchical models** (eight_schools, radon, irt_2pl): these are flagged Yellow not Red, but the theta_init construction from NCP PosteriorEntry parameters is not yet designed. A 30-minute spike on eight_schools would determine whether the Laplace optimum in NCP coordinates is well-defined and easy to construct — or whether these cells should be downgraded to Red and deferred to future specialised-sampler work.
 - **fullrank_vi warmup + gp_regression**: flagged Y — depends on how many effective dimensions gp_regression has after marginalizing latent GP (if hyperparameter-only, d≈5 and fullrank_vi is G; if latent GPs are included, d is large and fullrank_vi is R). Clarify the gp_regression PosteriorEntry dimensionality before building the fullrank_vi warmup recipe for this model.
