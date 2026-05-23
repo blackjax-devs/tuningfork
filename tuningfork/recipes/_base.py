@@ -102,7 +102,7 @@ class Effort(str, Enum):
              warmup or the sampler.  The Statistician writes up the full Bayesian-
              workflow journey in ``Recipe.workflow``.
              Wall time: MEDIUM + extra Statistician work + BO compute.
-             When the HIGH cell consumes groundtruth samples for oracle comparison,
+             When the HIGH cell consumes groundtruth samples for reference comparison,
              ``wall_seconds_estimate`` MUST = ``groundtruth_wall + extra_engineering_wall``
              (i.e., include the upstream groundtruth generation cost). The convention
              applies from future specialised-sampler work onward.
@@ -338,7 +338,7 @@ class Recipe:
     #
     # Path B (empirical)::
     #
-    #   {"kind": "empirical", "values": [...], "weights": [...]}  # V7 oracle
+    #   {"kind": "empirical", "values": [...], "weights": [...]}  # V7 NUTS-harvested
     #
     # See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md`` §5 for the
     # full spec.  See also ``tuningfork.base_method._step_policy_registry.build_step_policy``.

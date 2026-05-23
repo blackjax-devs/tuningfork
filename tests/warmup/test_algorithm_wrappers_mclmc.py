@@ -76,8 +76,8 @@ class TestMclmcRegistry:
         """MCLMC is rejection-free; target_acceptance_rate must be None."""
         assert ENTRY.target_acceptance_rate is None
 
-    def test_core_phase4_algorithms_present(self) -> None:
-        """The Phase-4 core six must remain present; more entries may be added later.
+    def test_core_six_algorithms_present(self) -> None:
+        """The original core-six base methods must remain present; more entries may be added later.
 
         Originally `test_algorithms_has_six_entries` (==6); changed to subset
         check (after `ghmc` was added the strict-equality test became

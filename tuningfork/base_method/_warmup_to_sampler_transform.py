@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Transform warmup output into sampler init kwargs (Phase B-2 schema §3.3).
+"""Transform warmup output into sampler init kwargs (schema extension §3.3).
 
 Implements ``transform_warmup_state`` — the single function that converts
 warmup-adapted ``(adapted_params, warmup_info)`` into the dict of keyword
@@ -45,7 +45,7 @@ multi-chain warmup), it is ravelled to a single 1-D array before computing
 the median or harvesting the empirical histogram.  One canonical L distribution
 across chains, not per-chain, ensures all sampling chains run the same protocol.
 
-Backward compat: this module is NEW in Phase B-2.  Callers that pass
+Backward compat: this module is NEW in the schema extension.  Callers that pass
 ``warmup_inner_kernel=None`` receive the implicit resolution via
 ``resolve_warmup_algorithm`` (i.e., the ``_warmup_to_sampler_transform``
 module does NOT replace ``_laplace_adapter.resolve_warmup_algorithm``; it is
@@ -200,12 +200,10 @@ def transform_warmup_state(
             nis = _extract_nis(warmup_info)
             if nis is not None:
                 from tuningfork.base_method._step_policy_registry import (
-                    harvest_oracle_spec_from_array,
+                    harvest_step_policy_from_nis,
                 )
 
-                result["step_policy"] = harvest_oracle_spec_from_array(
-                    nis, max_values=24
-                )
+                result["step_policy"] = harvest_step_policy_from_nis(nis, max_values=24)
         return result
 
     # Row 4: nuts → laplace_*  (NIS median + caller injects log_joint_fn, theta_init)
@@ -235,7 +233,7 @@ def _extract_nis(warmup_info: Any) -> np.ndarray | None:
     Handles the following warmup_info shapes:
 
     1. **``blackjax.window_adaptation`` AdaptationInfo** (most common for
-       Phase B-2): the NIS lives at ``warmup_info.info.num_integration_steps``
+       schema-extension work): the NIS lives at ``warmup_info.info.num_integration_steps``
        where ``info`` is the stacked inner-kernel NUTSInfo (or HMCInfo, etc.).
        Shape is ``(num_chains, n_warmup_steps)`` after vmap.
     2. **Direct attribute** ``warmup_info.num_integration_steps`` — older

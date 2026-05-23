@@ -11,12 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Starter recipe emission — Recipe Generation Phase pipeline.
+"""Starter recipe emission — recipe-generation pipeline.
 
 .. note::
 
-   As of the Recipe Generation Phase (2026-05-17), this script targets the
-   *real* LOW-effort cells (gate-passes-at-first-emit), not the Phase-5-era
+   As of recipe generation launch (2026-05-17), this script targets the
+   *real* LOW-effort cells (gate-passes-at-first-emit), not the earlier
    placeholder recipes which were deleted on the cleanup-and-simplify branch.
    The MEDIUM / HIGH escalation helpers (``emit_medium_recipes`` /
    ``emit_high_recipes``) remain for Statistician-driven escalation.
@@ -103,7 +103,7 @@ MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
 # Effort taxonomy (see _base.py), LOW recipes operate on these conventional
 # pairings; MEDIUM recipes explore unconventional but technically-possible
 # combinations (e.g., window_adaptation_diag_imm + mala, window_adaptation_diag_imm + rmhmc); HIGH recipes
-# add oracle-tuned warmup HPs and model-specific injection.
+# add tuned warmup HPs and model-specific injection.
 NATURAL_WARMUP_FOR_SAMPLER: dict[str, str] = {
     # Window-adaptation family (window_adaptation_diag_imm's compatible_methods)
     "hmc": "window_adaptation_diag_imm",

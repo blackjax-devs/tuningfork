@@ -26,12 +26,11 @@ not how the user consumes it.  The prose framing reflects that:
            fix) or the cell explores a technically-possible-but-unconventional
            pairing (e.g., ``window_adaptation_diag_imm`` + ``mala``, ``window_adaptation_diag_imm`` + ``rmhmc``).
            Wall time = LOW + Statistician investigation.
-  HIGH   — LOW and MEDIUM both failed.  The Statistician compared against a
-           NUTS + window_adaptation oracle, ran BO over warmup hyperparameters,
-           and injected model-specific parameters until the gate passed.  The
-           full journey is recorded in ``workflow``.  CI consumes HIGH recipes
-           by reading the pinned scalars + IMM sidecar and running the sampler
-           directly (no warmup re-run).
+  HIGH   — LOW and MEDIUM both failed.  The Statistician ran Bayesian workflow,
+           BO over warmup hyperparameters, and injected model-specific
+           parameters until the gate passed. The full journey is recorded in
+           ``workflow``. CI consumes HIGH recipes by reading the pinned scalars
+           + IMM sidecar and running the sampler directly (no warmup re-run).
            Wall time = MEDIUM + extra Statistician work + BO compute.
 
 The same "use the pinned config" snippet applies to all tiers; the tier-specific
@@ -79,12 +78,12 @@ Wall time: machine + Statistician investigation (see `calibration_budget`).\
 """
 
 _HIGH_TEMPLATE = """\
-**High-effort recipe** (oracle + BO + model-specific injection on \
+**High-effort recipe** (Bayesian workflow + BO + model-specific injection on \
 `({warmup_name}, {base_method_name})`).
-After LOW and MEDIUM both failed the auto-gate, the Statistician compared against a \
-NUTS + window_adaptation oracle, ran BO over warmup hyperparameters, and injected \
-model-specific parameters. The full journey is recorded in `workflow`; CI consumes \
-the pinned scalars below.
+After LOW and MEDIUM both failed the auto-gate, the Statistician ran Bayesian \
+workflow, conducted BO over warmup hyperparameters, and injected model-specific \
+parameters. The full journey is recorded in `workflow`; CI consumes the pinned \
+scalars below.
 To use (sampler-only at runtime — the intended CI consumption pattern):
   ```python
   # If `inverse_mass_matrix_path` is set, load the IMM sidecar first.
