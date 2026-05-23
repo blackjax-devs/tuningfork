@@ -24,9 +24,9 @@ Schema wiring (PR #39):
 
 V7 empirical-oracle work (this module):
 
-- ``spec["kind"] == "empirical"`` → V7 empirical oracle via inverse-CDF
+- ``spec["kind"] == "empirical"`` → NUTS-harvested step_policy via inverse-CDF
   sampling over a normalised histogram ``{"values": [...], "weights": [...]}``.
-  See ``_build_empirical_step_policy`` and ``harvest_oracle_spec``.
+  See ``_build_empirical_step_policy`` and ``harvest_step_policy_from_chain_stats``.
 
 References
 ----------
@@ -42,7 +42,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-__all__ = ["build_step_policy", "harvest_oracle_spec", "harvest_oracle_spec_from_array"]
+__all__ = [
+    "build_step_policy",
+    "harvest_step_policy_from_chain_stats",
+    "harvest_step_policy_from_nis",
+]
 
 # Library-default V0 step policy (uniform integer in [1, 10)).
 # Matches blackjax.mcmc.dynamic_hmc's built-in default integration_steps_fn.
@@ -193,25 +197,25 @@ def build_step_policy(spec: dict | None) -> Callable:
     )
 
 
-def harvest_oracle_spec_from_array(
+def harvest_step_policy_from_nis(
     nis_array: Any,
     *,
     max_values: int = 512,
 ) -> dict:
     """Extract a step_policy empirical spec from a raw NIS integer array.
 
-    Core implementation used by both ``harvest_oracle_spec`` (file-based)
+    Core implementation used by both ``harvest_step_policy_from_chain_stats`` (file-based)
     and by the recipe runner (live warmup_info harvest).
 
     The recipe runner extracts ``warmup_info["num_integration_steps"]`` from
     the NUTS warmup call and passes it here directly — no separate file I/O
-    required.  This is **Path B** in the empirical-oracle design:
+    required.  This is **Path B** in the NUTS-harvested step_policy design:
 
-    - Path A (``harvest_oracle_spec``): harvest from a pre-existing
+    - Path A (``harvest_step_policy_from_chain_stats``): harvest from a pre-existing
       ``chain_stats.npz`` file.
     - Path B (this function): harvest from the live ``warmup_info`` returned
       by the same NUTS warmup run being used to adapt (step_size, IMM).
-      Cheaper: no separate run needed; oracle and warmup are co-produced.
+      Cheaper: no separate run needed; step_policy and warmup are co-produced.
 
     Parameters
     ----------
@@ -237,11 +241,11 @@ def harvest_oracle_spec_from_array(
 
     nis = np.asarray(nis_array).ravel().astype(int)
     if len(nis) == 0:
-        raise ValueError("NIS array is empty — cannot harvest oracle spec")
+        raise ValueError("NIS array is empty — cannot harvest step_policy spec")
     if nis.sum() == 0:
         raise ValueError(
             "All num_integration_steps values are zero — degenerate chain; "
-            "cannot harvest oracle spec"
+            "cannot harvest step_policy spec"
         )
 
     min_l, max_l = int(nis.min()), int(nis.max())
@@ -267,7 +271,7 @@ def harvest_oracle_spec_from_array(
     }
 
 
-def harvest_oracle_spec(
+def harvest_step_policy_from_chain_stats(
     chain_stats_path: Path | str,
     *,
     max_values: int = 512,
@@ -275,12 +279,12 @@ def harvest_oracle_spec(
     """Extract a step_policy empirical spec from a NUTS chain_stats.npz (Path A).
 
     Reads ``num_integration_steps`` from the chain_stats file and delegates to
-    ``harvest_oracle_spec_from_array``.  This is **Path A** of the oracle
-    harvest workflow — used when a pre-existing chain_stats file is available
+    ``harvest_step_policy_from_nis``.  This is **Path A** of the NUTS-harvested
+    step_policy workflow — used when a pre-existing chain_stats file is available
     (e.g., from a previously-run nuts×wadapt recipe cache).
 
     For in-line harvest from a live warmup run, use
-    ``harvest_oracle_spec_from_array`` directly (Path B).
+    ``harvest_step_policy_from_nis`` directly (Path B).
 
     Parameters
     ----------
@@ -289,7 +293,7 @@ def harvest_oracle_spec(
         any passing ``nuts × window_adapt*`` recipe for the target model.
         May also point to a groundtruth ``chain_stats.npz`` file.
     max_values
-        Forwarded to ``harvest_oracle_spec_from_array``.
+        Forwarded to ``harvest_step_policy_from_nis``.
 
     Returns
     -------
@@ -319,4 +323,9 @@ def harvest_oracle_spec(
             f"'num_integration_steps' or 'n_steps'; "
             f"available keys: {list(data.files)}"
         )
-    return harvest_oracle_spec_from_array(nis, max_values=max_values)
+    return harvest_step_policy_from_nis(nis, max_values=max_values)
+
+
+# Backward-compatibility aliases (deprecated; use new names)
+harvest_oracle_spec_from_array = harvest_step_policy_from_nis
+harvest_oracle_spec = harvest_step_policy_from_chain_stats

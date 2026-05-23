@@ -200,12 +200,10 @@ def transform_warmup_state(
             nis = _extract_nis(warmup_info)
             if nis is not None:
                 from tuningfork.base_method._step_policy_registry import (
-                    harvest_oracle_spec_from_array,
+                    harvest_step_policy_from_nis,
                 )
 
-                result["step_policy"] = harvest_oracle_spec_from_array(
-                    nis, max_values=24
-                )
+                result["step_policy"] = harvest_step_policy_from_nis(nis, max_values=24)
         return result
 
     # Row 4: nuts → laplace_*  (NIS median + caller injects log_joint_fn, theta_init)
