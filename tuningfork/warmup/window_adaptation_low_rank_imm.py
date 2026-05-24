@@ -211,6 +211,9 @@ ENTRY = Warmup(
     compatible_methods=(
         "hmc",
         "nuts",
+        "mhmc",
+        "dynamic_hmc",
+        "dmhmc",
         "barker",
         "mala",
         "laplace_hmc",
