@@ -8,9 +8,16 @@ maxiter=30 stalls at a non-optimal z*, inflating the phi-level Hessian by
 
 Fix: pass maxiter=300 to laplace_marginal_factory (6x margin over sqrt(2600)~51).
 
-This script validates the fix at two levels:
+Note: L-BFGS worst-case convergence is O(kappa/m) ~ 2600/10 = 260 steps for
+memory m=10 (default). So 300 is above worst-case O(kappa/m) but only ~6x
+above the sqrt(kappa)~51 naive estimate. If grad_norm at maxiter=300 is still
+> 1e-3, bump to maxiter=500 for the production default.
+
+This script validates the fix at three levels:
   Level 0 (density check): same as expG Step 1 -- does marginal_logdensity_fn
     now match log_p_exact to a constant offset at 10 GT phi samples?
+  Level 0.5 (gradient norm): residual ‖∇_θ log_joint(z*, φ_GT)‖ at GT mean.
+    Confirms actual convergence, not just gate luck.
   Level 1 (sampling): same as A2 (GT-mean init, dense IMM, n_warmup=200, L=10)
     -- do the 4 warmup gates pass?
 
@@ -222,6 +229,45 @@ print(
 )
 
 # ---------------------------------------------------------------------------
+# Level 0.5: Gradient norm check at GT mean
+# ---------------------------------------------------------------------------
+print(
+    "\n=== Level 0.5: Gradient norm ‖∇_θ log_joint(z*, φ_GT)‖ at GT mean ===",
+    flush=True,
+)
+print(
+    "  Confirms actual L-BFGS convergence (not just lucky gate pass).",
+    flush=True,
+)
+print(
+    "  Target: norm << 1e-3 => converged; norm >> 1e-4 => maxiter too low",
+    flush=True,
+)
+
+t_gnorm_start = time.perf_counter()
+z_star_gt = laplace.solve_theta(PHI_GT_MEAN)
+# Residual = gradient of log_joint w.r.t. theta at the mode (= 0 at true mode)
+grad_theta_at_mode = jax.grad(log_joint_fn, argnums=0)(z_star_gt, PHI_GT_MEAN)
+grad_flat, _ = ravel_pytree(grad_theta_at_mode)
+grad_norm_gt = float(jnp.linalg.norm(grad_flat))
+t_gnorm_end = time.perf_counter()
+
+print(
+    f"  ‖∇_θ log_joint(z*, φ_GT)‖ = {grad_norm_gt:.6e}  [{t_gnorm_end - t_gnorm_start:.1f}s]",
+    flush=True,
+)
+converged = grad_norm_gt < 1e-3
+print(
+    f"  Convergence verdict: {'CONVERGED (<1e-3)' if converged else 'NOT CONVERGED (>=1e-3)'}",
+    flush=True,
+)
+if not converged:
+    print(
+        "  WARNING: gradient norm too large — consider maxiter=500 for production",
+        flush=True,
+    )
+
+# ---------------------------------------------------------------------------
 # Phase 1: HMC window_adaptation with maxiter=300 marginal
 # ---------------------------------------------------------------------------
 print(
@@ -387,6 +433,12 @@ print(
     flush=True,
 )
 print(
+    f"  Level 0.5 (gradient norm at GT mean): "
+    f"‖∇_θ log_joint(z*, φ_GT)‖ = {grad_norm_gt:.2e}, "
+    f"{'CONVERGED (<1e-3)' if converged else 'NOT CONVERGED (>=1e-3) => try maxiter=500'}",
+    flush=True,
+)
+print(
     f"  Gate 1 corr(log_ks, log_ls) = {corr_ks_ls:.4f}: {corr_str}",
     flush=True,
 )
@@ -408,6 +460,10 @@ density_fix_confirmed = fix_works_density
 
 print(
     f"\n  Density fix: {'CONFIRMED' if density_fix_confirmed else 'NOT FIXED'}",
+    flush=True,
+)
+print(
+    f"  Gradient norm: {'CONVERGED' if converged else 'NOT CONVERGED -- production maxiter should be >=500'}",
     flush=True,
 )
 print(
