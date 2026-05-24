@@ -125,9 +125,9 @@ for maxls in MAXLS_VALUES:
     )
     (warmup_state, adapted_params), _warmup_info = warmup.run(wkey, phi_init, N_WARMUP)
 
-    # Force async-dispatch materialization
-    step_size = float(jnp.asarray(adapted_params.step_size))
-    imm = jnp.asarray(adapted_params.inverse_mass_matrix)
+    # Force async-dispatch materialization (adapted_params is a dict)
+    step_size = float(jnp.asarray(adapted_params["step_size"]))
+    imm = jnp.asarray(adapted_params["inverse_mass_matrix"])
     t_warmup_wall = time.perf_counter() - t_warmup_start
 
     print(
