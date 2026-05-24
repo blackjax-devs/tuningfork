@@ -1,9 +1,10 @@
-# Slow tests (post-merge smoke).
+# Slow tests — PR-gating workflow.
 #
 # `pytest -m slow -n auto` on Python 3.13. ~tens of min wall, 60-min timeout.
-# Slow tests are JIT-compiled chain runs that would bottleneck PR iteration —
-# gated to push-to-main + manual dispatch only. PRs see only the fast-tests
-# workflow for a tight ~2-min check loop.
+# Slow tests are JIT-compiled chain runs that gate recipe schema correctness.
+# Enabled on PR trigger (2026-05-24) to catch integration regressions before merge.
+# 60-min timeout caps runaway costs on infrastructure; most test-slow runs finish
+# in ~7-10 min on standard CI runners.
 #
 # CI uses -n auto (= 4 on standard GitHub-hosted Ubuntu runners) — half-wall vs -n 2.
 # The Makefile uses -n 2 by design (agent-shell OOM concern, META-010) but
@@ -17,6 +18,7 @@
 name: test-slow
 
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
