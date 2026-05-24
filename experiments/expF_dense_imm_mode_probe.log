@@ -1,0 +1,80 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX: x64=True, backend=cpu
+[t=+2.1s] All imports done
+[t=+7.1s] gp_regression model built, d_full=203
+[t=+7.1s] Laplace components built
+  phi_keys (sorted = flat order): ['log_kernel_scale', 'log_lengthscale', 'log_noise_scale']
+  phi_init A2 (flat): [ 0.40870562 -1.0424926  -2.34163616]
+  marginal lp at A2 init: 30.297 (should be finite, ~ -300 to -500)
+  marginal lp at numpyro prior sample (expE init): -281.271
+  Δlp(A2 vs prior) = +311.568 (A2 should be much higher — closer to mode)
+
+=== Phase 1: HMC window_adaptation on 3D marginal (n_warmup=200, L=10, dense IMM, A2 init) ===
+  Warmup wall: 92.47s
+  Adapted step_size: 0.000149
+  Adapted IMM (3×3 dense):
+    [log_kernel_scale    ] +0.0001  -0.0000  +0.0000
+    [log_lengthscale     ] -0.0000  +0.0001  -0.0000
+    [log_noise_scale     ] +0.0000  -0.0000  +0.0001
+
+  Marginal stds from Welford IMM:
+    log_kernel_scale         : std = 0.0095
+    log_lengthscale          : std = 0.0095
+    log_noise_scale          : std = 0.0095
+
+  Welford stds vs GT stds:
+    log_kernel_scale         : welford=0.0095  GT=0.4278  ratio=0.02
+    log_lengthscale          : welford=0.0095  GT=0.1783  ratio=0.05
+    log_noise_scale          : welford=0.0095  GT=0.0513  ratio=0.19
+
+  === GATE 1: Ridge capture ===
+  corr(log_kernel_scale, log_lengthscale) = -0.0001
+  Target: +0.754 (groundtruth posterior; from Exp2 MCLMC + GT-confirmed)
+  Gate 1 (corr ≥ 0.6): FAIL (|corr - 0.754| = 0.7541)
+
+  === GATE 2: Step_size not collapsed ===
+  step_size = 0.000149  target: [0.01, 0.5]
+  Gate 2 (step_size in [0.01, 0.5]): FAIL
+
+  Final warmup phi (flat): [ 0.36444658 -1.05225347 -2.37479292]
+  Marginal lp at warmup end: 107.569
+
+=== Phase 2: 1-chain laplace_hmc sampling (n_steps=20, L=10, adapted params) ===
+  1-chain wall: 9.52s
+  Acceptance rate: mean=1.000, min=1.000, max=1.000
+  Divergences: 0/20
+  logdensity range: [139.06, 160.59]
+  phi trace (first 5 steps):
+    step 0: [ 0.36443538 -1.05228495 -2.37481233]
+    step 1: [ 0.36441749 -1.05231499 -2.37480918]
+    step 2: [ 0.3644265  -1.05230608 -2.37479411]
+    step 3: [ 0.36442638 -1.05226791 -2.37477348]
+    step 4: [ 0.3644237  -1.05227964 -2.37479413]
+
+  === GATE 3: Acceptance rate in [0.65, 0.95] ===
+  mean acceptance = 1.000  target: [0.65, 0.95]
+  Gate 3: FAIL
+  WARN: acceptance > 0.95 — chain may be micro-stepping (step_size too small or IMM too tight for posterior scale). Check Welford std vs GT std.
+
+  === GATE 4: No divergences ===
+  n_div = 0  target: 0
+  Gate 4: PASS
+
+  Skipping Phase 3 (1-chain not clean: acc=1.000, n_div=0)
+
+======================================================================
+ExpF SUMMARY (A2 probe — GT-mean init, dense 3×3 IMM)
+Total wall = 118.9s
+======================================================================
+  Gate 1 (corr ≥ 0.6): FAIL
+  Gate 2 (step_size in [0.01, 0.5]): FAIL
+  Gate 3 (acceptance in [0.65, 0.95]): FAIL
+  Gate 4 (n_div = 0): PASS
+
+  Overall: FAIL — see gate details above
+
+  → Step_size collapse even from GT-mean init. Investigate marginal
+    geometry at the posterior mean. Check num_integration_steps.
+======================================================================
+
+Done.
