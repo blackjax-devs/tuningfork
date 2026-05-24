@@ -167,8 +167,12 @@ def _timeout_handler(signum, frame):
     raise VariantTimeout
 
 
+_VARIANT_TIMEOUT = "TIMEOUT"
+_VARIANT_ERROR = "ERROR"
+
+
 def time_variant(name, fn, budget=VARIANT_BUDGET):
-    """Run fn(); return wall time (s) or None if timed out / errored."""
+    """Run fn(); return wall time (s), _VARIANT_TIMEOUT, or _VARIANT_ERROR."""
     signal.signal(signal.SIGALRM, _timeout_handler)
     signal.alarm(int(budget))
     t_start = time.perf_counter()
@@ -183,12 +187,12 @@ def time_variant(name, fn, budget=VARIANT_BUDGET):
             f"  [TIMEOUT] {name} exceeded {budget:.0f}s budget " f"after {wall:.0f}s",
             flush=True,
         )
-        return None
+        return _VARIANT_TIMEOUT
     except Exception as exc:
         wall = time.perf_counter() - t_start
         print(f"  [ERROR] {name} failed after {wall:.1f}s: {exc}", flush=True)
         signal.alarm(0)
-        return None
+        return _VARIANT_ERROR
 
 
 # ---------------------------------------------------------------------------
@@ -220,14 +224,14 @@ def _run_v1():
 
 
 t_v1 = time_variant("V1", _run_v1)
-if t_v1 is not None:
+if isinstance(t_v1, float):
     print(
         f"[t=+{time.perf_counter() - t0:.1f}s] V1 done: {t_v1:.2f}s "
         f"({t_v1 / 6.0:.1f}× exp6 baseline)",
         flush=True,
     )
 else:
-    print(f"[t=+{time.perf_counter() - t0:.1f}s] V1 TIMEOUT/ERROR", flush=True)
+    print(f"[t=+{time.perf_counter() - t0:.1f}s] V1 {t_v1}", flush=True)
 
 # ---------------------------------------------------------------------------
 # V2: vmap of jit+scan, shared kernel (built OUTSIDE vmap)
@@ -277,8 +281,8 @@ print(
 )
 
 t_v2 = time_variant("V2", _run_v2)
-if t_v2 is not None:
-    ratio_vs_v1 = (t_v2 / t_v1) if t_v1 else float("nan")
+if isinstance(t_v2, float):
+    ratio_vs_v1 = (t_v2 / t_v1) if isinstance(t_v1, float) else float("nan")
     print(
         f"[t=+{time.perf_counter() - t0:.1f}s] V2 done: {t_v2:.2f}s "
         f"({ratio_vs_v1:.1f}× V1)",
@@ -286,15 +290,16 @@ if t_v2 is not None:
     )
 else:
     print(
-        f"[t=+{time.perf_counter() - t0:.1f}s] V2 TIMEOUT: "
-        "vmap(lax.scan(laplace_dhmc_step)) is expensive.",
+        f"[t=+{time.perf_counter() - t0:.1f}s] V2 {t_v2}: "
+        "vmap(lax.scan(laplace_dhmc_step)) failed or timed out.",
         flush=True,
     )
-    print(
-        "  -> ROOT CAUSE CANDIDATE: vmap(laplace_dhmc_step) itself is slow. "
-        "Likely vmap(while_loop) in L-BFGS linesearch.",
-        flush=True,
-    )
+    if t_v2 == _VARIANT_TIMEOUT:
+        print(
+            "  -> ROOT CAUSE CANDIDATE: vmap(laplace_dhmc_step) itself is slow. "
+            "Likely vmap(while_loop) in L-BFGS linesearch.",
+            flush=True,
+        )
 
 # ---------------------------------------------------------------------------
 # V3: recipe runner exact pattern (kernel built INSIDE vmap, uses RIA)
@@ -339,7 +344,7 @@ def _run_v3():
     final_states, infos = _v3_run_all_chains(
         chain_keys_v3, v3_init_positions, v3_step_sizes, v3_imms
     )
-    _ = jax.block_until_ready(final_states[0].position)
+    _ = jax.block_until_ready(final_states.position)
     print(
         f"  V3 acceptance_rate[0,-1]: {float(infos.acceptance_rate[0, -1]):.4f}",
         flush=True,
@@ -354,9 +359,9 @@ print(
 )
 
 t_v3 = time_variant("V3", _run_v3)
-if t_v3 is not None:
-    ratio_vs_v1 = (t_v3 / t_v1) if t_v1 else float("nan")
-    ratio_vs_v2 = (t_v3 / t_v2) if t_v2 else float("nan")
+if isinstance(t_v3, float):
+    ratio_vs_v1 = (t_v3 / t_v1) if isinstance(t_v1, float) else float("nan")
+    ratio_vs_v2 = (t_v3 / t_v2) if isinstance(t_v2, float) else float("nan")
     print(
         f"[t=+{time.perf_counter() - t0:.1f}s] V3 done: {t_v3:.2f}s "
         f"({ratio_vs_v1:.1f}× V1, {ratio_vs_v2:.1f}× V2)",
@@ -364,8 +369,8 @@ if t_v3 is not None:
     )
 else:
     print(
-        f"[t=+{time.perf_counter() - t0:.1f}s] V3 TIMEOUT: "
-        "recipe runner pattern is expensive.",
+        f"[t=+{time.perf_counter() - t0:.1f}s] V3 {t_v3}: "
+        "recipe runner pattern failed or timed out.",
         flush=True,
     )
 
@@ -374,21 +379,26 @@ else:
 # ---------------------------------------------------------------------------
 total_wall = time.perf_counter() - t0
 print(f"\n[t=+{total_wall:.1f}s] === ExpA Summary ===", flush=True)
+_fmt = lambda t: f"{t:.1f}s" if isinstance(t, float) else str(t)  # noqa: E731
 print(
-    f"  V1 (bare scan, 1 chain):           {f'{t_v1:.1f}s' if t_v1 else 'TIMEOUT'}",
+    f"  V1 (bare scan, 1 chain):           {_fmt(t_v1)}",
     flush=True,
 )
 print(
-    f"  V2 (vmap+scan, shared kernel, 4ch):{f' {t_v2:.1f}s' if t_v2 else ' TIMEOUT'}",
+    f"  V2 (vmap+scan, shared kernel, 4ch): {_fmt(t_v2)}",
     flush=True,
 )
 print(
-    f"  V3 (vmap+RIA, per-chain kernel):   {f'{t_v3:.1f}s' if t_v3 else 'TIMEOUT'}",
+    f"  V3 (vmap+RIA, per-chain kernel):   {_fmt(t_v3)}",
     flush=True,
 )
 print("", flush=True)
 
-if t_v1 and t_v2 and t_v3:
+_v1_ok = isinstance(t_v1, float)
+_v2_ok = isinstance(t_v2, float)
+_v3_ok = isinstance(t_v3, float)
+
+if _v1_ok and _v2_ok and _v3_ok:
     if t_v2 < 5 * t_v1 and t_v3 > 50 * t_v1:
         print(
             "DIAGNOSIS: V2≈V1, V3>>V1 → "
@@ -417,20 +427,23 @@ if t_v1 and t_v2 and t_v3:
             "DIAGNOSIS: unclear. Check ratios manually.",
             flush=True,
         )
-elif t_v2 is None:
+elif not _v2_ok:
+    label = "TIMED OUT" if t_v2 == _VARIANT_TIMEOUT else "ERRORED"
     print(
-        "DIAGNOSIS: V2 TIMED OUT → vmap(laplace_dhmc_step) itself is expensive "
+        f"DIAGNOSIS: V2 {label} → vmap(laplace_dhmc_step) itself is expensive "
         "(independent of run_inference_algorithm or per-chain kernel construction).",
         flush=True,
     )
+    if t_v2 == _VARIANT_TIMEOUT:
+        print(
+            "PRIME SUSPECT: vmap(while_loop(linesearch, maxls=1000)) inside L-BFGS. "
+            "Confirm with py-spy: look for XLA while_loop / xla::WhileThunk frames.",
+            flush=True,
+        )
+elif not _v3_ok and _v2_ok:
+    label = "TIMED OUT" if t_v3 == _VARIANT_TIMEOUT else "ERRORED"
     print(
-        "PRIME SUSPECT: vmap(while_loop(linesearch, maxls=1000)) inside L-BFGS. "
-        "Confirm with py-spy: look for XLA while_loop / xla::WhileThunk frames.",
-        flush=True,
-    )
-elif t_v3 is None and t_v2 is not None:
-    print(
-        f"DIAGNOSIS: V2 completed ({t_v2:.1f}s), V3 TIMED OUT → "
+        f"DIAGNOSIS: V2 completed ({t_v2:.1f}s), V3 {label} → "
         "the overhead is in run_inference_algorithm + kernel-inside-vmap.",
         flush=True,
     )
