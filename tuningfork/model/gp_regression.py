@@ -37,9 +37,11 @@ for the full diagnosis (probe data + interpretation).
 """
 
 from pathlib import Path
+from typing import Any
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.stats as jss
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
@@ -52,6 +54,8 @@ __all__ = [
     "Y_DATA",
     "F_TRUE",
     "N_OBS",
+    "gp_log_joint_fn",
+    "GP_THETA_INIT",
 ]
 
 # ---------------------------------------------------------------------------
@@ -100,6 +104,112 @@ F_TRUE: jnp.ndarray = jnp.array(_data["f_true"], dtype=_dtype)
 # Validate shapes
 assert X_DATA.shape == (N_OBS,), f"Expected X_DATA shape ({N_OBS},), got {X_DATA.shape}"
 assert Y_DATA.shape == (N_OBS,), f"Expected Y_DATA shape ({N_OBS},), got {Y_DATA.shape}"
+
+# ---------------------------------------------------------------------------
+# Laplace-sampler helpers (phi/theta NCP split)
+# ---------------------------------------------------------------------------
+#
+# The laplace_* family (laplace_dhmc, laplace_dmhmc, …) requires:
+#   - log_joint_fn(theta, phi) -> scalar log joint density
+#   - theta_init: initial latent position (fixes the PyTree structure)
+#
+# NCP factorisation for gp_regression:
+#   phi = {log_lengthscale, log_kernel_scale, log_noise_scale}   (3-D)
+#   theta = f_raw  (200-D NCP base variable; phi-independent prior)
+#
+# Why Laplace is exact here (NCP geometry):
+#   Under NCP, p(f_raw | phi) = N(0, I) — independent of phi.
+#   Conditional on phi, p(f_raw | phi, y) is a Gaussian (closed form).
+#   The Laplace approximation around the MAP is therefore *exact*, so
+#   laplace_* recovers the true joint posterior without approximation error
+#   from the theta-marginalisation step.
+#
+# phi/theta sites (matching numpyro site names in _LAPLACE_PHI_THETA_SPLITS):
+#   phi_sites  = ("log_lengthscale", "log_kernel_scale", "log_noise_scale")
+#   theta_sites = ("f_raw",)
+
+
+def gp_log_joint_fn(f_raw: jnp.ndarray, phi: dict[str, Any]) -> jnp.ndarray:
+    """Full log joint density for the gp_regression Laplace factorisation.
+
+    This is the pure-JAX equivalent of the NumPyro model, written in the
+    ``log_joint_fn(theta, phi)`` signature expected by the
+    :mod:`blackjax.mcmc.laplace_marginal` family.
+
+    Parameters
+    ----------
+    f_raw
+        NCP base variable, shape ``(N_OBS,)`` = ``(200,)``.  The latent GP
+        values are ``f = L @ f_raw`` where ``L = cholesky(K + JITTER*I)``.
+        The *prior* on ``f_raw`` is ``N(0, I)`` — independent of ``phi``.
+    phi
+        Hyperparameter dict with keys:
+
+        * ``"log_lengthscale"`` — scalar log RBF length-scale.
+        * ``"log_kernel_scale"`` — scalar log output scale.
+        * ``"log_noise_scale"`` — scalar log observation noise std.
+
+    Returns
+    -------
+    jnp.ndarray
+        Scalar log joint ``log p(f_raw, phi | y)`` evaluated at the given
+        ``(f_raw, phi)``.
+
+    Notes
+    -----
+    The function uses module-level ``X_DATA``, ``Y_DATA`` (loaded from the
+    committed ``.npz``), and the constants ``N_OBS`` / ``JITTER``.  This
+    matches the NumPyro model exactly.
+
+    The NCP Cholesky structure means the prior ``p(f_raw)`` does not depend
+    on ``phi``, so the Hessian w.r.t. ``f_raw`` at the MAP is:
+
+    .. math::
+
+        -\\nabla^2_{\\theta\\theta} \\log p(\\theta, \\phi | y) = L^{-T}(K+jI)^{-1}L^{-1} + I/\\sigma^2
+
+    which is positive-definite for any ``phi`` (guaranteed by Cholesky
+    stability under ``JITTER = 1e-4``).
+    """
+    log_lengthscale = phi["log_lengthscale"]
+    log_kernel_scale = phi["log_kernel_scale"]
+    log_noise_scale = phi["log_noise_scale"]
+
+    lengthscale = jnp.exp(log_lengthscale)
+    kernel_scale = jnp.exp(log_kernel_scale)
+    noise_scale = jnp.exp(log_noise_scale)
+
+    # Log-prior on phi (Normal on log-scale)
+    log_prior_phi = (
+        jss.norm.logpdf(log_lengthscale, 0.0, 1.0)
+        + jss.norm.logpdf(log_kernel_scale, 0.0, 1.0)
+        + jss.norm.logpdf(log_noise_scale, -2.0, 1.0)
+    )
+
+    # Log-prior on theta = f_raw (NCP base — N(0, I), independent of phi)
+    log_prior_theta = jss.norm.logpdf(f_raw, 0.0, 1.0).sum()
+
+    # Build RBF kernel + Cholesky
+    sqdist = (X_DATA[:, None] - X_DATA[None, :]) ** 2
+    K = kernel_scale**2 * jnp.exp(-0.5 * sqdist / lengthscale**2)
+    K = K + JITTER * jnp.eye(N_OBS)
+    L_chol = jax.scipy.linalg.cholesky(K, lower=True)
+
+    # GP function values via NCP: f = L @ f_raw
+    f = L_chol @ f_raw
+
+    # Log-likelihood: y ~ N(f, noise_scale * I)
+    log_lik = jss.norm.logpdf(Y_DATA, f, noise_scale).sum()
+
+    return log_prior_phi + log_prior_theta + log_lik
+
+
+#: Initial theta (f_raw) for the laplace_* samplers — zeros, shape (N_OBS,).
+#: The NCP base variable has prior N(0, I) so the origin is a valid starting
+#: point regardless of the current phi value.  The laplace sampler inits by
+#: finding the MAP of theta | phi starting from GP_THETA_INIT.
+GP_THETA_INIT: jnp.ndarray = jnp.zeros(N_OBS)
+
 
 # ---------------------------------------------------------------------------
 # NumPyro model (NCP Cholesky GP regression)
