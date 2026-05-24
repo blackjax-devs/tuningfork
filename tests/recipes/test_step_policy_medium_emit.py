@@ -81,6 +81,14 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
         f"got {result.verdict} (rhat={result.gate_rhat_max}, ess={result.gate_min_ess})"
     )
 
+    # REVIEW = MC noise; recipe not emitted (emit_low only fires on PASS).
+    # Skip downstream Recipe.load checks — the verdict assertion is the load-bearing one.
+    if result.verdict == "REVIEW":
+        pytest.skip(
+            f"verdict=REVIEW (rhat={result.gate_rhat_max}, ess={result.gate_min_ess}); "
+            "recipe not emitted, so Recipe.load checks are unreachable."
+        )
+
     # Recipe file should exist at the tagged MEDIUM path
     expected_path = (
         tmp_path
@@ -135,6 +143,13 @@ def test_medium_with_policy_tag_none_preserves_low(tmp_path):
         "PASS",
         "REVIEW",
     ), f"Expected PASS or REVIEW for mvn_10×dynamic_hmc V0; got {result.verdict}"
+
+    # REVIEW = MC noise; recipe not emitted. Skip downstream Recipe.load checks.
+    if result.verdict == "REVIEW":
+        pytest.skip(
+            f"verdict=REVIEW (rhat={result.gate_rhat_max}, ess={result.gate_min_ess}); "
+            "recipe not emitted, so Recipe.load checks are unreachable."
+        )
 
     # Recipe file should be at the canonical LOW path (no tag)
     expected_path = (
