@@ -85,11 +85,20 @@ __all__ = ["emit_low_recipe_for_cell", "run_recipe_to_idata", "CellResult"]
 #
 # Models currently in scope for laplace_* (per laplace-marginal preflight eligibility):
 #   eight_schools_ncp: phi=(mu, tau), theta=(theta_raw,)
+#   gp_regression:     phi=(log_lengthscale, log_kernel_scale, log_noise_scale),
+#                      theta=(f_raw,)    — NCP base variable; Laplace is exact
+#                      (see worklog/decisions/2026-05-24-gp-regression-laplace-factorisation.md)
 #
 # radon and irt_2pl are predicted MEDIUM (not LOW) — not needed here yet.
 # This table is extended as more recipe sweeps add models.
 _LAPLACE_PHI_THETA_SPLITS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "eight_schools_ncp": (("mu", "tau"), ("theta_raw",)),
+    # NCP: p(f_raw | phi) = N(0, I) — independent of phi; Laplace is exact.
+    # phi-dim=3 (log-scale hyperparams), theta-dim=200 (latent GP values).
+    "gp_regression": (
+        ("log_lengthscale", "log_kernel_scale", "log_noise_scale"),
+        ("f_raw",),
+    ),
 }
 
 # Recipe runner canonical parameters
