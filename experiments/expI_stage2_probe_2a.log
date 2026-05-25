@@ -1,0 +1,38 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.2s] Imports done (stock blackjax 007a9ded)
+  4 chains x 80 samples/chain = 320 total, step_size=0.526, L=5 (Probe 2a), maxiter=500
+  Stage 1 L=10 reference: ESS/s=1.2838
+[t=+6.5s] model built d=203
+  Cold-start init (single chain, shared across all chains) ...
+  Init done: 9.524s
+  Running vmap scan (4 chains x 80 steps, incl JIT) ...
+  vmap scan: 128.769s (1.610s/vmap-step, 0.402s/chain-sample, incl JIT)
+  wall_total (init+scan): 138.294s
+  mean_traj_weight=0.9523  n_div=0
+  chain 0: phi_mean=[0.4576, -1.0326, -2.3393]  traj_wt=0.9523  n_div=0
+  chain 1: phi_mean=[0.4574, -1.0261, -2.3503]  traj_wt=0.9477  n_div=0
+  chain 2: phi_mean=[0.3044, -1.0698, -2.3419]  traj_wt=0.9536  n_div=0
+  chain 3: phi_mean=[0.3682, -1.0520, -2.3416]  traj_wt=0.9558  n_div=0
+
+  --- Diagnostics ---
+  log_kernel_scale: ESS=197.06  ESS/N=0.6158  R-hat=1.0069
+  log_lengthscale: ESS=207.99  ESS/N=0.6500  R-hat=0.9992
+  log_noise_scale: ESS=238.99  ESS/N=0.7468  R-hat=0.9983
+
+======================================================================
+ExpI Stage 2 Probe 2a Summary (total wall = 149.5s)
+  blackjax: stock main 007a9ded  |  gp_regression N=200  |  V2 vmap  |  4 chains x 80 samples
+======================================================================
+  laplace_mhmc L=5: 4 chains x 80 samples = 320 total
+  proposal: multinomial (fixed-L=5, step_size=0.526, dense 3x3 IMM)
+  wall_total=138.294s  (init=9.524s + scan=128.769s)
+  mean_traj_weight=0.9523  n_div=0  (traj_weight = exp(sum_log_p_accept)/L, not M-H acc)
+  ESS per param:
+    log_kernel_scale: ESS=197.06  ESS/N=0.6158  R-hat=1.0069
+    log_lengthscale: ESS=207.99  ESS/N=0.6500  R-hat=0.9992
+    log_noise_scale: ESS=238.99  ESS/N=0.7468  R-hat=0.9983
+  min_ESS=197.06  ESS/s=1.42493  vs-L10=1.110x  (verdict: L5 wins if >0.90)
+  max_R-hat=1.0069  (pass if < 1.05)
+  Stage 1 L=10 reference: ESS/s=1.28383  wall=145.3s
+======================================================================
