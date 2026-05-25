@@ -1,0 +1,38 @@
+[t=+0.0s] Script start
+[t=+2.2s] Imports done
+
+=== Concern 1: maxiter=500 pass-through check ===
+Calling blackjax.laplace_hmc(..., maxiter=500)
+
+  [factory_instrumented] optimizer_kwargs RECEIVED: {'maxiter': 500}
+  [factory_instrumented] optimizer_kwargs AFTER setdefault: {'maxiter': 500}
+  [factory_instrumented] => maxiter in use = 500
+
+--- alg.init (cold start from phi_GT) ---
+  [solve #1] iter_num= 295  error=4.845e-01  maxiter_in_kwargs=500
+  Init wall: 9.416s, solve calls=1, iter_nums=[295]
+
+--- 3 warm steps (warm-start from theta_star) ---
+  [solve #1] iter_num=  77  error=1.078e+00  maxiter_in_kwargs=500
+  [solve #2] iter_num=  87  error=1.264e+00  maxiter_in_kwargs=500
+  [solve #3] iter_num=  91  error=1.277e-01  maxiter_in_kwargs=500
+  [solve #4] iter_num= 117  error=2.855e-01  maxiter_in_kwargs=500
+  [solve #5] iter_num= 143  error=3.102e-01  maxiter_in_kwargs=500
+  step 1: wall=2.386s  solve_calls=11  iter_nums=[77, 87, 91, 117, 143, 97, 80, 14, 68, 68, 68]
+  [solve #1] iter_num=  87  error=1.411e+00  maxiter_in_kwargs=500
+  [solve #2] iter_num=  88  error=4.683e-01  maxiter_in_kwargs=500
+  [solve #3] iter_num=  80  error=1.845e+00  maxiter_in_kwargs=500
+  [solve #4] iter_num= 135  error=6.026e-01  maxiter_in_kwargs=500
+  [solve #5] iter_num=  39  error=5.218e-01  maxiter_in_kwargs=500
+  step 2: wall=1.098s  solve_calls=11  iter_nums=[87, 88, 80, 135, 39, 88, 88, 74, 92, 108, 108]
+  [solve #1] iter_num=  52  error=7.890e-01  maxiter_in_kwargs=500
+  [solve #2] iter_num=  70  error=4.111e-01  maxiter_in_kwargs=500
+  [solve #3] iter_num= 121  error=2.263e-01  maxiter_in_kwargs=500
+  [solve #4] iter_num= 119  error=1.521e-01  maxiter_in_kwargs=500
+  [solve #5] iter_num= 181  error=3.188e-01  maxiter_in_kwargs=500
+  step 3: wall=1.209s  solve_calls=11  iter_nums=[52, 70, 121, 119, 181, 191, 225, 48, 92, 99, 99]
+
+=== VERDICT ===
+If all iter_nums << 500: warm-starting converges early; v2 timing IS representative of production.
+If all iter_nums == 500: hits ceiling every solve; need to re-time at maxiter=500 vs 30.
+The setdefault('maxiter', 30) is irrelevant when maxiter=500 is explicitly passed.
