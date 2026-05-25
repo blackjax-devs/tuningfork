@@ -1,0 +1,41 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX: x64=True, backend=cpu
+[t=+2.2s] All imports done (laplace_hmc patched)
+  NUTS step_size=0.00222459, IMM shape=(203,), max_doublings=12
+  Laplace step_size=0.526, L=10
+[t=+7.0s] gp_regression model built, d_full=203
+  phi_sites=('log_lengthscale', 'log_kernel_scale', 'log_noise_scale'), theta_sites=('f_raw',)...(200D)
+[t=+7.2s] Algorithms built (no warmup)
+
+=== Phase A Pilot: Arm A — laplace_hmc (d=3, maxiter=500, L=10) ===
+  3 steps × 1 chain; includes JIT compile in step 1
+  Arm A init: 9.474s
+  step 1: 2.226s  acc=0.9831  phi_flat=[0.5472526788982972, -0.9882619837287997, -2.3783965134863436]
+  step 2: 0.840s  acc=0.9400  phi_flat=[0.46998079534769577, -1.0599815569478246, -2.288981327096951]
+  step 3: 1.304s  acc=0.9697  phi_flat=[0.627575380037839, -1.0104755907329153, -2.434490463444835]
+  Arm A pilot: 4.372s total, 1.457s/step
+
+=== Phase A Pilot: Arm B — NUTS (d=203, max_doublings=12) ===
+  3 steps × 1 chain sequential (NEVER vmap NUTS — compile-hang risk)
+  GT median leapfrog/step = 2047 (is_turning=0.9997 → essentially deterministic)
+  Arm B init: 0.038s
+  step 1: 0.810s  acc=1.0000  n_leapfrog=7
+  step 2: 0.052s  acc=1.0000  n_leapfrog=15
+  step 3: 0.076s  acc=0.9859  n_leapfrog=31
+  Arm B pilot: 0.938s total, 0.313s/step
+
+====================================================================
+ExpI Phase A Summary (total wall = 22.0s)
+====================================================================
+  Arm A (laplace_hmc): 1.457 s/step  (includes JIT compile in step 1)
+  Arm B (NUTS d=203):  0.313 s/step  (includes JIT compile in step 1)
+  Ratio Arm B / Arm A: 0.2×  (> 1 means NUTS is slower per step)
+
+  Phase B projection (budget=120s per arm):
+    n_samples_laplace (4 chains vmap) = 82
+    n_samples_nuts (2 chains sequential) = 200
+    Expected laplace wall = 119.5s (JIT already warm from pilot)
+    Expected NUTS wall    = 62.6s (JIT already warm from pilot)
+
+  Phase B awaits TL spot-review.
+====================================================================
