@@ -1,0 +1,97 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.2s] Imports done (stock blackjax 007a9ded)
+  MAXITER Phase 1 = 100  (was 500 in Stage 3b)
+  MAXITER Phase 2 = 500  (same as Stage 3b)
+  Stage 3b Phase 1 wall: 968.0s  (target: < 300s with maxiter=100)
+[t=+7.1s] model built d=203
+[t=+7.1s] Two Laplace marginal factories built (Phase1 maxiter=100, Phase2 maxiter=500)
+
+  --- Phase 1: warmup (500 steps, laplace_hmc L=10, diag-IMM, maxiter=100, target=0.9) ---
+  Phase 1 done: 525.729s (1.051s/step)  [Stage 3b was 968.0s → 1.84× speedup]
+  Phase 1 gate: wall < 300s → FAIL ✗
+  Adapted step_size (Phase 1) = 0.29447
+  Phase 1 IMM diagonal (stds): [0.38473816 0.16609057 0.04074998]
+  Final position phi1:
+    log_kernel_scale: 0.2800  GT_mean=0.4087  dev=0.30σ  ✓
+    log_lengthscale: -1.0018  GT_mean=-1.0425  dev=0.23σ  ✓
+    log_noise_scale: -2.3071  GT_mean=-2.3416  dev=0.67σ  ✓
+
+  Phase 1 stationarity gate (all within 2σ of GT mean): PASS ✓
+  Phase 1 step gate (0.05-2.0): 0.29447 PASS ✓
+
+  --- Phase 2: warmup (200 steps, laplace_hmc L=5, dense-IMM, maxiter=500, target=0.93) ---
+  Phase 2 done: 131.338s (0.657s/step)
+  Adapted step_size (Phase 2) = 0.59492
+  Adapted IMM 3x3 (dense):
+    [log_kernel_scale    ] +0.234953  +0.071499  +0.000549
+    [log_lengthscale     ] +0.071499  +0.034736  +0.000925
+    [log_noise_scale     ] +0.000549  +0.000925  +0.002276
+
+  Ridge correlation corr(log_ks, log_ls) = 0.7914
+  (gate ≥0.5; ideal ≥0.65; Stage 3b=+0.741; GT=+0.754; expH A2=+0.767)
+  Welford IMM stds vs GT stds:
+    log_kernel_scale         : welford_std=0.4847  gt_std=0.4278  ratio=1.133
+    log_lengthscale          : welford_std=0.1864  gt_std=0.1783  ratio=1.045
+    log_noise_scale          : welford_std=0.0477  gt_std=0.0513  ratio=0.930
+  Final position phi2:
+    log_kernel_scale: 0.4065  GT_mean=0.4087  dev=0.01σ  ✓
+    log_lengthscale: -0.9757  GT_mean=-1.0425  dev=0.37σ  ✓
+    log_noise_scale: -2.3095  GT_mean=-2.3416  dev=0.63σ  ✓
+
+  Phase 2 ridge gate (corr≥0.5): 0.7914 PASS ✓  (ideal ≥0.65 ✓)
+  Phase 2 step gate (0.3-1.0): 0.59492 PASS ✓
+
+  Total warmup wall: 657.1s (Phase 1: 525.7s + Phase 2: 131.3s)  [Stage 3b total: 1152.7s]
+
+  --- Final benchmark (4 chains x 80 samples, laplace_mhmc L=5, maxiter=500) ---
+  Init laplace state from Phase 2 end position (maxiter=500) ...
+  Init done: 0.974s
+  vmap scan: 139.931s (1.749s/vmap-step, 0.437s/chain-sample, incl JIT)
+  wall_total (warmup+init+scan): 797.972s
+  mean_traj_weight=0.9425  n_div=0
+  chain 0: phi_mean=[0.4749, -1.0257, -2.3371]  traj_wt=0.9429  n_div=0
+  chain 1: phi_mean=[0.4074, -1.0533, -2.3449]  traj_wt=0.9406  n_div=0
+  chain 2: phi_mean=[0.4098, -1.0410, -2.3465]  traj_wt=0.9417  n_div=0
+  chain 3: phi_mean=[0.4311, -1.0253, -2.3399]  traj_wt=0.9445  n_div=0
+
+  --- Diagnostics ---
+  log_kernel_scale: ESS=340.35  ESS/N=1.0636  R-hat=0.9966
+  log_lengthscale: ESS=289.02  ESS/N=0.9032  R-hat=0.9971
+  log_noise_scale: ESS=258.55  ESS/N=0.8080  R-hat=0.9977
+
+======================================================================
+ExpJ Phase-1-maxiter=100 Confirming Run (total wall = 809.7s)
+  blackjax: stock main 007a9ded  |  gp_regression N=200  |  V2 vmap  |  4 chains x 80 samples
+======================================================================
+  laplace_mhmc L=5: 4 chains x 80 samples = 320 total
+  WARMUP: two-phase laplace_hmc (maxiter=100/500 split) from prior means {0,0,-2}
+  Phase 1: diag-IMM, L=10, n=500, maxiter=100, target=0.9  →  step1=0.29447  wall=525.7s
+  Phase 2: dense-IMM, L=5, n=200, maxiter=500, target=0.93  →  step=0.59492  wall=131.3s
+  adapted_step=0.59492  (Stage 3b: 0.48109; Stage 3a' ref: 0.57294; Stage 2 oracle: 0.526)
+  ridge_corr(log_ks,log_ls) = 0.7914  (gate ≥0.5; ideal ≥0.65; Stage 3b=+0.741; GT=+0.754)
+  Adapted IMM 3x3:
+    [log_kernel_scale    ] +0.234953  +0.071499  +0.000549
+    [log_lengthscale     ] +0.071499  +0.034736  +0.000925
+    [log_noise_scale     ] +0.000549  +0.000925  +0.002276
+  wall_w1=525.7s  wall_w2=131.3s  wall_scan=139.9s  wall_total=798.0s
+  Stage 3b comparison: w1=968.0s → 525.7s  (1.84× faster)
+  mean_traj_weight=0.9425  n_div=0  (traj_weight = exp(sum_log_p_accept)/L, not M-H acc)
+  ESS per param:
+    log_kernel_scale: ESS=340.35  ESS/N=1.0636  R-hat=0.9966
+    log_lengthscale: ESS=289.02  ESS/N=0.9032  R-hat=0.9971
+    log_noise_scale: ESS=258.55  ESS/N=0.8080  R-hat=0.9977
+  min_ESS=258.55  n_div=0  max_R-hat=0.9977
+  ESS/s (sampling-only) = 1.84772  vs-stage3b=1.702x  (gate: ≥0.977 = PASS ✓)
+  ESS/s (total-wall)    = 0.32401  vs-L5-GT=0.227x
+
+  --- Gate summary ---
+  Phase 1 stationarity: PASS ✓
+  Phase 1 wall < 300s: 525.7s → FAIL ✗ (>300s → retry at maxiter=200)
+  Phase 2 ridge ≥ 0.5: 0.7914 → PASS ✓
+  n_div = 0: 0 → PASS ✓
+  max_R-hat < 1.05: 0.9977 → PASS ✓
+  ESS/s ≥ 90% Stage 3b: 1.702x → PASS ✓
+
+  OVERALL: SOME GATES FAIL ✗ — investigate
+======================================================================
