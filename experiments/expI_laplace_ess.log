@@ -1,0 +1,36 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.3s] Imports done (stock blackjax)
+  laplace_marginal_factory debug.callback=False (expected False)
+  4 chains x 150 samples/chain = 600 total, step_size=0.526, L=10, maxiter=500
+[t=+6.9s] model built d=203
+  Cold-start init (single chain, shared across all chains) ...
+  Init done: 9.633s (iter_num confirmed 295 < 500 in Phase A v4; not re-probed here)
+  Running vmap scan (4 chains x 150 steps, incl JIT) ...
+  vmap scan: 382.486s (2.550s/vmap-step, 0.637s/chain-sample, incl JIT)
+  wall_laplace_total (init+scan): 392.119s
+  mean_acc=0.9529  n_div=0
+  chain 0: phi_mean=[0.4298, -1.0321, -2.3427]  acc=0.9556  n_div=0
+  chain 1: phi_mean=[0.4852, -1.0751, -2.3421]  acc=0.9562  n_div=0
+  chain 2: phi_mean=[0.4364, -1.0896, -2.3310]  acc=0.9490  n_div=0
+  chain 3: phi_mean=[0.3553, -1.0750, -2.3421]  acc=0.9507  n_div=0
+
+  --- Diagnostics ---
+  log_kernel_scale: ESS=123.14  ESS/N=0.2052  R-hat=1.0039
+  log_lengthscale: ESS=96.36  ESS/N=0.1606  R-hat=1.0069
+  log_noise_scale: ESS=148.70  ESS/N=0.2478  R-hat=1.0022
+
+======================================================================
+ExpI Laplace ESS Summary (total wall = 403.8s)
+  blackjax: stock main 007a9ded, laplace_marginal_factory(maxiter=500) explicit
+======================================================================
+  laplace_hmc: 4 chains x 150 samples = 600 total
+  wall_laplace_total=392.119s  (init=9.633s + scan=382.486s)
+  mean_acc=0.9529  n_div=0
+  ESS per param:
+    log_kernel_scale: ESS=123.14  ESS/N=0.2052  R-hat=1.0039
+    log_lengthscale: ESS=96.36  ESS/N=0.1606  R-hat=1.0069
+    log_noise_scale: ESS=148.70  ESS/N=0.2478  R-hat=1.0022
+  min_ESS=96.36  ESS/s (min_ESS/wall_total)=0.24574
+  max_R-hat=1.0069  (pass if < 1.05)
+======================================================================
