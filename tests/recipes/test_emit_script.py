@@ -744,3 +744,162 @@ print("L2 EMITTED OK")
         err_msg=f"IMM mismatch: runner shape={runner_imm.shape}, "
         f"emitted shape={emitted_imm.shape}",
     )
+
+
+# ---------------------------------------------------------------------------
+# Laplace-* recipe emit tests (R3.5b-2 laplace templates)
+# ---------------------------------------------------------------------------
+
+_LAPLACE_HIGH_RECIPE_PATH = (
+    _CATALOG_ROOT
+    / "gp_regression"
+    / "recipes"
+    / "high__laplace_mhmc__window_adaptation_dense_imm__inner_laplace_hmc.json"
+)
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_high_recipe_is_valid_python() -> None:
+    """emit_script for the HIGH gp_regression × laplace_mhmc recipe is syntactically valid Python.
+
+    Validates that all laplace template slots are populated (no un-substituted
+    $slot markers) and that the assembled script parses without SyntaxError.
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+    # ast.parse raises SyntaxError on malformed output (including un-substituted $slots)
+    ast.parse(script)
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
+    """D8: emitted laplace HIGH recipe has zero forbidden tuningfork imports.
+
+    The only allowed tuningfork imports are ``tuningfork.model`` and
+    ``tuningfork.model._numpyro``.  The inference choreography (laplace preamble
+    + multiphase warmup + sampler + inference loop) must be completely free of
+    tuningfork.warmup, tuningfork.recipes, tuningfork.calibration, etc.
+
+    Also checks that blackjax is imported (required for the laplace kernels),
+    and that ``from blackjax.mcmc.laplace_marginal import laplace_marginal_factory``
+    appears (the D8-compliant inline factory from the laplace_preamble template).
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+    tree = ast.parse(script)
+
+    tuningfork_imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("tuningfork"):
+                    tuningfork_imports.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is not None and node.module.startswith("tuningfork"):
+                tuningfork_imports.append(node.module)
+
+    disallowed = [
+        name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
+    ]
+    assert not disallowed, (
+        "Emitted laplace HIGH script imports tuningfork modules outside the allowlist "
+        f"{_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
+        "The inference choreography must be tuningfork-free (D8 STRICT)."
+    )
+
+    # Positive checks: laplace_marginal_factory must be inlined (D8-compliant path).
+    assert "laplace_marginal_factory" in script, (
+        "Expected `laplace_marginal_factory` in the emitted script "
+        "(imported from blackjax.mcmc.laplace_marginal in laplace_preamble)."
+    )
+    assert "blackjax.laplace_mhmc" in script, (
+        "Expected `blackjax.laplace_mhmc` in the emitted script "
+        "(sampler template for the HIGH recipe)."
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
+    """Emitted laplace HIGH script contains the two-phase warmup structure.
+
+    The HIGH gp_regression × laplace_mhmc recipe uses a two-phase warmup:
+    Phase 1 (diag IMM, maxiter=100) + Phase 2 (dense IMM, maxiter=500).
+    Verifies that both phases appear in the emitted script and that the
+    LaplaceMarginal factories are distinct (different maxiter values).
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+
+    # Both phases must appear in the warmup section.
+    assert (
+        "_warmup_p1" in script
+    ), "Phase 1 warmup (`_warmup_p1`) not found in emitted script"
+    assert (
+        "_warmup_p2" in script
+    ), "Phase 2 warmup (`_warmup_p2`) not found in emitted script"
+
+    # Phase 1 uses maxiter=100, Phase 2 uses maxiter=500 (from the recipe JSON).
+    assert "maxiter=100" in script, "Expected maxiter=100 (Phase 1) in emitted script"
+    assert "maxiter=500" in script, "Expected maxiter=500 (Phase 2) in emitted script"
+
+    # Phase 2 uses dense IMM (is_mass_matrix_diagonal=False).
+    assert "is_mass_matrix_diagonal=False" in script, (
+        "Expected `is_mass_matrix_diagonal=False` in Phase 2 warmup "
+        "(Phase 2 should use dense IMM for gp_regression ridge geometry capture)."
+    )
+
+    # initial_step_size_p2 should be seeded from Phase 1 (warm-start DA).
+    assert "_initial_step_size_p2" in script, (
+        "Expected `_initial_step_size_p2` in emitted script "
+        "(Phase 2 DA should be warm-started from Phase 1 adapted step_size)."
+    )
+
+
+@pytest.mark.slow
+def test_emit_script_laplace_high_recipe_executes(tmp_path: Path) -> None:
+    """Acceptance test: emitted HIGH laplace_mhmc script runs end-to-end (exit 0, prints DONE).
+
+    Downscaled to num_samples=10, num_chains=2 for speed. The two-phase warmup
+    is run at the recipe's configured n_warmup (500+200 steps) because scaling
+    that down risks convergence issues; the sampling phase is downscaled.
+
+    This is the D10 round-trip CI gate for laplace templates: any template
+    slot miss, assembly-order bug, or LaplaceMarginal contract violation would
+    surface here as a Python error or non-zero exit code.
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    # Downscale sampling only — warmup phases stay at recipe-configured length.
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+    script_path = tmp_path / "test_laplace_high.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Emitted laplace HIGH script failed (exit {result.returncode}):\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout, (
+        f"Expected 'DONE' in stdout of laplace HIGH emitted script.\n"
+        f"stdout:\n{result.stdout}"
+    )
+    assert (
+        "n_divergences=" in result.stdout
+    ), f"Expected 'n_divergences=' in stdout.\nstdout:\n{result.stdout}"
