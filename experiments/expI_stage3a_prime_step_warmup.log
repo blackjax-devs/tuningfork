@@ -1,0 +1,55 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.2s] Imports done (stock blackjax 007a9ded)
+  N_WARMUP=100 (step-only DA, IMM=GT frozen), target_acc=0.9, L=5
+  3a' vs 3a: target 0.9 vs 0.65 (3a overshot step by 1.87x at 0.65)
+  Stage 2 L=5 GT: ESS/s=1.4249  Stage 3a (target=0.65): ESS/s=0.7371
+[t=+7.4s] model built d=203
+  Cold-start init (single chain) ...
+  Init done: 9.575s
+
+  --- Phase 1: warmup (100 steps, single chain, DA step-only) ---
+  Warmup done: 71.284s (0.713s/step)
+  Adapted step_size = 0.57294  (GT was 0.526, ratio = 1.089x)
+  Final traj_weight = 0.0417  (target was 0.9, final da step_size = 0.19404)
+  Step trace (first 5): [0.526, 5.532393060766853, 0.6731839166709871, 0.5453785495063356, 0.5293035712411801]
+  Step trace (last 5):  [0.9375368209925145, 0.7105795850809749, 0.7781043600201416, 0.8431827911322906, 0.9173022697572761]
+  Traj_wt trace (first 5): [0.9277691902004902, 0.0, 0.921699173303593, 0.9468181735699762, 0.9844290564185147]
+  Traj_wt trace (last 5):  [0.7461179590402275, 0.9447459134759836, 0.9394726571485029, 0.9420060527420766, 0.041712253614985345]
+
+  IMM verification: dual_averaging only, no Welford called
+  max|used_IMM - GT_IMM| = 0.00e+00  (pass=0.0 ✓)
+
+  Step shift = 1.089x (≤1.5 → L-recheck NOT needed ✓)
+
+  --- Phase 2: benchmark (4 chains x 80 samples, step=0.57294, IMM=GT) ---
+  vmap scan: 134.343s (1.679s/vmap-step, 0.420s/chain-sample, incl JIT)
+  wall_total (init+warmup+scan): 215.201s
+  mean_traj_weight=0.9329  n_div=0
+  chain 0: phi_mean=[0.5056, -1.0326, -2.3453]  traj_wt=0.9433  n_div=0
+  chain 1: phi_mean=[0.3924, -1.0354, -2.3371]  traj_wt=0.9390  n_div=0
+  chain 2: phi_mean=[0.4958, -1.0213, -2.3401]  traj_wt=0.9312  n_div=0
+  chain 3: phi_mean=[0.4998, -0.9937, -2.3348]  traj_wt=0.9182  n_div=0
+
+  --- Diagnostics ---
+  log_kernel_scale: ESS=230.22  ESS/N=0.7194  R-hat=1.0008
+  log_lengthscale: ESS=157.16  ESS/N=0.4911  R-hat=0.9996
+  log_noise_scale: ESS=157.79  ESS/N=0.4931  R-hat=0.9974
+
+======================================================================
+ExpI Stage 3a' Summary (total wall = 227.7s)
+  blackjax: stock main 007a9ded  |  gp_regression N=200  |  V2 vmap  |  4 chains x 80 samples
+======================================================================
+  laplace_mhmc L=5: 4 chains x 80 samples = 320 total
+  WARMUP: step-only dual_averaging, N_WARMUP=100, target_acc=0.9, IMM=GT frozen (no Welford)
+  adapted_step_size=0.57294  (GT was 0.526, ratio=1.089x)
+  wall_warmup=71.284s  wall_scan=134.343s  wall_total=215.201s
+  mean_traj_weight=0.9329  n_div=0  (traj_weight = exp(sum_log_p_accept)/L, not M-H acc)
+  ESS per param:
+    log_kernel_scale: ESS=230.22  ESS/N=0.7194  R-hat=1.0008
+    log_lengthscale: ESS=157.16  ESS/N=0.4911  R-hat=0.9996
+    log_noise_scale: ESS=157.79  ESS/N=0.4931  R-hat=0.9974
+  min_ESS=157.16  ESS/s=0.73029  vs-L5-GT=0.513x  vs-L10-GT=0.569x  vs-3a=0.991x
+  max_R-hat=1.0008  (pass if < 1.05)
+  Stage 2 L=5 GT: ESS/s=1.42494  Stage 3a (target=0.65): ESS/s=0.73707
+======================================================================
