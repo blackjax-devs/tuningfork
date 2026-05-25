@@ -1,0 +1,73 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX: x64=True, backend=cpu
+[t=+2.2s] All imports done (laplace_hmc patched)
+  NUTS step_size=0.00222459, IMM shape=(203,), max_doublings=12
+  Laplace step_size=0.526, L=10
+[t=+7.3s] gp_regression model built, d_full=203
+
+=== Computing f_raw posterior mean at GT phi ===
+  GT phi: kernel_scale=1.5049, lengthscale=0.3526, noise_scale=0.0962
+  f_raw_posterior_mean norm = 2.7079
+  (v1 used f_raw=zeros with norm=0.0 — this is the posterior mean, far from the prior mode)
+[t=+7.8s] Algorithms built (no warmup)
+
+=== Phase A v2: Arm A — laplace_hmc (d=3, maxiter=500, L=10) ===
+  No burn-in (phi_GT init is already representative)
+  Arm A init: 9.165s
+  step 1: 2.237s  acc=0.9831  L_fixed=10  phi=[0.5473, -0.9883, -2.3784]
+  step 2: 0.768s  acc=0.9400  L_fixed=10  phi=[0.4700, -1.0600, -2.2890]
+  step 3: 1.263s  acc=0.9697  L_fixed=10  phi=[0.6276, -1.0105, -2.4345]
+  Arm A pilot: 4.268s total, 1.423s/step (incl JIT), 1.015s/step (post-JIT)
+
+=== Phase A v2: Arm B — NUTS (d=203, max_doublings=12) ===
+  f_raw init: posterior mean (norm=2.7079), phi at GT mean
+  Burn-in protocol: run 10 steps, gate median_leapfrog >= 500
+  Max burn-in: 30 steps. Then time 3 steps.
+  Arm B init: 0.024s
+
+  [Burn-in] up to 30 steps, gate: median_leapfrog >= 500
+  burn  1: 4.944s  n_leapfrog= 1535  acc=0.9921
+  burn  2: 5.304s  n_leapfrog= 2047  acc=0.9860
+  burn  3: 5.186s  n_leapfrog= 2047  acc=0.9943
+  burn  4: 5.261s  n_leapfrog= 2047  acc=0.9581
+  burn  5: 5.186s  n_leapfrog= 2047  acc=0.9993
+  burn  6: 5.179s  n_leapfrog= 2047  acc=0.9981
+  burn  7: 5.224s  n_leapfrog= 2047  acc=0.9957
+  burn  8: 5.196s  n_leapfrog= 2047  acc=0.8773
+  burn  9: 5.615s  n_leapfrog= 2047  acc=0.9990
+  burn 10: 5.849s  n_leapfrog= 2047  acc=0.9905
+
+  [Burn-in] GATE PASSED at step 10: median(last 5 steps) = 2047 >= 500
+  Burn-in total: 52.947s, 10 steps
+
+  [Timed] 3 steps after burn-in:
+  step 1: 5.196s  n_leapfrog= 2047  acc=0.9862
+  step 2: 5.282s  n_leapfrog= 2047  acc=0.9956
+  step 3: 5.070s  n_leapfrog= 2047  acc=0.9844
+
+  Arm B timed: 15.549s total, 5.183s/step
+  Timed leapfrog counts: [2047, 2047, 2047]  (median=2047, GT=2047)
+
+====================================================================
+ExpI Phase A v2 Summary (total wall = 89.8s)
+====================================================================
+  Arm A (laplace_hmc): 1.015 s/step (post-JIT, L=10 fixed)
+  Arm B (NUTS d=203):  5.183 s/step (timed, median_leapfrog=2047)
+  GT NUTS median leapfrog = 2047 → scaling factor = 1.00
+  Arm B scaled to GT-representative: 5.183 s/step
+
+  Ratio B/A (raw, timed leapfrogs):      5.10×
+  Ratio B/A (scaled to GT 2047 lf):     5.10×
+  (> 1 means NUTS is slower per step)
+
+  Verdict validity (@statistician check): timed median=2047 vs GT=2047. NEAR GT — no adjustment needed
+
+  Burn-in leapfrog sequence: [1535, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047]
+  Timed leapfrog sequence:   [2047, 2047, 2047]
+
+  Phase B projection (budget=120s per arm):
+    n_samples_laplace (4 chains vmap)    = 118
+    n_samples_nuts (2 chains sequential) = 23
+
+  Phase B awaits TL spot-review.
+====================================================================
