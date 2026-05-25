@@ -1159,9 +1159,14 @@ def run_recipe_to_idata(
                 _init_pos_batch = _prev_state.position  # type: ignore[union-attr]
 
             # Build window_adaptation for this phase.
+            # initial_step_size is a named window_adaptation param; num_integration_steps
+            # and any other kernel-specific params go to **extra_parameters inside WA.
             _wa_kwargs: dict[str, Any] = {}
             if _initial_step_size is not None:
                 _wa_kwargs["initial_step_size"] = _initial_step_size
+            _phase_nis = _phase_params.get("num_integration_steps")
+            if _phase_nis is not None:
+                _wa_kwargs["num_integration_steps"] = int(_phase_nis)
             _warmup_phase = _bj.window_adaptation(
                 _phase_kernel_factory,
                 _phase_laplace,
