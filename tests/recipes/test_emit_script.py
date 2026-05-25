@@ -865,24 +865,80 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
 
 
 @pytest.mark.slow
-def test_emit_script_laplace_high_recipe_executes(tmp_path: Path) -> None:
-    """Acceptance test: emitted HIGH laplace_mhmc script runs end-to-end (exit 0, prints DONE).
+def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
+    """Acceptance test: emitted laplace multiphase script runs end-to-end (exit 0, prints DONE).
 
-    Downscaled to num_samples=10, num_chains=2 for speed. The two-phase warmup
-    is run at the recipe's configured n_warmup (500+200 steps) because scaling
-    that down risks convergence issues; the sampling phase is downscaled.
+    Uses a synthetic multi-phase laplace_mhmc recipe with tiny warmup budgets
+    (n_warmup=5 per phase, maxiter=5) so the test completes in ~30 s rather than
+    the ~7 min needed for the full HIGH recipe's n_warmup=500+200 at maxiter=100/500.
+
+    What is validated:
+    - The laplace_preamble + laplace_multiphase_warmup + laplace_mhmc sampler
+      templates assemble into a Python script that runs without errors.
+    - LaplaceMarginal factories are correctly built and passed to window_adaptation.
+    - The two-phase warmup loop (Phase 1 diag → Phase 2 dense) executes.
+    - The sampler produces draws and the postamble prints DONE + n_divergences.
 
     This is the D10 round-trip CI gate for laplace templates: any template
     slot miss, assembly-order bug, or LaplaceMarginal contract violation would
     surface here as a Python error or non-zero exit code.
     """
-    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
-        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+    from tuningfork.recipes._base import Effort, Recipe
 
-    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
-    # Downscale sampling only — warmup phases stay at recipe-configured length.
-    script = emit_script(recipe, num_samples=10, num_chains=2)
-    script_path = tmp_path / "test_laplace_high.py"
+    # Synthetic multi-phase laplace_mhmc recipe for gp_regression.
+    # Tiny warmup budgets (n_warmup=5, maxiter=5) for CI speed.
+    recipe = Recipe(
+        model_name="gp_regression",
+        base_method_name="laplace_mhmc",
+        warmup_name="window_adaptation_dense_imm",
+        effort=Effort.HIGH,
+        base_method_params={
+            "num_integration_steps": 2,
+            "step_size": 0.5,
+            "inverse_mass_matrix": [
+                [0.23, 0.07, 0.0],
+                [0.07, 0.03, 0.0],
+                [0.0, 0.0, 0.002],
+            ],
+            "maxiter": 5,
+        },
+        warmup_params={
+            "n_warmup": 5,
+            "num_chains": 1,
+            "target_acceptance": 0.8,
+        },
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {
+                    "n_warmup": 5,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                },
+            },
+            {
+                "name": "window_adaptation_dense_imm",
+                "params": {
+                    "n_warmup": 5,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                    "initial_step_size_from_phase1": True,
+                },
+            },
+        ],
+        warmup_inner_kernel="laplace_hmc",
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 1},
+        difficulty=None,
+        instructions="",
+        tuning_seed=42,
+    )
+
+    script = emit_script(recipe, num_samples=5, num_chains=1)
+    script_path = tmp_path / "test_laplace_multiphase.py"
     script_path.write_text(script)
 
     result = subprocess.run(
@@ -893,11 +949,11 @@ def test_emit_script_laplace_high_recipe_executes(tmp_path: Path) -> None:
         env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
     )
     assert result.returncode == 0, (
-        f"Emitted laplace HIGH script failed (exit {result.returncode}):\n"
+        f"Emitted laplace multiphase script failed (exit {result.returncode}):\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout, (
-        f"Expected 'DONE' in stdout of laplace HIGH emitted script.\n"
+        f"Expected 'DONE' in stdout of laplace multiphase emitted script.\n"
         f"stdout:\n{result.stdout}"
     )
     assert (
