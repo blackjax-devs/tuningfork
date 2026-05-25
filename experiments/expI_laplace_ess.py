@@ -128,9 +128,8 @@ state_single = _lhmc.init(PHI_INIT, laplace)
 jax.block_until_ready(state_single)
 t_init_end = time.perf_counter()
 print(
-    f"  Init done: {t_init_end - t_init_start:.3f}s  "
-    f"iter_num={int(state_single.laplace_state.iter_num)} "
-    f"(< {MAXITER} means ftol convergence)",
+    f"  Init done: {t_init_end - t_init_start:.3f}s "
+    "(iter_num confirmed 295 < 500 in Phase A v4; not re-probed here)",
     flush=True,
 )
 
