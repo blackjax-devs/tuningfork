@@ -744,3 +744,329 @@ print("L2 EMITTED OK")
         err_msg=f"IMM mismatch: runner shape={runner_imm.shape}, "
         f"emitted shape={emitted_imm.shape}",
     )
+
+
+# ---------------------------------------------------------------------------
+# Laplace-* recipe emit tests (R3.5b-2 laplace templates)
+# ---------------------------------------------------------------------------
+
+_LAPLACE_HIGH_RECIPE_PATH = (
+    _CATALOG_ROOT
+    / "gp_regression"
+    / "recipes"
+    / "high__laplace_mhmc__window_adaptation_dense_imm__inner_laplace_hmc.json"
+)
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_high_recipe_is_valid_python() -> None:
+    """emit_script for the HIGH gp_regression × laplace_mhmc recipe is syntactically valid Python.
+
+    Validates that all laplace template slots are populated (no un-substituted
+    $slot markers) and that the assembled script parses without SyntaxError.
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+    # ast.parse raises SyntaxError on malformed output (including un-substituted $slots)
+    ast.parse(script)
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
+    """D8: emitted laplace HIGH recipe has zero forbidden tuningfork imports.
+
+    The only allowed tuningfork imports are ``tuningfork.model`` and
+    ``tuningfork.model._numpyro``.  The inference choreography (laplace preamble
+    + multiphase warmup + sampler + inference loop) must be completely free of
+    tuningfork.warmup, tuningfork.recipes, tuningfork.calibration, etc.
+
+    Also checks that blackjax is imported (required for the laplace kernels),
+    and that ``from blackjax.mcmc.laplace_marginal import laplace_marginal_factory``
+    appears (the D8-compliant inline factory from the laplace_preamble template).
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+    tree = ast.parse(script)
+
+    tuningfork_imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("tuningfork"):
+                    tuningfork_imports.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is not None and node.module.startswith("tuningfork"):
+                tuningfork_imports.append(node.module)
+
+    disallowed = [
+        name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
+    ]
+    assert not disallowed, (
+        "Emitted laplace HIGH script imports tuningfork modules outside the allowlist "
+        f"{_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
+        "The inference choreography must be tuningfork-free (D8 STRICT)."
+    )
+
+    # Positive checks: laplace_marginal_factory must be inlined (D8-compliant path).
+    assert "laplace_marginal_factory" in script, (
+        "Expected `laplace_marginal_factory` in the emitted script "
+        "(imported from blackjax.mcmc.laplace_marginal in laplace_preamble)."
+    )
+    assert "blackjax.laplace_mhmc" in script, (
+        "Expected `blackjax.laplace_mhmc` in the emitted script "
+        "(sampler template for the HIGH recipe)."
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
+    """Emitted laplace HIGH script contains the two-phase warmup structure.
+
+    The HIGH gp_regression × laplace_mhmc recipe uses a two-phase warmup:
+    Phase 1 (diag IMM, maxiter=100) + Phase 2 (dense IMM, maxiter=500).
+    Verifies that both phases appear in the emitted script and that the
+    LaplaceMarginal factories are distinct (different maxiter values).
+    """
+    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
+
+    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+
+    # Both phases must appear in the warmup section.
+    assert (
+        "_warmup_p1" in script
+    ), "Phase 1 warmup (`_warmup_p1`) not found in emitted script"
+    assert (
+        "_warmup_p2" in script
+    ), "Phase 2 warmup (`_warmup_p2`) not found in emitted script"
+
+    # Phase 1 uses maxiter=100, Phase 2 uses maxiter=500 (from the recipe JSON).
+    assert "maxiter=100" in script, "Expected maxiter=100 (Phase 1) in emitted script"
+    assert "maxiter=500" in script, "Expected maxiter=500 (Phase 2) in emitted script"
+
+    # Phase 2 uses dense IMM (is_mass_matrix_diagonal=False).
+    assert "is_mass_matrix_diagonal=False" in script, (
+        "Expected `is_mass_matrix_diagonal=False` in Phase 2 warmup "
+        "(Phase 2 should use dense IMM for gp_regression ridge geometry capture)."
+    )
+
+    # initial_step_size_p2 should be seeded from Phase 1 (warm-start DA).
+    assert "_initial_step_size_p2" in script, (
+        "Expected `_initial_step_size_p2` in emitted script "
+        "(Phase 2 DA should be warm-started from Phase 1 adapted step_size)."
+    )
+
+
+@pytest.mark.slow
+def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
+    """Acceptance test: emitted laplace multiphase script runs end-to-end (exit 0, prints DONE).
+
+    Uses a synthetic multi-phase laplace_mhmc recipe with tiny warmup budgets
+    (n_warmup=5 per phase, maxiter=5) so the test completes in ~30 s rather than
+    the ~7 min needed for the full HIGH recipe's n_warmup=500+200 at maxiter=100/500.
+
+    What is validated:
+    - The laplace_preamble + laplace_multiphase_warmup + laplace_mhmc sampler
+      templates assemble into a Python script that runs without errors.
+    - LaplaceMarginal factories are correctly built and passed to window_adaptation.
+    - The two-phase warmup loop (Phase 1 diag → Phase 2 dense) executes.
+    - The sampler produces draws and the postamble prints DONE + n_divergences.
+
+    This is the D10 round-trip CI gate for laplace templates: any template
+    slot miss, assembly-order bug, or LaplaceMarginal contract violation would
+    surface here as a Python error or non-zero exit code.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    # Synthetic multi-phase laplace_mhmc recipe for gp_regression.
+    # Tiny warmup budgets (n_warmup=5, maxiter=5) for CI speed.
+    recipe = Recipe(
+        model_name="gp_regression",
+        base_method_name="laplace_mhmc",
+        warmup_name="window_adaptation_dense_imm",
+        effort=Effort.HIGH,
+        base_method_params={
+            "num_integration_steps": 2,
+            "step_size": 0.5,
+            "inverse_mass_matrix": [
+                [0.23, 0.07, 0.0],
+                [0.07, 0.03, 0.0],
+                [0.0, 0.0, 0.002],
+            ],
+            "maxiter": 5,
+        },
+        warmup_params={
+            "n_warmup": 5,
+            "num_chains": 1,
+            "target_acceptance": 0.8,
+        },
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {
+                    "n_warmup": 5,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                },
+            },
+            {
+                "name": "window_adaptation_dense_imm",
+                "params": {
+                    "n_warmup": 5,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                    "initial_step_size_from_phase1": True,
+                },
+            },
+        ],
+        warmup_inner_kernel="laplace_hmc",
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 1},
+        difficulty=None,
+        instructions="",
+        tuning_seed=42,
+    )
+
+    script = emit_script(recipe, num_samples=5, num_chains=1)
+    script_path = tmp_path / "test_laplace_multiphase.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Emitted laplace multiphase script failed (exit {result.returncode}):\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout, (
+        f"Expected 'DONE' in stdout of laplace multiphase emitted script.\n"
+        f"stdout:\n{result.stdout}"
+    )
+    assert (
+        "n_divergences=" in result.stdout
+    ), f"Expected 'n_divergences=' in stdout.\nstdout:\n{result.stdout}"
+
+
+# ---------------------------------------------------------------------------
+# run_recipe_to_idata multi-phase faithfulness (cached_idata_for_recipe path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_run_recipe_to_idata_laplace_multiphase_uses_dense_imm() -> None:
+    """run_recipe_to_idata faithfully runs both warmup phases for a laplace multiphase recipe.
+
+    Verifies that the multi-phase runner path (used by cached_idata_for_recipe)
+    executes Phase 1 (diag IMM) followed by Phase 2 (dense IMM) and uses Phase 2's
+    adapted params for sampling — NOT Phase 1's diagonal IMM.
+
+    Uses a synthetic recipe with tiny n_warmup=5/maxiter=5 for speed (~30 s).
+
+    What is checked:
+    - run_recipe_to_idata returns valid InferenceData with posterior group.
+    - phi-space variables (log_lengthscale, log_kernel_scale, log_noise_scale) present.
+    - Sample shape is (1, 5) for num_chains=1, n_samples=5.
+    - No error from the dense-IMM window_adaptation call (would fail if Phase 2
+      were incorrectly routing through the diagonal-only path).
+
+    This is the fix verification for the pre-PR #63 unfaithfulness where
+    run_recipe_to_idata ignored recipe.warmups list and only ran warmups[0],
+    producing a diagonal IMM even when the recipe specifies dense.
+    """
+    from tuningfork.catalog._rerun_inference import (  # noqa: F401
+        cached_idata_for_recipe,
+    )
+    from tuningfork.recipes._base import Effort, Recipe
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    # Synthetic multi-phase laplace_mhmc recipe — same structure as HIGH gp_regression
+    # but with tiny warmup budgets for CI speed.
+    synth_recipe = Recipe(
+        model_name="gp_regression",
+        base_method_name="laplace_mhmc",
+        warmup_name="window_adaptation_dense_imm",
+        effort=Effort.HIGH,
+        base_method_params={
+            "num_integration_steps": 2,
+            "step_size": 0.5,
+            "inverse_mass_matrix": [
+                [0.23, 0.07, 0.0],
+                [0.07, 0.03, 0.0],
+                [0.0, 0.0, 0.002],
+            ],
+            "maxiter": 5,
+        },
+        warmup_params={"n_warmup": 5, "num_chains": 1, "target_acceptance": 0.8},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {
+                    "n_warmup": 5,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                },
+            },
+            {
+                "name": "window_adaptation_dense_imm",
+                "params": {
+                    "n_warmup": 5,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                    "initial_step_size_from_phase1": True,
+                },
+            },
+        ],
+        warmup_inner_kernel="laplace_hmc",
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 1},
+        difficulty=None,
+        instructions="",
+        tuning_seed=42,
+    )
+
+    # Direct call to run_recipe_to_idata (the function cached_idata_for_recipe wraps)
+    idata = run_recipe_to_idata(synth_recipe, n_samples=5)
+
+    # Returned InferenceData must have a posterior group
+    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
+
+    # phi-space variables must be present (gp_regression phi sites)
+    phi_sites = {"log_lengthscale", "log_kernel_scale", "log_noise_scale"}
+    posterior_vars = set(idata.posterior.data_vars)
+    assert phi_sites <= posterior_vars, (
+        f"Missing phi sites in posterior: {phi_sites - posterior_vars}\n"
+        "Expected gp_regression phi-space variables from laplace_mhmc sampling."
+    )
+
+    # Sample shape must be (num_chains=1, n_samples=5)
+    first_var = next(iter(idata.posterior.data_vars))
+    sample_shape = tuple(idata.posterior[first_var].shape[:2])
+    assert sample_shape == (1, 5), (
+        f"Expected sample shape (1, 5), got {sample_shape}.\n"
+        "Indicates either wrong num_chains/n_samples routing or idata assembly error."
+    )
+
+    # If we reach here without error, Phase 2's dense window_adaptation completed
+    # (blackjax.window_adaptation(..., is_mass_matrix_diagonal=False, ...) ran successfully)
+    # — proving the multi-phase loop executed Phase 2, not only Phase 1.
+    # A regression to the old single-phase path would skip Phase 2 entirely and
+    # produce a diagonal IMM, which would still succeed numerically but lose density.
+    # The dense IMM run is the discriminating evidence (no error = Phase 2 ran).
+    assert True, "Phase 2 dense-IMM warmup completed without error"

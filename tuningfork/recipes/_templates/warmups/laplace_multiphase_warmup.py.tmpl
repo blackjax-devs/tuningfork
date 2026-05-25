@@ -1,0 +1,69 @@
+# === WARMUP: laplace multi-phase ($num_warmup_phases phases) ===
+# Phase 1: $wp0_name (n_warmup=$wp0_n_warmup, target=$wp0_target$wp0_extra_kwargs)
+# Phase 2: $wp1_name (n_warmup=$wp1_n_warmup, target=$wp1_target$wp1_extra_kwargs)
+# Inner kernel for both phases: $warmup_algorithm
+#
+# Each phase uses a separate LaplaceMarginal factory (different maxiter).
+# The logdensity_fn override ensures each phase's window_adaptation sees the
+# correct LaplaceMarginal with the right L-BFGS iteration budget.
+
+# ── Phase 1: traversal (diagonal IMM) ────────────────────────────────────────
+# Phase 1 logdensity_fn: _laplace_warmup[0] (already set by laplace_preamble)
+_warmup_p1 = blackjax.window_adaptation(
+    $warmup_algorithm,
+    logdensity_fn,
+    target_acceptance_rate=$wp0_target$wp0_extra_kwargs,
+    progress_bar=False,
+)
+_warmup_keys_p1 = jax.random.split(jax.random.key($tuning_seed), num_chains)
+_init_positions_p1 = jax.tree.map(
+    lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape),
+    init_position,
+)
+
+
+def _run_one_warmup_p1(key, init_pos):
+    (state, params), _ = _warmup_p1.run(key, init_pos, $wp0_n_warmup)
+    return state, params
+
+
+_state_phase1, _adapted_params_phase1 = jax.vmap(_run_one_warmup_p1)(
+    _warmup_keys_p1, _init_positions_p1
+)
+# After Phase 1:
+#   _state_phase1   — LaplaceHMCState, shape (num_chains, ...) with phi + theta_star
+#   _adapted_params_phase1["step_size"]             shape (num_chains,) — from dual-avg
+#   _adapted_params_phase1["inverse_mass_matrix"]   shape (num_chains, phi_dim) [diag]
+
+# ── Phase 2: Welford dense IMM capture ───────────────────────────────────────
+# Switch to Phase 2 LaplaceMarginal (higher maxiter for accurate Hessians).
+logdensity_fn = _laplace_warmup[1]
+# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (per-chain mean).
+# Using mean so initial_step_size is a scalar as window_adaptation expects.
+_initial_step_size_p2 = float(jnp.mean(_adapted_params_phase1["step_size"]))
+_warmup_p2 = blackjax.window_adaptation(
+    $warmup_algorithm,
+    logdensity_fn,
+    is_mass_matrix_diagonal=False,
+    target_acceptance_rate=$wp1_target$wp1_extra_kwargs,
+    initial_step_size=_initial_step_size_p2,
+    progress_bar=False,
+)
+# Use keys offset from Phase 1 to avoid correlation.
+_warmup_keys_p2 = jax.random.split(jax.random.key($tuning_seed + 1), num_chains)
+# Phase 2 starts from Phase 1 end-positions (phi only; warm-started theta_star in state).
+_init_positions_p2 = _state_phase1.position
+
+
+def _run_one_warmup_p2(key, init_pos):
+    (state, params), _ = _warmup_p2.run(key, init_pos, $wp1_n_warmup)
+    return state, params
+
+
+_state_post_warmup, _adapted_params = jax.vmap(_run_one_warmup_p2)(
+    _warmup_keys_p2, _init_positions_p2
+)
+# After Phase 2 (final adapted params — used by inference loop):
+#   _state_post_warmup  — LaplaceHMCState with accurate theta_star (maxiter=$wp1_maxiter)
+#   _adapted_params["step_size"]             shape (num_chains,)
+#   _adapted_params["inverse_mass_matrix"]   shape (num_chains, phi_dim, phi_dim) [dense]

@@ -1088,9 +1088,111 @@ def run_recipe_to_idata(
             laplace_result
         )
 
-    # Run warmup — use explicit inner kernel if recipe.warmup_inner_kernel is set.
+    # Run warmup — multi-phase (recipe.warmups > 1) or single-phase.
+    #
+    # Multi-phase warmup (e.g. the gp_regression HIGH laplace recipe):
+    #   Phase 1: diag IMM warmup with lower maxiter LaplaceMarginal
+    #   Phase 2: dense IMM warmup with higher maxiter LaplaceMarginal;
+    #            initial_step_size seeded from Phase 1's adapted step_size.
+    #   Final phase's (step_size, IMM) are used for sampling.
+    #
+    # Single-phase: existing logic (warmup_inner_kernel or warmup.runner).
     _recipe_warmup_info: Any = None
-    if recipe.warmup_inner_kernel is not None:
+    _is_multiphase = len(recipe.warmups) > 1
+
+    if _is_multiphase and is_laplace:
+        # Multi-phase laplace warmup: loop phases, threading adapted params.
+        # Each phase uses a separate LaplaceMarginal with phase-specific maxiter
+        # and its own target_acceptance / is_mass_matrix_diagonal / n_warmup.
+        import blackjax as _bj
+
+        from tuningfork.warmup._base import _maybe_replicate
+
+        _phase_inner = recipe.warmup_inner_kernel or "laplace_hmc"
+        _phase_kernel_factory = getattr(_bj, _phase_inner)
+
+        _prev_state: Any = None
+        _prev_params_mp: dict[str, Any] = {}
+        _prev_n_warmup = n_warmup  # fallback when recipe.warmups is sparse
+
+        for _phase_idx, _phase in enumerate(recipe.warmups):
+            _phase_params = _phase["params"]
+            _phase_n_warmup = int(_phase_params.get("n_warmup", _prev_n_warmup))
+            _phase_target = float(
+                _phase_params.get(
+                    "target_acceptance",
+                    _phase_params.get(
+                        "target_acceptance_rate", target_acceptance or 0.8
+                    ),
+                )
+            )
+            _phase_maxiter = int(
+                _phase_params.get(
+                    "maxiter", recipe.base_method_params.get("maxiter", 30)
+                )
+            )
+            _phase_is_dense = "dense" in _phase["name"]
+
+            # Build phase-specific LaplaceMarginal with this phase's maxiter.
+            # Pass directly to window_adaptation as logdensity_fn: LaplaceMarginal
+            # returns (lp, theta_star) which satisfies the has_aux=True contract
+            # expected by laplace_hmc.init(phi, laplace).
+            _phase_laplace = laplace_marginal_factory(
+                laplace_log_joint_fn, laplace_theta_init, maxiter=_phase_maxiter
+            )
+
+            # initial_step_size: seed Phase 2+ dual-averaging from Phase 1 result.
+            _initial_step_size: float | None = None
+            if _phase_idx > 0 and _phase_params.get("initial_step_size_from_phase1"):
+                _prev_ss = _prev_params_mp.get("step_size")
+                if _prev_ss is not None:
+                    _initial_step_size = float(np.asarray(_prev_ss).mean())
+
+            # Use fold_in per phase to avoid key correlation between phases.
+            _phase_key = jax.random.fold_in(warmup_key, _phase_idx)
+            _chain_keys = jax.random.split(_phase_key, num_chains)
+
+            # Init positions for this phase.
+            if _phase_idx == 0:
+                _init_pos_batch = _maybe_replicate(init_position, num_chains)
+            else:
+                _init_pos_batch = _prev_state.position  # type: ignore[union-attr]
+
+            # Build window_adaptation for this phase.
+            # initial_step_size is a named window_adaptation param; num_integration_steps
+            # and any other kernel-specific params go to **extra_parameters inside WA.
+            _wa_kwargs: dict[str, Any] = {}
+            if _initial_step_size is not None:
+                _wa_kwargs["initial_step_size"] = _initial_step_size
+            _phase_nis = _phase_params.get("num_integration_steps")
+            if _phase_nis is not None:
+                _wa_kwargs["num_integration_steps"] = int(_phase_nis)
+            _warmup_phase = _bj.window_adaptation(
+                _phase_kernel_factory,
+                _phase_laplace,
+                is_mass_matrix_diagonal=not _phase_is_dense,
+                target_acceptance_rate=_phase_target,
+                **_wa_kwargs,
+            )
+
+            # Run per-chain warmup via vmap (matches existing _run_warmup_with_inner_kernel style).
+            _n_steps_phase = _phase_n_warmup  # capture for closure
+
+            @jax.vmap
+            def _run_one_warmup_phase(k: Any, x0: Any) -> tuple[Any, Any]:  # noqa: B023
+                (st, pr), _ = _warmup_phase.run(k, x0, _n_steps_phase)
+                return st, pr
+
+            _phase_states, _phase_params_raw = _run_one_warmup_phase(
+                _chain_keys, _init_pos_batch
+            )
+            _prev_state = _phase_states
+            _prev_params_mp = dict(_phase_params_raw)
+            _prev_n_warmup = _phase_n_warmup
+
+        batched_state = _prev_state
+        batched_params = _prev_params_mp
+    elif recipe.warmup_inner_kernel is not None:
         batched_state, batched_params, _recipe_warmup_info = (
             _run_warmup_with_inner_kernel(
                 warmup_key,

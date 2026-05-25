@@ -194,7 +194,10 @@ def emit_script(
     # it is set AND differs from the implicit default.  This is the exact mirror of
     # `resolve_warmup_inner_kernel` in `_warmup_to_sampler_transform.py` so that
     # the emitted script is bit-faithful to what the runner did.
-    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
+    from tuningfork.warmup._laplace_adapter import (
+        LAPLACE_METHOD_NAMES,
+        WARMUP_SUBSTITUTE_METHOD_NAMES,
+    )
 
     _implicit_warmup_default = (
         "nuts"
@@ -231,7 +234,22 @@ def emit_script(
     ):
         # NUTS (explicit or via substitute-family) picks its own trajectory
         # length and needs no extra kernel kwargs at warmup time.
-        _warmup_extra = {}
+        # Exception: laplace_* warmup inner kernels DO need num_integration_steps
+        # because blackjax.laplace_hmc / laplace_mhmc require it. For single-phase
+        # recipes, pull from warmup_params if present; for multi-phase, each phase
+        # supplies its own via wp*_extra_kwargs (computed below).
+        if (
+            recipe.base_method_name in LAPLACE_METHOD_NAMES
+            and recipe.warmup_inner_kernel
+            in (
+                "laplace_hmc",
+                "laplace_mhmc",
+            )
+        ):
+            _nis = recipe.warmup_params.get("num_integration_steps")
+            _warmup_extra = {"num_integration_steps": _nis} if _nis is not None else {}
+        else:
+            _warmup_extra = {}
     else:
         _bm = BASE_METHODS[recipe.base_method_name]
         _warmup_extra = {}
@@ -245,21 +263,130 @@ def emit_script(
     _warmup_extra_str = "".join(f", {k}={v!r}" for k, v in _warmup_extra.items())
     ctx["warmup_extra_kwargs"] = _warmup_extra_str
 
+    # ── Laplace-* recipe handling ────────────────────────────────────────────
+    # For laplace_* samplers, the emitted script needs a laplace_preamble section
+    # (phi/theta split, log_joint_fn, LaplaceMarginal factories) inserted between
+    # the standard preamble and the warmup body.  This is D8 compliant: the
+    # laplace_preamble only imports from blackjax (laplace_marginal_factory),
+    # not from tuningfork.
+    _is_laplace = recipe.base_method_name in LAPLACE_METHOD_NAMES
+    _is_multiphase_warmup = len(recipe.warmups) > 1
+
+    if _is_laplace:
+        # Import the phi/theta split table from the recipe runner.
+        from tuningfork.recipes._recipe_runner import _LAPLACE_PHI_THETA_SPLITS
+
+        if recipe.model_name not in _LAPLACE_PHI_THETA_SPLITS:
+            raise ValueError(
+                f"laplace_* recipe requested for model {recipe.model_name!r} but no "
+                "phi/theta split is registered in _LAPLACE_PHI_THETA_SPLITS. "
+                "Add an entry before calling emit_script for this model."
+            )
+        phi_sites, theta_sites = _LAPLACE_PHI_THETA_SPLITS[recipe.model_name]
+        ctx["phi_sites_repr"] = repr(phi_sites)
+        ctx["theta_sites_repr"] = repr(theta_sites)
+
+        # Build the LaplaceMarginal factory expression for each warmup phase.
+        # Each phase may have a different maxiter (from phase.params.maxiter).
+        # For single-phase recipes: warmup_params["maxiter"] or bm_maxiter fallback.
+        # For multi-phase recipes: extract per-phase maxiter from recipe.warmups.
+        def _laplace_factory_expr(maxiter: int) -> str:
+            return f"_lmf(log_joint_fn, theta_init, maxiter={maxiter})"
+
+        if _is_multiphase_warmup:
+            _factory_exprs = []
+            for _phase in recipe.warmups:
+                _phase_maxiter = _phase["params"].get(
+                    "maxiter", recipe.base_method_params.get("maxiter", 30)
+                )
+                _factory_exprs.append(_laplace_factory_expr(_phase_maxiter))
+            ctx["laplace_factories_expr"] = ", ".join(_factory_exprs)
+            ctx["num_warmup_phases"] = len(recipe.warmups)
+        else:
+            # Single-phase: use warmup_params["maxiter"] or bm_maxiter fallback.
+            _single_maxiter = recipe.warmup_params.get(
+                "maxiter", recipe.base_method_params.get("maxiter", 30)
+            )
+            ctx["laplace_factories_expr"] = _laplace_factory_expr(_single_maxiter)
+            ctx["num_warmup_phases"] = 1
+
+    # ── Multi-phase warmup slot population ───────────────────────────────────
+    # For multi-phase laplace warmup (len(recipe.warmups) > 1), populate per-phase
+    # template slots: $wp0_*, $wp1_*, etc.  These are consumed by the
+    # laplace_multiphase_warmup.py.tmpl template.
+    if _is_laplace and _is_multiphase_warmup:
+        for _i, _phase in enumerate(recipe.warmups):
+            _phase_params = _phase["params"]
+            _prefix = f"wp{_i}_"
+            ctx[f"{_prefix}name"] = _phase["name"]
+            _phase_target = _phase_params.get(
+                "target_acceptance", _phase_params.get("target_acceptance_rate", 0.8)
+            )
+            ctx[f"{_prefix}target"] = _phase_target
+            ctx[f"{_prefix}n_warmup"] = _phase_params.get("n_warmup", 1000)
+            ctx[f"{_prefix}maxiter"] = _phase_params.get(
+                "maxiter", recipe.base_method_params.get("maxiter", 30)
+            )
+            # Per-phase warmup extra kwargs for the laplace inner kernel.
+            # blackjax.laplace_hmc requires num_integration_steps at warmup time.
+            _phase_nis = _phase_params.get("num_integration_steps")
+            if _phase_nis is not None and _warmup_sampler in (
+                "laplace_hmc",
+                "laplace_mhmc",
+            ):
+                ctx[f"{_prefix}extra_kwargs"] = (
+                    f", num_integration_steps={_phase_nis!r}"
+                )
+            else:
+                ctx[f"{_prefix}extra_kwargs"] = ""
+
     # Use safe_substitute so templates with optional $bm_*/wp_* slots that are
     # absent from the recipe (e.g. $bm_num_integration_steps in a nuts recipe)
     # leave the slot as a literal dollar-prefixed string rather than raising
     # KeyError.  Each template is responsible for using only the slots that
     # actually exist for its algorithm family.
     preamble = _load_template("preamble.py.tmpl").safe_substitute(ctx)
-    warmup_body = _load_template(
-        f"warmups/{recipe.warmup_name}.py.tmpl"
-    ).safe_substitute(ctx)
+
+    # Build the warmup body: multi-phase laplace uses a dedicated template;
+    # single-phase uses the per-warmup template (existing path).
+    if _is_laplace and _is_multiphase_warmup:
+        warmup_body = _load_template(
+            "warmups/laplace_multiphase_warmup.py.tmpl"
+        ).safe_substitute(ctx)
+    else:
+        warmup_body = _load_template(
+            f"warmups/{recipe.warmup_name}.py.tmpl"
+        ).safe_substitute(ctx)
+
     sampler_body = _load_template(
         f"samplers/{recipe.base_method_name}.py.tmpl"
     ).safe_substitute(ctx)
     inference_loop = _load_template("inference_loop.py.tmpl").safe_substitute(ctx)
     postamble = _load_template("postamble.py.tmpl").safe_substitute(ctx)
 
+    # Assembly order:
+    # - Standard:  [preamble, warmup_body, sampler_body, inference_loop, postamble]
+    # - Laplace:   [preamble, laplace_preamble, warmup_body, sampler_body, ...]
+    #
+    # The laplace_preamble is inserted after the standard preamble to:
+    # 1. Split init_position into phi_init and theta_init
+    # 2. Build log_joint_fn (wrapping the joint logdensity_fn from preamble)
+    # 3. Build LaplaceMarginal factories for each warmup phase
+    # 4. Override init_position and logdensity_fn for the warmup templates
     # Model definition is imported from tuningfork.model in the preamble;
     # no separate model template assembled here (post R3.5-MVP clarification).
+    if _is_laplace:
+        laplace_preamble = _load_template("laplace_preamble.py.tmpl").safe_substitute(
+            ctx
+        )
+        return "\n\n".join(
+            [
+                preamble,
+                laplace_preamble,
+                warmup_body,
+                sampler_body,
+                inference_loop,
+                postamble,
+            ]
+        )
     return "\n\n".join([preamble, warmup_body, sampler_body, inference_loop, postamble])
