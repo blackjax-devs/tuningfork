@@ -1,0 +1,60 @@
+# === SAMPLER: laplace_dmhmc (multinomial Laplace-marginalised dynamic HMC on phi-space) ===
+# log_joint_fn and theta_init come from the laplace_preamble section above.
+# D8: no logdensity_fn reference — laplace_dmhmc uses log_joint_fn directly.
+# Multinomial dynamic variant: combines the multinomial trajectory-weight
+# proposal with quasi-random integration-step scheduling. _state_reinit required
+# because LaplaceDynamicHMCState has an extra random_generator_arg field.
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_phi_init, _ = _ravel_pytree(init_position)
+_n_phi = int(_flat_phi_init.shape[0])
+
+_maxiter = $bm_maxiter
+_default_step_size = $bm_step_size
+_default_imm = jnp.ones(_n_phi)
+
+
+def _build_kernel(step_size, inverse_mass_matrix):
+    return blackjax.laplace_dmhmc(
+        log_joint_fn,
+        theta_init,
+        step_size=step_size,
+        inverse_mass_matrix=inverse_mass_matrix,
+        maxiter=_maxiter,
+    ).step
+
+
+# kernel_builder is the protocol expected by inference_loop.py.tmpl.
+kernel_builder = _build_kernel
+
+
+def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):
+    """Re-init per-chain LaplaceDynamicHMCState from (position, rng_key).
+
+    Called inside inference_loop.py.tmpl's per-chain vmap when _state_reinit
+    is defined. The rng_key seeds random_generator_arg in LaplaceDynamicHMCState.
+    The warmup produces LaplaceHMCState (laplace_hmc inner kernel); laplace_dmhmc
+    requires LaplaceDynamicHMCState. _state_reinit bridges the gap.
+    """
+    return blackjax.laplace_dmhmc(
+        log_joint_fn,
+        theta_init,
+        step_size=step_size,
+        inverse_mass_matrix=inverse_mass_matrix,
+        maxiter=_maxiter,
+    ).init(position, rng_key)
+
+
+try:
+    _state_post_warmup
+except NameError:
+    # no_warmup path: placeholder state; _state_reinit handles per-chain init.
+    _warmup_init_is_single_chain = True
+    _state_post_warmup = blackjax.laplace_hmc(
+        log_joint_fn,
+        theta_init,
+        step_size=_default_step_size,
+        inverse_mass_matrix=_default_imm,
+        num_integration_steps=10,
+        maxiter=_maxiter,
+    ).init(init_position)
