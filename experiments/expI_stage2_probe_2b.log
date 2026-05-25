@@ -1,0 +1,39 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.2s] Imports done (stock blackjax 007a9ded)
+  4 chains x 30 samples/chain = 120 total, step_size=0.526, L=20 (Probe 2b), maxiter=500
+  Stage 1 L=10 reference: ESS/s=1.2838
+  Verdict: act only on CLEAR L20 > 1.1x L10 = 1.4122 ESS/s
+[t=+7.1s] model built d=203
+  Cold-start init (single chain, shared across all chains) ...
+  Init done: 9.552s
+  Running vmap scan (4 chains x 30 steps, incl JIT) ...
+  vmap scan: 153.698s (5.123s/vmap-step, 1.281s/chain-sample, incl JIT)
+  wall_total (init+scan): 163.251s
+  mean_traj_weight=0.9504  n_div=0
+  chain 0: phi_mean=[0.4867, -1.0120, -2.3418]  traj_wt=0.9564  n_div=0
+  chain 1: phi_mean=[0.3857, -1.0576, -2.3337]  traj_wt=0.9433  n_div=0
+  chain 2: phi_mean=[0.4182, -1.0392, -2.3204]  traj_wt=0.9415  n_div=0
+  chain 3: phi_mean=[0.3594, -1.0153, -2.3358]  traj_wt=0.9606  n_div=0
+
+  --- Diagnostics ---
+  log_kernel_scale: ESS=131.96  ESS/N=1.0997  R-hat=0.9905
+  log_lengthscale: ESS=146.77  ESS/N=1.2231  R-hat=0.9905
+  log_noise_scale: ESS=102.59  ESS/N=0.8550  R-hat=1.0045
+
+======================================================================
+ExpI Stage 2 Probe 2b Summary (total wall = 174.9s)
+  blackjax: stock main 007a9ded  |  gp_regression N=200  |  V2 vmap  |  4 chains x 30 samples
+======================================================================
+  laplace_mhmc L=20: 4 chains x 30 samples = 120 total
+  proposal: multinomial (fixed-L=20, step_size=0.526, dense 3x3 IMM)
+  wall_total=163.251s  (init=9.552s + scan=153.698s)
+  mean_traj_weight=0.9504  n_div=0  (traj_weight = exp(sum_log_p_accept)/L, not M-H acc)
+  ESS per param:
+    log_kernel_scale: ESS=131.96  ESS/N=1.0997  R-hat=0.9905
+    log_lengthscale: ESS=146.77  ESS/N=1.2231  R-hat=0.9905
+    log_noise_scale: ESS=102.59  ESS/N=0.8550  R-hat=1.0045
+  min_ESS=102.59  ESS/s=0.62845  vs-L10=0.490x  (verdict: act only if >1.10)
+  max_R-hat=1.0045  (pass if < 1.05)
+  Stage 1 L=10 reference: ESS/s=1.28383  wall=145.3s
+======================================================================
