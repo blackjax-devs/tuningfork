@@ -7,48 +7,47 @@
   phi_init (flat): [0.28029851 1.92740099 0.32214505]
 
 === Phase 1: L-BFGS MAP on 3D marginal (maxiter=30, maxcor=10, maxls=50) ===
-  L-BFGS wall (incl. JIT compile): 21.66s
-  MAP phi (flat): [ 1.45255135 -1.25747126 -0.82998437]
-  MAP marginal log p: -53.452
-  L-BFGS grad norm: 191.760058
+  L-BFGS   Pathfinder wall: 1713.94s
+  Best ELBO: -155.898
+  Best position: {'log_kernel_scale': Array(0.94834496, dtype=float64), 'log_lengthscale': Array(1.1685413, dtype=float64), 'log_noise_scale': Array(-0.75462035, dtype=float64)}
 
-=== Phase 2: Reconstruct 3×3 IMM from L-BFGS history ===
-  alpha (diag inv-Hessian): [1.57831707e-05 4.40855597e-05 1.06324251e-04]
+  3×3 IMM (inverse Hessian of -log p_marginal):
+    [log_kernel_scale] +0.0322  -0.0002  -0.0004
+    [log_lengthscale] -0.0002  +0.0434  +0.0008
+    [log_noise_scale] -0.0004  +0.0008  +0.0021
 
-  3×3 IMM (inverse Hessian of -log_marginal at MAP):
-    [log_kernel_scale    ] +0.0000  +0.0000  +0.0000
-    [log_lengthscale     ] +0.0000  +0.0000  +0.0000
-    [log_noise_scale     ] +0.0000  +0.0000  +0.0001
-
-  Marginal stds (from IMM diagonal):
-    log_kernel_scale         : std = 0.0040
-    log_lengthscale          : std = 0.0066
-    log_noise_scale          : std = 0.0103
+  Marginal stds:
+    log_kernel_scale: std = 0.1795
+    log_lengthscale: std = 0.2082
+    log_noise_scale: std = 0.0456
 
   === RIDGE TEST ===
-  corr(log_kernel_scale, log_lengthscale) = 0.0000
-  Target: +0.754 (from Exp 2 MCLMC posterior ridge)
-  Ridge test: FAIL ✗ (threshold |corr - 0.754| < 0.15)
+  corr(log_kernel_scale, log_lengthscale) = -0.0040
+  Target: +0.754 (from groundtruth; MCLMC Exp 2 diagnosis)
+  Result: FAIL ✗ (|corr - 0.754| = 0.7580, threshold=0.1)
+
+=== Phase 2: Sample start position from pathfinder ===
+  phi_start (flat): [ 0.95023655  1.66249313 -0.70555026]
+  log q(phi_start): 2.915
+  marginal lp(phi_start): -150.212
 
 === Phase 3: Step-size probe (3 steps each) ===
-  step_size=0.500: mean_acc=1.000, n_div=0/3
-  step_size=0.200: mean_acc=1.000, n_div=0/3
+  step_size=0.500: mean_acc=0.333, n_div=2/3
+  step_size=0.200: mean_acc=0.653, n_div=0/3
   step_size=0.100: mean_acc=0.996, n_div=0/3
-  step_size=0.050: mean_acc=1.000, n_div=0/3
-  WARNING: no clean step_size found, using fallback=0.05
+  step_size=0.050: mean_acc=0.999, n_div=0/3
+  Selected step_size: 0.200
 
-=== Phase 4: laplace_hmc sampling (n_steps=10, L=10, step_size=0.05) ===
-  Sampling wall (10 steps): 12.08s
-  Acceptance rate: mean=0.999, min=0.993, max=1.000
-  Divergences: 0/10
-  logdensity range: [-47.73, -40.50]
-  Final phi (flat): [ 1.45435516 -1.25902933 -0.86893265]
-  phi trace (first 3 steps, flat):
-    step 0: [ 1.45149382 -1.25956989 -0.83589247]
-    step 1: [ 1.4514758  -1.25557402 -0.8469009 ]
-    step 2: [ 1.44860306 -1.25460592 -0.85322845]
-
-=== Phase 5: 4-chain vmap (n_steps=10) ===
+=== Phase 4: laplace_hmc sampling (n_steps=10, L=10, step_size=0.200, IMM=pathfinder) ===
+  Init (JIT compile + L-BFGS cold start): 0.95s
+  Init logdensity: -150.212
+  Sampling wall (10 steps): 6.34s
+Traceback (most recent call last):
+  File "/home/jp/blackjax-devs/tuningfork/experiments/expD_pathfinder_probe.py", line 305, in <module>
+    num_steps=N_SAMPLING_STEPS,
+                           ^^^^
+AttributeError: 'tuple' object has no attribute 'info'
+steps=10) ===
   4-chain vmap wall: 38.39s
   Mean acceptance: 0.999
   Total divergences: 0/40
