@@ -1,0 +1,37 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.3s] Imports done (stock blackjax 007a9ded)
+  4 chains x 50 samples/chain = 200 total, step_size=0.526, integration_steps=Uniform[5,14] (mean~9.5), maxiter=500
+  acceptance_rate field = trajectory-weight diagnostic (not M-H acc)
+[t=+7.1s] model built d=203
+  Cold-start init (via laplace_hmc.init, shared) ...
+  Init done: 8.800s
+  Running vmap scan (4 chains x 50 steps, incl JIT) ...
+  vmap scan: 165.017s (3.300s/vmap-step, 0.825s/chain-sample, incl JIT)
+  wall_dmhmc_total (init+scan): 173.817s
+  mean_traj_weight=0.9542  n_div=0  lf_mean=9.1
+  chain 0: phi_mean=[0.5205, -0.9989, -2.3419]  traj_wt=0.9502  n_div=0  lf_mean=8.8
+  chain 1: phi_mean=[0.3725, -1.0624, -2.3318]  traj_wt=0.9564  n_div=0  lf_mean=8.7
+  chain 2: phi_mean=[0.3555, -1.0301, -2.3288]  traj_wt=0.9584  n_div=0  lf_mean=9.5
+  chain 3: phi_mean=[0.3195, -1.0804, -2.3424]  traj_wt=0.9519  n_div=0  lf_mean=9.2
+
+  --- Diagnostics ---
+  log_kernel_scale: ESS=141.33  ESS/N=0.7067  R-hat=1.0142
+  log_lengthscale: ESS=152.48  ESS/N=0.7624  R-hat=1.0114
+  log_noise_scale: ESS=218.62  ESS/N=1.0931  R-hat=1.0010
+
+======================================================================
+ExpI Stage 1 dmhmc ESS Summary (total wall = 185.8s)
+  blackjax: stock main 007a9ded  |  gp_regression N=200  |  V2 vmap  |  4 chains x 50 samples
+======================================================================
+  laplace_dmhmc: 4 chains x 50 samples = 200 total
+  proposal: multinomial (dynamic L=Uniform[5,14], step_size=0.526, dense 3x3 IMM)
+  wall_total=173.817s  (init=8.800s + scan=165.017s)
+  mean_traj_weight=0.9542  n_div=0  lf_mean=9.1  (traj_weight = exp(sum_log_p_accept)/L, not M-H acc)
+  ESS per param:
+    log_kernel_scale: ESS=141.33  ESS/N=0.7067  R-hat=1.0142
+    log_lengthscale: ESS=152.48  ESS/N=0.7624  R-hat=1.0114
+    log_noise_scale: ESS=218.62  ESS/N=1.0931  R-hat=1.0010
+  min_ESS=141.33  ESS/s (min_ESS/wall_total)=0.81312
+  max_R-hat=1.0142  (pass if < 1.05)
+======================================================================
