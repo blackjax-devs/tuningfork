@@ -135,6 +135,12 @@ def _(load_recipe, recipe_dropdown, summarize_recipe):
 
 @app.cell
 def _(Effort, cached_idata_for_recipe, load_idata, mo, recipe):
+    # Auto-generate if stamped wall < WALL_TIME_LIMIT_S (15 min).
+    # Source: recipe.calibration_budget["wall_seconds_estimate"] — stamped at
+    # recipe-build time; always available for all non-stub recipes.
+    # Set to 900 s (not 600 s) to include HIGH-effort recipes with optimized
+    # params, e.g. gp_regression × laplace_mhmc stamps 798 s production wall.
+    WALL_TIME_LIMIT_S = 900
     idata = None
     if recipe is None:
         mo.md("*Pick a recipe to see diagnostic plots.*")
@@ -145,21 +151,32 @@ def _(Effort, cached_idata_for_recipe, load_idata, mo, recipe):
             mo.md(f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`")
         except FileNotFoundError:
             mo.md("*Cache miss for GROUNDTRUTH recipe (git lfs pull may be needed).*")
-    elif recipe.effort in (Effort.LOW, Effort.MEDIUM):
-        # LOW/MEDIUM: resample with caching
+    elif recipe.effort == Effort.FAILED:
+        # FAILED: no valid config to run (check before wall-time gate — FAILED
+        # recipes may stamp wall=0.0 which would pass the wall-time gate).
+        mo.md(
+            "*FAILED recipes have no gate-passing configuration to sample. "
+            "See the recipe notes for attempted configurations and diagnostics.*"
+        )
+    elif (
+        recipe.calibration_budget.get("wall_seconds_estimate", 0.0) < WALL_TIME_LIMIT_S
+    ):
+        # Wall-time gate: resample with caching for any non-FAILED recipe whose
+        # stamped production wall is below the limit.  Includes LOW, MEDIUM, and
+        # feasible HIGH-effort recipes (e.g. gp_regression × laplace_mhmc = 798 s).
         try:
             idata = cached_idata_for_recipe(recipe)
             mo.md(f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`")
         except Exception as e:
             mo.md(f"*Failed to sample recipe: {type(e).__name__}: {e}*")
-    elif recipe.effort == Effort.FAILED:
-        # FAILED: no valid config to run
-        mo.md(
-            "*FAILED recipes have no gate-passing configuration to sample. "
-            "See the recipe notes for attempted configurations and diagnostics.*"
-        )
     else:
-        mo.md(f"*Unsupported recipe effort: {recipe.effort}*")
+        # Stamped wall exceeds the auto-generation limit — too slow for the explorer.
+        wall = recipe.calibration_budget.get("wall_seconds_estimate", 0.0)
+        mo.md(
+            f"*Recipe stamped wall {wall:.0f} s exceeds the {WALL_TIME_LIMIT_S} s "
+            "auto-generation limit. Run manually: "
+            "`cached_idata_for_recipe(recipe, force_regenerate=True)`*"
+        )
     return (idata,)
 
 
