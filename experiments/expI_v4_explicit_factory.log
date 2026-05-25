@@ -1,0 +1,73 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX: x64=True, backend=cpu
+[t=+2.2s] All imports done (stock blackjax, no monkey-patch)
+  laplace_marginal_factory has debug.callback: False  (expected: False for stock 007a9ded)
+  NUTS step_size=0.00222459
+  Laplace step_size=0.526, L=10
+  MAXITER=500
+[t=+7.4s] gp_regression model built, d_full=203
+  f_raw_posterior_mean norm = 2.7079
+
+=== Building explicit laplace_marginal_factory(maxiter=500) ===
+  laplace object type: LaplaceMarginal  (expected: LaplaceMarginal)
+
+=== Cold-init iter_num probe (direct minimize_lbfgs, NOT timed) ===
+  Calling minimize_lbfgs(objective, theta_init, maxiter=500)
+  cold-init iter_num= 295  error=4.845e-01  maxiter=500  wall=1.939s
+  [OK] iter_num = 295 < 500: converged early via ftol/gtol. maxiter=500 is in effect (ceiling not hit at cold start).
+
+=== Phase A v4: Arm A — laplace_hmc (d=3, explicit factory, maxiter=500, L=10) ===
+  Arm A init: 9.255s
+  step 1: 0.902s  acc=0.7627  phi=[0.6523, -0.9574, -2.4816]
+  step 2: 1.072s  acc=1.0000  phi=[0.2152, -1.2287, -2.4503]
+  step 3: 1.337s  acc=0.9836  phi=[0.2152, -1.2287, -2.4503]
+
+  Arm A: 3.311s total, 1.104s/step (post-JIT, all 3 steps)
+  Compare to v2 monkey-patch: 1.015 s/step. Expected: ~same (confirms explicit factory ≡ monkey-patch timing).
+
+=== Phase A v4: Arm B — NUTS (d=203, max_doublings=12) ===
+  f_raw init: posterior mean (norm=2.7079), phi at GT mean
+  Burn-in: up to 50 steps, gate median_leapfrog >= 1500
+  Arm B init: 0.027s
+  burn  1: 4.949s  n_leapfrog= 1535  acc=0.9921
+  burn  2: 5.328s  n_leapfrog= 2047  acc=0.9860
+  burn  3: 5.080s  n_leapfrog= 2047  acc=0.9943
+  burn  4: 5.278s  n_leapfrog= 2047  acc=0.9581
+  burn  5: 5.216s  n_leapfrog= 2047  acc=0.9993
+  burn  6: 5.256s  n_leapfrog= 2047  acc=0.9981
+  burn  7: 5.402s  n_leapfrog= 2047  acc=0.9957
+  burn  8: 5.550s  n_leapfrog= 2047  acc=0.8773
+  burn  9: 5.242s  n_leapfrog= 2047  acc=0.9990
+  burn 10: 6.121s  n_leapfrog= 2047  acc=0.9905
+
+  [Burn-in] GATE PASSED at step 10: median(last 5 steps) = 2047 >= 1500
+  Burn-in: 53.424s, 10 steps
+
+  [Timed] 3 steps after burn-in:
+  step 1: 5.432s  n_leapfrog= 2047  acc=0.9862
+  step 2: 5.413s  n_leapfrog= 2047  acc=0.9956
+  step 3: 5.393s  n_leapfrog= 2047  acc=0.9844
+
+======================================================================
+ExpI Phase A v4 Summary (total wall = 94.7s)
+  blackjax: stock main 007a9ded (NO callback, NO setdefault override)
+  laplace_marginal_factory called with maxiter=500 EXPLICIT
+======================================================================
+  Cold-init iter_num:           295  (maxiter=500; < maxiter → ftol convergence confirmed)
+  Arm A (laplace_hmc):         1.104 s/step (post-JIT, L=10 fixed)
+  Arm B (NUTS d=203):          5.413 s/step (timed, median_lf=2047)
+  Arm B scaled to GT (2047 lf): 5.413 s/step (scale=1.00x)
+
+  Ratio B/A (raw):       4.90x
+  Ratio B/A (GT-scaled): 4.90x
+  (> 1 means NUTS is slower per step)
+
+  Verdict validity: timed median_lf=2047 vs GT=2047. NEAR GT
+
+  Burn-in lf sequence: [1535, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047]
+  Timed lf sequence:   [2047, 2047, 2047]
+
+  Phase B projection (budget=120s per arm):
+    n_samples_laplace (4 chains vmap) = 108
+    n_samples_nuts (2 chains seq)     = 22
+======================================================================
