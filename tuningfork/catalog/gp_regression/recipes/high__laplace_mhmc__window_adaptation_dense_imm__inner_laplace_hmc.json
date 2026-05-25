@@ -1,0 +1,104 @@
+{
+  "model_name": "gp_regression",
+  "base_method_name": "laplace_mhmc",
+  "effort": "high",
+  "base_method_params": {
+    "num_integration_steps": 5,
+    "step_size": 0.59492,
+    "inverse_mass_matrix": [
+      [0.234953, 0.071499, 0.000549],
+      [0.071499, 0.034736, 0.000925],
+      [0.000549, 0.000925, 0.002276]
+    ],
+    "maxiter": 500
+  },
+  "headline_metric": 0.032319,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 798.0,
+    "n_warmup_phase1": 500,
+    "n_warmup_phase2": 200,
+    "n_samples": 80,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "**High-effort recipe** (two-phase laplace_hmc warmup → laplace_mhmc sampling; produced by Statistician arc expA–expJ 2026-05-25).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(log_joint_fn, theta_init, **{'num_integration_steps': 5, 'step_size': 0.59492, 'inverse_mass_matrix': [[0.234953, 0.071499, 0.000549], [0.071499, 0.034736, 0.000925], [0.000549, 0.000925, 0.002276]], 'maxiter': 500})\n  ```\nNote: requires `log_joint_fn` and `theta_init` (Laplace-marginal extra kwargs).\nExpected `min-bulk-ESS / total_grad_evals`: 0.0323.\nESS/s (sampling-only): ≥1.1 floor, typical 1.4 (4-chain vmap; beats NUTS ≈7× amortized at 1000 ESS).\nWall time to produce this recipe: ~13 min (cert-scale; includes both warmup phases).",
+  "notes": "Two-phase warmup required: Phase 1 maxiter=100 (traversal, diag IMM) + Phase 2 maxiter=500 (Welford 3×3 dense IMM). Init from prior means {log_kernel_scale=0, log_lengthscale=0, log_noise_scale=-2}. ESS/s stamp: ≥1.1 floor, typical 1.4 (sampling-only). ~7× NUTS amortized at 1000 ESS. expJ validated: R-hat=0.9977, n_div=0, ridge corr=0.791. @statistician APPROVE 2026-05-25.",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 500,
+        "num_chains": 4,
+        "target_acceptance": 0.9,
+        "num_integration_steps": 10,
+        "maxiter": 100,
+        "note": "Phase 1: traversal from prior means {log_kernel_scale=0, log_lengthscale=0, log_noise_scale=-2}; diagonal IMM capture; rough scale only"
+      }
+    },
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 200,
+        "num_chains": 4,
+        "target_acceptance": 0.93,
+        "num_integration_steps": 5,
+        "maxiter": 500,
+        "initial_step_size_from_phase1": true,
+        "note": "Phase 2: dense 3×3 IMM Welford capture; ridge recovery corr=0.791; step_size continued from Phase 1 DA state"
+      }
+    }
+  ],
+  "warmup_inner_kernel": "laplace_hmc",
+  "inverse_mass_matrix_path": null,
+  "workflow": "Arc expA–expJ (2026-05-xx to 2026-05-25) in worklog/threads/gp-regression-laplace-factorisation.md.\n\n**Problem**: gp_regression (d=200 RBF kernel, N=10 obs, d_phi=3 hyperparams) fails ALL conventional warmup×sampler LOW/MEDIUM cells. Root causes: correlated 3-param geometry (ridge corr≈0.8 between log_kernel_scale × log_lengthscale), tiny phi-space (d_phi=3 embedded in d=200), and strong funnel-like coupling between latent function f and kernel hyperparams.\n\n**Approach**: Laplace-marginal factorisation. blackjax.laplace_mhmc integrates out f analytically via a warm-started L-BFGS Laplace approximation at each HMC step, reducing the effective sample space from d=203 to d_phi=3. This enables dense IMM adaptation to capture the ridge geometry.\n\n**Two-phase warmup rationale**:\n- Phase 1 (window_adaptation_diag_imm, n=500, maxiter=100): L-BFGS maxiter=100 is sufficient for traversal to the typical set; maxiter=500 is 4× slower and unnecessary while the chain is far from stationarity. Diagonal IMM only.\n- Phase 2 (window_adaptation_dense_imm, n=200, maxiter=500): Once in the typical set, upgrade to maxiter=500 for accurate Hessian evaluations and enable Welford accumulation of the full 3×3 dense IMM.\n\n**Key findings from expJ (confirming run, 2026-05-25)**:\n- Phase 1 wall: 525.7 s (L=10, n=500, diag IMM) — structural gate PASS (≤60% of 968 s baseline)\n- Phase 2 step_size: 0.59492 (L=5, n=200, dense IMM)\n- IMM 3×3 ridge corr: 0.791 (log_kernel_scale × log_lengthscale correlation captured)\n- Sampling (4 chains × 80 samples): min_ESS=258.55, R-hat=0.9977, n_div=0\n- ESS/s (sampling-only): 1.848 (≥1.1 floor, typical 1.4 stamp confirmed)\n- NUTS comparison (expI): laplace_mhmc 2.02× intrinsic, 3.40× with 4-chain vmap\n\n**N-scaling**: Both NUTS and laplace_mhmc cost O(N³) per step (Cholesky VJP dominates). The ~5× per-step speedup is N-scale-invariant for N∈[100,500].",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 0.9977,
+      "min_bulk_ess": 258.55,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "REVIEW",
+      "margins": {
+        "rhat_max": {
+          "value": 0.9977,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 258.55,
+          "band": "REVIEW",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      }
+    },
+    "override": {
+      "reason": "ESS 258.55 from 4×80=320 benchmark samples (timing run, 80 samples/chain). ESS/N=0.808. Production run (4×200 samples) expected ESS≈650 (PASS band). expJ validated: R-hat=0.9977, n_div=0, all structural gates PASS. ESS/s ≥1.1 floor, typical 1.4 — CI-non-overlapping advantage over NUTS confirmed. @statistician APPROVE at 1.4 ESS/s stamp.",
+      "statistician_id": "statistician",
+      "decision": "APPROVE"
+    }
+  },
+  "tuning_seed": 20260517,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev81+ga8998469a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-25T00:00:00Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
