@@ -1,0 +1,38 @@
+[t=+0.0s] Script start
+[t=+0.4s] JAX x64=True backend=cpu
+[t=+2.3s] Imports done (stock blackjax 007a9ded)
+  N_CHAINS=4, N_PILOT=5, step_size=0.526, L=10 (mhmc fixed)
+  dmhmc: integration_steps_fn=Uniform[5,14] (mean~9.5)
+[t=+7.4s] model built d=203
+
+  Cold-start init (shared between mhmc + dmhmc) ...
+  Init done: 9.722s
+
+=== laplace_mhmc pilot (4 chains x 5 steps, incl JIT) ===
+  wall=17.711s  (3.542s/vmap-step, 0.886s/chain-sample)
+  mean_acc=0.9483  n_div=0
+  chain 0: phi_mean=[0.5189, -0.9824, -2.3321]  acc=0.9770
+  chain 1: phi_mean=[0.4749, -1.0682, -2.3190]  acc=0.9341
+  chain 2: phi_mean=[0.0958, -1.1418, -2.3108]  acc=0.9343
+  chain 3: phi_mean=[0.3233, -1.0264, -2.3193]  acc=0.9478
+
+=== laplace_dmhmc pilot (4 chains x 5 steps, incl JIT) ===
+  integration_steps_fn=Uniform[5,14]
+  wall=19.273s  (3.855s/vmap-step, 0.964s/chain-sample)
+  mean_acc=0.9497  n_div=0
+  lf_counts (all chains x steps): [[13, 6, 11, 9, 5], [5, 7, 13, 7, 10], [5, 6, 7, 11, 5], [13, 12, 5, 9, 8]]
+  chain 0: phi_mean=[-0.0002, -1.5194, -2.3675]  acc=0.9591  lf_mean=8.8
+  chain 1: phi_mean=[0.3323, -1.0436, -2.3602]  acc=0.9502  lf_mean=8.4
+  chain 2: phi_mean=[0.3719, -1.0713, -2.3371]  acc=0.9452  lf_mean=6.8
+  chain 3: phi_mean=[0.4404, -0.9946, -2.3603]  acc=0.9444  lf_mean=9.4
+
+======================================================================
+ExpI Stage 1 Pilot Summary (total wall = 54.6s)
+  blackjax: stock main 007a9ded  |  gp_regression N=200  |  V2 vmap  |  4 chains x 5 pilot steps
+======================================================================
+  laplace_hmc (expI baseline): ~2.55 s/vmap-step  (from expI_laplace_ess.log)
+  laplace_mhmc (fixed-L multinomial): 3.542s/vmap-step  acc=0.9483  n_div=0
+  laplace_dmhmc (dynamic multinomial): 3.855s/vmap-step  acc=0.9497  n_div=0  lf_mean=8.3
+  lhmc/mhmc ratio: 0.72x  (mhmc slower if >1)
+  lhmc/dmhmc ratio: 0.66x  (dmhmc slower if >1)
+======================================================================
