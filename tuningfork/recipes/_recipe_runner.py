@@ -998,6 +998,7 @@ def run_recipe_to_idata(
     n_samples: int | None = None,
     force_resample: bool = False,
     catalog_root: Path = _CATALOG_ROOT,
+    _return_timing: bool = False,
 ) -> Any:
     """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
 
@@ -1118,6 +1119,7 @@ def run_recipe_to_idata(
     # Single-phase: existing logic (warmup_inner_kernel or warmup.runner).
     _recipe_warmup_info: Any = None
     _is_multiphase = len(recipe.warmups) > 1
+    _t_warmup_start = time.perf_counter()
 
     if _is_multiphase and is_laplace:
         # Multi-phase laplace warmup: loop phases, threading adapted params.
@@ -1234,6 +1236,8 @@ def run_recipe_to_idata(
             target_acceptance_rate=target_acceptance,
         )
 
+    _t_warmup = time.perf_counter() - _t_warmup_start
+
     # Build shared kernel kwargs
     default_params = default_params_for(base_method)
     shared_kwargs: dict[str, Any] = {
@@ -1311,10 +1315,12 @@ def run_recipe_to_idata(
         return st, inf
 
     # Run sampling
+    _t_sample_start = time.perf_counter()
     chain_keys = jax.random.split(sample_key, num_chains)
     states, infos = jax.vmap(_run_one_chain)(
         chain_keys, batched_state, batched_step_size, batched_imm
     )
+    _t_sample = time.perf_counter() - _t_sample_start
     positions = states.position  # shape: (num_chains, n_samples, *event_shape)
 
     # Convert to InferenceData via the catalog helper
@@ -1346,9 +1352,12 @@ def run_recipe_to_idata(
     _wall_idata = time.perf_counter() - _t0_idata
     print(
         f"[run_recipe_to_idata] wall_seconds={_wall_idata:.1f}"
+        f"  warmup={_t_warmup:.1f}s  sampling={_t_sample:.1f}s"
         f"  n_samples={n_samples}  num_chains={num_chains}"
         f"  recipe={recipe.model_name}/{recipe.effort.value}__{recipe.base_method_name}"
     )
+    if _return_timing:
+        return idata_result, _t_warmup, _t_sample
     return idata_result
 
 
