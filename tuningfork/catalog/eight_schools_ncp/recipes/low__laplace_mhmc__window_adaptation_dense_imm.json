@@ -29,7 +29,13 @@
     "wall_seconds_estimate": 12.310242471001402,
     "n_warmup": 1000,
     "n_samples": 1000,
-    "num_chains": 4
+    "num_chains": 4,
+    "warmup_wall_seconds": 6.155,
+    "sampling_wall_seconds": 6.155,
+    "sampling_seconds_per_draw": 0.001539,
+    "split_source": "estimated",
+    "split_note": "laplace-family vmap compile blowup in fresh JAX session; measured split infeasible within timeout; using proportional estimate from wall_seconds_estimate.",
+    "machine_info": null
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.6166571974754333, 'inverse_mass_matrix': [[12.023087501525879, -0.038633499294519424], [-0.038633499294519424, 1.3869810104370117]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0116.\nWall time to produce this recipe: ~12 s (machine-only).",
