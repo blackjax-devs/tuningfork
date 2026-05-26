@@ -1076,10 +1076,69 @@ def emit_low_recipe_for_cell(
 # ---------------------------------------------------------------------------
 
 
+def _build_stationary_init_positions(
+    model_name: str,
+    num_chains: int,
+    catalog_root: Path,
+) -> Any:
+    """Build per-chain initial positions from GT reference summary (unconstrained space).
+
+    Reads ``mean`` and ``std`` from ``<catalog_root>/<model_name>/reference/summary.json``
+    and returns a batched pytree with leading dim ``num_chains``.  Each chain is
+    initialised at::
+
+        gt_mean + offsets[i % 4] * gt_std
+
+    where ``offsets = [+0.1, -0.1, +0.05, -0.05]``.  This places every chain near
+    the posterior mean with small, diverse jitter — avoiding cold-start burn-in
+    while giving enough chain diversity for R-hat to be informative.
+
+    Parameters
+    ----------
+    model_name
+        Model name matching a subdirectory under ``catalog_root``.
+    num_chains
+        Number of chains; positions shape is ``(num_chains, *event)``.
+    catalog_root
+        Root of the catalog directory.
+
+    Returns
+    -------
+    batched_positions
+        Dict of JAX arrays with leading dim ``num_chains``.
+    """
+    import json
+
+    summary_path = catalog_root / model_name / "reference" / "summary.json"
+    if not summary_path.exists():
+        raise FileNotFoundError(
+            f"Reference summary not found at {summary_path}. "
+            f"Cannot build stationary init for skip_warmup=True on model {model_name!r}."
+        )
+    summary = json.loads(summary_path.read_text())
+    gt_mean = summary["mean"]
+    gt_std = summary["std"]
+
+    _OFFSETS = [0.1, -0.1, 0.05, -0.05]
+
+    def _chain_init(i: int) -> dict:
+        offset = _OFFSETS[i % len(_OFFSETS)]
+        return {
+            k: jnp.asarray(gt_mean[k], dtype=jnp.float32)
+            + offset * jnp.asarray(gt_std[k], dtype=jnp.float32)
+            for k in gt_mean
+        }
+
+    chain_positions = [_chain_init(i) for i in range(num_chains)]
+    # Stack into batched pytree with leading dim num_chains
+    return jax.tree.map(lambda *arrs: jnp.stack(arrs, axis=0), *chain_positions)
+
+
 def run_recipe_to_idata(
     recipe: Recipe,
     *,
     n_samples: int | None = None,
+    skip_warmup: bool = False,
     force_resample: bool = False,
     force_resample_config: dict[str, Any] | None = None,
     catalog_root: Path = _CATALOG_ROOT,
@@ -1102,6 +1161,26 @@ def run_recipe_to_idata(
     n_samples
         Override the recipe's n_samples. If None, use the recipe's
         warmup_params["n_samples"] or fall back to RECIPE_N_SAMPLES.
+    skip_warmup
+        When ``True``, bypass the warmup entirely and use the stored
+        ``step_size`` / ``inverse_mass_matrix`` from
+        ``recipe.base_method_params``.  Chain states are initialised from
+        the GT-means in ``reference/summary.json`` with per-chain jitter
+        (``gt_mean ± {0.1, 0.05}σ``), so the chains start near the
+        posterior — no burn-in needed.
+
+        This is the low-latency path for the catalog notebook: skip ≈10–30 s
+        of warmup and go straight to sampling with the pre-tuned params.
+
+        Restrictions:
+
+        - ``recipe.base_method_params`` must contain ``"step_size"`` and
+          ``"inverse_mass_matrix"`` (i.e. the recipe must have been emitted
+          from a warmup-adaptation run, not from ``no_warmup``).
+        - Laplace-marginal samplers (``laplace_*``) are not supported because
+          the GT-means are in the full unconstrained space, not the phi-only
+          space the laplace marginal operates on.
+        - MCLMC is not supported (momentum init requires a special key path).
     force_resample
         **Deprecated.** Pass ``force_resample_config={"seed": recipe.tuning_seed}``
         instead.  When ``True``, emits a :class:`DeprecationWarning` and maps to
@@ -1240,6 +1319,30 @@ def run_recipe_to_idata(
             recipe.init_strategy, init_position, _override_key
         )
 
+    # Validate skip_warmup constraints upfront (before touching JAX / warmup).
+    if skip_warmup:
+        if is_laplace:
+            raise ValueError(
+                "skip_warmup=True is not supported for laplace_* samplers. "
+                "The GT-means in reference/summary.json are in full unconstrained "
+                "space, not the phi-only space the laplace marginal operates on."
+            )
+        if base_method.name == "mclmc":
+            raise ValueError(
+                "skip_warmup=True is not supported for MCLMC: momentum init "
+                "requires a special key path not handled here."
+            )
+        if "step_size" not in recipe.base_method_params:
+            raise ValueError(
+                "skip_warmup=True requires recipe.base_method_params to contain "
+                "'step_size'. This recipe was likely emitted from no_warmup."
+            )
+        if "inverse_mass_matrix" not in recipe.base_method_params:
+            raise ValueError(
+                "skip_warmup=True requires recipe.base_method_params to contain "
+                "'inverse_mass_matrix'. This recipe was likely emitted from no_warmup."
+            )
+
     # Run warmup — multi-phase (recipe.warmups > 1) or single-phase.
     #
     # Multi-phase warmup (e.g. the gp_regression HIGH laplace recipe):
@@ -1253,7 +1356,38 @@ def run_recipe_to_idata(
     _is_multiphase = len(recipe.warmups) > 1
     _t_warmup_start = time.perf_counter()
 
-    if _is_multiphase and is_laplace:
+    if skip_warmup:
+        # Bypass warmup entirely: build stationary init from GT-means, use
+        # stored step_size / IMM from recipe.base_method_params.
+        _stored_ss = float(np.asarray(recipe.base_method_params["step_size"]))
+        _stored_imm = jnp.asarray(recipe.base_method_params["inverse_mass_matrix"])
+
+        # Build stationary positions: GT-means + per-chain jitter from reference/summary.json
+        _stationary_positions = _build_stationary_init_positions(
+            recipe.model_name, num_chains, catalog_root
+        )
+
+        # Build kernel (step_size/IMM don't affect .init; only used to instantiate)
+        _skip_init_kernel = base_method.factory(
+            logdensity_fn,
+            step_size=_stored_ss,
+            inverse_mass_matrix=_stored_imm,
+        )
+
+        @jax.vmap
+        def _init_one_skip(pos: Any) -> Any:
+            return _skip_init_kernel.init(pos)
+
+        batched_state = _init_one_skip(_stationary_positions)
+
+        # Replicate stored params to (num_chains, ...) to match warmup output shape
+        batched_params = {
+            "step_size": jnp.full((num_chains,), _stored_ss),
+            "inverse_mass_matrix": jnp.broadcast_to(
+                _stored_imm[None], (num_chains,) + _stored_imm.shape
+            ),
+        }
+    elif _is_multiphase and is_laplace:
         # Multi-phase laplace warmup: loop phases, threading adapted params.
         # Each phase uses a separate LaplaceMarginal with phase-specific maxiter
         # and its own target_acceptance / is_mass_matrix_diagonal / n_warmup.
@@ -1368,7 +1502,7 @@ def run_recipe_to_idata(
             target_acceptance_rate=target_acceptance,
         )
 
-    _t_warmup = time.perf_counter() - _t_warmup_start
+    _t_warmup = 0.0 if skip_warmup else (time.perf_counter() - _t_warmup_start)
 
     # Build shared kernel kwargs
     default_params = default_params_for(base_method)
