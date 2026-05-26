@@ -8,6 +8,12 @@
   "timestamp_utc": "2026-05-17T21:55:21Z",
   "wall_time_seconds": 486.83733738190494,
   "divergence_rate_tolerance_used": 0.001,
+  "warmup_wall_seconds": 54.09303748687833,
+  "sampling_wall_seconds": 432.74429989502664,
+  "sampling_seconds_per_draw": 0.010819,
+  "split_source": "estimated",
+  "split_note": "current-code re-cert fails cert gate (see regression thread); measured split unavailable.",
+  "machine_info": null,
   "certification": {
     "passed": true,
     "split_rhat_max": 1.0003141164779663,
