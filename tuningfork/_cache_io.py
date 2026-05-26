@@ -343,6 +343,11 @@ def _build_metadata(
     certification_dict: dict,
     wall_time_seconds: float | None = None,
     divergence_rate_tolerance_used: float | None = None,
+    warmup_wall_seconds: float | None = None,
+    sampling_wall_seconds: float | None = None,
+    sampling_seconds_per_draw: float | None = None,
+    split_source: str | None = None,
+    machine_info: dict | None = None,
 ) -> dict:
     """Build the metadata stamp dict.
 
@@ -358,6 +363,24 @@ def _build_metadata(
     older metadata files without these keys still load via
     ``meta.get(field, None)``; the new fields default to None when the
     cert pipeline doesn't supply them.
+
+    Timing-breakdown fields (added 2026-05-26):
+
+    ``warmup_wall_seconds`` : float | None
+        Wall seconds for the warmup phase only.  None for analytic models
+        (no warmup phase) or when the split is not available.
+    ``sampling_wall_seconds`` : float | None
+        Wall seconds for the sampling phase only.  None for analytic models
+        or when the split is not available.
+    ``sampling_seconds_per_draw`` : float | None
+        ``sampling_wall_seconds / num_samples`` when sampling time is known.
+    ``split_source`` : str | None
+        How the timing split was obtained.  ``"analytic_na"`` for analytic
+        models; ``"measured"`` when phases were timed at orchestration level.
+        None on cache hit (no regeneration).
+    ``machine_info`` : dict | None
+        Hardware + software snapshot at generation time from
+        ``tuningfork._machine_info.get_machine_info()``.  None on cache hit.
     """
     n = next(iter(draws.values())).shape[0]
     return {
@@ -372,6 +395,11 @@ def _build_metadata(
         ),
         "wall_time_seconds": wall_time_seconds,
         "divergence_rate_tolerance_used": divergence_rate_tolerance_used,
+        "warmup_wall_seconds": warmup_wall_seconds,
+        "sampling_wall_seconds": sampling_wall_seconds,
+        "sampling_seconds_per_draw": sampling_seconds_per_draw,
+        "split_source": split_source,
+        "machine_info": machine_info,
         "certification": certification_dict,
     }
 
@@ -624,6 +652,10 @@ def get_reference_draws(
     _wall_seconds = float(_time.perf_counter() - _t0)
     if entry.reference_method == ReferenceMethod.ANALYTIC:
         _gate_used: float | None = None
+        _split_source: str | None = "analytic_na"
+        _warmup_ws: float | None = None
+        _sampling_ws: float | None = None
+        _secs_per_draw: float | None = None
     else:
         from tuningfork.calibration.certify_reference import _DIVERGENCE_RATE_TOLERANCE
 
@@ -632,6 +664,19 @@ def get_reference_draws(
             if entry.divergence_rate_tolerance is not None
             else _DIVERGENCE_RATE_TOLERANCE
         )
+        # NUTS path: certify_reference_nuts runs warmup + sampling internally as
+        # a single call; phase-level split is not available at this layer.
+        # Record total wall as measured; phase breakdown remains None.
+        _split_source = "measured"
+        _warmup_ws = None
+        _sampling_ws = None
+        # per-draw from total wall (approximation — includes warmup amortisation)
+        n_total = next(iter(draws.values())).shape[0]
+        _secs_per_draw = (
+            round(_wall_seconds / max(n_total, 1), 6) if _wall_seconds else None
+        )
+
+    from tuningfork._machine_info import get_machine_info as _get_machine_info
 
     metadata = _build_metadata(
         entry,
@@ -642,6 +687,11 @@ def get_reference_draws(
         cert_dict,
         wall_time_seconds=_wall_seconds,
         divergence_rate_tolerance_used=_gate_used,
+        warmup_wall_seconds=_warmup_ws,
+        sampling_wall_seconds=_sampling_ws,
+        sampling_seconds_per_draw=_secs_per_draw,
+        split_source=_split_source,
+        machine_info=_get_machine_info(),
     )
     _write_artifacts(
         entry,

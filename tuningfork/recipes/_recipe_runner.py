@@ -56,6 +56,7 @@ import numpy as np
 from blackjax.mcmc.laplace_marginal import laplace_marginal_factory
 from blackjax.util import run_inference_algorithm
 
+from tuningfork._machine_info import get_machine_info
 from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.base_method._step_policy_registry import build_step_policy
@@ -909,6 +910,15 @@ def emit_low_recipe_for_cell(
             "n_warmup": n_warmup,
             "n_samples": n_samples,
             "num_chains": num_chains,
+            # Timing breakdown — measured at Python orchestration level.
+            # warmup: from warmup.runner() call return; sampling: from vmap return.
+            "warmup_wall_seconds": round(t_warmup, 3),
+            "sampling_wall_seconds": round(t_sample, 3),
+            "sampling_seconds_per_draw": round(
+                t_sample / max(n_samples * num_chains, 1), 6
+            ),
+            "split_source": "measured",
+            "machine_info": get_machine_info(),
         },
         difficulty=None,
         instructions="",
