@@ -1,18 +1,33 @@
 {
   "name": "german_credit",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "01368447155eb84f2190a790a9b0936a3b3d052c",
+  "code_sha": "d30bcad2bc45d4ac25dcbd09d7b6efaa7a193f0c",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-05-17T21:29:17Z",
-  "wall_time_seconds": 25.503867684979923,
+  "timestamp_utc": "2026-05-26T11:14:53Z",
+  "wall_time_seconds": 29.80145742901368,
   "divergence_rate_tolerance_used": 0.001,
+  "warmup_wall_seconds": 2.7078406299697235,
+  "sampling_wall_seconds": 17.81301829701988,
+  "sampling_seconds_per_draw": 0.000445,
+  "split_source": "measured",
+  "machine_info": {
+    "cpu_model": "x86_64",
+    "cpu_count_logical": 8,
+    "os": "Linux 6.8.0-117-generic",
+    "python_version": "3.13.13",
+    "jax_version": "0.10.0",
+    "blackjax_version": "1.6.dev81+ga8998469a",
+    "jax_x64_enabled": false,
+    "jax_default_device": "cpu",
+    "gpu_info": null
+  },
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0001323223114014,
-    "min_chunk_bulk_ess": 6468.49267578125,
+    "split_rhat_max": 1.0000946521759033,
+    "min_chunk_bulk_ess": 6331.33447265625,
     "num_divergences": 0,
-    "e_bfmi": 1.005106806755066
+    "e_bfmi": 1.0030620098114014
   }
 }
