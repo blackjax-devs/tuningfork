@@ -46,7 +46,22 @@
     "wall_seconds_estimate": 3.469708693002758,
     "n_warmup": 1000,
     "n_samples": 1000,
-    "num_chains": 4
+    "num_chains": 4,
+    "warmup_wall_seconds": 1.25,
+    "sampling_wall_seconds": 2.164,
+    "sampling_seconds_per_draw": 0.000541,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev81+ga8998469a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.3276762366294861, 'inverse_mass_matrix': [0.008396399207413197, 0.010658793151378632, 0.013548783957958221, 0.008248472586274147, 0.00783158466219902, 0.00761093245819211, 0.009818529710173607, 0.0074834683910012245, 0.007172603625804186, 0.007201279979199171, 0.010578136891126633, 0.03564108535647392, 0.01597251556813717, 0.03335464745759964, 0.010097337886691093, 0.011933903209865093, 0.01931583695113659, 0.015435467474162579, 0.01768074370920658, 0.010204360820353031, 0.006101507227867842, 0.009384965524077415, 0.006388423498719931, 0.006957432720810175, 0.00790860690176487, 0.008804752491414547]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0667.\nWall time to produce this recipe: ~3 s (machine-only).",
