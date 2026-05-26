@@ -27,7 +27,13 @@
     "wall_seconds_estimate": 91.3412334780005,
     "n_warmup": 1000,
     "n_samples": 1000,
-    "num_chains": 4
+    "num_chains": 4,
+    "warmup_wall_seconds": 45.671,
+    "sampling_wall_seconds": 45.671,
+    "sampling_seconds_per_draw": 0.011418,
+    "split_source": "estimated",
+    "split_note": "current-code re-cert fails cert gate (see regression thread); measured split unavailable.",
+    "machine_info": null
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.03857136145234108, 'inverse_mass_matrix': [0.0010207617888227105, 0.0009081244934350252, 0.0008696161676198244, 0.0010169103043153882, 0.0068977512419223785, 0.0002744178636930883, 0.0004994210321456194]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0026.\nWall time to produce this recipe: ~91 s (machine-only).",
