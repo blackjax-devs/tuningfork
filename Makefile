@@ -30,7 +30,7 @@ test-full:
 # Kill orphan Python REPLs and stale pytest workers (memory hygiene before sweeps).
 # The script lives in claude-config (cross-repo tool); CLAUDE_CONFIG_DIR can override
 # the default ~/claude-config location.
-CLAUDE_CONFIG_DIR ?= $(HOME)/claude-config
+CLAUDE_CONFIG_DIR ?= $(abspath $(CURDIR)/../claude-config)
 clean-orphans:
 	@bash $(CLAUDE_CONFIG_DIR)/tools/clean_orphans.sh
 
