@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from blackjax.mcmc.laplace_marginal import laplace_marginal_factory
 from blackjax.util import run_inference_algorithm
@@ -335,6 +336,60 @@ def _build_laplace_components(
 
 
 # ---------------------------------------------------------------------------
+# Init-strategy helper
+# ---------------------------------------------------------------------------
+
+
+def _apply_init_strategy(
+    strategy: dict[str, Any],
+    init_position: Any,
+    rng_key: Any,
+) -> Any:
+    """Override ``init_position`` according to an ``init_strategy`` spec.
+
+    Called after ``build_logdensity_fn`` (and after the laplace phi-space
+    transformation, if applicable) to replace the prior-sampled starting point
+    with a schematic alternative.
+
+    Parameters
+    ----------
+    strategy
+        A validated tagged-union dict with a ``"type"`` key.  See
+        :py:func:`~tuningfork.recipes._base.validate_init_strategy` for the
+        valid spec formats.
+    init_position
+        Starting position produced by ``build_logdensity_fn`` (or the phi-init
+        from the laplace transformation).  A pytree of JAX arrays.
+    rng_key
+        JAX random key used when ``strategy["type"] == "uniform"``.
+
+    Returns
+    -------
+    Any
+        A pytree with the same structure as ``init_position``, modified per
+        the strategy spec.
+    """
+    type_ = strategy.get("type", "prior_sample")
+    if type_ == "prior_sample":
+        return init_position
+    elif type_ == "zero":
+        return jax.tree.map(lambda x: jnp.zeros_like(x), init_position)
+    elif type_ == "uniform":
+        low = float(strategy["low"])
+        high = float(strategy["high"])
+        leaves, treedef = jax.tree_util.tree_flatten(init_position)
+        keys = jax.random.split(rng_key, len(leaves))
+        new_leaves = [
+            jax.random.uniform(k, leaf.shape, dtype=leaf.dtype, minval=low, maxval=high)
+            for k, leaf in zip(keys, leaves)
+        ]
+        return treedef.unflatten(new_leaves)
+    else:
+        # Should not reach here — validate_init_strategy catches unknown types at load.
+        raise ValueError(f"Unknown init_strategy type: {type_!r}")  # pragma: no cover
+
+
+# ---------------------------------------------------------------------------
 # Main emit function
 # ---------------------------------------------------------------------------
 
@@ -358,6 +413,7 @@ def emit_low_recipe_for_cell(
     policy_tag: str | None = None,
     effort: Effort = Effort.LOW,
     warmup_inner_kernel: str | None = None,
+    init_strategy: dict[str, Any] | None = None,
 ) -> CellResult:
     """Run warmup + sampling + auto-gate for one cell; emit LOW recipe on PASS.
 
@@ -441,6 +497,14 @@ def emit_low_recipe_for_cell(
         ``transform_warmup_state``.  This is the schema-extension inner-kernel opt-in
         path (§3 of RECIPE_SCHEMA.md).  The ``__inner_<kernel>`` filename
         modifier is appended when this differs from the implicit default (§3.5).
+    init_strategy
+        Schematic init spec stored in the emitted recipe and applied to the
+        initial position before warmup.  ``None`` (default) uses the prior-sample
+        position returned by ``build_logdensity_fn`` — the current backward-
+        compatible behavior.  Non-None values are validated by
+        :py:func:`~tuningfork.recipes._base.validate_init_strategy` before use.
+        Valid specs: ``{"type": "prior_sample"}``, ``{"type": "zero"}``,
+        ``{"type": "uniform", "low": float, "high": float}``.
 
     Returns
     -------
@@ -549,6 +613,18 @@ def emit_low_recipe_for_cell(
         )
         # init_position is now phi_init (phi-space only); logdensity_fn is the
         # marginal logdensity over phi — this is what warmup.runner will use.
+
+    # --- Apply init_strategy (optional override of initial position) ---
+    # Applied after the laplace phi-space transformation so the override acts
+    # on the same position space that the warmup kernel will operate on.
+    if init_strategy is not None:
+        from tuningfork.recipes._base import validate_init_strategy
+
+        validate_init_strategy(init_strategy)
+        _override_key = jax.random.fold_in(init_key, 42)
+        init_position = _apply_init_strategy(
+            init_strategy, init_position, _override_key
+        )
 
     # --- Warmup (multi-chain via warmup.runner's internal vmap) ---
     # When warmup_inner_kernel is set, run with explicit kernel (captures NIS for
@@ -927,6 +1003,9 @@ def emit_low_recipe_for_cell(
         # None = library default (V0); non-None = explicit spec from caller or
         # harvested by transform_warmup_state.
         step_policy=_recipe_step_policy,
+        # Store init_strategy so the recipe is self-describing; applied at
+        # re-run time by run_recipe_to_idata via _apply_init_strategy.
+        init_strategy=init_strategy,
         tuning_seed=tuning_seed,
         tuningfork_version=_tuningfork_version,
         blackjax_version=_get_blackjax_version(),
@@ -997,6 +1076,7 @@ def run_recipe_to_idata(
     *,
     n_samples: int | None = None,
     force_resample: bool = False,
+    force_resample_config: dict[str, Any] | None = None,
     catalog_root: Path = _CATALOG_ROOT,
 ) -> Any:
     """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
@@ -1017,7 +1097,20 @@ def run_recipe_to_idata(
         Override the recipe's n_samples. If None, use the recipe's
         warmup_params["n_samples"] or fall back to RECIPE_N_SAMPLES.
     force_resample
-        If True, always re-run even if cache exists. Default False.
+        **Deprecated.** Pass ``force_resample_config={"seed": recipe.tuning_seed}``
+        instead.  When ``True``, emits a :class:`DeprecationWarning` and maps to
+        ``force_resample_config={"seed": recipe.tuning_seed}`` automatically.
+    force_resample_config
+        Dict controlling a forced re-run with a different seed (and optionally
+        different ``n_warmup`` / ``n_samples``).  Required key: ``"seed"`` (int).
+        Optional keys: ``"n_warmup"`` (int), ``"n_samples"`` (int).
+
+        Example::
+
+            run_recipe_to_idata(recipe, force_resample_config={"seed": 42})
+
+        ``None`` (default) re-runs with the recipe's own ``tuning_seed``
+        (backward-compatible).
     catalog_root
         Root of the catalog directory.
 
@@ -1033,6 +1126,18 @@ def run_recipe_to_idata(
     ValueError
         If the recipe model/warmup/sampler are not in the registries.
     """
+    import warnings
+
+    if force_resample:
+        warnings.warn(
+            "force_resample=True is deprecated; use "
+            "force_resample_config={'seed': recipe.tuning_seed} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if force_resample_config is None:
+            force_resample_config = {"seed": recipe.tuning_seed}
+
     from tuningfork.catalog.render import load_idata
 
     # For GROUNDTRUTH, use the standard load path
@@ -1080,8 +1185,15 @@ def run_recipe_to_idata(
     # Wall-time gate: start clock before any JAX compilation / warmup work.
     _t0_idata = time.perf_counter()
 
-    # Use recipe's tuning_seed (or fallback to RECIPE_SEED if 0)
+    # Use recipe's tuning_seed (or fallback to RECIPE_SEED if 0); allow
+    # force_resample_config to override seed (and optionally n_warmup / n_samples).
     seed = recipe.tuning_seed if recipe.tuning_seed != 0 else RECIPE_SEED
+    if force_resample_config is not None:
+        seed = int(force_resample_config["seed"])
+        if "n_warmup" in force_resample_config:
+            n_warmup = int(force_resample_config["n_warmup"])
+        if "n_samples" in force_resample_config:
+            n_samples = int(force_resample_config["n_samples"])
 
     # Build logdensity and initial position
     init_key, warmup_key, sample_key = jax.random.split(jax.random.key(seed), 3)
@@ -1105,6 +1217,15 @@ def run_recipe_to_idata(
             )
         init_position, laplace_log_joint_fn, laplace_theta_init, logdensity_fn = (
             laplace_result
+        )
+
+    # Apply init_strategy from the recipe (optional override of initial position).
+    # Applied after the laplace phi-space transformation so the override acts on
+    # the same position space that the warmup kernel will operate on.
+    if recipe.init_strategy is not None:
+        _override_key = jax.random.fold_in(init_key, 42)
+        init_position = _apply_init_strategy(
+            recipe.init_strategy, init_position, _override_key
         )
 
     # Run warmup — multi-phase (recipe.warmups > 1) or single-phase.

@@ -220,6 +220,53 @@ class RecipeFailedError(RuntimeError):
         self.recipe = recipe
 
 
+# ── init_strategy validation ──────────────────────────────────────────────────
+
+_VALID_INIT_STRATEGY_TYPES: frozenset[str] = frozenset(
+    {"prior_sample", "zero", "uniform"}
+)
+
+
+def validate_init_strategy(v: dict[str, Any] | None) -> None:
+    """Validate an ``init_strategy`` dict at load time.
+
+    Parameters
+    ----------
+    v
+        ``None`` (default — backward-compatible, behaves as ``"prior_sample"``)
+        or a tagged-union dict with a ``"type"`` key.
+
+    Raises
+    ------
+    ValueError
+        If ``v`` is not ``None``, not a ``dict``, uses an unknown ``"type"``,
+        or is a ``"uniform"`` spec with ``low >= high`` or missing bounds.
+    """
+    if v is None:
+        return
+    if not isinstance(v, dict):
+        raise ValueError(
+            f"init_strategy must be a dict or None; got {type(v).__name__!r}"
+        )
+    type_ = v.get("type")
+    if type_ not in _VALID_INIT_STRATEGY_TYPES:
+        raise ValueError(
+            f"init_strategy type {type_!r} not recognised. "
+            f"Valid types: {sorted(_VALID_INIT_STRATEGY_TYPES)!r}"
+        )
+    if type_ == "uniform":
+        if "low" not in v or "high" not in v:
+            raise ValueError(
+                "init_strategy type='uniform' requires both 'low' and 'high' keys"
+            )
+        low, high = float(v["low"]), float(v["high"])
+        if low >= high:
+            raise ValueError(
+                f"init_strategy type='uniform' requires low < high; "
+                f"got low={v['low']!r}, high={v['high']!r}"
+            )
+
+
 @dataclass(frozen=True)
 class Recipe:
     """A pinned (model, base_method, warmup) configuration with provenance.
@@ -418,6 +465,25 @@ class Recipe:
     # resolution-table semantics.
     warmup_inner_kernel: str | None = None
 
+    # ---- Init strategy (schema extension) ----
+    # Tagged-union dict specifying how the initial position for warmup + sampling
+    # is drawn.  ``None`` (default) preserves backward-compatible behavior — the
+    # runner calls ``build_logdensity_fn`` which samples from the prior.
+    #
+    # Valid specs::
+    #
+    #   None                                              # default: prior sample
+    #   {"type": "prior_sample"}                          # explicit prior sample
+    #   {"type": "zero"}                                  # all-zero init
+    #   {"type": "uniform", "low": -1.0, "high": 1.0}    # uniform in [low, high]
+    #
+    # Validated at :py:meth:`Recipe.load` time via :py:func:`validate_init_strategy`
+    # so unknown types / malformed specs raise immediately.
+    # Applied at execution time by ``_apply_init_strategy`` in ``_recipe_runner.py``.
+    # ``low`` / ``high`` are site-agnostic (all parameters share the same bounds);
+    # per-site bounds are deferred to a future schema extension.
+    init_strategy: dict[str, Any] | None = None
+
     inverse_mass_matrix_path: str | None = None
     # Path (relative to the recipe JSON's directory) to a .npz sidecar holding the
     # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM
@@ -586,6 +652,10 @@ class Recipe:
             d.setdefault("warmup_params", {})
         # Schema extension: warmup_inner_kernel absent in pre-extension recipes.
         d.setdefault("warmup_inner_kernel", None)
+        # Schema extension: init_strategy absent in pre-extension recipes.
+        # None = backward-compat default (prior_sample behavior).
+        d.setdefault("init_strategy", None)
+        validate_init_strategy(d["init_strategy"])
         # Schema extension: timing breakdown absent in pre-extension recipes.
         # calibration_budget is a free-form dict; back-fill None for absent keys
         # so callers can rely on .get() returning None on legacy recipes.
