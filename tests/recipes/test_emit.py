@@ -323,3 +323,72 @@ def test_render_instructions_medium_and_high_real() -> None:
 
 # test_medium_recipe_exists_and_has_warmup_data (parametrized over 6 combos)
 # removed 2026-05-17 — see module docstring "History" section.
+
+
+# ---------------------------------------------------------------------------
+# Slow smoke: timing-breakdown stamping by emit_low_recipe_for_cell
+# Added 2026-05-26 per recipe-timing-schema PR
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_emit_low_recipe_stamps_timing_breakdown(tmp_path: Path) -> None:
+    """emit_low_recipe_for_cell stamps timing breakdown into calibration_budget.
+
+    Smoke test on mvn_10 × nuts × window_adaptation_diag_imm at
+    n_samples=1000, num_chains=4 (canonical config).  Verifies that
+    on PASS the saved recipe JSON has:
+    - warmup_wall_seconds is a positive float
+    - sampling_wall_seconds is a positive float
+    - sampling_seconds_per_draw is positive
+    - split_source == "measured"
+    - machine_info is a dict containing "cpu_model" and "jax_version"
+    """
+    from tuningfork.recipes._base import Recipe
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    result = emit_low_recipe_for_cell(
+        "mvn_10",
+        "window_adaptation_diag_imm",
+        "nuts",
+        n_warmup=1000,
+        n_samples=1000,
+        num_chains=4,
+        seed=20260517,
+        catalog_root=tmp_path,
+        outcomes_file=tmp_path / "outcomes.md",
+        verbose=False,
+    )
+
+    # PASS or REVIEW both indicate the pipeline ran to completion.
+    assert result.verdict in ("PASS", "REVIEW"), (
+        f"Expected PASS or REVIEW; got {result.verdict} "
+        f"(rhat={result.gate_rhat_max}, ess={result.gate_min_ess}, div={result.gate_n_div})"
+    )
+
+    # REVIEW means the recipe was not emitted; skip the file checks.
+    if result.verdict == "REVIEW":
+        pytest.skip(
+            f"verdict=REVIEW (rhat={result.gate_rhat_max}, ess={result.gate_min_ess}); "
+            "recipe not emitted; timing-field assertions are unreachable."
+        )
+
+    assert result.recipe_path is not None
+    recipe = Recipe.load(result.recipe_path)
+    budget = recipe.calibration_budget
+
+    assert isinstance(budget.get("warmup_wall_seconds"), float)
+    assert budget["warmup_wall_seconds"] > 0.0
+
+    assert isinstance(budget.get("sampling_wall_seconds"), float)
+    assert budget["sampling_wall_seconds"] > 0.0
+
+    assert isinstance(budget.get("sampling_seconds_per_draw"), float)
+    assert budget["sampling_seconds_per_draw"] > 0.0
+
+    assert budget.get("split_source") == "measured"
+
+    minfo = budget.get("machine_info")
+    assert isinstance(minfo, dict)
+    assert "cpu_model" in minfo
+    assert "jax_version" in minfo

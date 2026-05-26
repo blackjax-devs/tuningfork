@@ -38,6 +38,7 @@ from tuningfork.recipes import (
     FailureDiagnosis,
     Recipe,
     RecipeFailedError,
+    SplitSource,
 )
 from tuningfork.recipes._instructions import render_instructions
 
@@ -181,7 +182,12 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.warmup_params == recipe.warmup_params
     assert loaded.headline_metric == recipe.headline_metric
     assert loaded.sample_quality == recipe.sample_quality
-    assert loaded.calibration_budget == recipe.calibration_budget
+    # calibration_budget: original keys must survive round-trip; the backward-compat
+    # backfill in Recipe.load adds timing keys (None) that the original dict may lack.
+    for k, v in recipe.calibration_budget.items():
+        assert (
+            loaded.calibration_budget[k] == v
+        ), f"calibration_budget[{k!r}]: {loaded.calibration_budget[k]!r} != {v!r}"
     assert loaded.difficulty == recipe.difficulty
     assert loaded.instructions == recipe.instructions
     assert loaded.notes == recipe.notes
@@ -1279,3 +1285,104 @@ def test_step_policy_none_written_as_null(tmp_path: Path) -> None:
     raw = json.loads(saved.read_text())
     assert "step_policy" in raw
     assert raw["step_policy"] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests for timing-breakdown schema (SplitSource + calibration_budget fields)
+# Added 2026-05-26 per recipe-timing-schema PR
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_split_source_enum_values() -> None:
+    """SplitSource enum members have the expected lowercase string values."""
+    assert SplitSource.MEASURED.value == "measured"
+    assert SplitSource.MANUAL.value == "manual"
+    assert SplitSource.ANALYTIC_NA.value == "analytic_na"
+    # str-Enum: each member compares equal to its value string.
+    assert SplitSource.MEASURED == "measured"
+    assert SplitSource.ANALYTIC_NA == "analytic_na"
+
+
+@pytest.mark.fast
+def test_calibration_budget_timing_fields_round_trip(tmp_path: Path) -> None:
+    """calibration_budget timing fields survive a save/load round-trip."""
+    machine_snapshot = {
+        "cpu_model": "test_cpu",
+        "os": "Linux 5.15",
+        "jax_version": "0.5.0",
+    }
+    recipe = _make_minimal_recipe(
+        calibration_budget={
+            "trials": 0,
+            "wall_seconds_estimate": 42.5,
+            "n_warmup": 1000,
+            "n_samples": 1000,
+            "num_chains": 4,
+            "warmup_wall_seconds": 12.345,
+            "sampling_wall_seconds": 30.155,
+            "sampling_seconds_per_draw": 0.007539,
+            "split_source": "measured",
+            "machine_info": machine_snapshot,
+        }
+    )
+    saved = recipe.save(tmp_path)
+    loaded = Recipe.load(saved)
+
+    budget = loaded.calibration_budget
+    assert budget["warmup_wall_seconds"] == pytest.approx(12.345)
+    assert budget["sampling_wall_seconds"] == pytest.approx(30.155)
+    assert budget["sampling_seconds_per_draw"] == pytest.approx(0.007539)
+    assert budget["split_source"] == "measured"
+    assert budget["machine_info"]["cpu_model"] == "test_cpu"
+
+
+@pytest.mark.fast
+def test_old_recipe_without_timing_fields_loads_with_none_defaults(
+    tmp_path: Path,
+) -> None:
+    """A legacy recipe JSON without timing fields loads with None defaults (backward compat)."""
+    legacy_json = {
+        "model_name": "mvn_10",
+        "base_method_name": "nuts",
+        "warmup_name": "window_adaptation_diag_imm",
+        "warmups": [
+            {"name": "window_adaptation_diag_imm", "params": {"n_warmup": 1000}}
+        ],
+        "effort": "low",
+        "base_method_params": {"step_size": 0.05},
+        "warmup_params": {"n_warmup": 1000},
+        "headline_metric": 0.031,
+        "sample_quality": None,
+        # calibration_budget WITHOUT timing breakdown fields
+        "calibration_budget": {
+            "trials": 0,
+            "wall_seconds_estimate": 35.0,
+            "n_warmup": 1000,
+            "n_samples": 1000,
+        },
+        "difficulty": None,
+        "instructions": "legacy recipe instructions",
+        "notes": "",
+        "tuning_seed": 20260517,
+        "tuningfork_version": "0.0.0.dev0",
+        "blackjax_version": "0.9.0",
+        "jax_version": "0.4.30",
+        "timestamp_utc": "2026-05-01T00:00:00Z",
+    }
+    recipe_path = (
+        tmp_path / "mvn_10" / "recipes" / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
+    recipe_path.write_text(json.dumps(legacy_json) + "\n")
+
+    loaded = Recipe.load(recipe_path)
+    budget = loaded.calibration_budget
+    # New timing fields should default to None
+    assert budget.get("warmup_wall_seconds") is None
+    assert budget.get("sampling_wall_seconds") is None
+    assert budget.get("sampling_seconds_per_draw") is None
+    assert budget.get("split_source") is None
+    assert budget.get("machine_info") is None
+    # Legacy fields should still be there
+    assert budget["wall_seconds_estimate"] == pytest.approx(35.0)

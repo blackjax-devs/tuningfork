@@ -30,6 +30,7 @@ This measures how well the momentum resampling explores the energy surface.
 """
 
 import pickle
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -511,6 +512,8 @@ def certify_reference_nuts(
     AdaptationParams,
     CertificationResult,
     dict[str, np.ndarray],
+    float | None,
+    float,
 ]:
     """Run long single-chain NUTS and certify the reference draws.
 
@@ -551,6 +554,12 @@ def certify_reference_nuts(
         ``(n_samples,)``, including ``num_integration_steps``, ``energy``,
         ``is_divergent``, ``acceptance_rate``, and any other fields
         exposed by BlackJAX's NUTSInfo NamedTuple.
+    warmup_wall_seconds
+        Wall seconds for the warmup phase (timed at Python orchestration
+        level with ``jax.block_until_ready()`` before stopping the clock).
+        ``None`` when ``pre_adapted`` was supplied (warmup was skipped).
+    sampling_wall_seconds
+        Wall seconds for the sampling phase (timed the same way).
 
     pre_adapted
         Optional pre-computed warmup output. When provided, the warmup phase
@@ -611,6 +620,10 @@ def certify_reference_nuts(
     init_position, logdensity_fn, _ = build_logdensity_fn(rng_key_init, entry)
 
     # --- Warmup (or load pre_adapted) ---
+    _warmup_wall: float | None = (
+        None  # set below in warmup branch; None on pre_adapted path
+    )
+
     if pre_adapted is None:
         warmup = blackjax.window_adaptation(
             blackjax.nuts,
@@ -618,9 +631,16 @@ def certify_reference_nuts(
             target_acceptance_rate=target_acceptance,
             max_num_doublings=max_num_doublings,
         )
+        _t_warmup0 = time.perf_counter()
         (adapted_state, adapted_params), warmup_info = warmup.run(
             rng_key_warmup, init_position, n_warmup
         )
+        # Block until JAX async dispatch completes before stopping the clock.
+        # Without this the timer measures dispatch latency, not actual compute —
+        # the same artifact that caused the vmap "blowup" misdiagnosis in the
+        # gp arc (worklog/lessons/case-studies/laplace-family-vmap-compile-blowup.md).
+        jax.block_until_ready((adapted_state, warmup_info))
+        _warmup_wall = time.perf_counter() - _t_warmup0
         num_leapfrog_median = int(jnp.median(warmup_info.info.num_integration_steps))
 
         # --- Persist warmup checkpoint IMMEDIATELY (before validation, before
@@ -702,12 +722,16 @@ def certify_reference_nuts(
     # window_adaptation propagates max_num_doublings into adapted_params, so we
     # don't pass it again here (would raise TypeError on duplicate kwarg).
     nuts = blackjax.nuts(logdensity_fn, **adapted_params)
+    _t_sample0 = time.perf_counter()
     final_state, (states, infos) = run_inference_algorithm(
         rng_key=rng_key_sample,
         inference_algorithm=nuts,
         num_steps=n_samples,
         initial_state=adapted_state,
     )
+    # Block until dispatch completes — same rationale as the warmup timer above.
+    jax.block_until_ready((final_state, states, infos))
+    _sampling_wall = time.perf_counter() - _t_sample0
     del final_state  # not needed
 
     # states.position is a dict {site: (n_samples, *shape)}
@@ -839,4 +863,4 @@ def certify_reference_nuts(
         xcheck_dir.mkdir(parents=True, exist_ok=True)
         xcheck.save(xcheck_dir / "xcheck.json")
 
-    return draws, summaries, adaptation, cert, chain_stats
+    return draws, summaries, adaptation, cert, chain_stats, _warmup_wall, _sampling_wall

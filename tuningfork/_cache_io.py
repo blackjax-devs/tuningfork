@@ -343,6 +343,11 @@ def _build_metadata(
     certification_dict: dict,
     wall_time_seconds: float | None = None,
     divergence_rate_tolerance_used: float | None = None,
+    warmup_wall_seconds: float | None = None,
+    sampling_wall_seconds: float | None = None,
+    sampling_seconds_per_draw: float | None = None,
+    split_source: str | None = None,
+    machine_info: dict | None = None,
 ) -> dict:
     """Build the metadata stamp dict.
 
@@ -358,6 +363,24 @@ def _build_metadata(
     older metadata files without these keys still load via
     ``meta.get(field, None)``; the new fields default to None when the
     cert pipeline doesn't supply them.
+
+    Timing-breakdown fields (added 2026-05-26):
+
+    ``warmup_wall_seconds`` : float | None
+        Wall seconds for the warmup phase only.  None for analytic models
+        (no warmup phase) or when the split is not available.
+    ``sampling_wall_seconds`` : float | None
+        Wall seconds for the sampling phase only.  None for analytic models
+        or when the split is not available.
+    ``sampling_seconds_per_draw`` : float | None
+        ``sampling_wall_seconds / num_samples`` when sampling time is known.
+    ``split_source`` : str | None
+        How the timing split was obtained.  ``"analytic_na"`` for analytic
+        models; ``"measured"`` when phases were timed at orchestration level.
+        None on cache hit (no regeneration).
+    ``machine_info`` : dict | None
+        Hardware + software snapshot at generation time from
+        ``tuningfork._machine_info.get_machine_info()``.  None on cache hit.
     """
     n = next(iter(draws.values())).shape[0]
     return {
@@ -372,6 +395,11 @@ def _build_metadata(
         ),
         "wall_time_seconds": wall_time_seconds,
         "divergence_rate_tolerance_used": divergence_rate_tolerance_used,
+        "warmup_wall_seconds": warmup_wall_seconds,
+        "sampling_wall_seconds": sampling_wall_seconds,
+        "sampling_seconds_per_draw": sampling_seconds_per_draw,
+        "split_source": split_source,
+        "machine_info": machine_info,
         "certification": certification_dict,
     }
 
@@ -419,8 +447,10 @@ def _regenerate_nuts(
     dict,
     AdaptationParams,
     dict[str, np.ndarray],
+    float | None,
+    float,
 ]:
-    """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt, chain_stats).
+    """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt, chain_stats, warmup_wall, sampling_wall).
 
     `chain_stats` is the dict of per-step NUTS diagnostics (num_integration_steps,
     energy, is_divergent, acceptance_rate, plus other NUTSInfo._fields). On
@@ -433,10 +463,21 @@ def _regenerate_nuts(
     ``checkpoint_dir`` (optional) is where the warmup checkpoint is persisted
     immediately after warmup completes (before validation, before sampling).
     ``validate_warmup_fn`` (optional) is a model-specific health-check callback.
+
+    ``warmup_wall`` is ``None`` when ``pre_adapted`` is supplied (warmup skipped).
+    ``sampling_wall`` is always a positive float.
     """
     from tuningfork.calibration.certify_reference import certify_reference_nuts
 
-    draws, summaries, adaptation_params, cert, chain_stats = certify_reference_nuts(
+    (
+        draws,
+        summaries,
+        adaptation_params,
+        cert,
+        chain_stats,
+        warmup_wall,
+        sampling_wall,
+    ) = certify_reference_nuts(
         entry,
         rng_key,
         n_warmup=n_warmup,
@@ -455,7 +496,15 @@ def _regenerate_nuts(
         "num_divergences": int(cert.num_divergences),
         "e_bfmi": float(cert.e_bfmi),
     }
-    return draws, summaries, cert_dict, adaptation_params, chain_stats
+    return (
+        draws,
+        summaries,
+        cert_dict,
+        adaptation_params,
+        chain_stats,
+        warmup_wall,
+        sampling_wall,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +609,8 @@ def get_reference_draws(
                 effective_dir / entry.name / "_cache" / "warmup_checkpoint"
             )
 
+        _warmup_ws: float | None = None
+        _sampling_ws: float | None = None
         try:
             (
                 draws,
@@ -567,6 +618,8 @@ def get_reference_draws(
                 cert_dict,
                 adaptation_params,
                 chain_stats,
+                _warmup_ws,
+                _sampling_ws,
             ) = _regenerate_nuts(
                 entry,
                 n,
@@ -624,6 +677,10 @@ def get_reference_draws(
     _wall_seconds = float(_time.perf_counter() - _t0)
     if entry.reference_method == ReferenceMethod.ANALYTIC:
         _gate_used: float | None = None
+        _split_source: str | None = "analytic_na"
+        _warmup_ws = None
+        _sampling_ws = None
+        _secs_per_draw: float | None = None
     else:
         from tuningfork.calibration.certify_reference import _DIVERGENCE_RATE_TOLERANCE
 
@@ -632,6 +689,24 @@ def get_reference_draws(
             if entry.divergence_rate_tolerance is not None
             else _DIVERGENCE_RATE_TOLERANCE
         )
+        # NUTS path: split timing comes directly from certify_reference_nuts.
+        # emit split_source="measured" only when BOTH walls are populated.
+        # _warmup_ws is None when pre_adapted was supplied (warmup skipped).
+        _split_source = (
+            "measured"
+            if (_warmup_ws is not None and _sampling_ws is not None)
+            else None
+        )
+        n_total = next(iter(draws.values())).shape[0]
+        # per-draw from sampling wall when available; fall back to total wall.
+        if _sampling_ws is not None:
+            _secs_per_draw = round(_sampling_ws / max(n_total, 1), 6)
+        else:
+            _secs_per_draw = (
+                round(_wall_seconds / max(n_total, 1), 6) if _wall_seconds else None
+            )
+
+    from tuningfork._machine_info import get_machine_info as _get_machine_info
 
     metadata = _build_metadata(
         entry,
@@ -642,6 +717,11 @@ def get_reference_draws(
         cert_dict,
         wall_time_seconds=_wall_seconds,
         divergence_rate_tolerance_used=_gate_used,
+        warmup_wall_seconds=_warmup_ws,
+        sampling_wall_seconds=_sampling_ws,
+        sampling_seconds_per_draw=_secs_per_draw,
+        split_source=_split_source,
+        machine_info=_get_machine_info(),
     )
     _write_artifacts(
         entry,

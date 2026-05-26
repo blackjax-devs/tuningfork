@@ -22,12 +22,14 @@ from tuningfork.recipes._base import (
     FailureDiagnosis,
     Recipe,
     RecipeFailedError,
+    SplitSource,
 )
 
 __all__ = [
     "Recipe",
     "Effort",
     "FailureDiagnosis",
+    "SplitSource",
     "AttemptedConfig",
     "RecipeFailedError",
 ]

@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Effort",
     "FailureDiagnosis",
+    "SplitSource",
     "AttemptedConfig",
     "Recipe",
     "RecipeFailedError",
@@ -148,6 +149,24 @@ class Effort(str, Enum):
     HIGH = "high"
     GROUNDTRUTH = "groundtruth"
     FAILED = "failed"
+
+
+class SplitSource(str, Enum):
+    """How the ``warmup_wall_seconds`` / ``sampling_wall_seconds`` split was obtained.
+
+    MEASURED   — both phases were timed at Python orchestration level by the
+                 recipe runner (``emit_low_recipe_for_cell`` or
+                 ``run_recipe_to_idata``).  The most trustworthy source.
+    MANUAL     — a human set the values by hand (e.g., timing from an external
+                 run log, or a retrospective estimate).
+    ANALYTIC_NA — analytic-path model: no warmup or sampling phase exists
+                  (draws are drawn directly from the closed-form posterior);
+                  timing fields are ``None`` by definition.
+    """
+
+    MEASURED = "measured"
+    MANUAL = "manual"
+    ANALYTIC_NA = "analytic_na"
 
 
 class FailureDiagnosis(str, Enum):
@@ -250,6 +269,25 @@ class Recipe:
         Cost summary: ``{"trials": int, "wall_seconds_estimate": float, ...}``.
         ``trials > 0`` only for HIGH (where BO ran); ``wall_seconds_estimate``
         is filled at every tier (LOW captures warmup + sampler wall time).
+
+        Optional timing-breakdown fields (all ``None`` for legacy recipes):
+
+        ``warmup_wall_seconds`` : float | None
+            Wall seconds for the warmup phase (between compiled calls, at Python
+            orchestration level).  Set by the runner when ``split_source="measured"``.
+        ``sampling_wall_seconds`` : float | None
+            Wall seconds for the sampling phase.  Set by the runner when
+            ``split_source="measured"``.
+        ``sampling_seconds_per_draw`` : float | None
+            ``sampling_wall_seconds / (n_samples * num_chains)``.  Normalised
+            per-draw cost useful for cross-model comparisons.
+        ``split_source`` : str | None
+            How the split was obtained — ``"measured"``, ``"manual"``, or
+            ``"analytic_na"``.  See ``SplitSource`` enum for semantics.
+        ``machine_info`` : dict | None
+            Hardware + software snapshot at recipe-write time (CPU model, core
+            count, OS, JAX/BlackJAX versions, x64 flag, GPU if visible).
+            Written by ``get_machine_info()`` from ``tuningfork._machine_info``.
     difficulty
         Serialised ``TuningDifficulty.asdict()`` or ``None``.  Only meaningful
         for HIGH recipes (the only tier with a BO study).
@@ -548,6 +586,18 @@ class Recipe:
             d.setdefault("warmup_params", {})
         # Schema extension: warmup_inner_kernel absent in pre-extension recipes.
         d.setdefault("warmup_inner_kernel", None)
+        # Schema extension: timing breakdown absent in pre-extension recipes.
+        # calibration_budget is a free-form dict; back-fill None for absent keys
+        # so callers can rely on .get() returning None on legacy recipes.
+        if "calibration_budget" in d and isinstance(d["calibration_budget"], dict):
+            for _k in (
+                "warmup_wall_seconds",
+                "sampling_wall_seconds",
+                "sampling_seconds_per_draw",
+                "split_source",
+                "machine_info",
+            ):
+                d["calibration_budget"].setdefault(_k, None)
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────
