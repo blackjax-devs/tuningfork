@@ -33,7 +33,7 @@
     "sampling_wall_seconds": 10.883,
     "sampling_seconds_per_draw": 0.002721,
     "split_source": "estimated",
-    "split_note": "laplace-family vmap compile blowup in fresh JAX session; measured split infeasible within timeout; using proportional estimate from wall_seconds_estimate.",
+    "split_note": "re-run produced divergence cascade; measured split unavailable.",
     "machine_info": null
   },
   "difficulty": null,
