@@ -26,16 +26,26 @@
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 12.310242471001402,
+    "wall_seconds_estimate": 13.116,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 6.155,
-    "sampling_wall_seconds": 6.155,
-    "sampling_seconds_per_draw": 0.001539,
-    "split_source": "estimated",
-    "split_note": "re-run produced divergence cascade; measured split unavailable.",
-    "machine_info": null
+    "warmup_wall_seconds": 3.735,
+    "sampling_wall_seconds": 9.381,
+    "sampling_seconds_per_draw": 0.002345,
+    "split_source": "measured",
+    "split_note": "Measured at emit seed 20260517. n_div=0, rhat_max=1.0017 < 1.01. Seed-fragile: recipe diverges at derived tuning_seed 4089912102 (NUTS max-tree expansion on laplace marginal \u2192 step collapse \u2192 25% divergence rate).",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev81+ga8998469a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.6166571974754333, 'inverse_mass_matrix': [[12.023087501525879, -0.038633499294519424], [-0.038633499294519424, 1.3869810104370117]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0116.\nWall time to produce this recipe: ~12 s (machine-only).",
