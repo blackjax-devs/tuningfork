@@ -447,8 +447,10 @@ def _regenerate_nuts(
     dict,
     AdaptationParams,
     dict[str, np.ndarray],
+    float | None,
+    float,
 ]:
-    """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt, chain_stats).
+    """Path B: long-NUTS certifier.  Returns (draws, summaries, cert_dict, adapt, chain_stats, warmup_wall, sampling_wall).
 
     `chain_stats` is the dict of per-step NUTS diagnostics (num_integration_steps,
     energy, is_divergent, acceptance_rate, plus other NUTSInfo._fields). On
@@ -461,10 +463,21 @@ def _regenerate_nuts(
     ``checkpoint_dir`` (optional) is where the warmup checkpoint is persisted
     immediately after warmup completes (before validation, before sampling).
     ``validate_warmup_fn`` (optional) is a model-specific health-check callback.
+
+    ``warmup_wall`` is ``None`` when ``pre_adapted`` is supplied (warmup skipped).
+    ``sampling_wall`` is always a positive float.
     """
     from tuningfork.calibration.certify_reference import certify_reference_nuts
 
-    draws, summaries, adaptation_params, cert, chain_stats = certify_reference_nuts(
+    (
+        draws,
+        summaries,
+        adaptation_params,
+        cert,
+        chain_stats,
+        warmup_wall,
+        sampling_wall,
+    ) = certify_reference_nuts(
         entry,
         rng_key,
         n_warmup=n_warmup,
@@ -483,7 +496,15 @@ def _regenerate_nuts(
         "num_divergences": int(cert.num_divergences),
         "e_bfmi": float(cert.e_bfmi),
     }
-    return draws, summaries, cert_dict, adaptation_params, chain_stats
+    return (
+        draws,
+        summaries,
+        cert_dict,
+        adaptation_params,
+        chain_stats,
+        warmup_wall,
+        sampling_wall,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +609,8 @@ def get_reference_draws(
                 effective_dir / entry.name / "_cache" / "warmup_checkpoint"
             )
 
+        _warmup_ws: float | None = None
+        _sampling_ws: float | None = None
         try:
             (
                 draws,
@@ -595,6 +618,8 @@ def get_reference_draws(
                 cert_dict,
                 adaptation_params,
                 chain_stats,
+                _warmup_ws,
+                _sampling_ws,
             ) = _regenerate_nuts(
                 entry,
                 n,
@@ -653,8 +678,8 @@ def get_reference_draws(
     if entry.reference_method == ReferenceMethod.ANALYTIC:
         _gate_used: float | None = None
         _split_source: str | None = "analytic_na"
-        _warmup_ws: float | None = None
-        _sampling_ws: float | None = None
+        _warmup_ws = None
+        _sampling_ws = None
         _secs_per_draw: float | None = None
     else:
         from tuningfork.calibration.certify_reference import _DIVERGENCE_RATE_TOLERANCE
@@ -664,17 +689,22 @@ def get_reference_draws(
             if entry.divergence_rate_tolerance is not None
             else _DIVERGENCE_RATE_TOLERANCE
         )
-        # NUTS path: certify_reference_nuts runs warmup + sampling internally as
-        # a single call; phase-level split is not available at this layer.
-        # Record total wall as measured; phase breakdown remains None.
-        _split_source = "measured"
-        _warmup_ws = None
-        _sampling_ws = None
-        # per-draw from total wall (approximation — includes warmup amortisation)
-        n_total = next(iter(draws.values())).shape[0]
-        _secs_per_draw = (
-            round(_wall_seconds / max(n_total, 1), 6) if _wall_seconds else None
+        # NUTS path: split timing comes directly from certify_reference_nuts.
+        # emit split_source="measured" only when BOTH walls are populated.
+        # _warmup_ws is None when pre_adapted was supplied (warmup skipped).
+        _split_source = (
+            "measured"
+            if (_warmup_ws is not None and _sampling_ws is not None)
+            else None
         )
+        n_total = next(iter(draws.values())).shape[0]
+        # per-draw from sampling wall when available; fall back to total wall.
+        if _sampling_ws is not None:
+            _secs_per_draw = round(_sampling_ws / max(n_total, 1), 6)
+        else:
+            _secs_per_draw = (
+                round(_wall_seconds / max(n_total, 1), 6) if _wall_seconds else None
+            )
 
     from tuningfork._machine_info import get_machine_info as _get_machine_info
 
