@@ -237,3 +237,82 @@ def test_skip_warmup_eight_schools_nuts_sane_diagnostics() -> None:
             f"Expected 0 divergences with skip_warmup=True on eight_schools_ncp, "
             f"got {n_div}"
         )
+
+
+@pytest.mark.slow
+def test_skip_warmup_lotka_volterra_x64_dtype() -> None:
+    """skip_warmup=True on lotka_volterra (x64 model) uses float64 throughout.
+
+    Lotka_volterra requires x64 precision (requires_x64=True).  This test is
+    the dtype lock: if _build_stationary_init_positions hard-casts to float32,
+    the kernel init will fail with a dtype mismatch or silently lose precision.
+
+    Validates:
+    - x64 is auto-enabled by run_recipe_to_idata before the skip_warmup path
+    - stationary init positions are float64 (not float32)
+    - sampling produces R̂ < 1.2 and n_div == 0 (more lenient; stiff ODE model)
+    - warmup wall time < 1 s
+    """
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.catalog.inspect import load_recipe
+    from tuningfork.recipes._recipe_runner import (
+        _build_stationary_init_positions,
+        run_recipe_to_idata,
+    )
+
+    recipe_path = (
+        _CATALOG_ROOT
+        / "lotka_volterra"
+        / "recipes"
+        / "medium__nuts__window_adaptation_diag_imm.json"
+    )
+    recipe = load_recipe(recipe_path)
+
+    idata, t_warmup, _t_sample = run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=100,
+        _return_timing=True,
+    )
+
+    # x64 should have been auto-enabled
+    assert jax.config.read(
+        "jax_enable_x64"
+    ), "run_recipe_to_idata should have auto-enabled x64 for lotka_volterra"
+
+    # Stationary init must be float64 when x64 is enabled
+    positions = _build_stationary_init_positions(
+        "lotka_volterra", num_chains=4, catalog_root=_CATALOG_ROOT
+    )
+    for key, arr in positions.items():
+        assert arr.dtype == jnp.float64, (
+            f"Position '{key}' has dtype {arr.dtype}, expected float64 "
+            "when jax_enable_x64 is True."
+        )
+
+    # Warmup should be essentially free
+    assert t_warmup < 1.0, f"skip_warmup should have t_warmup≈0, got {t_warmup:.3f}s"
+
+    # Posterior group must exist
+    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
+
+    # R-hat sanity (more lenient; stiff ODE model + only 100 samples)
+    rhat = az.rhat(idata)
+    rhat_values: list[float] = []
+    for var in rhat.data_vars:
+        rhat_values.extend(float(v) for v in rhat[var].values.ravel())
+    rhat_max = max(rhat_values) if rhat_values else 0.0
+    assert rhat_max < 1.2, (
+        f"R̂ max={rhat_max:.4f} exceeds 1.2 for lotka_volterra skip_warmup — "
+        "stationary init may be far from posterior or stored step_size is stale."
+    )
+
+    # Divergence check
+    if hasattr(idata, "sample_stats") and hasattr(idata.sample_stats, "diverging"):
+        n_div = int(idata.sample_stats.diverging.values.sum())
+        assert n_div == 0, (
+            f"Expected 0 divergences with skip_warmup=True on lotka_volterra, "
+            f"got {n_div}"
+        )

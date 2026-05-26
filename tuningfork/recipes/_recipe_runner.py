@@ -1120,12 +1120,16 @@ def _build_stationary_init_positions(
     gt_std = summary["std"]
 
     _OFFSETS = [0.1, -0.1, 0.05, -0.05]
+    # Follow model precision: x64-enabled models (e.g. lotka_volterra) use float64;
+    # all others use float32.  This check fires at call time, AFTER run_recipe_to_idata
+    # has already called jax.config.update("jax_enable_x64", True) for x64 models.
+    _dtype = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
 
     def _chain_init(i: int) -> dict:
         offset = _OFFSETS[i % len(_OFFSETS)]
         return {
-            k: jnp.asarray(gt_mean[k], dtype=jnp.float32)
-            + offset * jnp.asarray(gt_std[k], dtype=jnp.float32)
+            k: jnp.asarray(gt_mean[k], dtype=_dtype)
+            + offset * jnp.asarray(gt_std[k], dtype=_dtype)
             for k in gt_mean
         }
 
