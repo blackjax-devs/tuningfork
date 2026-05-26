@@ -1,16 +1,16 @@
 {
   "name": "lotka_volterra",
-  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "code_sha": "cc6870da9ed78df47db20538de6aaf704ab4619e",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "1b05466c07f7e717f221abd672dab01ab97f5579",
   "generator": "nuts",
   "num_samples": 40000,
-  "seed": 0,
-  "timestamp_utc": "2026-05-26T13:33:45Z",
-  "wall_time_seconds": 228.7611207079608,
+  "seed": 20260526,
+  "timestamp_utc": "2026-05-26T17:15:01Z",
+  "wall_time_seconds": 222.94990971195512,
   "divergence_rate_tolerance_used": 0.001,
-  "warmup_wall_seconds": 20.535,
-  "sampling_wall_seconds": 208.226,
-  "sampling_seconds_per_draw": 0.005206,
+  "warmup_wall_seconds": 24.45510367199313,
+  "sampling_wall_seconds": 182.68656807701336,
+  "sampling_seconds_per_draw": 0.004567,
   "split_source": "measured",
   "machine_info": {
     "cpu_model": "x86_64",
@@ -19,25 +19,15 @@
     "python_version": "3.13.13",
     "jax_version": "0.10.0",
     "blackjax_version": "1.6.dev81+ga8998469a",
-    "jax_x64_enabled": false,
+    "jax_x64_enabled": true,
     "jax_default_device": "cpu",
     "gpu_info": null
   },
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0001168251037598,
-    "min_chunk_bulk_ess": 2665.583984375,
+    "split_rhat_max": 1.000456665645031,
+    "min_chunk_bulk_ess": 1901.8847346861075,
     "num_divergences": 0,
-    "e_bfmi": 0.9928275942802429
-  },
-  "init_override": {
-    "alpha": -0.7413614988327026,
-    "beta": -3.0367326736450195,
-    "delta": -2.953031063079834,
-    "gamma": -0.641408383846283,
-    "sigma_obs": -0.5666928887367249,
-    "u0": 2.3073689937591553,
-    "v0": 1.588096022605896
-  },
-  "init_override_note": "JAX 0.10.0 float32 ODE arithmetic drift causes prior-region init (seed=0) to traverse the inter-modal hard-geometry region during warmup, collapsing step_size to ~6e-4 and producing ~41 pct divergences. Certified posterior means (from summary.json at Phase-0 SHA 01368447) place the chain directly in the high-density basin, bypassing the inter-modal barrier (deltaLogP=483 at midpoint). 8/8 seeds pass at n_warmup=500 with this init (worklog: lotka-volterra-cert-regression.md Sec5 seed screen). n_warmup=5000 for cross-suite consistency with all other 13 reference models. Ratified by @tl 2026-05-26T12:24:28Z."
+    "e_bfmi": 0.9863407171211008
+  }
 }
