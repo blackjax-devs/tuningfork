@@ -73,6 +73,11 @@ tuningfork/reference/draws/*.npy
 tuningfork/reference/chain_stats/*.npz
 tuningfork/reference/warmup_checkpoint/
 
+# emit_script outputs — reproduce_*.py files generated at repo root by
+# tuningfork.catalog.emit_script (recipe → standalone reproduction script).
+# These are workflow artifacts; regenerable at any time via the recipe.
+reproduce_*.py
+
 # OS / editor
 .DS_Store
 *.bak
