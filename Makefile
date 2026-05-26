@@ -28,11 +28,9 @@ test-full:
 	JAX_PLATFORM_NAME=cpu uv run pytest tests -n 2
 
 # Kill orphan Python REPLs and stale pytest workers (memory hygiene before sweeps).
-# The script lives in claude-config (cross-repo tool); CLAUDE_CONFIG_DIR can override
-# the default ~/claude-config location.
-CLAUDE_CONFIG_DIR ?= $(HOME)/claude-config
+# The script is vendored at tools/clean_orphans.sh (self-contained; no external dep).
 clean-orphans:
-	@bash $(CLAUDE_CONFIG_DIR)/tools/clean_orphans.sh
+	@bash tools/clean_orphans.sh
 
 lint:
 	uv run pre-commit run --all-files
