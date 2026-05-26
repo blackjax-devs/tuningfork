@@ -190,6 +190,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         "w", dir=path.parent, delete=False, suffix=".tmp"
     ) as fh:
         json.dump(data, fh, indent=2)
+        fh.write("\n")  # POSIX: text files must end with a newline
         tmp = Path(fh.name)
     tmp.replace(path)
 
