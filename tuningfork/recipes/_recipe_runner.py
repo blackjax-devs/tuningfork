@@ -548,6 +548,11 @@ def emit_low_recipe_for_cell(
     warmup = WARMUPS[warmup_name]
     base_method = BASE_METHODS[sampler_name]
 
+    # Per-model x64 requirement: auto-enable BEFORE any JAX computation.
+    # Must happen before jax.random.key() below.
+    if posterior.requires_x64 and not jax.config.read("jax_enable_x64"):
+        jax.config.update("jax_enable_x64", True)
+
     # --- Compatibility check ---
     if not warmup.is_compatible(sampler_name):
         note = f"SKIP: {warmup_name} incompatible with {sampler_name}"
@@ -1162,6 +1167,12 @@ def run_recipe_to_idata(
     posterior = MODELS[recipe.model_name]
     warmup = WARMUPS[recipe.warmup_name]
     base_method = BASE_METHODS[recipe.base_method_name]
+
+    # Per-model x64 requirement: auto-enable BEFORE any JAX computation.
+    # Must happen before jax.random.key() below. Analogous to how the cert
+    # pipeline enforces x64 (certify_reference.py:609).
+    if posterior.requires_x64 and not jax.config.read("jax_enable_x64"):
+        jax.config.update("jax_enable_x64", True)
 
     # Compatibility check
     if not warmup.is_compatible(recipe.base_method_name):
