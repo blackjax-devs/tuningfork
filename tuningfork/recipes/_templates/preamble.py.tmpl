@@ -16,6 +16,8 @@ Run with::
     uv run --with tuningfork --with jax --with blackjax --with numpyro \\
         python <this_script>.py
 """
+import time as _recipe_time
+_recipe_t0 = _recipe_time.perf_counter()
 import jax
 import jax.numpy as jnp
 import numpy as np
