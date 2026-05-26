@@ -34,16 +34,20 @@ def _cmd_reference(args: argparse.Namespace) -> int:
         return 1
 
     entry = MODELS[args.model]
+
+    # Per-model x64 requirement: auto-enable BEFORE any JAX computation.
+    # Must happen before jax.random.key() below, which triggers JAX initialisation.
+    # Strictly analogous to how gp_regression and lotka_volterra need float64.
+    if entry.requires_x64 and not jax.config.read("jax_enable_x64"):
+        jax.config.update("jax_enable_x64", True)
+
     key = jax.random.key(args.seed)
 
-    # NUTS-specific parameters: use small fixed values for v1 CLI
-    # (full 100k-sample production run requires explicit --n-warmup wiring in v2)
+    # NUTS-specific parameters: pass through CLI flags; fall back to
+    # get_reference_draws production defaults (n_warmup=5000, n_chunks=4).
     nuts_kwargs: dict = {}
     if entry.reference_method.value == "nuts":
-        # Use conservative small defaults so the CLI smoke-test is fast;
-        # production runs should invoke get_reference_draws() directly with
-        # n_warmup=5000, n_samples=100_000.
-        nuts_kwargs = {"n_warmup": 500, "n_chunks": 4}
+        nuts_kwargs = {"n_warmup": args.n_warmup, "n_chunks": 4}
 
     t0 = time.monotonic()
     draws = get_reference_draws(
@@ -588,6 +592,13 @@ def main() -> int:
         "--force",
         action="store_true",
         help="Force regeneration even if cache is valid",
+    )
+    p_reference.add_argument(
+        "--n-warmup",
+        type=int,
+        default=5_000,
+        dest="n_warmup",
+        help="NUTS warmup steps (default: 5000; ignored for analytic models)",
     )
 
     # ---- warmup subcommand ----

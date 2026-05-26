@@ -11,11 +11,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Lotka-Volterra ODE inverse problem — 7-D posterior via ProbDiffEq probabilistic solver."""
+"""Lotka-Volterra ODE inverse problem — 7-D posterior via ProbDiffEq probabilistic solver.
+
+REQUIRES JAX_ENABLE_X64=1 at cert time (and recipe runs).
+
+Under float32, probdiffeq's lax.scan gradient path accumulates rounding errors at
+extreme parameter values (prior-region init: grad_norm ~25 k vs posterior ~15).
+Under JAX 0.10.0's XLA fusion changes the float32 noise is enough to cause
+NUTS dual-averaging to collapse the step_size → 41 % divergences from any
+default init.  Under float64 the 1752× gradient-scale mismatch is handled
+exactly → clean warmup from default prior init across all tested seeds.
+
+Strictly analogous to the gp_regression x64 fix (dense-Cholesky precision).
+Ratified @tl 2026-05-26T16:56.  See worklog/threads/lotka-volterra-cert-regression.md §9.
+"""
 
 import functools as ft
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import numpyro
@@ -59,10 +73,17 @@ _NPZ_PATH: Path = Path(__file__).parent / "_data" / "lotka_volterra.npz"
 
 _data = np.load(_NPZ_PATH)
 
-OBSERVATIONS: jnp.ndarray = jnp.array(_data["observations"], dtype=jnp.float32)
-OBSERVATION_TIMES: jnp.ndarray = jnp.array(
-    _data["observation_times"], dtype=jnp.float32
-)
+# Dtype selection: requires_x64=True is set on ENTRY (see bottom of file).
+# At cert/recipe time (x64=True): arrays load as float64 → ODE arithmetic
+# stable at all parameter values the chain might visit.
+# At test-import time (x64 typically False): they load as float32. The model
+# is not invoked at import; the cert assertion in certify_reference_nuts
+# catches any actual cert attempt without x64. This avoids JAX UserWarning
+# during pytest collection (treated as error in CI).
+_dtype = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
+
+OBSERVATIONS: jnp.ndarray = jnp.array(_data["observations"], dtype=_dtype)
+OBSERVATION_TIMES: jnp.ndarray = jnp.array(_data["observation_times"], dtype=_dtype)
 
 # Validate shapes
 assert OBSERVATIONS.shape == (
@@ -286,6 +307,7 @@ ENTRY = Posterior(
         "expensive_likelihood",
         "synthetic",
     ),
+    requires_x64=True,
     numpyro_model=lotka_volterra_inverse,
     model_args=(OBSERVATIONS, OBSERVATION_TIMES),
     model_kwargs={},
