@@ -1059,7 +1059,16 @@ def run_recipe_to_idata(
     num_chains = int(recipe.warmup_params.get("num_chains", RECIPE_NUM_CHAINS))
     target_acceptance = recipe.warmup_params.get("target_acceptance", None)
     if n_samples is None:
-        n_samples = int(recipe.warmup_params.get("n_samples", RECIPE_N_SAMPLES))
+        # Prefer calibration_budget["n_samples"] (the validated config stamp)
+        # over warmup_params (which is derived from Phase-1 warmup params and
+        # typically has no n_samples key for multi-phase HIGH recipes).
+        n_samples = int(
+            recipe.calibration_budget.get("n_samples")
+            or recipe.warmup_params.get("n_samples", RECIPE_N_SAMPLES)
+        )
+
+    # Wall-time gate: start clock before any JAX compilation / warmup work.
+    _t0_idata = time.perf_counter()
 
     # Use recipe's tuning_seed (or fallback to RECIPE_SEED if 0)
     seed = recipe.tuning_seed if recipe.tuning_seed != 0 else RECIPE_SEED
@@ -1317,12 +1326,20 @@ def run_recipe_to_idata(
     if hasattr(infos, "num_integration_steps"):
         chain_stats["num_integration_steps"] = np.asarray(infos.num_integration_steps)
 
-    return samples_to_idata(
+    idata_result = samples_to_idata(
         positions_dict,
         is_multichain=True,
         chain_stats=chain_stats if chain_stats else None,
         n_chunks=1,  # Already in multi-chain format
     )
+
+    _wall_idata = time.perf_counter() - _t0_idata
+    print(
+        f"[run_recipe_to_idata] wall_seconds={_wall_idata:.1f}"
+        f"  n_samples={n_samples}  num_chains={num_chains}"
+        f"  recipe={recipe.model_name}/{recipe.effort.value}__{recipe.base_method_name}"
+    )
+    return idata_result
 
 
 # ---------------------------------------------------------------------------

@@ -80,7 +80,7 @@ def _recipe_hash(recipe: Recipe) -> str:
 def emit_script(
     recipe: Recipe,
     *,
-    num_samples: int = 2000,
+    num_samples: int | None = None,
     sampler_seed: int | None = None,
     num_chains: int | None = None,
 ) -> str:
@@ -97,9 +97,11 @@ def emit_script(
     ----------
     recipe : Recipe
         The recipe to emit. Loaded via :func:`tuningfork.catalog.load_recipe`.
-    num_samples : int
+    num_samples : int, optional
         Number of post-warmup samples to draw in the emitted inference loop.
-        Defaults to 2000.
+        When ``None`` (default), reads ``recipe.calibration_budget["n_samples"]``
+        (the validated config) and falls back to 1000 if not set.
+        Pass an explicit integer to override (e.g. for a longer production run).
     sampler_seed : int, optional
         RNG seed for the post-warmup sampling. Defaults to
         ``recipe.tuning_seed + 1`` so the emitted script is deterministic
@@ -128,6 +130,10 @@ def emit_script(
     """
     if sampler_seed is None:
         sampler_seed = recipe.tuning_seed + 1
+
+    # Resolve num_samples: prefer calibration_budget (validated config), then 1000.
+    if num_samples is None:
+        num_samples = int(recipe.calibration_budget.get("n_samples") or 1000)
 
     if num_chains is None:
         num_chains = recipe.warmup_params.get(

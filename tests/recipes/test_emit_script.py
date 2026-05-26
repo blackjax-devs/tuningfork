@@ -55,8 +55,10 @@ _ALLOWED_TUNINGFORK_IMPORTS = frozenset(
 
 # Top-level packages the emitted script may import.  tuningfork imports are
 # further restricted by _ALLOWED_TUNINGFORK_IMPORTS (checked separately).
+# stdlib modules used by the emitted preamble/postamble (e.g. ``time`` for
+# wall-clock timing) are also allowlisted here.
 _ALLOWED_TOP_LEVEL = frozenset(
-    {"jax", "numpy", "numpyro", "blackjax", "arviz", "tuningfork"}
+    {"jax", "numpy", "numpyro", "blackjax", "arviz", "tuningfork", "time"}
 )
 
 
@@ -122,6 +124,81 @@ def test_emit_script_imports_only_allowed_modules() -> None:
             assert node.module is not None
             top = node.module.split(".")[0]
             assert top in _ALLOWED_TOP_LEVEL, f"Disallowed from-import: {node.module}"
+
+
+@pytest.mark.fast
+def test_emit_script_num_samples_defaults_to_calibration_budget() -> None:
+    """emit_script reads calibration_budget['n_samples'] when num_samples not passed.
+
+    Regression gate for the bug where emit_script defaulted to 2000 samples
+    regardless of the recipe's validated calibration_budget. The HIGH
+    gp_regression recipe was validated at 80 samples/chain (798 s wall);
+    calling emit_script(recipe) without num_samples must produce
+    ``_NUM_SAMPLES = 80``, not 2000 or 1000.
+    """
+    recipe_path = (
+        _CATALOG_ROOT
+        / "gp_regression"
+        / "recipes"
+        / "high__laplace_mhmc__window_adaptation_dense_imm__inner_laplace_hmc.json"
+    )
+    if not recipe_path.exists():
+        pytest.skip("HIGH laplace_mhmc recipe not in catalog")
+    recipe = load_recipe(recipe_path)
+
+    # Sanity: recipe must carry calibration_budget["n_samples"] = 80
+    assert (
+        recipe.calibration_budget.get("n_samples") == 80
+    ), f"Unexpected n_samples in calibration_budget: {recipe.calibration_budget}"
+
+    # emit_script with no num_samples arg → must use calibration_budget value
+    script = emit_script(recipe)
+    needle = "_NUM_SAMPLES"
+    excerpt = script[script.find(needle) : script.find(needle) + 40]
+    assert "_NUM_SAMPLES = 80" in script, (
+        "emit_script(recipe) must set _NUM_SAMPLES from calibration_budget['n_samples'] "
+        f"(expected 80). Got script excerpt:\n{excerpt}"
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_num_samples_fallback_when_budget_absent() -> None:
+    """emit_script falls back to 1000 when calibration_budget has no n_samples key.
+
+    Directly overrides calibration_budget on a loaded recipe to simulate the
+    legacy LOW recipe format (produced before the calibration_budget n_samples
+    stamp was added). No JAX execution — pure dataclass manipulation.
+    """
+    import dataclasses
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+
+    # Simulate a recipe whose calibration_budget has no n_samples key.
+    recipe_no_n = dataclasses.replace(
+        recipe, calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0}
+    )
+    assert recipe_no_n.calibration_budget.get("n_samples") is None
+
+    script = emit_script(recipe_no_n)
+    assert "_NUM_SAMPLES = 1000" in script, (
+        "emit_script(recipe) must fall back to _NUM_SAMPLES=1000 when "
+        "calibration_budget has no n_samples key."
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_preamble_has_wall_timer() -> None:
+    """Emitted script preamble starts a wall-clock timer (_recipe_t0)."""
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe)
+    assert (
+        "_recipe_t0" in script
+    ), "Emitted script must define _recipe_t0 (wall-clock start) in its preamble."
+    assert (
+        "wall_seconds=" in script
+    ), "Emitted script postamble must print wall_seconds= for timing observability."
 
 
 @pytest.mark.slow
