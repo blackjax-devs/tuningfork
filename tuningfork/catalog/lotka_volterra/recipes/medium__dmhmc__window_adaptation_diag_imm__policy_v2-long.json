@@ -24,16 +24,26 @@
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 77.65839487500489,
+    "wall_seconds_estimate": 56.108,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 38.829,
-    "sampling_wall_seconds": 38.829,
-    "sampling_seconds_per_draw": 0.009707,
-    "split_source": "estimated",
-    "split_note": "current-code re-cert fails cert gate (see regression thread); measured split unavailable.",
-    "machine_info": null
+    "warmup_wall_seconds": 5.334,
+    "sampling_wall_seconds": 50.774,
+    "sampling_seconds_per_draw": 0.012693,
+    "split_source": "measured",
+    "split_note": "Measured under x64 at emit seed 20260517. n_div=0, rhat_max=1.0027 < 1.01. Seed-fragile: recipe diverges at derived tuning_seed 682737 under both float32 and x64.",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev81+ga8998469a",
+      "jax_x64_enabled": true,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
   },
   "difficulty": null,
   "instructions": "**Medium-effort recipe** (Statistician investigation on `(window_adaptation_diag_imm, dmhmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dmhmc(logdensity_fn, **{'step_size': 0.03857136145234108, 'inverse_mass_matrix': [0.0010207617888227105, 0.0009081244934350252, 0.0008696161676198244, 0.0010169103043153882, 0.0068977512419223785, 0.0002744178636930883, 0.0004994210321456194]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0032.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
