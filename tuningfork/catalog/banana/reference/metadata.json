@@ -7,6 +7,11 @@
   "seed": 0,
   "timestamp_utc": "2026-05-17T21:28:21Z",
   "wall_time_seconds": 0.8814449179917574,
+  "warmup_wall_seconds": null,
+  "sampling_wall_seconds": null,
+  "sampling_seconds_per_draw": null,
+  "split_source": "analytic_na",
+  "machine_info": null,
   "divergence_rate_tolerance_used": null,
   "certification": {
     "passed": true,
