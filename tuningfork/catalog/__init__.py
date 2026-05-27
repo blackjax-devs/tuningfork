@@ -32,6 +32,7 @@ Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
 """
 
 from tuningfork.catalog._rerun_inference import cached_idata_for_recipe
+from tuningfork.catalog._timing import compute_total_warmup_steps, format_timing_context
 from tuningfork.catalog.diagnostics import (
     plot_recipe_diagnostics,
     render_gradient_mh,
@@ -65,6 +66,9 @@ __all__ = [
     "render_vi_family",
     "render_specialised",
     "plot_recipe_diagnostics",
+    # timing
+    "compute_total_warmup_steps",
+    "format_timing_context",
     # emit
     "emit_script",
 ]
