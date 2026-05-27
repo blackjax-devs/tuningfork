@@ -44,12 +44,12 @@ if _needs_state_reinit:
         lambda s, k: _state_reinit(_shared_step_size, _shared_imm, s.position, k)
     )(_state_post_warmup, _reinit_keys)
 
-# Build ONE shared kernel (shared step_size + IMM across all chains).
-_kernel = kernel_builder(_shared_step_size, _shared_imm)
+# Build ONE shared step function (shared step_size + IMM across all chains).
+# kernel_builder (defined in the sampler template) returns the .step callable
+# directly.  We vmap it over chains; run_inference_algorithm is NOT vmapped.
+_kernel_step = kernel_builder(_shared_step_size, _shared_imm)
 
 # run_inference_algorithm with vmapped inputs — canonical multi-chain pattern.
-# ONE kernel is built with shared adapted params; the step function vmaps over
-# chains internally so run_inference_algorithm is NOT vmapped.
 # Input: _state_post_warmup has shape (num_chains, ...) — already batched.
 # Output: history is (num_steps, num_chains, ...) for all fields.
 from blackjax.util import run_inference_algorithm as _run_inference_algorithm
@@ -58,10 +58,11 @@ from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm
 
 def _vmapped_step(rng_key, states):
     keys = jax.random.split(rng_key, num_chains)
-    return jax.vmap(_kernel.step)(keys, states)
+    return jax.vmap(_kernel_step)(keys, states)
 
 
-_alg = _SamplingAlgorithm(_kernel.init, _vmapped_step)
+# init is never called (initial_state is passed explicitly below).
+_alg = _SamplingAlgorithm(lambda *args, **kwargs: None, _vmapped_step)
 
 _final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(
     jax.random.key($sampler_seed),
