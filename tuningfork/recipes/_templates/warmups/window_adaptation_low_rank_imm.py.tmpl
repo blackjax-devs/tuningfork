@@ -3,13 +3,6 @@
 # scan(vmap(kernel)) in the inference loop maps over chains sharing the same
 # adapted (step_size, inverse_mass_matrix).  Running warmup inside vmap is
 # discouraged because io_callback (progress_bar) is not supported inside vmap.
-import warnings
-warnings.warn(
-    "progress_bar=True forces single-chain warmup -- multi-chain (per-chain) warmup "
-    "runs under jax.vmap, which is incompatible with the progress bar's io_callback "
-    "(see blackjax issue #927). For per-chain multi-chain warmup, set progress_bar=False.",
-    stacklevel=1,
-)
 _warmup = blackjax.window_adaptation_low_rank(
     $warmup_algorithm,
     logdensity_fn,

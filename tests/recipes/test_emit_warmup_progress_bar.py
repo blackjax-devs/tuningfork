@@ -113,7 +113,8 @@ def test_progress_bar_true_emits_single_chain_warmup(warmup_name: str) -> None:
     resulting state.  It must NOT contain a jax.vmap wrapper over the run call.
     """
     recipe = _make_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     # Single-chain path: exactly one .run( call (the warmup.run call)
     # and no jax.vmap wrapping it.
@@ -134,7 +135,8 @@ def test_progress_bar_true_emits_single_chain_warmup(warmup_name: str) -> None:
 def test_progress_bar_true_emits_warnings_warn(warmup_name: str) -> None:
     """progress_bar=True → emitted warmup section contains warnings.warn about issue #927."""
     recipe = _make_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     assert "warnings.warn(" in script, (
         f"[{warmup_name}] progress_bar=True warmup must emit warnings.warn(...).\n"
@@ -147,6 +149,38 @@ def test_progress_bar_true_emits_warnings_warn(warmup_name: str) -> None:
     assert "progress_bar=False" in script, (
         f"[{warmup_name}] warnings.warn must suggest setting progress_bar=False.\n"
         f"Script snippet:\n{script[:1200]}"
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_true_warning_above_warmup_section(warmup_name: str) -> None:
+    """progress_bar=True → warnings.warn appears ABOVE the warmup section (# === WARMUP:).
+
+    The warning is injected into the preamble (before model build and before warmup)
+    so users see it immediately when the script starts, not buried in the warmup code.
+    Verifies the position: warnings.warn must appear BEFORE the first '# === WARMUP:'
+    marker in the emitted script.
+    """
+    recipe = _make_recipe(warmup_name)
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+
+    warn_pos = script.find("warnings.warn(")
+    warmup_section_pos = script.find("# === WARMUP:")
+
+    assert warn_pos != -1, (
+        f"[{warmup_name}] warnings.warn( not found in emitted script.\n"
+        f"Script preamble:\n{script[:600]}"
+    )
+    assert warmup_section_pos != -1, (
+        f"[{warmup_name}] '# === WARMUP:' marker not found in emitted script.\n"
+        f"Script:\n{script[:800]}"
+    )
+    assert warn_pos < warmup_section_pos, (
+        f"[{warmup_name}] warnings.warn (pos={warn_pos}) must appear BEFORE "
+        f"'# === WARMUP:' (pos={warmup_section_pos}) in the emitted script.\n"
+        f"Script preamble:\n{script[:800]}"
     )
 
 
@@ -197,10 +231,15 @@ def test_progress_bar_none_default_same_as_true(warmup_name: str) -> None:
 
     None is the backward-compatible default; it should map to the single-chain
     warmup path (with warnings.warn) since prior behaviour was single-chain.
+    The generated script content is identical; only the call-time warning differs
+    (True fires it at emit() time; None does not, to preserve backward compat).
     """
     recipe = _make_recipe(warmup_name)
     script_none = emit_script(recipe, num_samples=10, num_warmup=10)
-    script_true = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    with pytest.warns(UserWarning, match="#927"):
+        script_true = emit_script(
+            recipe, num_samples=10, num_warmup=10, progress_bar=True
+        )
 
     assert (
         script_none == script_true
@@ -223,7 +262,8 @@ def test_progress_bar_true_no_vmap_in_sampling(warmup_name: str) -> None:
     the actual call form ``jax.vmap(`` and the decorator ``@jax.vmap``.
     """
     recipe = _make_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     assert "jax.vmap(" not in script, (
         f"[{warmup_name}] progress_bar=True must NOT contain jax.vmap( calls "
@@ -248,7 +288,8 @@ def test_progress_bar_true_sampling_has_run_inference_algorithm(
     (a single-chain state), not a vmapped variant.
     """
     recipe = _make_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     assert "run_inference_algorithm" in script, (
         f"[{warmup_name}] progress_bar=True must call run_inference_algorithm.\n"
@@ -269,9 +310,10 @@ def test_progress_bar_true_sampling_warning_mentions_num_chains(
     """progress_bar=True sampling warning mentions {num_chains} and issue #927."""
     recipe = _make_recipe(warmup_name)
     # Use num_chains=4 so we can check the warning references it.
-    script = emit_script(
-        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=4
-    )
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(
+            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=4
+        )
 
     # The warning message contains issue #927 reference.
     assert "#927" in script, (
@@ -350,13 +392,23 @@ def test_emit_warmup_pb_executes_and_shapes_correct(
     _NUM_SAMPLES = 10
     recipe = _make_recipe(warmup_name, n_warmup=10)
 
-    script = emit_script(
-        recipe,
-        num_samples=_NUM_SAMPLES,
-        num_chains=_NUM_CHAINS,
-        num_warmup=10,
-        progress_bar=progress_bar,
-    )
+    if progress_bar is True:
+        with pytest.warns(UserWarning, match="#927"):
+            script = emit_script(
+                recipe,
+                num_samples=_NUM_SAMPLES,
+                num_chains=_NUM_CHAINS,
+                num_warmup=10,
+                progress_bar=progress_bar,
+            )
+    else:
+        script = emit_script(
+            recipe,
+            num_samples=_NUM_SAMPLES,
+            num_chains=_NUM_CHAINS,
+            num_warmup=10,
+            progress_bar=progress_bar,
+        )
 
     # Append shape-check lines.
     shape_check = (

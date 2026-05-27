@@ -54,6 +54,27 @@ if TYPE_CHECKING:
 _X64_CONFIG_LINE = 'jax.config.update("jax_enable_x64", True)  # required by this model'
 _X64_CONFIG_LINE_EMPTY = ""
 
+# Warning text emitted when progress_bar=True: injected at the TOP of the generated
+# preamble (before model build) AND issued at emit_script() call time.  Defined once
+# here so both use sites share exactly the same text (no drift).
+_PROGRESS_BAR_WARNING_TEXT = (
+    "progress_bar=True forces SINGLE chain warmup and sampling — multi-chain runs "
+    "under jax.vmap, which is incompatible with the progress bar's io_callback "
+    "(see blackjax issue #927). For the full num_chains-chain run, set progress_bar=False."
+)
+
+# The warning block injected into the preamble template when progress_bar=True.
+# Uses `warnings` (already imported by the preamble) and UserWarning for visibility.
+_PROGRESS_BAR_WARNING_BLOCK = (
+    "warnings.warn(\n"
+    '    "progress_bar=True forces SINGLE chain warmup and sampling -- multi-chain runs "\n'
+    '    "under jax.vmap, which is incompatible with the progress bar\'s io_callback "\n'
+    '    "(see blackjax issue #927). For the full num_chains-chain run, set progress_bar=False.",\n'
+    "    stacklevel=1,\n"
+    ")"
+)
+_PROGRESS_BAR_WARNING_BLOCK_EMPTY = ""
+
 # Timing block inserted between warmup_body and sampler_body.
 # jax.block_until_ready forces async dispatch to complete before stamping
 # _warmup_t1, giving an honest warmup wall time (not just dispatch time).
@@ -196,6 +217,16 @@ def emit_script(
     _warmup_pb = True if progress_bar is None else bool(progress_bar)
     _sampling_pb = True if progress_bar is None else bool(progress_bar)
 
+    # Call-time warning: issued immediately when progress_bar=True (explicit)
+    # so that callers using emit_script() in a notebook or script see the advisory
+    # before the generated file is written, not only at script-execution time.
+    # Not issued when progress_bar=None (the backward-compatible default) to avoid
+    # breaking existing callers that never set this argument explicitly.
+    if progress_bar is True:
+        import warnings as _warnings
+
+        _warnings.warn(_PROGRESS_BAR_WARNING_TEXT, stacklevel=2)
+
     # x64 requirement: look up the model in the registry and check requires_x64.
     # This mirrors the runner logic at _recipe_runner.py:551-554.
     # The x64 line must appear BEFORE any JAX computation (build_logdensity_fn,
@@ -259,12 +290,19 @@ def emit_script(
             f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
         )
 
+    # Progress-bar warning block for preamble: emitted at the TOP of the generated
+    # file when progress_bar=True so users see the advisory before any computation.
+    _pb_warning_block = (
+        _PROGRESS_BAR_WARNING_BLOCK if _warmup_pb else _PROGRESS_BAR_WARNING_BLOCK_EMPTY
+    )
+
     ctx = {
         "recipe_id": (
             f"{recipe.model_name}/{recipe.effort.value}"
             f"__{recipe.base_method_name}__{recipe.warmup_name}"
         ),
         "x64_config_line": _x64_config_line,
+        "progress_bar_warning_block": _pb_warning_block,
         "model_name": recipe.model_name,
         "base_method_name": recipe.base_method_name,
         "warmup_name": recipe.warmup_name,
