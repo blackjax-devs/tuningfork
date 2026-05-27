@@ -105,6 +105,8 @@ def emit_script(
     num_samples: int | None = None,
     sampler_seed: int | None = None,
     num_chains: int | None = None,
+    num_warmup: int | list[int] | None = None,
+    progress_bar: bool | None = None,
 ) -> str:
     """Assemble a recipe-reproduction Python script.
 
@@ -133,6 +135,29 @@ def emit_script(
         derived from the recipe: ``recipe.warmup_params.get("num_chains",
         recipe.calibration_budget.get("num_chains", 1))``. Falls back to 1
         for legacy groundtruth recipes that pre-date the ``num_chains`` field.
+    num_warmup : int or list[int] or None, optional
+        Override the warmup step count(s) in the emitted script.
+
+        - ``None`` (default): use the recipe's stored warmup step counts
+          (backward-compatible).
+        - ``int``: applies to single-phase warmups.  Sets ``$n_warmup`` in the
+          warmup template.
+        - ``list[int]``: applies to multi-phase warmups (e.g.
+          ``laplace_multiphase``).  One entry per phase; the list length MUST
+          equal the number of warmup phases in ``recipe.warmups``; otherwise
+          a ``ValueError`` is raised.  Maps onto ``$wp0_n_warmup``,
+          ``$wp1_n_warmup``, … in the template.
+        - An ``int`` passed for a multi-phase warmup is treated as a 1-element
+          list; if there is more than one phase a ``ValueError`` is raised.
+
+        Typical use: fast dry-run without editing the recipe.::
+
+            emit_script(recipe, num_warmup=[100, 10], num_samples=100)
+    progress_bar : bool or None, optional
+        When not ``None``, overrides BOTH the warmup ``progress_bar=`` arguments
+        AND the sampling ``_SAMPLING_PROGRESS_BAR`` constant in the emitted
+        script.  When ``None`` (default), defaults are used: warmup
+        ``progress_bar=True`` and sampling ``_SAMPLING_PROGRESS_BAR = True``.
 
     Returns
     -------
@@ -149,6 +174,9 @@ def emit_script(
     KeyError
         If the recipe's ``warmup_params`` or ``base_method_params`` lack a
         required slot for the template.
+    ValueError
+        If ``num_warmup`` is a list whose length does not match the number of
+        warmup phases in ``recipe.warmups``.
     """
     if sampler_seed is None:
         sampler_seed = recipe.tuning_seed + 1
@@ -162,6 +190,11 @@ def emit_script(
             "num_chains",
             recipe.calibration_budget.get("num_chains", 1),
         )
+
+    # Resolve progress_bar overrides.
+    # When None: defaults (warmup True, sampling True via _SAMPLING_PROGRESS_BAR).
+    _warmup_pb = True if progress_bar is None else bool(progress_bar)
+    _sampling_pb = True if progress_bar is None else bool(progress_bar)
 
     # x64 requirement: look up the model in the registry and check requires_x64.
     # This mirrors the runner logic at _recipe_runner.py:551-554.
@@ -193,6 +226,39 @@ def emit_script(
     # (which remain for backward compatibility with existing templates).
     # New templates should prefer the prefixed $bm_* / $wp_* form so the context
     # auto-expands when new hyperparameter fields are added to recipes.
+    # Resolve n_warmup for single-phase warmups.
+    # num_warmup override takes precedence; recipe value is the fallback.
+    _n_warmup_recipe = recipe.warmup_params.get("n_warmup", 1000)
+    if num_warmup is None:
+        _n_warmup_resolved = _n_warmup_recipe
+    elif isinstance(num_warmup, int):
+        _n_warmup_resolved = num_warmup
+    elif isinstance(num_warmup, list):
+        # list for single-phase: must be length 1 (or raise)
+        n_phases = len(recipe.warmups) if recipe.warmups else 1
+        if n_phases == 1:
+            if len(num_warmup) != 1:
+                raise ValueError(
+                    f"num_warmup list length {len(num_warmup)} does not match "
+                    f"single-phase warmup (expected 1 entry). "
+                    f"For single-phase warmups, pass an int or a 1-element list."
+                )
+            _n_warmup_resolved = num_warmup[0]
+        else:
+            # Multi-phase: validate length matches phases; $n_warmup uses first entry
+            # (for template templates that still reference it), per-phase uses $wpN_n_warmup.
+            if len(num_warmup) != n_phases:
+                raise ValueError(
+                    f"num_warmup list length {len(num_warmup)} does not match "
+                    f"number of warmup phases {n_phases} in recipe.warmups. "
+                    f"Provide exactly {n_phases} entries (one per phase)."
+                )
+            _n_warmup_resolved = num_warmup[0]  # fallback for $n_warmup slot
+    else:
+        raise TypeError(
+            f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
+        )
+
     ctx = {
         "recipe_id": (
             f"{recipe.model_name}/{recipe.effort.value}"
@@ -211,9 +277,12 @@ def emit_script(
         "num_chains": num_chains,
         # warmup_params unrolled (legacy top-level slots — backward compat)
         "target_acceptance_rate": target_acceptance_rate,
-        "n_warmup": recipe.warmup_params.get("n_warmup", 1000),
+        "n_warmup": _n_warmup_resolved,
         # base_method_params unrolled (legacy top-level slots — backward compat)
         "max_num_doublings": recipe.base_method_params.get("max_num_doublings", 10),
+        # progress_bar overrides
+        "warmup_progress_bar": _warmup_pb,
+        "sampling_progress_bar": _sampling_pb,
     }
     # Programmatic spread: bm_<key> from base_method_params, wp_<key> from warmup_params.
     # Values are JSON-serialised scalar types (int/float/list); templates that need
@@ -356,6 +425,16 @@ def emit_script(
     # template slots: $wp0_*, $wp1_*, etc.  These are consumed by the
     # laplace_multiphase_warmup.py.tmpl template.
     if _is_laplace and _is_multiphase_warmup:
+        # Build per-phase num_warmup overrides: None → use recipe value per phase.
+        _per_phase_n_warmup: list[int | None]
+        if num_warmup is None:
+            _per_phase_n_warmup = [None] * len(recipe.warmups)
+        elif isinstance(num_warmup, list):
+            _per_phase_n_warmup = list(num_warmup)
+        else:
+            # int passed for multi-phase: already caught above (single-phase only)
+            _per_phase_n_warmup = [None] * len(recipe.warmups)
+
         for _i, _phase in enumerate(recipe.warmups):
             _phase_params = _phase["params"]
             _prefix = f"wp{_i}_"
@@ -364,7 +443,13 @@ def emit_script(
                 "target_acceptance", _phase_params.get("target_acceptance_rate", 0.8)
             )
             ctx[f"{_prefix}target"] = _phase_target
-            ctx[f"{_prefix}n_warmup"] = _phase_params.get("n_warmup", 1000)
+            # num_warmup override for this phase (None → use recipe value).
+            _phase_nw_override = _per_phase_n_warmup[_i]
+            ctx[f"{_prefix}n_warmup"] = (
+                _phase_nw_override
+                if _phase_nw_override is not None
+                else _phase_params.get("n_warmup", 1000)
+            )
             ctx[f"{_prefix}maxiter"] = _phase_params.get(
                 "maxiter", recipe.base_method_params.get("maxiter", 30)
             )

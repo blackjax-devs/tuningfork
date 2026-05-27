@@ -1101,3 +1101,272 @@ def test_run_recipe_to_idata_laplace_multiphase_uses_dense_imm() -> None:
     # produce a diagonal IMM, which would still succeed numerically but lose density.
     # The dense IMM run is the discriminating evidence (no error = Phase 2 ran).
     assert True, "Phase 2 dense-IMM warmup completed without error"
+
+
+# ---------------------------------------------------------------------------
+# emit_script override params: num_warmup, progress_bar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_emit_script_num_warmup_int_single_phase() -> None:
+    """emit_script(recipe, num_warmup=50) overrides $n_warmup in single-phase warmup.
+
+    Checks that the emitted source contains '50' at the warmup call site, not
+    the recipe's stored n_warmup value (1000 for groundtruth recipes).
+    """
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script_default = emit_script(recipe, num_samples=50)
+    script_override = emit_script(recipe, num_samples=50, num_warmup=77)
+
+    # The override must appear in the warmup template's .run(..., 77) call.
+    # Groundtruth recipes have n_warmup=5000 in warmup_params; 77 is distinctive.
+    assert ", 77)" in script_override, (
+        "Expected ', 77)' (warmup run call) in emitted script with num_warmup=77.\n"
+        f"Script:\n{script_override[:1000]}"
+    )
+    # Without override, must NOT contain 77 in that position.
+    assert (
+        ", 77)" not in script_default
+    ), "Default emit should not contain ', 77)'; num_warmup override leaked."
+
+
+@pytest.mark.fast
+def test_emit_script_num_warmup_list_single_phase_length1() -> None:
+    """emit_script(recipe, num_warmup=[77]) works for single-phase warmup (list len=1)."""
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe, num_samples=50, num_warmup=[77])
+    assert (
+        ", 77)" in script
+    ), "Expected ', 77)' in emitted script with num_warmup=[77] (single-phase)."
+
+
+@pytest.mark.fast
+def test_emit_script_num_warmup_none_preserves_recipe_value() -> None:
+    """emit_script(recipe, num_warmup=None) uses recipe's stored n_warmup.
+
+    The groundtruth recipe has n_warmup=5000 in warmup_params; None must
+    preserve that value (backward-compatible).
+    """
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    n_warmup_recipe = recipe.warmup_params.get("n_warmup", 1000)
+    script = emit_script(recipe, num_samples=50, num_warmup=None)
+    assert f", {n_warmup_recipe})" in script, (
+        f"Expected ', {n_warmup_recipe})' (recipe n_warmup) with num_warmup=None.\n"
+        f"Script snippet:\n{script[:1000]}"
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_num_warmup_multiphase_list() -> None:
+    """emit_script(recipe, num_warmup=[100, 10]) maps to per-phase n_warmup slots.
+
+    Uses a synthetic 2-phase laplace_mhmc recipe for gp_regression.
+    Phase 1 must get n_warmup=100, Phase 2 must get n_warmup=10.
+    """
+    from tuningfork.catalog import emit_script
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="gp_regression",
+        base_method_name="laplace_mhmc",
+        warmup_name="window_adaptation_dense_imm",
+        effort=Effort.HIGH,
+        base_method_params={
+            "num_integration_steps": 2,
+            "step_size": 0.5,
+            "inverse_mass_matrix": [
+                [0.23, 0.0, 0.0],
+                [0.0, 0.03, 0.0],
+                [0.0, 0.0, 0.002],
+            ],
+            "maxiter": 5,
+        },
+        warmup_params={"n_warmup": 500, "num_chains": 1, "target_acceptance": 0.8},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {
+                    "n_warmup": 500,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                },
+            },
+            {
+                "name": "window_adaptation_dense_imm",
+                "params": {
+                    "n_warmup": 200,
+                    "target_acceptance": 0.8,
+                    "num_integration_steps": 2,
+                    "maxiter": 5,
+                    "initial_step_size_from_phase1": True,
+                },
+            },
+        ],
+        warmup_inner_kernel="laplace_hmc",
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 1},
+        difficulty=None,
+        instructions="",
+        tuning_seed=42,
+    )
+
+    script = emit_script(recipe, num_samples=5, num_chains=1, num_warmup=[100, 10])
+
+    # Phase 1 should use 100 steps; Phase 2 should use 10.
+    # The run() call is multi-line so check the comment header which has n_warmup=<int>.
+    # e.g. "# Phase 1: window_adaptation_diag_imm (n_warmup=100, ...)"
+    assert (
+        "n_warmup=100" in script
+    ), "Expected 'n_warmup=100' (Phase 1 comment) in emitted script with num_warmup=[100, 10]."
+    assert (
+        "n_warmup=10," in script
+    ), "Expected 'n_warmup=10,' (Phase 2 comment) in emitted script with num_warmup=[100, 10]."
+    # The recipe's original values (500/200) should NOT appear in the warmup comments.
+    assert (
+        "n_warmup=500" not in script
+    ), "Recipe's Phase 1 n_warmup=500 should be overridden by num_warmup=[100, 10]."
+    assert (
+        "n_warmup=200" not in script
+    ), "Recipe's Phase 2 n_warmup=200 should be overridden by num_warmup=[100, 10]."
+
+
+@pytest.mark.fast
+def test_emit_script_num_warmup_wrong_list_length_raises() -> None:
+    """emit_script raises ValueError when num_warmup list length != num phases.
+
+    2-phase recipe + 3-element list → ValueError with a clear message.
+    """
+    from tuningfork.catalog import emit_script
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="gp_regression",
+        base_method_name="laplace_mhmc",
+        warmup_name="window_adaptation_dense_imm",
+        effort=Effort.HIGH,
+        base_method_params={"step_size": 0.5, "maxiter": 5},
+        warmup_params={"n_warmup": 500, "num_chains": 1, "target_acceptance": 0.8},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {"n_warmup": 500, "maxiter": 5},
+            },
+            {
+                "name": "window_adaptation_dense_imm",
+                "params": {"n_warmup": 200, "maxiter": 5},
+            },
+        ],
+        warmup_inner_kernel="laplace_hmc",
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 1},
+        difficulty=None,
+        instructions="",
+        tuning_seed=42,
+    )
+
+    with pytest.raises(ValueError, match="list length"):
+        emit_script(recipe, num_warmup=[100, 10, 50])  # 3 entries for a 2-phase recipe
+
+
+@pytest.mark.fast
+def test_emit_script_progress_bar_override_false() -> None:
+    """emit_script(recipe, progress_bar=False) disables both warmup and sampling bars.
+
+    Checks that:
+    - Warmup template has progress_bar=False (not True).
+    - Sampling constant _SAMPLING_PROGRESS_BAR = False (not True).
+    """
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe, num_samples=50, progress_bar=False)
+
+    assert "progress_bar=False" in script, (
+        "Expected 'progress_bar=False' in emitted script when progress_bar=False override.\n"
+        f"Script snippet:\n{script[:1200]}"
+    )
+    assert "_SAMPLING_PROGRESS_BAR = False" in script, (
+        "Expected '_SAMPLING_PROGRESS_BAR = False' in emitted script when progress_bar=False.\n"
+        f"Script snippet:\n{script[:1200]}"
+    )
+    # Must NOT have the True variants for the overridden slots.
+    assert (
+        "progress_bar=True" not in script
+    ), "Unexpected 'progress_bar=True' in emitted script when progress_bar=False override."
+    assert (
+        "_SAMPLING_PROGRESS_BAR = True" not in script
+    ), "Unexpected '_SAMPLING_PROGRESS_BAR = True' when progress_bar=False override."
+
+
+@pytest.mark.fast
+def test_emit_script_progress_bar_override_true() -> None:
+    """emit_script(recipe, progress_bar=True) explicitly enables both progress bars.
+
+    Both warmup and sampling must have progress_bar=True (same as the default).
+    """
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe, num_samples=50, progress_bar=True)
+
+    assert (
+        "progress_bar=True" in script
+    ), "Expected 'progress_bar=True' in emitted script when progress_bar=True."
+    assert (
+        "_SAMPLING_PROGRESS_BAR = True" in script
+    ), "Expected '_SAMPLING_PROGRESS_BAR = True' in emitted script when progress_bar=True."
+
+
+@pytest.mark.fast
+def test_emit_script_progress_bar_none_keeps_defaults() -> None:
+    """emit_script(recipe, progress_bar=None) uses defaults (warmup True, sampling True).
+
+    The default behaviour (None) must emit progress_bar=True for warmup and
+    _SAMPLING_PROGRESS_BAR = True for sampling — unchanged from pre-override baseline.
+    """
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script_default = emit_script(recipe, num_samples=50)
+    script_none = emit_script(recipe, num_samples=50, progress_bar=None)
+
+    # Both must be identical (None is the backward-compat default).
+    assert (
+        script_default == script_none
+    ), "emit_script with progress_bar=None should produce identical output to default call."
+    assert "progress_bar=True" in script_none
+    assert "_SAMPLING_PROGRESS_BAR = True" in script_none
+
+
+@pytest.mark.fast
+def test_emit_script_sampling_progress_bar_constant_exposed() -> None:
+    """Emitted script exposes _SAMPLING_PROGRESS_BAR as a named constant.
+
+    The inference loop must declare '_SAMPLING_PROGRESS_BAR = <bool>' near the
+    top of the loop block so users can find and flip it in one line.
+    """
+    from tuningfork.catalog import emit_script, load_recipe
+
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe, num_samples=50)
+
+    assert (
+        "_SAMPLING_PROGRESS_BAR" in script
+    ), "Emitted script must expose _SAMPLING_PROGRESS_BAR constant in the inference loop."

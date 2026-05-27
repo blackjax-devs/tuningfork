@@ -69,7 +69,7 @@ _warmup = blackjax.window_adaptation(
     imm_shrinkage_to_previous=$wp_imm_shrinkage_to_previous,
     target_acceptance_rate=$target_acceptance_rate,
     initial_step_size=1.0,
-    progress_bar=True,
+    progress_bar=$warmup_progress_bar,
 )
 
 _warmup_key = jax.random.fold_in(_adapt_key, 0)

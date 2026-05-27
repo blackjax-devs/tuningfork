@@ -8,7 +8,7 @@ _warmup = blackjax.window_adaptation(
     logdensity_fn,
     is_mass_matrix_diagonal=False,
     target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
-    progress_bar=True,
+    progress_bar=$warmup_progress_bar,
 )
 _warmup_key = jax.random.fold_in(jax.random.key($tuning_seed), 0)
 (state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, $n_warmup)

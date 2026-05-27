@@ -54,8 +54,9 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm
 from blackjax.mcmc.laplace_marginal import laplace_marginal_factory
-from blackjax.progress_bar import gen_scan_fn as _gen_scan_fn
+from blackjax.util import run_inference_algorithm as _run_inference_algorithm
 
 from tuningfork._machine_info import get_machine_info
 from tuningfork._version import __version__ as _tuningfork_version
@@ -828,10 +829,10 @@ def emit_low_recipe_for_cell(
     else:
         _run_states = batched_state
 
-    # --- scan(vmap(kernel)) — canonical multi-chain pattern ---
-    # The runner keeps per-chain (step_size, imm) from warmup, so the per-chain
-    # kernel is built inside the vmap. scan(vmap) avoids vmap(scan) which does
-    # not support io_callback (progress_bar) inside vmap.
+    # --- run_inference_algorithm(vmapped input) — canonical multi-chain pattern ---
+    # ONE kernel is built with per-chain (step_size, imm) via vmap inside the step.
+    # run_inference_algorithm is NOT vmapped; inputs are batched (num_chains, ...).
+    # progress_bar=False for the runner (uses timing/logging not a terminal bar).
     if is_laplace:
 
         def _step_one_chain_laplace(state, key, step_size, imm):
@@ -845,15 +846,13 @@ def emit_low_recipe_for_cell(
             ).step
             return kernel_step(key, state)
 
-        def _one_step_laplace(states, xs):
-            _, rng_key = xs
+        def _vmapped_step_laplace(rng_key, states):
             keys = jax.random.split(rng_key, num_chains)
-            new_states, infos = jax.vmap(_step_one_chain_laplace)(
+            return jax.vmap(_step_one_chain_laplace)(
                 states, keys, batched_step_size, batched_imm
             )
-            return new_states, (new_states, infos)
 
-        _scan_body = _one_step_laplace
+        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace)
     else:
 
         def _step_one_chain(state, key, step_size, imm):
@@ -865,32 +864,30 @@ def emit_low_recipe_for_cell(
             ).step
             return kernel_step(key, state)
 
-        def _one_step(states, xs):
-            _, rng_key = xs
+        def _vmapped_step(rng_key, states):
             keys = jax.random.split(rng_key, num_chains)
-            new_states, infos = jax.vmap(_step_one_chain)(
+            return jax.vmap(_step_one_chain)(
                 states, keys, batched_step_size, batched_imm
             )
-            return new_states, (new_states, infos)
 
-        _scan_body = _one_step
+        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step)
 
-    _scan_fn = _gen_scan_fn(n_samples, progress_bar=False)
-    _step_xs = (
-        jnp.arange(n_samples),
-        jax.random.split(sample_key, n_samples),
-    )
-
-    # --- Sampling (multi-chain via scan(vmap)) ---
+    # --- Sampling (multi-chain via run_inference_algorithm(vmapped input)) ---
     _log(
         f"  Sampling ({sampler_name}, n_samples={n_samples}, "
         f"num_chains={num_chains})..."
     )
     t_sample0 = time.perf_counter()
     try:
-        _, (_states_scan, infos) = _scan_fn(_scan_body, _run_states, _step_xs)
-        # scan output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
-        states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_scan)
+        _, (_states_hist, infos) = _run_inference_algorithm(
+            sample_key,
+            _alg,
+            num_steps=n_samples,
+            initial_state=_run_states,
+            progress_bar=False,
+        )
+        # run_inference_algorithm output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
+        states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)
         infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), infos)
         positions = states.position  # dict {param: (num_chains, n_samples, *shape)}
     except Exception as exc:
@@ -1640,7 +1637,8 @@ def run_recipe_to_idata(
     else:
         _run_states_r = batched_state
 
-    # --- scan(vmap(kernel)) — canonical multi-chain pattern ---
+    # --- run_inference_algorithm(vmapped input) — canonical multi-chain pattern ---
+    # progress_bar=False for the runner (uses timing/logging not a terminal bar).
     if is_laplace:
 
         def _step_one_chain_laplace_r(state, key, step_size, imm):
@@ -1654,15 +1652,13 @@ def run_recipe_to_idata(
             ).step
             return kernel_step(key, state)
 
-        def _one_step_laplace_r(states, xs):
-            _, rng_key = xs
+        def _vmapped_step_laplace_r(rng_key, states):
             keys = jax.random.split(rng_key, num_chains)
-            new_states, infos = jax.vmap(_step_one_chain_laplace_r)(
+            return jax.vmap(_step_one_chain_laplace_r)(
                 states, keys, batched_step_size, batched_imm
             )
-            return new_states, (new_states, infos)
 
-        _scan_body_r = _one_step_laplace_r
+        _alg_r = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace_r)
     else:
 
         def _step_one_chain_r(state, key, step_size, imm):
@@ -1674,27 +1670,25 @@ def run_recipe_to_idata(
             ).step
             return kernel_step(key, state)
 
-        def _one_step_r(states, xs):
-            _, rng_key = xs
+        def _vmapped_step_r(rng_key, states):
             keys = jax.random.split(rng_key, num_chains)
-            new_states, infos = jax.vmap(_step_one_chain_r)(
+            return jax.vmap(_step_one_chain_r)(
                 states, keys, batched_step_size, batched_imm
             )
-            return new_states, (new_states, infos)
 
-        _scan_body_r = _one_step_r
+        _alg_r = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_r)
 
-    _scan_fn_r = _gen_scan_fn(n_samples, progress_bar=False)
-    _step_xs_r = (
-        jnp.arange(n_samples),
-        jax.random.split(sample_key, n_samples),
-    )
-
-    # Run sampling
+    # Run sampling via run_inference_algorithm(vmapped input)
     _t_sample_start = time.perf_counter()
-    _, (_states_scan_r, infos) = _scan_fn_r(_scan_body_r, _run_states_r, _step_xs_r)
-    # scan output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
-    states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_scan_r)
+    _, (_states_hist_r, infos) = _run_inference_algorithm(
+        sample_key,
+        _alg_r,
+        num_steps=n_samples,
+        initial_state=_run_states_r,
+        progress_bar=False,
+    )
+    # run_inference_algorithm output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
+    states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist_r)
     infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), infos)
     _t_sample = time.perf_counter() - _t_sample_start
     positions = states.position  # shape: (num_chains, n_samples, *event_shape)
