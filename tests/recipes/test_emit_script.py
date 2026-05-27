@@ -284,8 +284,9 @@ def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
     """
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
-    # Small sample count so the test runs in ~30-60s instead of multiple minutes.
-    script = emit_script(recipe, num_samples=200)
+    # Small sample + warmup counts so the test runs in ~30 s (e2e budget).
+    # num_warmup=200 overrides the groundtruth recipe's n_warmup=5000.
+    script = emit_script(recipe, num_samples=200, num_warmup=200)
     script_path = tmp_path / "test_emitted.py"
     script_path.write_text(script)
 
@@ -371,8 +372,8 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
 
     Runs the emitted script via subprocess and checks that the printed shape
     matches the expected (4, 100, ...) protocol. Uses the eight_schools_ncp
-    groundtruth recipe with num_chains=4 override and num_samples=100 so the
-    test completes quickly (~60 s).
+    groundtruth recipe with num_chains=4 + num_warmup=200 + num_samples=100
+    overrides so the test completes in ~30 s (e2e budget).
 
     The shape verification relies on a print statement injected into the
     emitted script after the inference loop.
@@ -381,7 +382,10 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
     recipe = load_recipe(gt_recipe_path)
     _NUM_SAMPLES = 100
     _NUM_CHAINS = 4
-    script = emit_script(recipe, num_samples=_NUM_SAMPLES, num_chains=_NUM_CHAINS)
+    # num_warmup=200 overrides groundtruth recipe's n_warmup=5000 for e2e speed.
+    script = emit_script(
+        recipe, num_samples=_NUM_SAMPLES, num_chains=_NUM_CHAINS, num_warmup=200
+    )
     # Append a shape-verification line that prints the first-leaf shape of _samples.
     # Use string concat (not f-string) to avoid escaping braces inside the snippet.
     shape_check = (
