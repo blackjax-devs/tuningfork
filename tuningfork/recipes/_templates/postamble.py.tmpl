@@ -21,33 +21,22 @@ _sampling_wall = _recipe_time.perf_counter() - _warmup_t1
 _recipe_wall = _recipe_time.perf_counter() - _recipe_t0
 
 # ---------------------------------------------------------------------------
-# Build ArviZ InferenceData from multi-chain output
+# Persist draws as .npz — no external library dependency.
 # ---------------------------------------------------------------------------
 # _samples.position is a pytree dict[str, array(num_chains, num_samples, *shape)]
-# _infos holds per-step stats with the same leading (num_chains, num_samples) axes.
-# We build idata here (not in tuningfork.catalog) so the standalone emitted
-# script is self-diagnosing and self-persisting without any tuningfork imports.
-import arviz as _az
-
-_max_rhat = float("nan")
-_mean_rhat = float("nan")
-_min_bulk_ess = float("nan")
-_mean_bulk_ess = float("nan")
-
+# for numpyro models.  We save the posterior arrays directly so users can load
+# them with np.load() or pass them to arviz offline:
+#   draws = np.load("...<recipe>.draws.npz")
+#   az.from_dict({"posterior": {k: draws[k] for k in draws.files}})
 try:
-    # Build the posterior dict: convert JAX arrays to numpy.
-    # _samples.position is a pytree; for numpyro models it is a dict[str, array].
     _pos = _samples.position
     if isinstance(_pos, dict):
-        _posterior_dict = {k: np.asarray(v) for k, v in _pos.items()}
+        _draws_dict = {k: np.asarray(v) for k, v in _pos.items()}
     else:
         # Fallback: ravel the pytree into named per-dimension keys.
-        # Uses pure Python iteration (no jax.vmap) — compatible with single-chain
-        # and multi-chain emitted script variants.
         from jax.flatten_util import ravel_pytree as _ravel_pytree
         _flat_single, _ = _ravel_pytree(jax.tree.map(lambda x: x[0, 0], _pos))
         _n_params = int(_flat_single.shape[0])
-        # Build (num_chains, num_samples, n_params) array via Python iteration.
         _flat_chains = np.stack(
             [
                 np.stack(
@@ -59,90 +48,25 @@ try:
                 for _c in range(num_chains)
             ]
         )  # shape (num_chains, num_samples, n_params)
-        _posterior_dict = {f"param_{_i}": _flat_chains[..., _i] for _i in range(_n_params)}
-
-    # Build sample_stats dict: rename known fields per ArviZ schema.
-    # Mirrors _CHAIN_STATS_TO_SAMPLE_STATS in tuningfork.catalog.diagnostics.
-    _SS_RENAME = {
-        "is_divergent": "diverging",
-        "energy": "energy",
-        "acceptance_rate": "acceptance_rate",
-        "num_integration_steps": "n_steps",
-        "num_trajectory_expansions": "tree_depth",
-        "is_turning": "tuningfork_is_turning",
-        "is_accepted": "acceptance_rate",  # for samplers without acceptance_rate
-    }
-    _sample_stats_dict = {}
-    for _field, _az_name in _SS_RENAME.items():
-        if hasattr(_infos, _field):
-            _arr = np.asarray(getattr(_infos, _field))
-            if _arr.ndim >= 2 and _az_name not in _sample_stats_dict:
-                _sample_stats_dict[_az_name] = _arr
-
-    # Build InferenceData.
-    _idata_kwargs = {"posterior": _posterior_dict}
-    if _sample_stats_dict:
-        _idata_kwargs["sample_stats"] = _sample_stats_dict
-    _idata = _az.from_dict(**_idata_kwargs)
-
-    # -----------------------------------------------------------------------
-    # R-hat: only valid for num_chains >= 2.
-    # -----------------------------------------------------------------------
-    if num_chains >= 2:
-        try:
-            _rhat_ds = _az.rhat(_idata)
-            # rhat returns a Dataset; collect all scalar values.
-            _rhat_scalars = []
-            for _v in _rhat_ds.values():
-                _arr = np.asarray(_v)
-                _rhat_scalars.extend(float(x) for x in _arr.flat if not np.isnan(x))
-            if _rhat_scalars:
-                _max_rhat = float(np.max(_rhat_scalars))
-                _mean_rhat = float(np.mean(_rhat_scalars))
-        except Exception as _rhat_exc:
-            print(f"[WARNING] R-hat computation failed: {_rhat_exc}")
-
-    # -----------------------------------------------------------------------
-    # Bulk ESS: fine for any num_chains >= 1.
-    # -----------------------------------------------------------------------
-    try:
-        _ess_ds = _az.ess(_idata, kind="bulk")
-        _ess_scalars = []
-        for _v in _ess_ds.values():
-            _arr = np.asarray(_v)
-            _ess_scalars.extend(float(x) for x in _arr.flat if not np.isnan(x))
-        if _ess_scalars:
-            _min_bulk_ess = float(np.min(_ess_scalars))
-            _mean_bulk_ess = float(np.mean(_ess_scalars))
-    except Exception as _ess_exc:
-        print(f"[WARNING] ESS computation failed: {_ess_exc}")
-
-    # -----------------------------------------------------------------------
-    # Persist: write idata to a recipe-derived NetCDF file in cwd.
-    # -----------------------------------------------------------------------
-    _nc_path = "$model_name" + "__" + "$base_method_name" + "__" + "$warmup_name" + ".idata.nc"
-    _idata.to_netcdf(_nc_path)
-    print(f"[idata written to {_nc_path}]")
-
-except Exception as _idata_exc:
+        _draws_dict = {f"param_{_i}": _flat_chains[..., _i] for _i in range(_n_params)}
+    # Optionally include per-step sample stats as extra keys (prefixed "_ss_").
+    for _ss_field in ("is_divergent", "energy", "acceptance_rate", "num_integration_steps"):
+        if hasattr(_infos, _ss_field):
+            _draws_dict[f"_ss_{_ss_field}"] = np.asarray(getattr(_infos, _ss_field))
+    _npz_path = "$model_name" + "__" + "$base_method_name" + "__" + "$warmup_name" + ".draws.npz"
+    np.savez(_npz_path, **_draws_dict)
+    print(f"[draws written to {_npz_path}]")
+except Exception as _save_exc:
     print(
-        f"[WARNING] InferenceData build/persist failed — draws are still valid; idata skipped. "
-        f"Reason: {_idata_exc}"
+        f"[WARNING] draws persist failed — inference output is still valid; npz skipped. "
+        f"Reason: {_save_exc}"
     )
 
-# Format R-hat display: n/a for single-chain runs (R-hat undefined for 1 chain).
-_rhat_str = (
-    f"max_rhat={_max_rhat:.4f} mean_rhat={_mean_rhat:.4f}"
-    if num_chains >= 2
-    else "max_rhat=n/a mean_rhat=n/a"
-)
 print(
     f"[recipe='$recipe_id'] n_divergences={_n_div} mean_acceptance={_acceptance:.3f}"
     f" warmup_wall_seconds={_warmup_wall:.1f}"
     f" sampling_wall_seconds={_sampling_wall:.1f}"
     f" wall_seconds={_recipe_wall:.1f}"
-    f" {_rhat_str}"
-    f" min_bulk_ess={_min_bulk_ess:.1f} mean_bulk_ess={_mean_bulk_ess:.1f}"
 )
 # Naive scalar verdict signal -- sufficient for the round-trip CI gate.
 print("DONE")
