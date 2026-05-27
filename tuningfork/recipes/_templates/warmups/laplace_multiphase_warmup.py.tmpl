@@ -13,7 +13,7 @@ _warmup_p1 = blackjax.window_adaptation(
     $warmup_algorithm,
     logdensity_fn,
     target_acceptance_rate=$wp0_target$wp0_extra_kwargs,
-    progress_bar=False,
+    progress_bar=True,
 )
 _warmup_keys_p1 = jax.random.split(jax.random.key($tuning_seed), num_chains)
 _init_positions_p1 = jax.tree.map(
@@ -47,7 +47,7 @@ _warmup_p2 = blackjax.window_adaptation(
     is_mass_matrix_diagonal=False,
     target_acceptance_rate=$wp1_target$wp1_extra_kwargs,
     initial_step_size=_initial_step_size_p2,
-    progress_bar=False,
+    progress_bar=True,
 )
 # Use keys offset from Phase 1 to avoid correlation.
 _warmup_keys_p2 = jax.random.split(jax.random.key($tuning_seed + 1), num_chains)

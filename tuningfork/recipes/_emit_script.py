@@ -48,6 +48,28 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tuningfork.recipes._base import Recipe
 
+# The x64 config line is injected into the preamble template for models that
+# require float64 (e.g., gp_regression — Cholesky NaN at float32).  Float32
+# models must NOT get this line; the slot is left empty for them.
+_X64_CONFIG_LINE = 'jax.config.update("jax_enable_x64", True)  # required by this model'
+_X64_CONFIG_LINE_EMPTY = ""
+
+# Timing block inserted between warmup_body and sampler_body.
+# jax.block_until_ready forces async dispatch to complete before stamping
+# _warmup_t1, giving an honest warmup wall time (not just dispatch time).
+# The try/except NameError guard handles the no_warmup path, where
+# _state_post_warmup is initialised inside the sampler template (not warmup);
+# in that case _warmup_wall records only the trivial setup time (<1 ms).
+_WARMUP_TIMING_BLOCK = (
+    "# --- warmup timing fence ---\n"
+    "try:\n"
+    "    jax.block_until_ready(_state_post_warmup)\n"
+    "except NameError:\n"
+    "    pass\n"
+    "_warmup_wall = _recipe_time.perf_counter() - _warmup_t0\n"
+    "_warmup_t1 = _recipe_time.perf_counter()\n"
+)
+
 
 __all__ = ["emit_script"]
 
@@ -141,6 +163,18 @@ def emit_script(
             recipe.calibration_budget.get("num_chains", 1),
         )
 
+    # x64 requirement: look up the model in the registry and check requires_x64.
+    # This mirrors the runner logic at _recipe_runner.py:551-554.
+    # The x64 line must appear BEFORE any JAX computation (build_logdensity_fn,
+    # jax.random.key, etc.), so it is injected into the preamble immediately
+    # after ``import jax``.
+    from tuningfork.model import MODELS as _MODELS
+
+    _posterior_meta = _MODELS[recipe.model_name]
+    _x64_config_line = (
+        _X64_CONFIG_LINE if _posterior_meta.requires_x64 else _X64_CONFIG_LINE_EMPTY
+    )
+
     # Normalise warmup_params key spelling: groundtruth recipes use
     # "target_acceptance" (legacy key from certify_reference.py);
     # newer recipe-generation code uses "target_acceptance_rate".
@@ -164,6 +198,7 @@ def emit_script(
             f"{recipe.model_name}/{recipe.effort.value}"
             f"__{recipe.base_method_name}__{recipe.warmup_name}"
         ),
+        "x64_config_line": _x64_config_line,
         "model_name": recipe.model_name,
         "base_method_name": recipe.base_method_name,
         "warmup_name": recipe.warmup_name,
@@ -390,9 +425,19 @@ def emit_script(
                 preamble,
                 laplace_preamble,
                 warmup_body,
+                _WARMUP_TIMING_BLOCK,
                 sampler_body,
                 inference_loop,
                 postamble,
             ]
         )
-    return "\n\n".join([preamble, warmup_body, sampler_body, inference_loop, postamble])
+    return "\n\n".join(
+        [
+            preamble,
+            warmup_body,
+            _WARMUP_TIMING_BLOCK,
+            sampler_body,
+            inference_loop,
+            postamble,
+        ]
+    )
