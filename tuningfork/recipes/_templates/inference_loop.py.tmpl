@@ -1,10 +1,10 @@
 _NUM_SAMPLES = $num_samples
 
 # Ensure _state_post_warmup has a leading chain axis of size num_chains before
-# the vmap-scan loop.  Warmup templates that already produce multi-chain states
-# (window_adaptation_*, pathfinder, multipathfinder, meads, chees, mclmc_tuning)
-# do not set _warmup_init_is_single_chain; the no_warmup template sets it to
-# True because the sampler template initialises from init_position (single chain).
+# the scan(vmap(kernel)) loop.  Warmup templates that run single-chain warmup
+# and broadcast already set a (num_chains, ...) state.  The no_warmup template
+# sets _warmup_init_is_single_chain = True because the sampler template
+# initialises from init_position (single chain).
 try:
     _warmup_init_is_single_chain
 except NameError:
@@ -15,67 +15,58 @@ if _warmup_init_is_single_chain:
         lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
         _state_post_warmup,
     )
-    # Broadcast no-warmup scalar defaults to (num_chains,) so the vmap-scan
-    # loop receives uniform per-chain slices.
-    _step_size_batched = jnp.broadcast_to(
-        jnp.asarray(_adapted_params.get("step_size", 1.0)), (num_chains,)
-    )
-    # Use a ones-vector as a dummy IMM placeholder (samplers that use IMM
-    # via no_warmup get the identity mass matrix; samplers that don't use
-    # IMM ignore this value entirely).
+    # Scalar defaults for no-warmup path (samplers that don't use IMM ignore these).
+    _shared_step_size = float(_adapted_params.get("step_size", 1.0))
     from jax.flatten_util import ravel_pytree as _il_ravel
     _il_flat, _ = _il_ravel(init_position)
     _n_dims = int(_il_flat.shape[0])
-    _imm_batched = jnp.broadcast_to(jnp.ones(_n_dims)[None], (num_chains, _n_dims))
+    _shared_imm = jnp.ones(_n_dims)
 else:
-    _step_size_batched = _adapted_params["step_size"]      # (num_chains,)
-    _imm_batched = _adapted_params["inverse_mass_matrix"]  # (num_chains, d) or (num_chains, d, d)
-
-# Multi-chain vmap-scan inference loop.
-# Output shape: (num_chains, num_samples, ...) for all warmup families.
-_chain_keys = jax.random.split(jax.random.key($sampler_seed), num_chains)
+    # Single-chain warmup path: adapted params are scalar / un-batched.
+    _shared_step_size = _adapted_params["step_size"]
+    _shared_imm = _adapted_params["inverse_mass_matrix"]
 
 # Detect whether the sampler template declared _state_reinit (for samplers
 # like dynamic_hmc / dmhmc / ghmc that require a different state type than
-# what window_adaptation produces).  The check is pure Python (not inside
-# the vmap), so NameError works correctly at trace time.
+# what window_adaptation produces).
 try:
     _state_reinit
     _needs_state_reinit = True
 except NameError:
     _needs_state_reinit = False
 
-
+# For samplers that need re-init (dynamic_hmc, dmhmc, ghmc): vmap-init each
+# chain BEFORE the scan so the scan body uses a homogeneous state type.
 if _needs_state_reinit:
-    def _run_one_chain(state, step_size, imm, chain_key):
-        # Split the key: first key re-inits state; remainder drive the scan.
-        _init_key, _scan_key = jax.random.split(chain_key)
-        state = _state_reinit(step_size, imm, state.position, _init_key)
-        kernel = kernel_builder(step_size, imm)
+    _reinit_keys = jax.random.split(jax.random.key($tuning_seed + 999), num_chains)
+    _state_post_warmup = jax.vmap(
+        lambda s, k: _state_reinit(_shared_step_size, _shared_imm, s.position, k)
+    )(_state_post_warmup, _reinit_keys)
 
-        def _one_step(s, rng_key):
-            s, info = kernel(rng_key, s)
-            return s, (s, info)
+# Build ONE shared kernel (shared step_size + IMM across all chains).
+_kernel = kernel_builder(_shared_step_size, _shared_imm)
 
-        step_keys = jax.random.split(_scan_key, _NUM_SAMPLES)
-        _, (samples, infos) = jax.lax.scan(_one_step, state, step_keys)
-        return samples, infos
-else:
-    def _run_one_chain(state, step_size, imm, chain_key):
-        kernel = kernel_builder(step_size, imm)
-
-        def _one_step(s, rng_key):
-            s, info = kernel(rng_key, s)
-            return s, (s, info)
-
-        step_keys = jax.random.split(chain_key, _NUM_SAMPLES)
-        _, (samples, infos) = jax.lax.scan(_one_step, state, step_keys)
-        return samples, infos
+# scan(vmap(kernel)) — canonical multi-chain pattern from
+# blackjax/docs/examples/howto_sample_multiple_chains.md.
+# Output of scan: (num_steps, num_chains, ...) for all fields.
+from blackjax.progress_bar import gen_scan_fn as _gen_scan_fn
 
 
-_samples, _infos = jax.vmap(_run_one_chain)(
-    _state_post_warmup,
-    _step_size_batched,
-    _imm_batched,
-    _chain_keys,
+def _one_step(states, xs):
+    _, rng_key = xs
+    keys = jax.random.split(rng_key, num_chains)
+    states, infos = jax.vmap(_kernel)(keys, states)
+    return states, (states, infos)
+
+
+_scan_fn = _gen_scan_fn(_NUM_SAMPLES, progress_bar=True)
+_step_xs = (
+    jnp.arange(_NUM_SAMPLES),
+    jax.random.split(jax.random.key($sampler_seed), _NUM_SAMPLES),
 )
+_, (_samples, _infos) = _scan_fn(_one_step, _state_post_warmup, _step_xs)
+
+# Swap axes: (num_steps, num_chains, ...) → (num_chains, num_steps, ...).
+# Consumers (postamble, shape checks) expect (num_chains, num_samples, ...).
+_samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _samples)
+_infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos)
