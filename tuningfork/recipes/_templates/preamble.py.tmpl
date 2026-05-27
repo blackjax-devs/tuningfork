@@ -19,6 +19,7 @@ Run with::
 import time as _recipe_time
 _recipe_t0 = _recipe_time.perf_counter()
 import jax
+$x64_config_line
 import jax.numpy as jnp
 import numpy as np
 import blackjax
@@ -36,3 +37,6 @@ init_position, logdensity_fn, _ = build_logdensity_fn(
 # Derived from recipe metadata (warmup_params.num_chains or
 # calibration_budget.num_chains); 1 for legacy groundtruth recipes.
 num_chains = $num_chains
+
+# Wall-clock timer for warmup phase (reset after model/init setup).
+_warmup_t0 = _recipe_time.perf_counter()

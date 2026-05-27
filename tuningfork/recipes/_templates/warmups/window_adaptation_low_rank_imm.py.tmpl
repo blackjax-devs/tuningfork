@@ -8,7 +8,7 @@ _warmup = blackjax.window_adaptation_low_rank(
     logdensity_fn,
     max_rank=$wp_max_rank,
     target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
-    progress_bar=False,
+    progress_bar=True,
 )
 _warmup_keys = jax.random.split(jax.random.key($tuning_seed), num_chains)
 _init_positions = jax.tree.map(
