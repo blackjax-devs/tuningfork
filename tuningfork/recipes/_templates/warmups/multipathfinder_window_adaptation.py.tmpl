@@ -45,7 +45,7 @@ _delta = _mu_per_path - _mu_mix[None, :]
 _sigma_between = jnp.einsum("i,ij,ik->jk", _w, _delta, _delta)
 _imm_dense = _sigma_within + _sigma_between  # (d, d)
 
-# PSIS-resample num_chains init positions.
+# PSIS-resample num_chains init positions (used later to broadcast the state).
 _samples_flat = jax.tree.map(
     lambda x: x.reshape(-1, *x.shape[2:]), _mpf_state.samples
 )
@@ -54,9 +54,12 @@ _init_indices = jax.random.choice(
     _resample_key, _log_weights.shape[0], shape=(num_chains,), replace=True, p=_probs
 )
 _init_positions_psis = jax.tree.map(lambda x: x[_init_indices], _samples_flat)
-# _init_positions_psis: leading dim num_chains — PSIS-resampled starting points
+# _init_positions_psis: shape (num_chains, ...) — PSIS-resampled starting points.
+# Use the first resampled position as the single-chain warmup starting point.
+_init_position_pf = jax.tree.map(lambda x: x[0], _init_positions_psis)
 
-# Stage 2: window_adaptation seeded with multipathfinder IMM.
+# Stage 2: single-chain window_adaptation seeded with multipathfinder IMM.
+# Single-chain warmup avoids io_callback-in-vmap issue (progress_bar).
 # imm_shrinkage_to_previous keeps the multipathfinder IMM influential across windows.
 _warmup = blackjax.window_adaptation(
     blackjax.nuts,
@@ -66,16 +69,17 @@ _warmup = blackjax.window_adaptation(
     imm_shrinkage_to_previous=$wp_imm_shrinkage_to_previous,
     target_acceptance_rate=$target_acceptance_rate,
     initial_step_size=1.0,
-    progress_bar=False,
+    progress_bar=True,
 )
 
-@jax.vmap
-def _run_warmup_one(k, x0):
-    (state, params), _ = _warmup.run(k, x0, $n_warmup)
-    return state, params
-
-_chain_keys = jax.random.split(_adapt_key, num_chains)
-_state_post_warmup, _adapted_params = _run_warmup_one(_chain_keys, _init_positions_psis)
-# _adapted_params["step_size"]: (num_chains,)
-# _adapted_params["inverse_mass_matrix"]: (num_chains, d, d)
+_warmup_key = jax.random.fold_in(_adapt_key, 0)
+(state, _adapted_params), _ = _warmup.run(_warmup_key, _init_position_pf, $n_warmup)
+# Broadcast state to (num_chains,) using PSIS-resampled positions as chain start points.
+# Each chain starts at a different PSIS-resampled position but shares adapted params.
+_state_post_warmup = jax.tree.map(
+    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
+    state,
+)
+# _adapted_params["step_size"]: scalar (shared across chains)
+# _adapted_params["inverse_mass_matrix"]: (d, d)
 # _pareto_k: scalar PSIS Pareto-k diagnostic

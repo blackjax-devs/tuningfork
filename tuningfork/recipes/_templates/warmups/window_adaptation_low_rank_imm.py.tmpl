@@ -1,8 +1,8 @@
 # === WARMUP: window_adaptation_low_rank_imm (max_rank=$wp_max_rank, target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
-# Per-chain independent warmup via jax.vmap — each chain receives its own RNG key
-# derived from the tuning_seed, matching the Stan/NumPyro convention and the
-# tuningfork.warmup.window_adaptation_low_rank_imm.runner implementation.
-# All chains share the same init_position (same point, independent trajectories).
+# Single-chain warmup: run once and broadcast the state to (num_chains,) so that
+# scan(vmap(kernel)) in the inference loop maps over chains sharing the same
+# adapted (step_size, inverse_mass_matrix).  Running warmup inside vmap is
+# discouraged because io_callback (progress_bar) is not supported inside vmap.
 _warmup = blackjax.window_adaptation_low_rank(
     $warmup_algorithm,
     logdensity_fn,
@@ -10,22 +10,14 @@ _warmup = blackjax.window_adaptation_low_rank(
     target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
     progress_bar=True,
 )
-_warmup_keys = jax.random.split(jax.random.key($tuning_seed), num_chains)
-_init_positions = jax.tree.map(
-    lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape),
-    init_position,
+_warmup_key = jax.random.fold_in(jax.random.key($tuning_seed), 0)
+(state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, $n_warmup)
+# Broadcast state to (num_chains,) for scan(vmap(kernel)).
+_state_post_warmup = jax.tree.map(
+    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
+    state,
 )
-
-
-def _run_one_warmup(key, init_pos):
-    (state, params), _ = _warmup.run(key, init_pos, $n_warmup)
-    return state, params
-
-
-_state_post_warmup, _adapted_params = jax.vmap(_run_one_warmup)(
-    _warmup_keys, _init_positions
-)
-# After vmap:
+# After warmup:
 #   _state_post_warmup  — batched state with leading num_chains axis
-#   _adapted_params["step_size"]              shape (num_chains,)
-#   _adapted_params["inverse_mass_matrix"]    LowRankInverseMassMatrix with leading num_chains axis
+#   _adapted_params["step_size"]              scalar (shared across chains)
+#   _adapted_params["inverse_mass_matrix"]    LowRankInverseMassMatrix (no chain axis)
