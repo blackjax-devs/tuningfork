@@ -509,7 +509,18 @@ def emit_script(
     sampler_body = _load_template(
         f"samplers/{recipe.base_method_name}.py.tmpl"
     ).safe_substitute(ctx)
-    inference_loop = _load_template("inference_loop.py.tmpl").safe_substitute(ctx)
+
+    # Select inference loop template based on progress_bar:
+    # - True  → single-chain (no jax.vmap; progress bar safe; warns about single-chain)
+    # - False → multi-chain (jax.vmap over kernel step; no progress bar)
+    # Legacy inference_loop.py.tmpl is the multi-chain path (backward compat).
+    if _sampling_pb:
+        inference_loop = _load_template(
+            "inference_loop_singlechain.py.tmpl"
+        ).safe_substitute(ctx)
+    else:
+        inference_loop = _load_template("inference_loop.py.tmpl").safe_substitute(ctx)
+
     postamble = _load_template("postamble.py.tmpl").safe_substitute(ctx)
 
     # Assembly order:
