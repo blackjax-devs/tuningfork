@@ -11,17 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for emit_script warmup branching on progress_bar.
+"""Tests for emit_script progress_bar branching (warmup + sampling).
 
 Fast tests:
   - progress_bar=True  → single-chain warmup (.run( once, no jax.vmap(...run))
-                         + warnings.warn block mentioning blackjax issue #927.
-  - progress_bar=False → multi-chain warmup via jax.vmap over warmup.run;
-                         no warnings.warn block.
+                         + single-chain sampling (no jax.vmap anywhere in script)
+                         + warnings.warn blocks mentioning blackjax issue #927
+                         + run_inference_algorithm( present in sampling section.
+  - progress_bar=False → multi-chain warmup via jax.vmap over warmup.run
+                         + multi-chain sampling via jax.vmap over kernel step
+                         + no warnings.warn blocks.
 
 e2e tests (lightweight, num_samples=10, minimal warmup):
-  - Both progress_bar=True and progress_bar=False produce correct
-    (num_chains, num_samples, ...) output shape without vmap/io errors.
+  - progress_bar=True  → single-chain run to completion; _samples leading axis = 1.
+  - progress_bar=False → multi-chain run to completion; _samples leading axis = num_chains.
+  - No vmap/io_callback errors in either mode.
 """
 from __future__ import annotations
 
@@ -204,21 +208,134 @@ def test_progress_bar_none_default_same_as_true(warmup_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fast: sampling section branching on progress_bar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_true_no_vmap_in_sampling(warmup_name: str) -> None:
+    """progress_bar=True → single-chain: no jax.vmap( CALLS in warmup or sampling.
+
+    The single-chain path avoids jax.vmap calls entirely (warmup + sampling both
+    single-chain) so that progress_bar's io_callback is never inside a vmap.
+    Note: the warning messages may *mention* jax.vmap as a string; we check for
+    the actual call form ``jax.vmap(`` and the decorator ``@jax.vmap``.
+    """
+    recipe = _make_recipe(warmup_name)
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+
+    assert "jax.vmap(" not in script, (
+        f"[{warmup_name}] progress_bar=True must NOT contain jax.vmap( calls "
+        "(single-chain warmup + single-chain sampling).\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+    assert "@jax.vmap" not in script, (
+        f"[{warmup_name}] progress_bar=True must NOT use @jax.vmap decorator "
+        "(single-chain warmup + single-chain sampling).\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_true_sampling_has_run_inference_algorithm(
+    warmup_name: str,
+) -> None:
+    """progress_bar=True → sampling section uses run_inference_algorithm directly.
+
+    The single-chain path calls run_inference_algorithm with initial_state=
+    (a single-chain state), not a vmapped variant.
+    """
+    recipe = _make_recipe(warmup_name)
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+
+    assert "run_inference_algorithm" in script, (
+        f"[{warmup_name}] progress_bar=True must call run_inference_algorithm.\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+    # Also check the sampling-specific warning is present.
+    assert "SINGLE chain" in script or "single chain" in script.lower(), (
+        f"[{warmup_name}] progress_bar=True sampling must warn about single-chain.\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_true_sampling_warning_mentions_num_chains(
+    warmup_name: str,
+) -> None:
+    """progress_bar=True sampling warning mentions {num_chains} and issue #927."""
+    recipe = _make_recipe(warmup_name)
+    # Use num_chains=4 so we can check the warning references it.
+    script = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=4
+    )
+
+    # The warning message contains issue #927 reference.
+    assert "#927" in script, (
+        f"[{warmup_name}] Sampling warning must mention blackjax issue #927.\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+    # The warning is produced at runtime (f-string with num_chains variable),
+    # so the literal '4' won't appear in the template, but '#927' and
+    # 'progress_bar=False' should.
+    assert "progress_bar=False" in script, (
+        f"[{warmup_name}] Sampling warning must suggest setting progress_bar=False.\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_false_has_vmap_in_sampling(warmup_name: str) -> None:
+    """progress_bar=False → multi-chain sampling uses jax.vmap (vmapped step)."""
+    recipe = _make_recipe(warmup_name)
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
+
+    # The multi-chain sampling path uses jax.vmap for the vmapped step.
+    assert "jax.vmap" in script, (
+        f"[{warmup_name}] progress_bar=False must use jax.vmap for multi-chain sampling.\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_false_no_sampling_warning(warmup_name: str) -> None:
+    """progress_bar=False → no single-chain sampling warning emitted."""
+    recipe = _make_recipe(warmup_name)
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
+
+    # No warnings.warn at all when progress_bar=False (multi-chain is the honest path).
+    assert "warnings.warn(" not in script, (
+        f"[{warmup_name}] progress_bar=False must NOT emit any warnings.warn(...).\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # e2e: emit + execute both variants
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.e2e
 @pytest.mark.parametrize(
-    "warmup_name,progress_bar,num_chains",
+    "warmup_name,progress_bar,expected_chain_axis",
     [
-        ("window_adaptation_diag_imm", True, 2),
+        # progress_bar=True: single-chain sampling → leading axis = 1
+        ("window_adaptation_diag_imm", True, 1),
+        # progress_bar=False: multi-chain sampling → leading axis = num_chains
         ("window_adaptation_diag_imm", False, 2),
         ("window_adaptation_dense_imm", False, 2),
     ],
 )
 def test_emit_warmup_pb_executes_and_shapes_correct(
-    warmup_name: str, progress_bar: bool, num_chains: int, tmp_path: Path
+    warmup_name: str,
+    progress_bar: bool,
+    expected_chain_axis: int,
+    tmp_path: Path,
 ) -> None:
     """Emitted script with progress_bar={True,False} executes and produces correct shape.
 
@@ -226,16 +343,17 @@ def test_emit_warmup_pb_executes_and_shapes_correct(
     Asserts:
     - returncode == 0
     - "DONE" in stdout
-    - _samples shape starts with (num_chains, num_samples, ...)
+    - _samples leading axis = expected_chain_axis (1 for progress_bar=True, num_chains for False)
     - No vmap/io_callback errors in stderr
     """
-    recipe = _make_recipe(warmup_name, n_warmup=10)
+    _NUM_CHAINS = 2
     _NUM_SAMPLES = 10
+    recipe = _make_recipe(warmup_name, n_warmup=10)
 
     script = emit_script(
         recipe,
         num_samples=_NUM_SAMPLES,
-        num_chains=num_chains,
+        num_chains=_NUM_CHAINS,
         num_warmup=10,
         progress_bar=progress_bar,
     )
@@ -267,8 +385,8 @@ def test_emit_warmup_pb_executes_and_shapes_correct(
         f"Expected 'DONE' in stdout (pb={progress_bar}, warmup={warmup_name}).\n"
         f"stdout:\n{result.stdout}"
     )
-    assert f"SHAPE=({num_chains}, {_NUM_SAMPLES}" in result.stdout, (
-        f"Expected _samples shape ({num_chains}, {_NUM_SAMPLES}, ...) "
+    assert f"SHAPE=({expected_chain_axis}, {_NUM_SAMPLES}" in result.stdout, (
+        f"Expected _samples leading axis {expected_chain_axis} "
         f"(pb={progress_bar}, warmup={warmup_name}).\n"
         f"stdout:\n{result.stdout}"
     )
