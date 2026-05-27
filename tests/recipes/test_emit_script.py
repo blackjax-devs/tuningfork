@@ -136,10 +136,10 @@ def test_emit_script_num_samples_defaults_to_calibration_budget() -> None:
     """emit_script reads calibration_budget['n_samples'] when num_samples not passed.
 
     Regression gate for the bug where emit_script defaulted to 2000 samples
-    regardless of the recipe's validated calibration_budget. The HIGH
-    gp_regression recipe was validated at 80 samples/chain (798 s wall);
-    calling emit_script(recipe) without num_samples must produce
-    ``_NUM_SAMPLES = 80``, not 2000 or 1000.
+    regardless of the recipe's validated calibration_budget. Calling
+    emit_script(recipe) without num_samples must set ``_NUM_SAMPLES`` from
+    ``calibration_budget['n_samples']`` (re-stamped to the 1000×4 production
+    config 2026-05-27), not a hardcoded fallback.
     """
     recipe_path = (
         _CATALOG_ROOT
@@ -151,18 +151,21 @@ def test_emit_script_num_samples_defaults_to_calibration_budget() -> None:
         pytest.skip("HIGH laplace_mhmc recipe not in catalog")
     recipe = load_recipe(recipe_path)
 
-    # Sanity: recipe must carry calibration_budget["n_samples"] = 80
-    assert (
-        recipe.calibration_budget.get("n_samples") == 80
+    # Sanity: recipe carries an integer calibration_budget["n_samples"]
+    # (re-stamped to the 1000×4 production config 2026-05-27 — assert dynamically
+    # against whatever the recipe currently declares, not a hardcoded value).
+    n_samples = recipe.calibration_budget.get("n_samples")
+    assert isinstance(
+        n_samples, int
     ), f"Unexpected n_samples in calibration_budget: {recipe.calibration_budget}"
 
     # emit_script with no num_samples arg → must use calibration_budget value
     script = emit_script(recipe)
     needle = "_NUM_SAMPLES"
     excerpt = script[script.find(needle) : script.find(needle) + 40]
-    assert "_NUM_SAMPLES = 80" in script, (
+    assert f"_NUM_SAMPLES = {n_samples}" in script, (
         "emit_script(recipe) must set _NUM_SAMPLES from calibration_budget['n_samples'] "
-        f"(expected 80). Got script excerpt:\n{excerpt}"
+        f"(expected {n_samples}). Got script excerpt:\n{excerpt}"
     )
 
 
