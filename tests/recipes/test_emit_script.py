@@ -390,8 +390,13 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
     _NUM_SAMPLES = 10
     _NUM_CHAINS = 4
     # Minimal warmup/samples for e2e speed.
+    # progress_bar=False for multi-chain output (True = single-chain, shape (1, ...) ).
     script = emit_script(
-        recipe, num_samples=_NUM_SAMPLES, num_chains=_NUM_CHAINS, num_warmup=10
+        recipe,
+        num_samples=_NUM_SAMPLES,
+        num_chains=_NUM_CHAINS,
+        num_warmup=10,
+        progress_bar=False,
     )
     # Append a shape-verification line that prints the first-leaf shape of _samples.
     # Use string concat (not f-string) to avoid escaping braces inside the snippet.
@@ -447,7 +452,8 @@ def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> Non
     recipe = load_recipe(low_recipe_path)
     _NUM_SAMPLES = 10
     _NUM_CHAINS = 4
-    script = emit_script(recipe, num_samples=_NUM_SAMPLES)
+    # progress_bar=False for multi-chain output (True = single-chain, shape (1, ...) ).
+    script = emit_script(recipe, num_samples=_NUM_SAMPLES, progress_bar=False)
     # Inject verification prints after the warmup and after the inference loop.
     verification = (
         "\nimport jax as _jax\n"

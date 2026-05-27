@@ -32,8 +32,10 @@ try:
 except NameError:
     _warmup_is_perchain = False
 
-if not _warmup_is_perchain:
+if not _warmup_is_perchain and not _warmup_init_is_single_chain:
     # Single-chain warmup path: adapted params are scalar / un-batched.
+    # NOTE: skip when _warmup_init_is_single_chain=True (no_warmup path) because
+    # _adapted_params = {} in that case; params were set via .get() defaults above.
     _shared_step_size = _adapted_params["step_size"]
     _shared_imm = _adapted_params["inverse_mass_matrix"]
 
