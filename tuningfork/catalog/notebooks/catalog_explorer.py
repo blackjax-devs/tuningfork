@@ -45,6 +45,7 @@ def _():
     )
     from tuningfork.model import MODELS
     from tuningfork.recipes._base import Effort
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     return (
         Effort,
@@ -57,6 +58,7 @@ def _():
         mo,
         plot_recipe_diagnostics,
         pyinspect,
+        run_recipe_to_idata,
         summarize_recipe,
     )
 
@@ -122,7 +124,7 @@ def _(list_recipes, mo, model_name):
 
 
 @app.cell
-def _(load_recipe, recipe_dropdown, summarize_recipe):
+def _(load_recipe, mo, recipe_dropdown, summarize_recipe):
     if recipe_dropdown.value is None:
         recipe = None
         summary_df = None
@@ -133,8 +135,108 @@ def _(load_recipe, recipe_dropdown, summarize_recipe):
     return (recipe,)
 
 
+@app.cell(hide_code=True)
+def _(mo, recipe):
+    """Display timing metadata + machine info from calibration_budget when available."""
+    if recipe is None:
+        timing_panel = mo.md("")
+    else:
+        budget = recipe.calibration_budget or {}
+        warmup_wall = budget.get("warmup_wall_seconds")
+        sampling_wall = budget.get("sampling_wall_seconds")
+        spd = budget.get("sampling_seconds_per_draw")
+        wall_est = budget.get("wall_seconds_estimate")
+        minfo = budget.get("machine_info") or {}
+
+        if warmup_wall is not None and sampling_wall is not None:
+            # Show measured timing info
+            cpu = minfo.get("cpu_model", "unknown")
+            jax_ver = minfo.get("jax_version", "?")
+            x64 = minfo.get("jax_x64_enabled", False)
+            spd_str = f"{spd * 1000:.3f} ms/draw" if spd is not None else "N/A"
+            timing_panel = mo.callout(
+                mo.md(
+                    f"**Measured timings** (emit run):\n\n"
+                    f"| | |\n|---|---|\n"
+                    f"| Warmup wall | `{warmup_wall:.1f} s` |\n"
+                    f"| Sampling wall | `{sampling_wall:.1f} s` |\n"
+                    f"| Per-draw | `{spd_str}` |\n"
+                    f"| Total wall est. | `{wall_est:.1f} s` |\n"
+                    f"| Machine | `{cpu}` / JAX `{jax_ver}` / x64={x64} |"
+                ),
+                kind="info",
+            )
+        elif wall_est is not None:
+            timing_panel = mo.callout(
+                mo.md(
+                    f"**Estimated wall**: `{wall_est:.1f} s` "
+                    f"(model-derived; no measured timing stamp)"
+                ),
+                kind="neutral",
+            )
+        else:
+            timing_panel = mo.md("")
+
+    timing_panel
+    return
+
+
+@app.cell(hide_code=True)
+def _(Effort, mo, recipe):
+    """Sampling controls — 3 knobs for the run mode."""
+    if recipe is None or recipe.effort in (Effort.GROUNDTRUTH, Effort.FAILED):
+        # No controls needed for GROUNDTRUTH (load from cache) or FAILED.
+        use_cached_switch = None
+        skip_warmup_toggle = None
+        n_samples_slider = None
+        controls_panel = mo.md("")
+    else:
+        use_cached_switch = mo.ui.switch(
+            value=True,
+            label="Use cache (skip re-run)",
+        )
+        skip_warmup_toggle = mo.ui.switch(
+            value=False,
+            label="Skip warmup (instant sampling)",
+        )
+        n_samples_slider = mo.ui.slider(
+            start=100,
+            stop=2000,
+            step=100,
+            value=1000,
+            label="n_samples",
+        )
+        controls_panel = mo.vstack(
+            [
+                mo.md("#### Sampling controls"),
+                mo.hstack(
+                    [use_cached_switch, skip_warmup_toggle, n_samples_slider],
+                    gap=2,
+                ),
+                mo.md(
+                    "_n_samples and skip-warmup take effect when cache is off "
+                    "or skip-warmup is on. Cache hit serves the recipe's default "
+                    "n_samples regardless of slider._"
+                ),
+            ]
+        )
+
+    controls_panel
+    return (n_samples_slider, skip_warmup_toggle, use_cached_switch)
+
+
 @app.cell
-def _(Effort, cached_idata_for_recipe, load_idata, mo, recipe):
+def _(
+    Effort,
+    cached_idata_for_recipe,
+    load_idata,
+    mo,
+    n_samples_slider,
+    recipe,
+    run_recipe_to_idata,
+    skip_warmup_toggle,
+    use_cached_switch,
+):
     # Auto-generate if stamped wall < WALL_TIME_LIMIT_S (15 min).
     # Source: recipe.calibration_budget["wall_seconds_estimate"] — stamped at
     # recipe-build time; always available for all non-stub recipes.
@@ -161,12 +263,52 @@ def _(Effort, cached_idata_for_recipe, load_idata, mo, recipe):
     elif (
         recipe.calibration_budget.get("wall_seconds_estimate", 0.0) < WALL_TIME_LIMIT_S
     ):
-        # Wall-time gate: resample with caching for any non-FAILED recipe whose
-        # stamped production wall is below the limit.  Includes LOW, MEDIUM, and
-        # feasible HIGH-effort recipes (e.g. gp_regression × laplace_mhmc = 798 s).
+        # Wall-time gate: sample with one of 3 modes based on controls.
+        _skip = skip_warmup_toggle.value if skip_warmup_toggle is not None else False
+        _use_cache = use_cached_switch.value if use_cached_switch is not None else True
+        _n = n_samples_slider.value if n_samples_slider is not None else 1000
+
+        # Build data-swap advisory when skip_warmup is active.
+        _skip_warn = None
+        if _skip:
+            _skip_warn = mo.callout(
+                mo.md(
+                    "⚠ **Skip-warmup mode**: Chains start from GT reference means "
+                    "(`reference/summary.json`).  If the model's dataset has been "
+                    "modified since the reference was computed, these means may be "
+                    "stale and sampling could be unreliable.  "
+                    "Check `catalog/<model>/reference/metadata.json` for the cert "
+                    "timestamp."
+                ),
+                kind="warn",
+            )
+
         try:
-            idata = cached_idata_for_recipe(recipe)
-            mo.md(f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`")
+            if _skip:
+                # Skip-warmup: bypass adaptation, use stored step_size/IMM,
+                # stationary init from GT-means. Always re-runs (no cache path).
+                idata = run_recipe_to_idata(recipe, skip_warmup=True, n_samples=_n)
+            elif not _use_cache:
+                # Force resample: re-run warmup + sampling with recipe tuning_seed
+                # and the requested n_samples.
+                _seed = recipe.tuning_seed if recipe.tuning_seed != 0 else 20260517
+                idata = run_recipe_to_idata(
+                    recipe,
+                    force_resample_config={"seed": _seed, "n_samples": _n},
+                )
+            else:
+                # Default: use cached draws (fast; ignores n_samples slider).
+                idata = cached_idata_for_recipe(recipe)
+
+            if idata is not None:
+                mo.vstack(
+                    [
+                        _skip_warn or mo.md(""),
+                        mo.md(
+                            f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`"
+                        ),
+                    ]
+                )
         except Exception as e:
             mo.md(f"*Failed to sample recipe: {type(e).__name__}: {e}*")
     else:
