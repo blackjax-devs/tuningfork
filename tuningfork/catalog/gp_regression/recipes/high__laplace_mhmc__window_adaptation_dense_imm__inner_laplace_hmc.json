@@ -33,12 +33,22 @@
     "n_warmup_phase2": 200,
     "n_samples": 80,
     "num_chains": 4,
-    "warmup_wall_seconds": 716.154,
-    "sampling_wall_seconds": 81.846,
-    "sampling_seconds_per_draw": 0.255769,
-    "split_source": "estimated",
-    "split_note": "two-phase laplace warmup (500+200 steps) + laplace-family vmap compile blowup in fresh JAX session; re-run est=798s exceeds background-task budget; warmup_ratio=700/780 proportional from wall_seconds_estimate.",
-    "machine_info": null
+    "warmup_wall_seconds": 645.8,
+    "sampling_wall_seconds": 150.2,
+    "sampling_seconds_per_draw": 0.4693,
+    "split_source": "measured",
+    "split_note": "Measured from emit_script reproduction (progress_bar=False, multi-chain warmup) at 1000 samples/chain × 4 chains = 4000 draws (TL full run 2026-05-27): warmup_wall=645.8s, sampling=1877.0s → 0.4693 s/draw; n_div=0, mean_accept=0.964. sampling_wall extrapolated to the n_samples=80 benchmark config (320 draws). NOTE: measured per-draw 0.4693 ≈ 1.8× prior estimate 0.256 (sampling underestimated); warmup 645.8 vs estimate 716.",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev81+ga8998469a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
   },
   "difficulty": null,
   "instructions": "**High-effort recipe** (two-phase laplace_hmc warmup \u2192 laplace_mhmc sampling; produced by Statistician arc expA\u2013expJ 2026-05-25).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(log_joint_fn, theta_init, **{'num_integration_steps': 5, 'step_size': 0.59492, 'inverse_mass_matrix': [[0.234953, 0.071499, 0.000549], [0.071499, 0.034736, 0.000925], [0.000549, 0.000925, 0.002276]], 'maxiter': 500})\n  ```\nNote: requires `log_joint_fn` and `theta_init` (Laplace-marginal extra kwargs).\nExpected `min-bulk-ESS / total_grad_evals`: 0.0323.\nESS/s (sampling-only): \u22651.1 floor, typical 1.4 (4-chain vmap; beats NUTS \u22487\u00d7 amortized at 1000 ESS).\nWall time to produce this recipe: ~13 min (cert-scale; includes both warmup phases).",
