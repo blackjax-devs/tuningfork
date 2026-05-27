@@ -35,12 +35,16 @@ if _warmup_init_is_single_chain:
     _shared_imm = jnp.ones(_n_dims)
 
 # Shared adapted params (single-chain warmup).
+# NOTE: if _warmup_init_is_single_chain=True (no_warmup path), _shared_step_size
+# and _shared_imm were already set above from _adapted_params.get() with defaults.
+# We must NOT overwrite them here since _adapted_params = {} for no_warmup.
 try:
     _warmup_is_perchain
 except NameError:
     _warmup_is_perchain = False
 
-if not _warmup_is_perchain:
+if not _warmup_is_perchain and not _warmup_init_is_single_chain:
+    # Standard single-chain warmup path: adapted params are scalars from warmup.
     _shared_step_size = _adapted_params["step_size"]
     _shared_imm = _adapted_params["inverse_mass_matrix"]
 
