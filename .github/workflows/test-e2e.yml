@@ -61,4 +61,8 @@ jobs:
       - name: Pytest (e2e marker, -n 1)
         env:
           JAX_PLATFORM_NAME: cpu
-        run: uv run pytest tests -m e2e -n 1 -q
+        # Scope to the emit/recipe-pipeline e2e tests this path-filtered gate is
+        # FOR. `tests -m e2e` also sweeps in tests/e2e/test_phase{1,2,3} (full-pipeline
+        # phase tests needing the local catalog/CLI env — "No recipes found" in a clean
+        # CI runner); those are a separate local merge gate, not this gate's concern.
+        run: uv run pytest tests/recipes -m e2e -n 1 -q
