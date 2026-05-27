@@ -473,13 +473,35 @@ def emit_script(
     # actually exist for its algorithm family.
     preamble = _load_template("preamble.py.tmpl").safe_substitute(ctx)
 
+    # Warmup variants that support a multi-chain (vmap) path when progress_bar=False.
+    # The single-chain templates (existing) include a warnings.warn() block that fires
+    # when progress_bar=True.  The multi-chain (_multichain) templates run
+    # jax.vmap(warmup.run) over num_chains so each chain gets its own adapted params;
+    # they require progress_bar=False because io_callback is unsupported in vmap.
+    _MULTICHAIN_WARMUP_VARIANTS = frozenset(
+        {
+            "window_adaptation_diag_imm",
+            "window_adaptation_dense_imm",
+            "window_adaptation_low_rank_imm",
+        }
+    )
+
     # Build the warmup body: multi-phase laplace uses a dedicated template;
-    # single-phase uses the per-warmup template (existing path).
+    # single-phase uses the per-warmup template, branching on progress_bar for
+    # warmup variants that support multi-chain execution.
     if _is_laplace and _is_multiphase_warmup:
         warmup_body = _load_template(
             "warmups/laplace_multiphase_warmup.py.tmpl"
         ).safe_substitute(ctx)
+    elif not _warmup_pb and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
+        # progress_bar=False → multi-chain warmup via jax.vmap(warmup.run).
+        # Per-chain adapted params; _warmup_is_perchain=True set in the template.
+        warmup_body = _load_template(
+            f"warmups/{recipe.warmup_name}_multichain.py.tmpl"
+        ).safe_substitute(ctx)
     else:
+        # progress_bar=True (default) or non-vmap warmup variant →
+        # single-chain warmup with broadcast + warnings.warn() in template.
         warmup_body = _load_template(
             f"warmups/{recipe.warmup_name}.py.tmpl"
         ).safe_substitute(ctx)
