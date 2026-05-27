@@ -207,66 +207,60 @@ def test_emit_script_preamble_has_wall_timer() -> None:
 
 
 @pytest.mark.fast
-def test_emit_script_postamble_has_idata_build() -> None:
-    """Emitted script postamble imports arviz and builds InferenceData.
+def test_emit_script_postamble_has_draws_npz() -> None:
+    """Emitted script postamble persists draws as .npz via np.savez.
 
     Checks that the generated script contains:
-    - ``import arviz`` (idata build support)
-    - ``to_netcdf`` (persistence)
-    - ``min_bulk_ess=`` (ESS diagnostic in print line)
-    - ``max_rhat=`` (R-hat diagnostic in print line)
+    - ``np.savez`` (draws persistence — no external library needed)
+    - ``draws.npz`` suffix (filename pattern)
+    - ``[draws written to`` (confirmation print)
     """
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
     script = emit_script(recipe)
     assert (
-        "arviz" in script
-    ), "Emitted script postamble must import arviz for InferenceData build."
+        "np.savez" in script
+    ), "Emitted script postamble must call np.savez to persist draws."
     assert (
-        "to_netcdf" in script
-    ), "Emitted script postamble must call idata.to_netcdf() to persist draws."
+        ".draws.npz" in script
+    ), "Emitted script postamble must write a .draws.npz file."
     assert (
-        "min_bulk_ess=" in script
-    ), "Emitted script postamble must print min_bulk_ess= diagnostic."
-    assert (
-        "max_rhat=" in script
-    ), "Emitted script postamble must print max_rhat= diagnostic."
+        "[draws written to" in script
+    ), "Emitted script postamble must print '[draws written to ...]' confirmation."
 
 
 @pytest.mark.fast
-def test_emit_script_postamble_netcdf_filename_contains_recipe_components() -> None:
-    """Emitted script's NetCDF filename encodes model/sampler/warmup names.
+def test_emit_script_postamble_npz_filename_contains_recipe_components() -> None:
+    """Emitted script's .npz filename encodes model/sampler/warmup names.
 
-    The filename pattern is ``{model_name}__{base_method_name}__{warmup_name}.idata.nc``.
+    The filename pattern is ``{model_name}__{base_method_name}__{warmup_name}.draws.npz``.
     After template substitution the postamble contains each component as a string
-    literal in the _nc_path assignment. Verifies that model_name, base_method_name,
-    warmup_name, and the .idata.nc suffix all appear in the script.
+    literal in the _npz_path assignment. Verifies that model_name, base_method_name,
+    warmup_name, and the .draws.npz suffix all appear in the script.
     """
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
     script = emit_script(recipe)
-    # After substitution, the _nc_path line contains the component names as literals
-    # (either concatenated or as a single string — both acceptable).
+    # After substitution, the _npz_path line contains the component names as literals.
     assert "eight_schools_ncp" in script, "Model name not found in emitted script"
     assert (
-        ".idata.nc" in script
-    ), "Expected '.idata.nc' suffix in emitted script for NetCDF persistence."
+        ".draws.npz" in script
+    ), "Expected '.draws.npz' suffix in emitted script for draws persistence."
     assert (
-        "_nc_path" in script
-    ), "Expected '_nc_path' variable in emitted script (NetCDF output path)."
+        "_npz_path" in script
+    ), "Expected '_npz_path' variable in emitted script (draws output path)."
 
 
 @pytest.mark.e2e
-def test_emit_script_multichain_idata_and_netcdf(tmp_path: Path) -> None:
-    """Emitted multi-chain script runs, writes .nc, and prints max_rhat=/min_bulk_ess=.
+def test_emit_script_multichain_draws_npz(tmp_path: Path) -> None:
+    """Emitted multi-chain script runs, writes .draws.npz, and prints DONE.
 
-    Uses mvn_10 × nuts × window_adaptation_diag_imm with num_chains=4 and
-    num_samples=10 for e2e speed.  Verifies:
+    Uses eight_schools_ncp × nuts × window_adaptation_diag_imm with num_chains=4
+    and num_samples=10 for e2e speed.  Verifies:
     - Script exits 0
-    - ``max_rhat=`` appears in stdout (multi-chain R-hat)
-    - ``min_bulk_ess=`` appears in stdout (bulk ESS)
-    - A ``.idata.nc`` file is written in the script's working directory
-    - ``[idata written to ...]`` appears in stdout
+    - ``[draws written to`` appears in stdout
+    - A ``.draws.npz`` file is written in the script's working directory
+    - DONE is printed
     """
     low_recipe_path = (
         _CATALOG_ROOT
@@ -284,7 +278,7 @@ def test_emit_script_multichain_idata_and_netcdf(tmp_path: Path) -> None:
         num_warmup=10,
         progress_bar=False,
     )
-    script_path = tmp_path / "test_idata_multichain.py"
+    script_path = tmp_path / "test_draws_multichain.py"
     script_path.write_text(script)
 
     result = subprocess.run(
@@ -296,27 +290,18 @@ def test_emit_script_multichain_idata_and_netcdf(tmp_path: Path) -> None:
         env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
     )
     assert result.returncode == 0, (
-        f"Emitted multi-chain idata script failed.\n"
+        f"Emitted multi-chain draws script failed.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout
-    # R-hat and ESS must appear in the summary print line.
-    assert "max_rhat=" in result.stdout, (
-        f"Expected 'max_rhat=' in stdout for multi-chain run.\n"
-        f"stdout:\n{result.stdout}"
-    )
-    assert "min_bulk_ess=" in result.stdout, (
-        f"Expected 'min_bulk_ess=' in stdout for multi-chain run.\n"
-        f"stdout:\n{result.stdout}"
-    )
-    # The idata path must have been printed.
+    # The draws path must have been printed.
     assert (
-        "[idata written to" in result.stdout
-    ), f"Expected '[idata written to ...]' in stdout.\nstdout:\n{result.stdout}"
-    # The .nc file must exist in cwd (tmp_path).
-    nc_files = list(tmp_path.glob("*.idata.nc"))
-    assert nc_files, (
-        f"Expected a .idata.nc file in {tmp_path}. "
+        "[draws written to" in result.stdout
+    ), f"Expected '[draws written to ...]' in stdout.\nstdout:\n{result.stdout}"
+    # The .draws.npz file must exist in cwd (tmp_path).
+    npz_files = list(tmp_path.glob("*.draws.npz"))
+    assert npz_files, (
+        f"Expected a .draws.npz file in {tmp_path}. "
         f"Files: {list(tmp_path.iterdir())}"
     )
 
