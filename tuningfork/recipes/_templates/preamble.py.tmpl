@@ -18,12 +18,13 @@ Run with::
 """
 import time as _recipe_time
 _recipe_t0 = _recipe_time.perf_counter()
+import warnings
 import jax
 $x64_config_line
 import jax.numpy as jnp
 import numpy as np
 import blackjax
-
+$progress_bar_warning_block
 # === MODEL: imported from tuningfork (canonical NumPyro definition) ===
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn

@@ -7,14 +7,6 @@ _SAMPLING_PROGRESS_BAR = True  # True = single-chain (safe with io_callback); se
 # run_inference_algorithm call, then re-add a leading axis of 1 so that
 # downstream consumers see shape (1, num_samples, ...) regardless of
 # the recipe's num_chains setting.
-import warnings
-warnings.warn(
-    f"progress_bar=True samples a SINGLE chain only -- multi-chain sampling "
-    f"runs under jax.vmap, which is incompatible with the progress bar's "
-    f"io_callback and can deadlock on heavy models (see blackjax issue #927). "
-    f"For the full {num_chains}-chain run, set progress_bar=False.",
-    stacklevel=1,
-)
 
 # Ensure _state_post_warmup has a leading chain axis before extracting chain 0.
 try:

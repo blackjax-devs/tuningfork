@@ -1338,12 +1338,15 @@ def test_emit_script_progress_bar_override_true() -> None:
     """emit_script(recipe, progress_bar=True) explicitly enables both progress bars.
 
     Both warmup and sampling must have progress_bar=True (same as the default).
+    Also verifies the call-time warning is issued (pytest.warns) so tests are not
+    surprised by UserWarning-as-error under filterwarnings=error.
     """
     from tuningfork.catalog import emit_script, load_recipe
 
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
-    script = emit_script(recipe, num_samples=50, progress_bar=True)
+    with pytest.warns(UserWarning, match="#927"):
+        script = emit_script(recipe, num_samples=50, progress_bar=True)
 
     assert (
         "progress_bar=True" in script
