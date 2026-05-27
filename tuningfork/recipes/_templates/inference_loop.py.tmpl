@@ -1,10 +1,11 @@
 _NUM_SAMPLES = $num_samples
+_SAMPLING_PROGRESS_BAR = $sampling_progress_bar  # set False to disable terminal bar (one-line fallback)
 
 # Ensure _state_post_warmup has a leading chain axis of size num_chains before
-# the scan(vmap(kernel)) loop.  Warmup templates that run single-chain warmup
-# and broadcast already set a (num_chains, ...) state.  The no_warmup template
-# sets _warmup_init_is_single_chain = True because the sampler template
-# initialises from init_position (single chain).
+# the run_inference_algorithm(vmapped input) loop.  Warmup templates that run
+# single-chain warmup and broadcast already set a (num_chains, ...) state.
+# The no_warmup template sets _warmup_init_is_single_chain = True because the
+# sampler template initialises from init_position (single chain).
 try:
     _warmup_init_is_single_chain
 except NameError:
@@ -36,7 +37,7 @@ except NameError:
     _needs_state_reinit = False
 
 # For samplers that need re-init (dynamic_hmc, dmhmc, ghmc): vmap-init each
-# chain BEFORE the scan so the scan body uses a homogeneous state type.
+# chain BEFORE run_inference_algorithm so the batched state has a homogeneous type.
 if _needs_state_reinit:
     _reinit_keys = jax.random.split(jax.random.key($tuning_seed + 999), num_chains)
     _state_post_warmup = jax.vmap(
@@ -46,27 +47,31 @@ if _needs_state_reinit:
 # Build ONE shared kernel (shared step_size + IMM across all chains).
 _kernel = kernel_builder(_shared_step_size, _shared_imm)
 
-# scan(vmap(kernel)) — canonical multi-chain pattern from
-# blackjax/docs/examples/howto_sample_multiple_chains.md.
-# Output of scan: (num_steps, num_chains, ...) for all fields.
-from blackjax.progress_bar import gen_scan_fn as _gen_scan_fn
+# run_inference_algorithm with vmapped inputs — canonical multi-chain pattern.
+# ONE kernel is built with shared adapted params; the step function vmaps over
+# chains internally so run_inference_algorithm is NOT vmapped.
+# Input: _state_post_warmup has shape (num_chains, ...) — already batched.
+# Output: history is (num_steps, num_chains, ...) for all fields.
+from blackjax.util import run_inference_algorithm as _run_inference_algorithm
+from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm
 
 
-def _one_step(states, xs):
-    _, rng_key = xs
+def _vmapped_step(rng_key, states):
     keys = jax.random.split(rng_key, num_chains)
-    states, infos = jax.vmap(_kernel)(keys, states)
-    return states, (states, infos)
+    return jax.vmap(_kernel.step)(keys, states)
 
 
-_scan_fn = _gen_scan_fn(_NUM_SAMPLES, progress_bar=True)
-_step_xs = (
-    jnp.arange(_NUM_SAMPLES),
-    jax.random.split(jax.random.key($sampler_seed), _NUM_SAMPLES),
+_alg = _SamplingAlgorithm(_kernel.init, _vmapped_step)
+
+_final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(
+    jax.random.key($sampler_seed),
+    _alg,
+    num_steps=_NUM_SAMPLES,
+    initial_state=_state_post_warmup,
+    progress_bar=_SAMPLING_PROGRESS_BAR,
 )
-_, (_samples, _infos) = _scan_fn(_one_step, _state_post_warmup, _step_xs)
 
 # Swap axes: (num_steps, num_chains, ...) → (num_chains, num_steps, ...).
 # Consumers (postamble, shape checks) expect (num_chains, num_samples, ...).
-_samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _samples)
-_infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos)
+_samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)
+_infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos_hist)

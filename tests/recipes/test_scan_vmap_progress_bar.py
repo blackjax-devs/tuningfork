@@ -13,16 +13,19 @@
 # limitations under the License.
 """Regression guard for the vmap(scan)-with-progress_bar bug.
 
-Before the scan(vmap) refactor, emit_script produced a vmap(scan) pattern
-for both warmup and sampling.  When progress_bar=True, blackjax uses
-``io_callback`` inside the scan body to update the progress bar.
+Before the run_inference_algorithm(vmapped input) refactor, emit_script
+produced a vmap(scan) pattern for sampling.  When progress_bar=True,
+blackjax uses ``io_callback`` inside the scan body to update the progress bar.
 ``io_callback`` is not supported inside ``jax.vmap``, causing the JAX error:
 
     "IO effect not supported in vmap-of-cond"
 
-The fix:
+The current fix (PR #72):
   - Warmup templates: single-chain warmup (run once, broadcast state).
-  - Sampling: scan(vmap(kernel)) via gen_scan_fn.
+  - Sampling: run_inference_algorithm(vmapped input) — ONE kernel built with
+    shared params; the step function vmaps over chains internally so
+    run_inference_algorithm is NOT vmapped.  The progress_bar io_callback
+    is at the scan level (inside run_inference_algorithm) and NOT inside vmap.
 
 This file contains one @pytest.mark.slow regression test: emit a multi-chain
 recipe (mvn_10 × nuts × window_adaptation_diag_imm, num_chains=2,
