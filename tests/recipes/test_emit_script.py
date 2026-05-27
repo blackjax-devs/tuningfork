@@ -201,7 +201,7 @@ def test_emit_script_preamble_has_wall_timer() -> None:
     ), "Emitted script postamble must print wall_seconds= for timing observability."
 
 
-@pytest.mark.slow
+@pytest.mark.e2e
 @pytest.mark.parametrize(
     "warmup_name,base_method_name",
     [
@@ -267,7 +267,7 @@ def test_emit_script_executes_for_cell(
     assert "n_divergences=" in result.stdout
 
 
-@pytest.mark.slow
+@pytest.mark.e2e
 def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
     """Emitted script runs end-to-end via subprocess and prints DONE.
 
@@ -365,7 +365,7 @@ def test_emit_script_num_chains_override() -> None:
     )
 
 
-@pytest.mark.slow
+@pytest.mark.e2e
 def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
     """Emitted 4-chain script produces _samples with shape (4, num_samples, ...).
 
@@ -412,7 +412,7 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.slow
+@pytest.mark.e2e
 def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> None:
     """Single-chain warmup produces scalar _adapted_params["step_size"] in emitted script.
 
@@ -698,7 +698,7 @@ def test_emit_script_warmup_inner_kernel_substitute_family_unchanged() -> None:
     )
 
 
-@pytest.mark.slow
+@pytest.mark.e2e
 def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> None:
     """L2 fidelity test: emit_script's warmup produces valid adapted params.
 
@@ -895,7 +895,7 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
     )
 
 
-@pytest.mark.slow
+@pytest.mark.e2e
 def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
     """Acceptance test: emitted laplace multiphase script runs end-to-end (exit 0, prints DONE).
 

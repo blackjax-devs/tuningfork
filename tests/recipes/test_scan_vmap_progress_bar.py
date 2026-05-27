@@ -49,7 +49,7 @@ import pytest
 from tuningfork.catalog import emit_script
 from tuningfork.recipes._base import Recipe
 
-pytestmark = pytest.mark.slow
+pytestmark = pytest.mark.e2e
 
 
 def _make_mvn10_nuts_wadapt_recipe(n_warmup: int = 50) -> Recipe:
