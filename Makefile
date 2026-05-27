@@ -18,9 +18,10 @@ test-slow:
 	JAX_PLATFORM_NAME=cpu uv run pytest tests -m slow -n 2
 
 # End-to-end phase gate (run before merge)
+# Runs all @pytest.mark.e2e tests: recipes emit-execute tests + e2e phase CLI tests
 test-e2e:
 	$(MAKE) clean-orphans
-	JAX_PLATFORM_NAME=cpu uv run pytest tests/e2e/ -n 1
+	JAX_PLATFORM_NAME=cpu uv run pytest tests -m e2e -n 1
 
 # The merge gate: everything
 test-full:
