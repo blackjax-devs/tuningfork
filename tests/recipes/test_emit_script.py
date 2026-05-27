@@ -430,16 +430,16 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
 
 @pytest.mark.e2e
 def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> None:
-    """Single-chain warmup produces scalar _adapted_params["step_size"] in emitted script.
+    """Per-chain warmup (progress_bar=False) produces vector _adapted_params["step_size"].
 
     Uses the LOW recipe for eight_schools_ncp x nuts x window_adaptation_diag_imm
     which encodes num_chains=4.  Verifies that:
-    - _adapted_params["step_size"] is a scalar (single-chain warmup; shared params)
+    - _adapted_params["step_size"] is shape (num_chains,) — ndim=1 (per-chain warmup)
     - _samples has shape (4, n_samples, ...)  (multi-chain output via scan(vmap))
 
-    With the scan(vmap) pattern, warmup runs ONCE and the adapted params are
-    shared across all chains.  _adapted_params["step_size"] is therefore scalar,
-    not shape (num_chains,).
+    With progress_bar=False, warmup runs per-chain via jax.vmap, so each chain
+    gets its own adapted step_size.  _adapted_params["step_size"] is therefore
+    shape (num_chains,), not scalar.
 
     Lightweight config: num_samples=10 for e2e speed.
     """
@@ -452,13 +452,13 @@ def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> Non
     recipe = load_recipe(low_recipe_path)
     _NUM_SAMPLES = 10
     _NUM_CHAINS = 4
-    # progress_bar=False for multi-chain output (True = single-chain, shape (1, ...) ).
+    # progress_bar=False → per-chain warmup via jax.vmap → step_size shape (num_chains,).
     script = emit_script(recipe, num_samples=_NUM_SAMPLES, progress_bar=False)
     # Inject verification prints after the warmup and after the inference loop.
     verification = (
         "\nimport jax as _jax\n"
         "import numpy as _np\n"
-        # Check _adapted_params["step_size"] shape — must be scalar for single-chain warmup.
+        # Check _adapted_params["step_size"] shape — must be (num_chains,) for per-chain warmup.
         "_ss = _adapted_params['step_size']\n"
         'print("STEP_SIZE_NDIM=" + str(int(_np.asarray(_ss).ndim)))\n'
         # Check _samples shape — first leaf must start with (4, _NUM_SAMPLES, ...).
@@ -477,15 +477,15 @@ def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> Non
         env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
     )
     assert result.returncode == 0, (
-        f"Single-chain warmup emitted script failed.\n"
+        f"Per-chain warmup emitted script failed.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout
 
-    # _adapted_params["step_size"] must be scalar (ndim=0) — single-chain warmup.
-    assert "STEP_SIZE_NDIM=0" in result.stdout, (
-        "Expected _adapted_params['step_size'] to be scalar (ndim=0) "
-        "for single-chain warmup (shared params across chains).\n"
+    # _adapted_params["step_size"] must be shape (num_chains,) ndim=1 — per-chain warmup.
+    assert "STEP_SIZE_NDIM=1" in result.stdout, (
+        "Expected _adapted_params['step_size'] to be shape (num_chains,) (ndim=1) "
+        "for per-chain warmup (progress_bar=False path uses jax.vmap).\n"
         f"stdout:\n{result.stdout}"
     )
     # _samples must have shape (4, n_samples, ...).
