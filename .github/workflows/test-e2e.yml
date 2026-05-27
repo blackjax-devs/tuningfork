@@ -1,0 +1,64 @@
+# End-to-end tests — path-filtered PR gate + manual trigger.
+#
+# Runs `pytest -m e2e -n 1` on changes that touch the emit/recipe pipeline.
+# e2e tests spawn subprocesses (each emits + executes a JAX script), so
+# parallel workers would multiply memory pressure; -n 1 is intentional.
+#
+# Triggered when a PR touches:
+#   * tuningfork/recipes/**           recipe runner / emit_script logic
+#   * tuningfork/recipes/_templates/** sampler / warmup / loop templates
+#   * .github/workflows/test-e2e.yml  this workflow itself
+# Plus workflow_dispatch (manual run).
+#
+# Intentionally NOT triggered on every PR (subset of recipe paths only).
+# test-slow runs on every PR/push; e2e is the heavier template-correctness gate.
+#
+# Excluded from this workflow (run locally as merge gate):
+#   * -m requires_posteriordb   external data cache not in CI runners
+#   * -m benchmark              opt-in perf benchmarks
+
+name: test-e2e
+
+on:
+  pull_request:
+    paths:
+      - 'tuningfork/recipes/**'
+      - 'tuningfork/recipes/_templates/**'
+      - 'tuningfork/recipes/_emit_script.py'
+      - 'tuningfork/recipes/_recipe_runner.py'
+      - 'tuningfork/recipes/_base.py'
+      - 'tuningfork/model/**'
+      - 'tuningfork/catalog/**'
+      - 'tests/recipes/**'
+      - '.github/workflows/test-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-e2e:
+    name: test-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --group bench
+
+      - name: Pytest (e2e marker, -n 1)
+        env:
+          JAX_PLATFORM_NAME: cpu
+        run: uv run pytest tests -m e2e -n 1 -q --timeout=300
