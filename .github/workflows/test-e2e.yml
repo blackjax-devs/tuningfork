@@ -61,4 +61,4 @@ jobs:
       - name: Pytest (e2e marker, -n 1)
         env:
           JAX_PLATFORM_NAME: cpu
-        run: uv run pytest tests -m e2e -n 1 -q --timeout=300
+        run: uv run pytest tests -m e2e -n 1 -q

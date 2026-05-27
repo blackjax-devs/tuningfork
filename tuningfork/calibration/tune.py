@@ -743,7 +743,9 @@ def tune_algorithm(
     # ------------------------------------------------------------------
     # 3. Optuna study with selected sampler
     # ------------------------------------------------------------------
-    sampler_seed = int(jax.random.bits(jax.random.fold_in(rng_key_study, 0)))
+    sampler_seed = int(
+        jax.random.bits(jax.random.fold_in(rng_key_study, 0), dtype=jnp.uint32)
+    )
     if sampler == "tpe":
         optuna_sampler = optuna.samplers.TPESampler(seed=sampler_seed)
     elif sampler == "random":
