@@ -55,7 +55,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from blackjax.mcmc.laplace_marginal import laplace_marginal_factory
-from blackjax.util import run_inference_algorithm
+from blackjax.progress_bar import gen_scan_fn as _gen_scan_fn
 
 from tuningfork._machine_info import get_machine_info
 from tuningfork._version import __version__ as _tuningfork_version
@@ -786,61 +786,112 @@ def emit_low_recipe_for_cell(
     batched_imm = batched_params["inverse_mass_matrix"]
     needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
 
-    # Capture laplace extras in closure for _run_one_chain.
+    # Capture laplace extras in closure for per-chain step function.
     _laplace_log_joint_fn = laplace_log_joint_fn
     _laplace_theta_init = laplace_theta_init
 
-    def _run_one_chain(rng, init_state, step_size, imm):
-        if is_laplace:
-            # laplace_* factory: positional-style kwargs log_joint_fn + theta_init;
-            # the `logdensity_fn` arg is present for interface uniformity but unused.
+    # --- Pre-scan init: handle samplers that need a different state type ---
+    # Laplace and dynamic_hmc/dmhmc require re-init before the scan loop because
+    # window_adaptation produces HMCState while these kernels need their own state.
+    # Per-chain reinit is safe (vmapping .init() has no io_callback issues).
+    _reinit_keys = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
+    if is_laplace:
+
+        def _init_one_chain_laplace(init_state, step_size, imm, reinit_key):
             kernel = base_method.factory(
-                logdensity_fn,  # unused (marginal — not joint)
+                logdensity_fn,
                 log_joint_fn=_laplace_log_joint_fn,
                 theta_init=_laplace_theta_init,
                 step_size=step_size,
                 inverse_mass_matrix=imm,
                 **shared_kwargs,
             )
-            # laplace_hmc / laplace_dhmc / laplace_mhmc / laplace_dmhmc all use
-            # `.init(phi_init)` which runs a cold-start L-BFGS. The warmup state
-            # carries only phi positions (HMC-substituted warmup ran on phi only).
-            reinit_key, run_key = jax.random.split(rng)
-            init_for_run = kernel.init(init_state.position, reinit_key)
-        else:
+            return kernel.init(init_state.position, reinit_key)
+
+        _run_states = jax.vmap(_init_one_chain_laplace)(
+            batched_state, batched_step_size, batched_imm, _reinit_keys
+        )
+    elif needs_dyn_reinit:
+
+        def _init_one_chain_dyn(init_state, step_size, imm, reinit_key):
             kernel = base_method.factory(
                 logdensity_fn,
                 step_size=step_size,
                 inverse_mass_matrix=imm,
                 **shared_kwargs,
             )
-            if needs_dyn_reinit:
-                # DynamicHMCState extends HMCState with `random_generator_arg`;
-                # warmup output (HMC-substituted) is an HMCState, so re-init from
-                # the position to get the correct state structure.
-                reinit_key, run_key = jax.random.split(rng)
-                init_for_run = kernel.init(init_state.position, reinit_key)
-            else:
-                init_for_run, run_key = init_state, rng
-        _, (st, inf) = run_inference_algorithm(
-            rng_key=run_key,
-            inference_algorithm=kernel,
-            num_steps=n_samples,
-            initial_state=init_for_run,
-        )
-        return st, inf
+            return kernel.init(init_state.position, reinit_key)
 
-    # --- Sampling (multi-chain via jax.vmap) ---
+        _run_states = jax.vmap(_init_one_chain_dyn)(
+            batched_state, batched_step_size, batched_imm, _reinit_keys
+        )
+    else:
+        _run_states = batched_state
+
+    # --- scan(vmap(kernel)) — canonical multi-chain pattern ---
+    # The runner keeps per-chain (step_size, imm) from warmup, so the per-chain
+    # kernel is built inside the vmap. scan(vmap) avoids vmap(scan) which does
+    # not support io_callback (progress_bar) inside vmap.
+    if is_laplace:
+
+        def _step_one_chain_laplace(state, key, step_size, imm):
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                log_joint_fn=_laplace_log_joint_fn,
+                theta_init=_laplace_theta_init,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _one_step_laplace(states, xs):
+            _, rng_key = xs
+            keys = jax.random.split(rng_key, num_chains)
+            new_states, infos = jax.vmap(_step_one_chain_laplace)(
+                states, keys, batched_step_size, batched_imm
+            )
+            return new_states, (new_states, infos)
+
+        _scan_body = _one_step_laplace
+    else:
+
+        def _step_one_chain(state, key, step_size, imm):
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _one_step(states, xs):
+            _, rng_key = xs
+            keys = jax.random.split(rng_key, num_chains)
+            new_states, infos = jax.vmap(_step_one_chain)(
+                states, keys, batched_step_size, batched_imm
+            )
+            return new_states, (new_states, infos)
+
+        _scan_body = _one_step
+
+    _scan_fn = _gen_scan_fn(n_samples, progress_bar=False)
+    _step_xs = (
+        jnp.arange(n_samples),
+        jax.random.split(sample_key, n_samples),
+    )
+
+    # --- Sampling (multi-chain via scan(vmap)) ---
     _log(
         f"  Sampling ({sampler_name}, n_samples={n_samples}, "
         f"num_chains={num_chains})..."
     )
     t_sample0 = time.perf_counter()
     try:
-        chain_keys = jax.random.split(sample_key, num_chains)
-        states, infos = jax.vmap(_run_one_chain)(
-            chain_keys, batched_state, batched_step_size, batched_imm
-        )
+        _, (_states_scan, infos) = _scan_fn(_scan_body, _run_states, _step_xs)
+        # scan output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
+        states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_scan)
+        infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), infos)
         positions = states.position  # dict {param: (num_chains, n_samples, *shape)}
     except Exception as exc:
         note = f"FAIL sampler error: {type(exc).__name__}: {exc}"
@@ -1552,8 +1603,13 @@ def run_recipe_to_idata(
     _laplace_log_joint_fn = laplace_log_joint_fn
     _laplace_theta_init = laplace_theta_init
 
-    def _run_one_chain(rng, init_state, step_size, imm):
-        if is_laplace:
+    # --- Pre-scan init: handle samplers that need a different state type ---
+    # Laplace and dynamic_hmc/dmhmc require re-init before the scan loop because
+    # window_adaptation produces HMCState while these kernels need their own state.
+    _reinit_keys_r = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
+    if is_laplace:
+
+        def _init_one_chain_laplace_r(init_state, step_size, imm, reinit_key):
             kernel = base_method.factory(
                 logdensity_fn,
                 log_joint_fn=_laplace_log_joint_fn,
@@ -1562,34 +1618,84 @@ def run_recipe_to_idata(
                 inverse_mass_matrix=imm,
                 **shared_kwargs,
             )
-            reinit_key, run_key = jax.random.split(rng)
-            init_for_run = kernel.init(init_state.position, reinit_key)
-        else:
+            return kernel.init(init_state.position, reinit_key)
+
+        _run_states_r = jax.vmap(_init_one_chain_laplace_r)(
+            batched_state, batched_step_size, batched_imm, _reinit_keys_r
+        )
+    elif needs_dyn_reinit:
+
+        def _init_one_chain_dyn_r(init_state, step_size, imm, reinit_key):
             kernel = base_method.factory(
                 logdensity_fn,
                 step_size=step_size,
                 inverse_mass_matrix=imm,
                 **shared_kwargs,
             )
-            if needs_dyn_reinit:
-                reinit_key, run_key = jax.random.split(rng)
-                init_for_run = kernel.init(init_state.position, reinit_key)
-            else:
-                init_for_run, run_key = init_state, rng
-        _, (st, inf) = run_inference_algorithm(
-            rng_key=run_key,
-            inference_algorithm=kernel,
-            num_steps=n_samples,
-            initial_state=init_for_run,
+            return kernel.init(init_state.position, reinit_key)
+
+        _run_states_r = jax.vmap(_init_one_chain_dyn_r)(
+            batched_state, batched_step_size, batched_imm, _reinit_keys_r
         )
-        return st, inf
+    else:
+        _run_states_r = batched_state
+
+    # --- scan(vmap(kernel)) — canonical multi-chain pattern ---
+    if is_laplace:
+
+        def _step_one_chain_laplace_r(state, key, step_size, imm):
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                log_joint_fn=_laplace_log_joint_fn,
+                theta_init=_laplace_theta_init,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _one_step_laplace_r(states, xs):
+            _, rng_key = xs
+            keys = jax.random.split(rng_key, num_chains)
+            new_states, infos = jax.vmap(_step_one_chain_laplace_r)(
+                states, keys, batched_step_size, batched_imm
+            )
+            return new_states, (new_states, infos)
+
+        _scan_body_r = _one_step_laplace_r
+    else:
+
+        def _step_one_chain_r(state, key, step_size, imm):
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _one_step_r(states, xs):
+            _, rng_key = xs
+            keys = jax.random.split(rng_key, num_chains)
+            new_states, infos = jax.vmap(_step_one_chain_r)(
+                states, keys, batched_step_size, batched_imm
+            )
+            return new_states, (new_states, infos)
+
+        _scan_body_r = _one_step_r
+
+    _scan_fn_r = _gen_scan_fn(n_samples, progress_bar=False)
+    _step_xs_r = (
+        jnp.arange(n_samples),
+        jax.random.split(sample_key, n_samples),
+    )
 
     # Run sampling
     _t_sample_start = time.perf_counter()
-    chain_keys = jax.random.split(sample_key, num_chains)
-    states, infos = jax.vmap(_run_one_chain)(
-        chain_keys, batched_state, batched_step_size, batched_imm
-    )
+    _, (_states_scan_r, infos) = _scan_fn_r(_scan_body_r, _run_states_r, _step_xs_r)
+    # scan output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
+    states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_scan_r)
+    infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), infos)
     _t_sample = time.perf_counter() - _t_sample_start
     positions = states.position  # shape: (num_chains, n_samples, *event_shape)
 
