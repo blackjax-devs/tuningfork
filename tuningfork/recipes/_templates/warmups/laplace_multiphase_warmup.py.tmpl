@@ -6,6 +6,11 @@
 # Each phase uses a separate LaplaceMarginal factory (different maxiter).
 # The logdensity_fn override ensures each phase's window_adaptation sees the
 # correct LaplaceMarginal with the right L-BFGS iteration budget.
+#
+# Single-chain warmup: both phases run on one chain; the final state is
+# broadcast to (num_chains,) for scan(vmap(kernel)) in the inference loop.
+# Running warmup inside vmap is discouraged because io_callback (progress_bar)
+# is not supported inside vmap.
 
 # ── Phase 1: traversal (diagonal IMM) ────────────────────────────────────────
 # Phase 1 logdensity_fn: _laplace_warmup[0] (already set by laplace_preamble)
@@ -15,32 +20,20 @@ _warmup_p1 = blackjax.window_adaptation(
     target_acceptance_rate=$wp0_target$wp0_extra_kwargs,
     progress_bar=True,
 )
-_warmup_keys_p1 = jax.random.split(jax.random.key($tuning_seed), num_chains)
-_init_positions_p1 = jax.tree.map(
-    lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape),
-    init_position,
+_warmup_key_p1 = jax.random.fold_in(jax.random.key($tuning_seed), 0)
+(state_phase1, _adapted_params_phase1), _ = _warmup_p1.run(
+    _warmup_key_p1, init_position, $wp0_n_warmup
 )
-
-
-def _run_one_warmup_p1(key, init_pos):
-    (state, params), _ = _warmup_p1.run(key, init_pos, $wp0_n_warmup)
-    return state, params
-
-
-_state_phase1, _adapted_params_phase1 = jax.vmap(_run_one_warmup_p1)(
-    _warmup_keys_p1, _init_positions_p1
-)
-# After Phase 1:
-#   _state_phase1   — LaplaceHMCState, shape (num_chains, ...) with phi + theta_star
-#   _adapted_params_phase1["step_size"]             shape (num_chains,) — from dual-avg
-#   _adapted_params_phase1["inverse_mass_matrix"]   shape (num_chains, phi_dim) [diag]
+# After Phase 1 (single chain):
+#   state_phase1   — LaplaceHMCState with phi + theta_star
+#   _adapted_params_phase1["step_size"]             scalar — from dual-avg
+#   _adapted_params_phase1["inverse_mass_matrix"]   shape (phi_dim,) [diag]
 
 # ── Phase 2: Welford dense IMM capture ───────────────────────────────────────
 # Switch to Phase 2 LaplaceMarginal (higher maxiter for accurate Hessians).
 logdensity_fn = _laplace_warmup[1]
-# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (per-chain mean).
-# Using mean so initial_step_size is a scalar as window_adaptation expects.
-_initial_step_size_p2 = float(jnp.mean(_adapted_params_phase1["step_size"]))
+# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (scalar — single chain).
+_initial_step_size_p2 = float(_adapted_params_phase1["step_size"])
 _warmup_p2 = blackjax.window_adaptation(
     $warmup_algorithm,
     logdensity_fn,
@@ -49,21 +42,20 @@ _warmup_p2 = blackjax.window_adaptation(
     initial_step_size=_initial_step_size_p2,
     progress_bar=True,
 )
-# Use keys offset from Phase 1 to avoid correlation.
-_warmup_keys_p2 = jax.random.split(jax.random.key($tuning_seed + 1), num_chains)
-# Phase 2 starts from Phase 1 end-positions (phi only; warm-started theta_star in state).
-_init_positions_p2 = _state_phase1.position
-
-
-def _run_one_warmup_p2(key, init_pos):
-    (state, params), _ = _warmup_p2.run(key, init_pos, $wp1_n_warmup)
-    return state, params
-
-
-_state_post_warmup, _adapted_params = jax.vmap(_run_one_warmup_p2)(
-    _warmup_keys_p2, _init_positions_p2
+# Use key offset from Phase 1 to avoid correlation.
+_warmup_key_p2 = jax.random.fold_in(jax.random.key($tuning_seed + 1), 0)
+# Phase 2 starts from Phase 1 end-position (single chain phi; warm-started theta_star).
+_init_position_p2 = state_phase1.position
+(state_post_warmup_single, _adapted_params), _ = _warmup_p2.run(
+    _warmup_key_p2, _init_position_p2, $wp1_n_warmup
+)
+# Broadcast final state to (num_chains,) for scan(vmap(kernel)).
+_state_post_warmup = jax.tree.map(
+    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
+    state_post_warmup_single,
 )
 # After Phase 2 (final adapted params — used by inference loop):
 #   _state_post_warmup  — LaplaceHMCState with accurate theta_star (maxiter=$wp1_maxiter)
-#   _adapted_params["step_size"]             shape (num_chains,)
-#   _adapted_params["inverse_mass_matrix"]   shape (num_chains, phi_dim, phi_dim) [dense]
+#                         broadcast to (num_chains,) leading axis
+#   _adapted_params["step_size"]             scalar (shared across chains)
+#   _adapted_params["inverse_mass_matrix"]   shape (phi_dim, phi_dim) [dense]
