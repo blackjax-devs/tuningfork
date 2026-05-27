@@ -22,7 +22,17 @@ if _warmup_init_is_single_chain:
     _il_flat, _ = _il_ravel(init_position)
     _n_dims = int(_il_flat.shape[0])
     _shared_imm = jnp.ones(_n_dims)
-else:
+    _warmup_is_perchain = False
+
+# Detect per-chain vs shared adapted params.
+# _warmup_is_perchain=True  → multi-chain warmup (jax.vmap); params shape (num_chains, ...).
+# _warmup_is_perchain=False → single-chain warmup (broadcast); params are scalar / un-batched.
+try:
+    _warmup_is_perchain
+except NameError:
+    _warmup_is_perchain = False
+
+if not _warmup_is_perchain:
     # Single-chain warmup path: adapted params are scalar / un-batched.
     _shared_step_size = _adapted_params["step_size"]
     _shared_imm = _adapted_params["inverse_mass_matrix"]
@@ -40,28 +50,51 @@ except NameError:
 # chain BEFORE run_inference_algorithm so the batched state has a homogeneous type.
 if _needs_state_reinit:
     _reinit_keys = jax.random.split(jax.random.key($tuning_seed + 999), num_chains)
-    _state_post_warmup = jax.vmap(
-        lambda s, k: _state_reinit(_shared_step_size, _shared_imm, s.position, k)
-    )(_state_post_warmup, _reinit_keys)
+    if _warmup_is_perchain:
+        # Per-chain: each chain uses its own adapted step_size and imm.
+        _batched_step_size = _adapted_params["step_size"]
+        _batched_imm = _adapted_params["inverse_mass_matrix"]
+        _state_post_warmup = jax.vmap(
+            lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)
+        )(_state_post_warmup, _reinit_keys, _batched_step_size, _batched_imm)
+    else:
+        _state_post_warmup = jax.vmap(
+            lambda s, k: _state_reinit(_shared_step_size, _shared_imm, s.position, k)
+        )(_state_post_warmup, _reinit_keys)
 
-# Build ONE shared step function (shared step_size + IMM across all chains).
-# kernel_builder (defined in the sampler template) returns the .step callable
-# directly.  We vmap it over chains; run_inference_algorithm is NOT vmapped.
-_kernel_step = kernel_builder(_shared_step_size, _shared_imm)
-
-# run_inference_algorithm with vmapped inputs — canonical multi-chain pattern.
-# Input: _state_post_warmup has shape (num_chains, ...) — already batched.
-# Output: history is (num_steps, num_chains, ...) for all fields.
+# Build the vmapped step function.
+# - Single-chain (shared params): ONE kernel step vmapped over states.
+# - Multi-chain (per-chain params): one kernel built per chain via vmap over params.
 from blackjax.util import run_inference_algorithm as _run_inference_algorithm
 from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm
 
+if _warmup_is_perchain:
+    # Per-chain warmup: each chain has its own (step_size, imm).
+    # Build a per-chain step function by vmapping kernel_builder over adapted params.
+    _batched_step_size = _adapted_params["step_size"]
+    _batched_imm = _adapted_params["inverse_mass_matrix"]
 
-def _vmapped_step(rng_key, states):
-    keys = jax.random.split(rng_key, num_chains)
-    return jax.vmap(_kernel_step)(keys, states)
+    def _step_one_chain(state, key, step_size, imm):
+        return kernel_builder(step_size, imm)(key, state)
+
+    def _vmapped_step(rng_key, states):
+        keys = jax.random.split(rng_key, num_chains)
+        return jax.vmap(_step_one_chain)(states, keys, _batched_step_size, _batched_imm)
+
+else:
+    # Single-chain warmup: shared step_size + IMM across all chains.
+    # kernel_builder (defined in the sampler template) returns the .step callable
+    # directly.  We vmap it over chains; run_inference_algorithm is NOT vmapped.
+    _kernel_step = kernel_builder(_shared_step_size, _shared_imm)
+
+    def _vmapped_step(rng_key, states):
+        keys = jax.random.split(rng_key, num_chains)
+        return jax.vmap(_kernel_step)(keys, states)
 
 
-# init is never called (initial_state is passed explicitly below).
+# run_inference_algorithm with vmapped inputs -- canonical multi-chain pattern.
+# Input: _state_post_warmup has shape (num_chains, ...) -- already batched.
+# Output: history is (num_steps, num_chains, ...) for all fields.
 _alg = _SamplingAlgorithm(lambda *args, **kwargs: None, _vmapped_step)
 
 _final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(
@@ -72,7 +105,7 @@ _final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(
     progress_bar=_SAMPLING_PROGRESS_BAR,
 )
 
-# Swap axes: (num_steps, num_chains, ...) → (num_chains, num_steps, ...).
+# Swap axes: (num_steps, num_chains, ...) -> (num_chains, num_steps, ...).
 # Consumers (postamble, shape checks) expect (num_chains, num_samples, ...).
 _samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)
 _infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos_hist)

@@ -60,9 +60,10 @@ _ALLOWED_TUNINGFORK_IMPORTS = frozenset(
 # Top-level packages the emitted script may import.  tuningfork imports are
 # further restricted by _ALLOWED_TUNINGFORK_IMPORTS (checked separately).
 # stdlib modules used by the emitted preamble/postamble (e.g. ``time`` for
-# wall-clock timing) are also allowlisted here.
+# wall-clock timing, ``warnings`` for the progress_bar=True single-chain
+# warmup advisory) are also allowlisted here.
 _ALLOWED_TOP_LEVEL = frozenset(
-    {"jax", "numpy", "numpyro", "blackjax", "arviz", "tuningfork", "time"}
+    {"jax", "numpy", "numpyro", "blackjax", "arviz", "tuningfork", "time", "warnings"}
 )
 
 

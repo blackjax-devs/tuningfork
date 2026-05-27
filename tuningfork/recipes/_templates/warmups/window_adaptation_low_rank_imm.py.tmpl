@@ -3,6 +3,13 @@
 # scan(vmap(kernel)) in the inference loop maps over chains sharing the same
 # adapted (step_size, inverse_mass_matrix).  Running warmup inside vmap is
 # discouraged because io_callback (progress_bar) is not supported inside vmap.
+import warnings
+warnings.warn(
+    "progress_bar=True forces single-chain warmup -- multi-chain (per-chain) warmup "
+    "runs under jax.vmap, which is incompatible with the progress bar's io_callback "
+    "(see blackjax issue #927). For per-chain multi-chain warmup, set progress_bar=False.",
+    stacklevel=1,
+)
 _warmup = blackjax.window_adaptation_low_rank(
     $warmup_algorithm,
     logdensity_fn,
@@ -17,7 +24,9 @@ _state_post_warmup = jax.tree.map(
     lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),
     state,
 )
+# _warmup_is_perchain=False: adapted params are scalar / un-batched (shared across chains).
+_warmup_is_perchain = False
 # After warmup:
-#   _state_post_warmup  — batched state with leading num_chains axis
+#   _state_post_warmup  -- batched state with leading num_chains axis
 #   _adapted_params["step_size"]              scalar (shared across chains)
 #   _adapted_params["inverse_mass_matrix"]    LowRankInverseMassMatrix (no chain axis)
