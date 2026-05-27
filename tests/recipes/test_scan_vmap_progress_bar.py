@@ -27,14 +27,18 @@ The current fix (PR #72):
     run_inference_algorithm is NOT vmapped.  The progress_bar io_callback
     is at the scan level (inside run_inference_algorithm) and NOT inside vmap.
 
-This file contains one @pytest.mark.slow regression test: emit a multi-chain
+This file contains one @pytest.mark.e2e regression test: emit a multi-chain
 recipe (mvn_10 × nuts × window_adaptation_diag_imm, num_chains=2,
-n_warmup=50, n_samples=50) with progress_bar=True (implied by the template),
+n_warmup=10, n_samples=10) with progress_bar=True (implied by the template),
 execute the emitted script via subprocess, and assert:
   - returncode == 0
   - "IO effect not supported" not in stderr
   - "vmap-of-cond" not in stderr
   - "DONE" in stdout
+
+NOTE: e2e emit-execute tests run a minimal 10-sample / minimal-warmup config;
+they assert the emitted script executes (structure correct, no vmap/io_callback
+errors), NOT inference quality. This keeps the e2e gate fast and memory-safe.
 """
 from __future__ import annotations
 
@@ -52,7 +56,7 @@ from tuningfork.recipes._base import Recipe
 pytestmark = pytest.mark.e2e
 
 
-def _make_mvn10_nuts_wadapt_recipe(n_warmup: int = 50) -> Recipe:
+def _make_mvn10_nuts_wadapt_recipe(n_warmup: int = 10) -> Recipe:
     """Minimal in-memory recipe for mvn_10 × nuts × window_adaptation_diag_imm."""
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
@@ -83,10 +87,12 @@ def test_multichain_progress_bar_no_vmap_of_cond_error(tmp_path: Path) -> None:
 
     This is the CI regression guard for the exact vmap(scan)+progress_bar bug
     that motivated the scan(vmap) refactor.
+
+    Lightweight config: num_samples=10, num_warmup=10 (minimal but sufficient).
     """
-    recipe = _make_mvn10_nuts_wadapt_recipe(n_warmup=50)
-    # num_chains=2 triggers multi-chain path; n_samples=50 keeps the test fast.
-    script = emit_script(recipe, num_samples=50, num_chains=2)
+    recipe = _make_mvn10_nuts_wadapt_recipe(n_warmup=10)
+    # num_chains=2 triggers multi-chain path; num_samples=10, num_warmup=10 for e2e speed.
+    script = emit_script(recipe, num_samples=10, num_chains=2, num_warmup=10)
     script_path = tmp_path / "test_pb_regression.py"
     script_path.write_text(script)
 

@@ -30,6 +30,10 @@ The tests below enforce:
   (no recipe schema, no calibration code, no sampler/warmup wrappers — the
   inference choreography must stand alone, auditable inline).
 - The emitted script executes end-to-end and reports divergence count.
+
+NOTE: e2e emit-execute tests run a minimal 10-sample / minimal-warmup config;
+they assert the emitted script executes (structure correct, no vmap/io_callback
+errors), NOT inference quality. This keeps the e2e gate fast and memory-safe.
 """
 
 from __future__ import annotations
@@ -225,6 +229,7 @@ def test_emit_script_executes_for_cell(
     Each parametrised cell covers a distinct warmup × sampler pairing.
     Tests that the assembled script is executable end-to-end (exit 0, prints DONE,
     reports n_divergences).  Uses mvn_10 (well-behaved 10-D Gaussian) for speed.
+    Lightweight config: num_samples=10, num_warmup=10 (just enough to verify structure).
     """
     import jax
 
@@ -244,11 +249,11 @@ def test_emit_script_executes_for_cell(
             posterior,
             base_method,
             warmup,
-            n_warmup=200,
+            n_warmup=10,
             rng_key=jax.random.key(0),
         )
 
-    script = emit_script(recipe, num_samples=200)
+    script = emit_script(recipe, num_samples=10, num_warmup=10)
     script_path = tmp_path / "test_emitted.py"
     script_path.write_text(script)
 
@@ -281,12 +286,13 @@ def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
     sampler template that produces a runtime error or non-zero exit code is
     caught here.  Model definition drift is impossible by construction
     (model imported from tuningfork.model — single source).
+
+    Lightweight config: num_samples=10, num_warmup=10 for e2e speed.
     """
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
-    # Small sample + warmup counts so the test runs in ~30 s (e2e budget).
-    # num_warmup=200 overrides the groundtruth recipe's n_warmup=5000.
-    script = emit_script(recipe, num_samples=200, num_warmup=200)
+    # Minimal config: num_warmup=10, num_samples=10 overrides the groundtruth recipe's n_warmup=5000.
+    script = emit_script(recipe, num_samples=10, num_warmup=10)
     script_path = tmp_path / "test_emitted.py"
     script_path.write_text(script)
 
@@ -371,20 +377,20 @@ def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
     """Emitted 4-chain script produces _samples with shape (4, num_samples, ...).
 
     Runs the emitted script via subprocess and checks that the printed shape
-    matches the expected (4, 100, ...) protocol. Uses the eight_schools_ncp
-    groundtruth recipe with num_chains=4 + num_warmup=200 + num_samples=100
-    overrides so the test completes in ~30 s (e2e budget).
+    matches the expected (4, 10, ...) protocol. Uses the eight_schools_ncp
+    groundtruth recipe with num_chains=4 + num_warmup=10 + num_samples=10
+    overrides for e2e speed.
 
     The shape verification relies on a print statement injected into the
     emitted script after the inference loop.
     """
     gt_recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(gt_recipe_path)
-    _NUM_SAMPLES = 100
+    _NUM_SAMPLES = 10
     _NUM_CHAINS = 4
-    # num_warmup=200 overrides groundtruth recipe's n_warmup=5000 for e2e speed.
+    # Minimal warmup/samples for e2e speed.
     script = emit_script(
-        recipe, num_samples=_NUM_SAMPLES, num_chains=_NUM_CHAINS, num_warmup=200
+        recipe, num_samples=_NUM_SAMPLES, num_chains=_NUM_CHAINS, num_warmup=10
     )
     # Append a shape-verification line that prints the first-leaf shape of _samples.
     # Use string concat (not f-string) to avoid escaping braces inside the snippet.
@@ -428,6 +434,8 @@ def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> Non
     With the scan(vmap) pattern, warmup runs ONCE and the adapted params are
     shared across all chains.  _adapted_params["step_size"] is therefore scalar,
     not shape (num_chains,).
+
+    Lightweight config: num_samples=10 for e2e speed.
     """
     low_recipe_path = (
         _CATALOG_ROOT
@@ -436,7 +444,7 @@ def test_emit_script_perchain_warmup_adapted_params_shape(tmp_path: Path) -> Non
         / "low__nuts__window_adaptation_diag_imm.json"
     )
     recipe = load_recipe(low_recipe_path)
-    _NUM_SAMPLES = 50
+    _NUM_SAMPLES = 10
     _NUM_CHAINS = 4
     script = emit_script(recipe, num_samples=_NUM_SAMPLES)
     # Inject verification prints after the warmup and after the inference loop.
@@ -716,6 +724,8 @@ def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> Non
     (fold_in vs split), so numerical equality is no longer expected.  This
     test verifies that the emitted warmup completes without error and produces
     finite adapted params of the correct structure.
+
+    Lightweight config: num_samples=10 minimal warmup (recipe default overridden).
     """
     recipe = load_recipe(
         _CATALOG_ROOT
@@ -725,9 +735,8 @@ def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> Non
     )
 
     # Emitted script's warmup (executed in subprocess for isolation).
-    # Use num_samples=1 to keep the test fast (sampling does almost no work);
-    # we only care about adapted_params, set BEFORE sampling.
-    script = emit_script(recipe, num_samples=1)
+    # Use num_samples=10, num_warmup=10 to keep the test fast.
+    script = emit_script(recipe, num_samples=10, num_warmup=10)
 
     epilogue = """
 import json
@@ -903,9 +912,8 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
 def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
     """Acceptance test: emitted laplace multiphase script runs end-to-end (exit 0, prints DONE).
 
-    Uses a synthetic multi-phase laplace_mhmc recipe with tiny warmup budgets
-    (n_warmup=5 per phase, maxiter=5) so the test completes in ~30 s rather than
-    the ~7 min needed for the full HIGH recipe's n_warmup=500+200 at maxiter=100/500.
+    Uses a synthetic multi-phase laplace_mhmc recipe with minimal warmup budgets
+    (n_warmup=2 per phase, maxiter=2) so the test completes quickly for e2e speed.
 
     What is validated:
     - The laplace_preamble + laplace_multiphase_warmup + laplace_mhmc sampler
@@ -917,11 +925,13 @@ def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
     This is the D10 round-trip CI gate for laplace templates: any template
     slot miss, assembly-order bug, or LaplaceMarginal contract violation would
     surface here as a Python error or non-zero exit code.
+
+    Lightweight config: num_samples=10, num_warmup=[2, 2] (Phase1=2, Phase2=2).
     """
     from tuningfork.recipes._base import Effort, Recipe
 
     # Synthetic multi-phase laplace_mhmc recipe for gp_regression.
-    # Tiny warmup budgets (n_warmup=5, maxiter=5) for CI speed.
+    # Minimal warmup budgets (n_warmup=2, maxiter=2) for e2e speed.
     recipe = Recipe(
         model_name="gp_regression",
         base_method_name="laplace_mhmc",
@@ -935,10 +945,10 @@ def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
                 [0.07, 0.03, 0.0],
                 [0.0, 0.0, 0.002],
             ],
-            "maxiter": 5,
+            "maxiter": 2,
         },
         warmup_params={
-            "n_warmup": 5,
+            "n_warmup": 2,
             "num_chains": 1,
             "target_acceptance": 0.8,
         },
@@ -946,19 +956,19 @@ def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
             {
                 "name": "window_adaptation_diag_imm",
                 "params": {
-                    "n_warmup": 5,
+                    "n_warmup": 2,
                     "target_acceptance": 0.8,
                     "num_integration_steps": 2,
-                    "maxiter": 5,
+                    "maxiter": 2,
                 },
             },
             {
                 "name": "window_adaptation_dense_imm",
                 "params": {
-                    "n_warmup": 5,
+                    "n_warmup": 2,
                     "target_acceptance": 0.8,
                     "num_integration_steps": 2,
-                    "maxiter": 5,
+                    "maxiter": 2,
                     "initial_step_size_from_phase1": True,
                 },
             },
@@ -972,7 +982,7 @@ def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
         tuning_seed=42,
     )
 
-    script = emit_script(recipe, num_samples=5, num_chains=1)
+    script = emit_script(recipe, num_samples=10, num_chains=1, num_warmup=[2, 2])
     script_path = tmp_path / "test_laplace_multiphase.py"
     script_path.write_text(script)
 
