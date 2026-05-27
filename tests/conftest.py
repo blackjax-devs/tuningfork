@@ -24,8 +24,26 @@ Discipline rule: every test must be tagged with exactly one of ``fast``, ``slow`
 The ``requires_posteriordb`` marker is additive (combine with ``slow`` or ``e2e``).
 """
 
+import jax
+import pytest
+
 # Import shared fixtures so pytest discovers them globally
 from tests import fixtures as _  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _restore_jax_x64():
+    """Restore jax_enable_x64 after every test.
+
+    Prevents in-process tests that call jax.config.update("jax_enable_x64", True)
+    (e.g. requires_x64 model recipes run via run_recipe_to_idata) from leaking
+    the x64 flag into subsequent tests.  Without this guard, jax.random.bits()
+    returns uint64 in later tests, causing Optuna seed overflow (>2**32-1).
+    """
+    before = jax.config.jax_enable_x64  # type: ignore[attr-defined]
+    yield
+    if jax.config.jax_enable_x64 != before:  # type: ignore[attr-defined]
+        jax.config.update("jax_enable_x64", before)
 
 
 def pytest_configure(config: object) -> None:
