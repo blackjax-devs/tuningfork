@@ -37,6 +37,7 @@ def _():
 
     from tuningfork.catalog import (
         cached_idata_for_recipe,
+        format_timing_context,
         list_recipes,
         load_idata,
         load_recipe,
@@ -52,6 +53,7 @@ def _():
         MODELS,
         az,
         cached_idata_for_recipe,
+        format_timing_context,
         list_recipes,
         load_idata,
         load_recipe,
@@ -124,7 +126,7 @@ def _(list_recipes, mo, model_name):
 
 
 @app.cell
-def _(load_recipe, mo, recipe_dropdown, summarize_recipe):
+def _(load_recipe, recipe_dropdown, summarize_recipe):
     if recipe_dropdown.value is None:
         recipe = None
         summary_df = None
@@ -136,7 +138,7 @@ def _(load_recipe, mo, recipe_dropdown, summarize_recipe):
 
 
 @app.cell(hide_code=True)
-def _(mo, recipe):
+def _(format_timing_context, mo, recipe):
     """Display timing metadata + machine info from calibration_budget when available."""
     if recipe is None:
         timing_panel = mo.md("")
@@ -149,20 +151,24 @@ def _(mo, recipe):
         minfo = budget.get("machine_info") or {}
 
         if warmup_wall is not None and sampling_wall is not None:
-            # Show measured timing info
+            # Show measured timing info with context column
             cpu = minfo.get("cpu_model", "unknown")
             jax_ver = minfo.get("jax_version", "?")
             x64 = minfo.get("jax_x64_enabled", False)
             spd_str = f"{spd * 1000:.3f} ms/draw" if spd is not None else "N/A"
+
+            # Format the context column
+            ctx = format_timing_context(recipe)
+
             timing_panel = mo.callout(
                 mo.md(
                     f"**Measured timings** (emit run):\n\n"
-                    f"| | |\n|---|---|\n"
-                    f"| Warmup wall | `{warmup_wall:.1f} s` |\n"
-                    f"| Sampling wall | `{sampling_wall:.1f} s` |\n"
-                    f"| Per-draw | `{spd_str}` |\n"
-                    f"| Total wall est. | `{wall_est:.1f} s` |\n"
-                    f"| Machine | `{cpu}` / JAX `{jax_ver}` / x64={x64} |"
+                    f"| | | |\n|---|---|---|\n"
+                    f"| Warmup wall | `{warmup_wall:.1f} s` | {ctx['warmup_wall']} |\n"
+                    f"| Sampling wall | `{sampling_wall:.1f} s` | {ctx['sampling_wall']} |\n"
+                    f"| Per-draw | `{spd_str}` | {ctx['per_draw']} |\n"
+                    f"| Total wall est. | `{wall_est:.1f} s` | {ctx['total_wall']} |\n"
+                    f"| Machine | `{cpu}` / JAX `{jax_ver}` / x64={x64} | {ctx['machine']} |"
                 ),
                 kind="info",
             )
@@ -222,7 +228,7 @@ def _(Effort, mo, recipe):
         )
 
     controls_panel
-    return (n_samples_slider, skip_warmup_toggle, use_cached_switch)
+    return n_samples_slider, skip_warmup_toggle, use_cached_switch
 
 
 @app.cell
