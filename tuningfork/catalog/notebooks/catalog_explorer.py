@@ -268,7 +268,10 @@ def _(
             _budget = recipe.calibration_budget or {}
             _spd = _budget.get("sampling_seconds_per_draw", 0.0)
             _ww = _budget.get("warmup_wall_seconds", 0.0)
-            _c = recipe.num_chains if recipe.num_chains is not None else 4
+            # Chain count: recipe.warmup_params["num_chains"] is the canonical
+            # source (per _recipe_runner.py:1317 — defaults to RECIPE_NUM_CHAINS=4
+            # when unset). Recipe has no top-level `num_chains` attribute.
+            _c = int((recipe.warmup_params or {}).get("num_chains", 4))
 
             # Compute dynamic estimate.
             _est_samp = _spd * _n * _c  # per-draw is per-draw-per-chain
