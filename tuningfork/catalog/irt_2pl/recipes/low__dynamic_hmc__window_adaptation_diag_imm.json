@@ -76,7 +76,7 @@
       "rhat_max": 1.0088173380271979,
       "min_bulk_ess": 1189.4014136438602,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 3.252,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
@@ -103,7 +103,8 @@
           "review_lo": 6,
           "review_hi": 40
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -117,5 +118,6 @@
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-23T20:21:59Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "warmup_num_chains": null
 }

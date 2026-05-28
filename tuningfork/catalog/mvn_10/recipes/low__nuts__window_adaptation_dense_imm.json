@@ -1,28 +1,27 @@
 {
   "model_name": "mvn_10",
   "base_method_name": "nuts",
-  "warmup_name": "window_adaptation_dense_imm",
   "effort": "low",
   "base_method_params": {
     "step_size": 0.63967365026474,
     "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.2611435055732727,
+  "sample_quality": {
+    "mae_vs_reference": 0.002514265424034505,
+    "q05_error": 1.1215245973473769,
+    "q95_error": 1.1343604686820543,
+    "std_ratio_max_dev": 0.6814635013687953
   },
-  "headline_metric": 0.2459201067686081,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 5.977165760006756,
+    "wall_seconds_estimate": 2.2406173570007013,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 1.107,
-    "sampling_wall_seconds": 0.943,
-    "sampling_seconds_per_draw": 0.000236,
+    "warmup_wall_seconds": 1.275,
+    "sampling_wall_seconds": 0.956,
+    "sampling_seconds_per_draw": 0.000239,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -37,20 +36,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.63967365026474, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2459.\nWall time to produce this recipe: ~5 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.63967365026474, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2611.\nWall time to produce this recipe: ~2 s (machine-only).",
   "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": "mvn_10/recipes/low__nuts__window_adaptation_dense_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.001768435167326,
-      "min_bulk_ess": 6457.523538242921,
+      "rhat_max": 1.0030867077854024,
+      "min_bulk_ess": 6984.2430568695745,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 1.7093225429229186,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.001768435167326,
+          "value": 1.0030867077854024,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -58,7 +71,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 6457.523538242921,
+          "value": 6984.2430568695745,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -72,8 +85,18 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.7093225429229186,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -83,9 +106,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-19T21:48:18Z",
+  "timestamp_utc": "2026-05-28T20:31:32Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

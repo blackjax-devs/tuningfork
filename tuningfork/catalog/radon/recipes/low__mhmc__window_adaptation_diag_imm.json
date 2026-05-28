@@ -4,20 +4,25 @@
   "effort": "low",
   "base_method_params": {
     "num_integration_steps": 64,
-    "step_size": 0.1482185572385788,
+    "step_size": 0.28486549854278564,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.005536798387765884,
-  "sample_quality": null,
+  "headline_metric": 0.005515264347195625,
+  "sample_quality": {
+    "mae_vs_reference": 0.022583554098753237,
+    "q05_error": 1.4523293140744313,
+    "q95_error": 1.4545809005420656,
+    "std_ratio_max_dev": 0.8827935065371987
+  },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 51.39360318699619,
+    "wall_seconds_estimate": 66.00109336100013,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 3.543,
-    "sampling_wall_seconds": 55.537,
-    "sampling_seconds_per_draw": 0.013884,
+    "warmup_wall_seconds": 32.87,
+    "sampling_wall_seconds": 29.979,
+    "sampling_seconds_per_draw": 0.007495,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -32,7 +37,7 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mhmc(logdensity_fn, **{'num_integration_steps': 64, 'step_size': 0.1482185572385788, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0055.\nWall time to produce this recipe: ~51 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mhmc(logdensity_fn, **{'num_integration_steps': 64, 'step_size': 0.28486549854278564, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0055.\nWall time to produce this recipe: ~66 s (machine-only).",
   "notes": "",
   "step_policy": null,
   "warmups": [
@@ -41,23 +46,25 @@
       "params": {
         "n_warmup": 1000,
         "num_chains": 4,
-        "target_acceptance": 0.95
+        "target_acceptance": 0.65
       }
     }
   ],
   "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": "radon/recipes/low__mhmc__window_adaptation_diag_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.007540164983386,
-      "min_bulk_ess": 1453.264335984277,
+      "rhat_max": 1.0073170447041357,
+      "min_bulk_ess": 1429.0709967625473,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 1.87607939926367,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.007540164983386,
+          "value": 1.0073170447041357,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -65,7 +72,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 1453.264335984277,
+          "value": 1429.0709967625473,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -79,8 +86,18 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.87607939926367,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -92,7 +109,7 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-23T20:22:54Z",
+  "timestamp_utc": "2026-05-28T20:42:44Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

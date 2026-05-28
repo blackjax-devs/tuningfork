@@ -1,28 +1,27 @@
 {
   "model_name": "radon",
   "base_method_name": "nuts",
-  "warmup_name": "window_adaptation_low_rank_imm",
   "effort": "low",
   "base_method_params": {
     "step_size": 0.07483979314565659,
     "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.0029157570097595453,
+  "sample_quality": {
+    "mae_vs_reference": 0.018377027443528805,
+    "q05_error": 1.4607853703222533,
+    "q95_error": 1.461656016602675,
+    "std_ratio_max_dev": 0.8865354182973618
   },
-  "headline_metric": 0.002685937564820051,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 90.46442598701105,
+    "wall_seconds_estimate": 81.985779869,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 62.969,
-    "sampling_wall_seconds": 30.083,
-    "sampling_seconds_per_draw": 0.007521,
+    "warmup_wall_seconds": 52.495,
+    "sampling_wall_seconds": 27.092,
+    "sampling_seconds_per_draw": 0.006773,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -37,20 +36,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.07483979314565659, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0027.\nWall time to produce this recipe: ~90 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.07483979314565659, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0029.\nWall time to produce this recipe: ~81 s (machine-only).",
   "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_low_rank_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0088276359734376,
-      "min_bulk_ess": 679.4415530552524,
+      "rhat_max": 1.0093356845478738,
+      "min_bulk_ess": 723.3351970350631,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 0.9616701835891732,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0088276359734376,
+          "value": 1.0093356845478738,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -58,7 +71,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 679.4415530552524,
+          "value": 723.3351970350631,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -72,8 +85,18 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 0.9616701835891732,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -83,9 +106,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-20T15:34:07Z",
+  "timestamp_utc": "2026-05-28T20:34:38Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

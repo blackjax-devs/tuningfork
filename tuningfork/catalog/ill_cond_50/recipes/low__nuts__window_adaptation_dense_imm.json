@@ -13,7 +13,12 @@
     "target_acceptance": 0.8
   },
   "headline_metric": 0.1370498090982437,
-  "sample_quality": null,
+  "sample_quality": {
+    "mae_vs_reference": 0.0027759494477060274,
+    "q05_error": 1.4205515592198528,
+    "q95_error": 1.4285736366286965,
+    "std_ratio_max_dev": 0.8655126371729517
+  },
   "calibration_budget": {
     "trials": 0,
     "wall_seconds_estimate": 9.799537973987754,
@@ -46,7 +51,7 @@
       "rhat_max": 1.0022528319519781,
       "min_bulk_ess": 4181.413383334322,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 1.978709130854949,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
@@ -72,8 +77,12 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -87,5 +96,6 @@
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-19T22:31:09Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "warmup_num_chains": null
 }

@@ -6,17 +6,22 @@
     "step_size": 0.09631618857383728,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.005903700366616249,
-  "sample_quality": null,
+  "headline_metric": 0.005788388662040234,
+  "sample_quality": {
+    "mae_vs_reference": 0.022266112733499526,
+    "q05_error": 1.5698172218424307,
+    "q95_error": 1.5708071416538236,
+    "std_ratio_max_dev": 0.955152270825003
+  },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 20.741038974025287,
+    "wall_seconds_estimate": 29.489049752000028,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 6.977,
-    "sampling_wall_seconds": 16.045,
-    "sampling_seconds_per_draw": 0.004011,
+    "warmup_wall_seconds": 14.702,
+    "sampling_wall_seconds": 9.394,
+    "sampling_seconds_per_draw": 0.002348,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -31,7 +36,7 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.09631618857383728, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0059.\nWall time to produce this recipe: ~20 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.09631618857383728, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0058.\nWall time to produce this recipe: ~29 s (machine-only).",
   "notes": "",
   "step_policy": null,
   "warmups": [
@@ -45,18 +50,20 @@
     }
   ],
   "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": "stoch_vol/recipes/low__nuts__window_adaptation_diag_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0053291320066668,
-      "min_bulk_ess": 1213.7714494871548,
-      "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "rhat_max": 1.0060228859119433,
+      "min_bulk_ess": 1181.9245104244862,
+      "n_divergences": 2,
+      "max_abs_mean_z": 1.2776086645017533,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0053291320066668,
+          "value": 1.0060228859119433,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -64,7 +71,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 1213.7714494871548,
+          "value": 1181.9245104244862,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -72,14 +79,24 @@
           "review_hi": 400.0
         },
         "n_divergences": {
-          "value": 0.0,
+          "value": 2.0,
           "band": "PASS",
           "pass_lo": 0,
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.2776086645017533,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -91,7 +108,7 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-23T20:13:49Z",
+  "timestamp_utc": "2026-05-28T20:43:20Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

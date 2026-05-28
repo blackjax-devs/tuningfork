@@ -316,3 +316,174 @@ def test_skip_warmup_lotka_volterra_x64_dtype() -> None:
             f"Expected 0 divergences with skip_warmup=True on lotka_volterra, "
             f"got {n_div}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Slow: regression — Bug 1 (sidecar IMM) + Bug 2 (num_integration_steps)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_skip_warmup_sidecar_imm_irt_2pl_nuts() -> None:
+    """skip_warmup=True on irt_2pl × nuts (sidecar IMM) loads sidecar and runs.
+
+    Regression for Bug 1: recipes with inverse_mass_matrix='sidecar' previously
+    failed with jnp.asarray('sidecar').  This test verifies the sidecar is loaded
+    transparently and the run produces valid InferenceData.
+
+    irt_2pl is a D>50 model whose diag-IMM recipe stores the IMM as a sidecar
+    .imm.npz to keep the JSON small.  nuts does not require num_integration_steps
+    so this test isolates Bug 1.
+    """
+    from tuningfork.catalog.inspect import load_recipe
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe_path = (
+        _CATALOG_ROOT
+        / "irt_2pl"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    recipe = load_recipe(recipe_path)
+
+    # Sidecar token must be present for this test to be meaningful
+    assert recipe.base_method_params["inverse_mass_matrix"] == "sidecar", (
+        "Expected irt_2pl nuts recipe to have inverse_mass_matrix='sidecar'; "
+        "test precondition failed — recipe may have changed."
+    )
+
+    idata, t_warmup, _t_sample = run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=100,
+        _return_timing=True,
+    )
+
+    assert t_warmup < 1.0, f"skip_warmup should have t_warmup≈0, got {t_warmup:.3f}s"
+    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
+
+    rhat = az.rhat(idata)
+    rhat_values: list[float] = []
+    for var in rhat.data_vars:
+        rhat_values.extend(float(v) for v in rhat[var].values.ravel())
+    rhat_max = max(rhat_values) if rhat_values else 0.0
+    assert rhat_max < 1.2, (
+        f"R̂ max={rhat_max:.4f} exceeds 1.2 for irt_2pl skip_warmup — "
+        "sidecar IMM may have been loaded incorrectly or is stale."
+    )
+
+
+@pytest.mark.slow
+def test_skip_warmup_sidecar_imm_and_nis_radon_mhmc() -> None:
+    """skip_warmup=True on radon × mhmc (sidecar IMM + num_integration_steps).
+
+    Regression for Bug 1 + Bug 2 combined:
+    - Bug 1: inverse_mass_matrix='sidecar' must be resolved from .imm.npz.
+    - Bug 2: mhmc factory requires num_integration_steps; the skip_warmup path
+      previously built the init kernel without it, raising
+      "as_top_level_api() missing 1 required positional argument: 'num_integration_steps'".
+
+    radon × mhmc (low__mhmc__window_adaptation_diag_imm.json) has both
+    inverse_mass_matrix='sidecar' and num_integration_steps=64 in
+    base_method_params — the minimal committed recipe that exercises both fixes.
+    """
+    from tuningfork.catalog.inspect import load_recipe
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe_path = (
+        _CATALOG_ROOT
+        / "radon"
+        / "recipes"
+        / "low__mhmc__window_adaptation_diag_imm.json"
+    )
+    recipe = load_recipe(recipe_path)
+
+    # Preconditions: both sidecar token and num_integration_steps must be present
+    assert recipe.base_method_params["inverse_mass_matrix"] == "sidecar", (
+        "Expected radon mhmc recipe to have inverse_mass_matrix='sidecar'; "
+        "test precondition failed."
+    )
+    assert "num_integration_steps" in recipe.base_method_params, (
+        "Expected radon mhmc recipe to carry num_integration_steps; "
+        "test precondition failed."
+    )
+
+    idata, t_warmup, _t_sample = run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=100,
+        _return_timing=True,
+    )
+
+    assert t_warmup < 1.0, f"skip_warmup should have t_warmup≈0, got {t_warmup:.3f}s"
+    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
+
+    rhat = az.rhat(idata)
+    rhat_values: list[float] = []
+    for var in rhat.data_vars:
+        rhat_values.extend(float(v) for v in rhat[var].values.ravel())
+    rhat_max = max(rhat_values) if rhat_values else 0.0
+    assert rhat_max < 1.2, (
+        f"R̂ max={rhat_max:.4f} exceeds 1.2 for radon skip_warmup × mhmc — "
+        "sidecar load or num_integration_steps injection may be broken."
+    )
+
+
+@pytest.mark.slow
+def test_skip_warmup_dense_imm_sidecar_mvn10_hmc() -> None:
+    """skip_warmup=True on mvn_10 × hmc (dense sidecar IMM + num_integration_steps).
+
+    Regression for the dense-IMM emit sidecar bug: mvn_10 medium hmc recipe stores
+    a 10×10 dense inverse mass matrix as a sidecar .imm.npz (size > 50).  Previously
+    run_recipe_to_idata(skip_warmup=True) crashed with:
+      - JAX TypeError: Value 'sidecar' has type <class 'str'> (Bug 1, sidecar token)
+      - 'as_top_level_api() missing 1 required positional argument: num_integration_steps'
+        (Bug 2, hmc requires NIS; the skip_warmup init-kernel build omitted it)
+
+    This test verifies both fixes work together on a dense-IMM recipe, which was
+    the class of recipe that was NULL in the corpus recert (3 mvn_10 NULL recipes).
+    """
+    from tuningfork.catalog.inspect import load_recipe
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe_path = (
+        _CATALOG_ROOT
+        / "mvn_10"
+        / "recipes"
+        / "medium__hmc__window_adaptation_dense_imm.json"
+    )
+    recipe = load_recipe(recipe_path)
+
+    # Preconditions: both dense sidecar and num_integration_steps must be present
+    assert recipe.base_method_params["inverse_mass_matrix"] == "sidecar", (
+        "Expected mvn_10 hmc dense recipe to have inverse_mass_matrix='sidecar'; "
+        "test precondition failed."
+    )
+    assert "num_integration_steps" in recipe.base_method_params, (
+        "Expected mvn_10 hmc dense recipe to carry num_integration_steps; "
+        "test precondition failed."
+    )
+    assert recipe.inverse_mass_matrix_path is not None, (
+        "Expected dense-IMM recipe to carry inverse_mass_matrix_path; "
+        "test precondition failed."
+    )
+
+    idata, t_warmup, _t_sample = run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=100,
+        _return_timing=True,
+    )
+
+    assert t_warmup < 1.0, f"skip_warmup should have t_warmup≈0, got {t_warmup:.3f}s"
+    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
+
+    rhat = az.rhat(idata)
+    rhat_values: list[float] = []
+    for var in rhat.data_vars:
+        rhat_values.extend(float(v) for v in rhat[var].values.ravel())
+    rhat_max = max(rhat_values) if rhat_values else 0.0
+    assert rhat_max < 1.2, (
+        f"R̂ max={rhat_max:.4f} exceeds 1.2 for mvn_10 dense-IMM skip_warmup × hmc — "
+        "sidecar load or num_integration_steps injection may be broken."
+    )

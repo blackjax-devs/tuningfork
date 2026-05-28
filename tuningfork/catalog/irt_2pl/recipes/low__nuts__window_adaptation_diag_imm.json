@@ -1,28 +1,27 @@
 {
   "model_name": "irt_2pl",
   "base_method_name": "nuts",
-  "warmup_name": "window_adaptation_diag_imm",
   "effort": "low",
   "base_method_params": {
     "step_size": 0.07928165048360825,
     "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.00426859874278307,
+  "sample_quality": {
+    "mae_vs_reference": 0.026082456977611575,
+    "q05_error": 1.3119274831688912,
+    "q95_error": 1.3673746200315187,
+    "std_ratio_max_dev": 0.8153629665015448
   },
-  "headline_metric": 0.003133461344987154,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 34.78591213999607,
+    "wall_seconds_estimate": 31.226087593000557,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 2.255,
-    "sampling_wall_seconds": 18.1,
-    "sampling_seconds_per_draw": 0.004525,
+    "warmup_wall_seconds": 18.055,
+    "sampling_wall_seconds": 8.637,
+    "sampling_seconds_per_draw": 0.002159,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -37,20 +36,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.07928165048360825, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0031.\nWall time to produce this recipe: ~34 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.07928165048360825, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0043.\nWall time to produce this recipe: ~31 s (machine-only).",
   "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": "irt_2pl/recipes/low__nuts__window_adaptation_diag_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0073281671748038,
-      "min_bulk_ess": 839.4970905252343,
-      "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "rhat_max": 1.0079599843118867,
+      "min_bulk_ess": 1052.731034112067,
+      "n_divergences": 1,
+      "max_abs_mean_z": 1.3441473287478545,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0073281671748038,
+          "value": 1.0079599843118867,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -58,7 +71,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 839.4970905252343,
+          "value": 1052.731034112067,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -66,14 +79,24 @@
           "review_hi": 400.0
         },
         "n_divergences": {
-          "value": 0.0,
+          "value": 1.0,
           "band": "PASS",
           "pass_lo": 0,
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.3441473287478545,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "reason": "",
@@ -83,9 +106,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-19T22:30:37Z",
+  "timestamp_utc": "2026-05-28T20:35:18Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
