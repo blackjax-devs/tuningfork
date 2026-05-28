@@ -240,16 +240,24 @@ def _(
     skip_warmup_toggle,
     use_cached_switch,
 ):
-    """Dynamic wall estimate + Run button for non-cache paths."""
-    estimate_and_button = None
+    """Dynamic wall estimate + Run button for non-cache paths.
+
+    Naming convention: intermediate locals are underscore-prefixed (marimo
+    cell-local — avoids `budget`/`spd` name collisions with the timing-display
+    cell). Only ``run_button`` is exported (consumed by the sampling cell);
+    it's predeclared ``None`` so the return statement is safe in all
+    branches and downstream gates handle ``None`` explicitly.
+    """
+    run_button = None
+    _estimate_and_button = mo.md("")
     if recipe is None or recipe.effort in (Effort.GROUNDTRUTH, Effort.FAILED):
         # No estimate box or button needed — either load from cache or FAILED.
-        estimate_and_button = mo.md("")
+        pass
     else:
         _use_cache = use_cached_switch.value if use_cached_switch is not None else True
         if _use_cache:
             # Cache path: no estimate box or button needed.
-            estimate_and_button = mo.md("")
+            pass
         else:
             # Non-cache path: show dynamic estimate + Run button.
             _n = n_samples_slider.value if n_samples_slider is not None else 1000
@@ -257,32 +265,33 @@ def _(
                 skip_warmup_toggle.value if skip_warmup_toggle is not None else False
             )
 
-            budget = recipe.calibration_budget or {}
-            spd = budget.get("sampling_seconds_per_draw", 0.0)
-            ww = budget.get("warmup_wall_seconds", 0.0)
-            c = recipe.num_chains if recipe.num_chains is not None else 4
+            _budget = recipe.calibration_budget or {}
+            _spd = _budget.get("sampling_seconds_per_draw", 0.0)
+            _ww = _budget.get("warmup_wall_seconds", 0.0)
+            _c = recipe.num_chains if recipe.num_chains is not None else 4
 
             # Compute dynamic estimate.
-            est_samp = spd * _n * c  # per-draw is per-draw-per-chain
-            est_warm = 0.0 if _skip else ww
-            est_tot = est_samp + est_warm
-            est_min = est_tot / 60.0
+            _est_samp = _spd * _n * _c  # per-draw is per-draw-per-chain
+            _est_warm = 0.0 if _skip else _ww
+            _est_tot = _est_samp + _est_warm
+            _est_min = _est_tot / 60.0
 
             run_button = mo.ui.run_button(label="Run sampling")
 
-            estimate_panel = mo.callout(
+            _estimate_panel = mo.callout(
                 mo.md(
-                    f"This will sample for ~**{est_min:.1f} minutes** "
-                    f"(warmup ~{est_warm:.0f} s + sampling ~{est_samp:.0f} s across {c} chains × {_n} draws). "
+                    f"This will sample for ~**{_est_min:.1f} minutes** "
+                    f"(warmup ~{_est_warm:.0f} s + sampling ~{_est_samp:.0f} s "
+                    f"across {_c} chains × {_n} draws). "
                     f"Click **Run** when ready."
                 ),
                 kind="warn",
             )
 
-            estimate_and_button = mo.vstack([estimate_panel, run_button])
+            _estimate_and_button = mo.vstack([_estimate_panel, run_button])
 
-    estimate_and_button
-    return run_button, estimate_and_button
+    _estimate_and_button
+    return (run_button,)
 
 
 @app.cell
@@ -339,8 +348,11 @@ def _(
             if _use_cache:
                 # Cache path: load from cache (fast; ignores n_samples slider).
                 idata = cached_idata_for_recipe(recipe)
-            elif run_button.value:
+            elif run_button is not None and run_button.value:
                 # Non-cache path with Run button click: sample now.
+                # (``run_button`` is None when the estimate cell short-circuited
+                # — recipe None / GROUNDTRUTH / FAILED / cache mode — so the
+                # ``is not None`` guard keeps this branch safe in all states.)
                 if _skip:
                     # Skip-warmup: bypass adaptation, use stored step_size/IMM,
                     # stationary init from GT-means. Always re-runs (no cache path).
