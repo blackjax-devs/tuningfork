@@ -1538,9 +1538,10 @@ def run_recipe_to_idata(
         _phase_inner = recipe.warmup_inner_kernel or "laplace_hmc"
         _phase_kernel_factory = getattr(_bj, _phase_inner)
 
-        _prev_state: Any = None
+        _prev_state: Any = None  # W-shaped state (W = phase's warmup chain count)
         _prev_params_mp: dict[str, Any] = {}
         _prev_n_warmup = n_warmup  # fallback when recipe.warmups is sparse
+        _prev_phase_W: int = 0  # track previous phase's W for cross-phase init
 
         for _phase_idx, _phase in enumerate(recipe.warmups):
             _phase_params = _phase["params"]
@@ -1593,20 +1594,18 @@ def run_recipe_to_idata(
             _chain_keys = jax.random.split(_phase_key, _phase_W)
 
             # Init positions for this phase (W warmup chains).
+            # NOTE: _prev_state always has _prev_phase_W leading dim (W-shaped,
+            # NOT broadcast to num_chains). Broadcasting happens only at the
+            # final output stage, after all phases complete.
             if _phase_idx == 0:
                 _init_pos_batch = _maybe_replicate(init_position, _phase_W)
             else:
-                # Carry forward from previous phase. If W changed between phases,
-                # index into the previous state via s % prev_W.
-                _prev_W = (
-                    _wnc_effective[_phase_idx - 1]
-                    if _wnc_effective is not None
-                    else num_chains
-                )
-                if _phase_W == _prev_W:
+                # Carry forward from previous phase's W-shaped state.
+                # Use position[s % prev_W] to handle W changes between phases.
+                if _phase_W == _prev_phase_W:
                     _init_pos_batch = _prev_state.position  # type: ignore[union-attr]
                 else:
-                    _indices = jnp.arange(_phase_W) % _prev_W
+                    _indices = jnp.arange(_phase_W) % _prev_phase_W
                     _init_pos_batch = jax.tree.map(
                         lambda x: x[_indices], _prev_state.position  # type: ignore[union-attr]
                     )
@@ -1644,10 +1643,13 @@ def run_recipe_to_idata(
                 _phase_states, _phase_params_raw = _run_one_warmup_phase(
                     _chain_keys, _init_pos_batch
                 )
+                # Store W-shaped state (W == num_chains, so no difference here).
                 _prev_state = _phase_states
                 _prev_params_mp = dict(_phase_params_raw)
             else:
-                # W != num_chains: vmap over W warmup chains, reduce, broadcast to S.
+                # W != num_chains: vmap over W warmup chains.
+                # Store W-shaped state for cross-phase position carry-over.
+                # Broadcast to num_chains happens only at final output (below).
                 @jax.vmap
                 def _run_W_warmup_phase(
                     k: Any, x0: Any
@@ -1658,17 +1660,22 @@ def run_recipe_to_idata(
                 _w_states, _w_params_raw = _run_W_warmup_phase(
                     _chain_keys, _init_pos_batch
                 )
-                # Reduce W chains to 1 (mean), broadcast to num_chains.
-                _phase_states, _phase_params_raw = _reduce_and_broadcast_warmup_output(
-                    _w_states, dict(_w_params_raw), _phase_W, num_chains
-                )
-                _prev_state = _phase_states
-                _prev_params_mp = dict(_phase_params_raw)
+                # Keep W-shaped state for next phase's init positions.
+                _prev_state = _w_states
+                _prev_params_mp = dict(_w_params_raw)
 
             _prev_n_warmup = _phase_n_warmup
+            _prev_phase_W = _phase_W
 
-        batched_state = _prev_state
-        batched_params = _prev_params_mp
+        # After all phases: reduce+broadcast if last phase used W != num_chains.
+        _last_phase_W = _prev_phase_W
+        if _last_phase_W != num_chains:
+            batched_state, batched_params = _reduce_and_broadcast_warmup_output(
+                _prev_state, _prev_params_mp, _last_phase_W, num_chains
+            )
+        else:
+            batched_state = _prev_state
+            batched_params = _prev_params_mp
     elif recipe.warmup_inner_kernel is not None:
         # Single-phase: resolve W from warmup_num_chains[0] or num_chains.
         _single_W = _wnc_effective[0] if _wnc_effective is not None else num_chains
