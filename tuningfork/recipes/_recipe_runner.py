@@ -1634,18 +1634,43 @@ def run_recipe_to_idata(
         # stored step_size / IMM from recipe.base_method_params.
         # recipe.base_method_params["step_size"] is a Python float from JSON — no JAX conversion needed.
         _stored_ss = float(recipe.base_method_params["step_size"])
-        _stored_imm = jnp.asarray(recipe.base_method_params["inverse_mass_matrix"])
+
+        # Bug fix: for D>50 models the recipe stores inverse_mass_matrix="sidecar"
+        # (a string path token) — jnp.asarray("sidecar") raises.  Load the actual
+        # array via load_imm_sidecar when the value is not array-like.
+        _imm_raw = recipe.base_method_params["inverse_mass_matrix"]
+        if _imm_raw == "sidecar":
+            _stored_imm = recipe.load_imm_sidecar(catalog_root)
+            if _stored_imm is None:
+                raise ValueError(
+                    f"skip_warmup=True: recipe for {recipe.model_name!r} has "
+                    "inverse_mass_matrix='sidecar' but inverse_mass_matrix_path "
+                    "is not set — cannot load sidecar."
+                )
+        else:
+            _stored_imm = jnp.asarray(_imm_raw)
 
         # Build stationary positions: GT-means + per-chain jitter from reference/summary.json
         _stationary_positions = _build_stationary_init_positions(
             recipe.model_name, num_chains, catalog_root
         )
 
+        # Extra kwargs beyond step_size/IMM that the factory requires (e.g.
+        # num_integration_steps for hmc/mhmc).  Mirror the non-skip-warmup
+        # recipe_params injection (lines ~1889-1894) so that hmc/mhmc kernels
+        # receive all required positional kwargs at init time.
+        _skip_extra_kwargs: dict[str, Any] = {
+            k: v
+            for k, v in recipe.base_method_params.items()
+            if k not in ("step_size", "inverse_mass_matrix", "integration_steps_fn")
+        }
+
         # Build kernel (step_size/IMM don't affect .init; only used to instantiate)
         _skip_init_kernel = base_method.factory(
             logdensity_fn,
             step_size=_stored_ss,
             inverse_mass_matrix=_stored_imm,
+            **_skip_extra_kwargs,
         )
 
         @jax.vmap
