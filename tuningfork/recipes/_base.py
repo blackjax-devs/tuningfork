@@ -57,6 +57,7 @@ __all__ = [
     "AttemptedConfig",
     "Recipe",
     "RecipeFailedError",
+    "validate_warmup_num_chains",
 ]
 
 
@@ -267,6 +268,46 @@ def validate_init_strategy(v: dict[str, Any] | None) -> None:
             )
 
 
+def validate_warmup_num_chains(v: list[int] | None, n_phases: int) -> None:
+    """Validate a ``warmup_num_chains`` list at load / recipe-construction time.
+
+    Parameters
+    ----------
+    v
+        ``None`` (default — all phases use sampling ``num_chains``)
+        or a list of ints, one per warmup phase.
+    n_phases
+        Number of warmup phases in ``Recipe.warmups`` (``len(recipe.warmups)``).
+        For single-phase recipes this is 1; for multi-phase recipes it is the
+        length of the ``warmups`` list.
+
+    Raises
+    ------
+    ValueError
+        If ``v`` is not ``None``, not a list, contains non-positive values, or
+        has a length that does not match ``n_phases``.
+    """
+    if v is None:
+        return
+    if not isinstance(v, list):
+        raise ValueError(
+            f"warmup_num_chains must be a list[int] or None; "
+            f"got {type(v).__name__!r}"
+        )
+    if len(v) != n_phases:
+        raise ValueError(
+            f"warmup_num_chains has {len(v)} entries but recipe has "
+            f"{n_phases} warmup phase(s); lengths must match"
+        )
+    for i, w in enumerate(v):
+        if not isinstance(w, int):
+            raise ValueError(
+                f"warmup_num_chains[{i}] must be an int; got {type(w).__name__!r}"
+            )
+        if w < 1:
+            raise ValueError(f"warmup_num_chains[{i}] must be >= 1; got {w!r}")
+
+
 @dataclass(frozen=True)
 class Recipe:
     """A pinned (model, base_method, warmup) configuration with provenance.
@@ -465,6 +506,29 @@ class Recipe:
     # resolution-table semantics.
     warmup_inner_kernel: str | None = None
 
+    # ---- Per-phase warmup chain count (schema extension) ----
+    # One int per warmup phase: how many independent chains to warm up.
+    # ``None`` → backward-compat default (all phases use sampling ``num_chains``,
+    # i.e. the current vmap'd behavior).
+    #
+    # When set, ``len(warmup_num_chains)`` must equal ``len(warmups)`` (or 1
+    # for single-phase warmups).  Each entry W must satisfy ``W >= 1``; W > S
+    # is allowed and uses the same reduce-then-broadcast path as W < S.
+    #
+    # Dispatch semantics per phase i with W = warmup_num_chains[i], S = num_chains:
+    #
+    #   W == S  → current vmap'd warmup; per-chain adapted params (no reduce/broadcast)
+    #   W != S  → (i) vmap warmup over W chains;
+    #             (ii) reduce W params to 1 via arithmetic mean;
+    #             (iii) broadcast params to S;
+    #             (iv) replicate position via position[s % W] for s in [0, S)
+    #
+    # Use W=1 (single-chain warmup + broadcast) to avoid the vmap-of-while_loop
+    # worst-case-iteration penalty for expensive-logprob models such as
+    # gp_regression × laplace_mhmc (7× slower under vmap; deadlock at scale).
+    # See worklog/lessons/code-patterns/2026-05-28-vmap-warmup-logprob-cost-tradeoff.md.
+    warmup_num_chains: list[int] | None = None
+
     # ---- Init strategy (schema extension) ----
     # Tagged-union dict specifying how the initial position for warmup + sampling
     # is drawn.  ``None`` (default) preserves backward-compatible behavior — the
@@ -656,6 +720,12 @@ class Recipe:
         # None = backward-compat default (prior_sample behavior).
         d.setdefault("init_strategy", None)
         validate_init_strategy(d["init_strategy"])
+        # Schema extension: warmup_num_chains absent in pre-extension recipes.
+        # None = backward-compat default (all phases use sampling num_chains,
+        # i.e. the current vmap'd behavior).
+        d.setdefault("warmup_num_chains", None)
+        _n_phases = max(len(d.get("warmups") or []), 1)
+        validate_warmup_num_chains(d["warmup_num_chains"], _n_phases)
         # Schema extension: timing breakdown absent in pre-extension recipes.
         # calibration_budget is a free-form dict; back-fill None for absent keys
         # so callers can rely on .get() returning None on legacy recipes.
