@@ -405,17 +405,17 @@ def _compute_warmup_health(
 ) -> WarmupHealthSummary:
     """Compute the generic post-warmup health summary used by validators.
 
-    Called only after ``jax.block_until_ready((adapted_state, warmup_info))`` so
-    all JAX array materialisations below are post-sync — no buffer-pool contention.
+    **Precondition**: Callers must call ``jax.block_until_ready((adapted_state, warmup_info))``
+    before invoking this function. All JAX array materialisations below
+    (``np.asarray``, ``int(jnp_scalar)``, ``float(jnp_scalar)``) rely on this
+    precondition to avoid buffer-pool contention. See
+    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
     """
-    # KEEP: final numpy conversion; JAX arrays fully materialised post block_until_ready.
     imm = np.asarray(adapted_params["inverse_mass_matrix"])
-    # KEEP: float(jax_scalar) triggers buffer protocol, but post-sync.
     step_size = float(adapted_params["step_size"])
     final_log_p = float(adapted_state.logdensity)
 
     flat_position, _ = ravel_pytree(adapted_state.position)
-    # KEEP: post-sync numpy conversion for finite check + max-abs diagnostic.
     flat_position_np = np.asarray(flat_position)
     position_has_finite = bool(np.isfinite(flat_position_np).all())
     position_max_abs = (
@@ -423,7 +423,6 @@ def _compute_warmup_health(
     )
 
     info = warmup_info.info
-    # KEEP: post-sync numpy conversions; used for late-window slicing and stats.
     is_div_trail = np.asarray(info.is_divergent)
     n_int_trail = np.asarray(info.num_integration_steps)
     n_exp_trail = np.asarray(info.num_trajectory_expansions)
@@ -649,7 +648,6 @@ def certify_reference_nuts(
         # gp arc (worklog/lessons/case-studies/laplace-family-vmap-compile-blowup.md).
         jax.block_until_ready((adapted_state, warmup_info))
         _warmup_wall = time.perf_counter() - _t_warmup0
-        # KEEP: int(jax_scalar) post block_until_ready (L650); Python int for checkpoint.
         num_leapfrog_median = int(jnp.median(warmup_info.info.num_integration_steps))
 
         # --- Persist warmup checkpoint IMMEDIATELY (before validation, before
@@ -751,12 +749,9 @@ def certify_reference_nuts(
     energy: jax.Array = infos.energy  # shape (n_samples,)
 
     # Divergences
-    # KEEP: int(jax_scalar) triggers buffer protocol, but post block_until_ready (L733).
     num_divergences = int(jnp.sum(infos.is_divergent))
 
     # E-BFMI
-    # KEEP: _compute_e_bfmi returns a JAX scalar; float() triggers buffer protocol,
-    # but energy is post-sync and the new computation completes without contention.
     e_bfmi_val = float(_compute_e_bfmi(energy))
 
     # --- Extract all chain_stats from infos ---
@@ -769,7 +764,6 @@ def certify_reference_nuts(
             continue
         # Only store array-like fields; skip nested NamedTuples or non-array fields
         try:
-            # KEEP: post-sync numpy conversion for chain_stats persistence.
             arr = np.asarray(field_val)
             # Skip object arrays that aren't truly homogeneous
             if arr.dtype == object:
@@ -800,13 +794,10 @@ def certify_reference_nuts(
         rhat = blackjax.diagnostics.potential_scale_reduction(arr)
         ess = blackjax.diagnostics.effective_sample_size(arr)
         # rhat and ess may be scalars or arrays (per-dim)
-        # KEEP: float(jax_scalar) post block_until_ready (L733); Python float for list.
         rhat_values.append(float(jnp.max(jnp.asarray(rhat))))
         # ESS per chunk: ess already computed over all chunks; divide by n_chunks
         # to get per-chunk bulk-ESS
-        ess_values.append(
-            float(jnp.min(jnp.asarray(ess))) / n_chunks
-        )  # KEEP: post-sync
+        ess_values.append(float(jnp.min(jnp.asarray(ess))) / n_chunks)
 
     split_rhat_max = max(rhat_values)
     min_chunk_bulk_ess = min(ess_values)
