@@ -273,18 +273,17 @@ def _(
             # when unset). Recipe has no top-level `num_chains` attribute.
             _c = int((recipe.warmup_params or {}).get("num_chains", 4))
 
-            # Compute dynamic estimate. Floor at 0.2 min (~12 s) to account
-            # for JAX compile + executor setup overhead that the per-draw `_spd`
-            # doesn't capture (observed: small runs estimate ~1 s but actually
-            # take ~20 s on cold start). Frame as "at least N minutes" so the
-            # estimate is honest for both fast (overhead-dominated) and long
-            # (compute-dominated) regimes; drop the warmup/sampling breakdown
-            # so the message stays clean across skip-warmup and num-samples
-            # toggles.
+            # Compute dynamic estimate. Add a flat 20 s overhead for JAX
+            # compile + executor setup that the per-draw `_spd` doesn't
+            # capture (observed: small runs estimate ~1 s but actually take
+            # ~20 s on cold start). Additive (not a floor) is the right model
+            # — the setup cost is incurred on every cold-start run regardless
+            # of size, so it should add to compute-dominated runs too.
+            _OVERHEAD_S = 20.0  # JAX compile + executor setup (empirical)
             _est_samp = _spd * _n * _c  # per-draw is per-draw-per-chain
             _est_warm = 0.0 if _skip else _ww
-            _est_tot = _est_samp + _est_warm
-            _est_min = max(_est_tot / 60.0, 0.2)
+            _est_tot = _est_samp + _est_warm + _OVERHEAD_S
+            _est_min = _est_tot / 60.0
 
             run_button = mo.ui.run_button(label="Run sampling")
 
