@@ -1135,6 +1135,16 @@ def emit_low_recipe_for_cell(
         "auto": gate_verdict.to_dict(),
         "override": {"reason": "", "statistician_id": "", "decision": ""},
     }
+    # Surface the structural scope of the GT comparison so downstream readers can
+    # branch on it.  Decision doc: worklog/decisions/2026-05-28-max-abs-mean-z-threshold.md §3.
+    # Laplace: only phi marginals are gate-verified; theta is analytically marginalised
+    # and absent from positions — the theta block is NOT certified against the GT.
+    # Full-posterior: all posterior sites in positions are compared to the GT reference.
+    gate_evidence["auto"]["gt_cert_coverage"] = (
+        "phi_subset_only (theta marginals not gate-verified)"
+        if is_laplace
+        else "full_posterior"
+    )
 
     # Determine the effective step_policy to store in the recipe.
     # For dynamic_hmc/dmhmc: use _effective_step_policy (may be updated by transform).
