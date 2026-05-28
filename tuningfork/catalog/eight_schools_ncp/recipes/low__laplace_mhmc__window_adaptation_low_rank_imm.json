@@ -1,29 +1,28 @@
 {
   "model_name": "eight_schools_ncp",
   "base_method_name": "laplace_mhmc",
-  "warmup_name": "window_adaptation_low_rank_imm",
   "effort": "low",
   "base_method_params": {
     "num_integration_steps": 10,
-    "step_size": 0.3091396689414978,
+    "step_size": 0.4873060882091522,
     "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.011195086874067783,
+  "sample_quality": {
+    "mae_vs_reference": 0.008566623029672142,
+    "q05_error": 0.06749364142308083,
+    "q95_error": 0.043852126355952765,
+    "std_ratio_max_dev": 0.010243436710078657
   },
-  "headline_metric": 0.010545500554144382,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 31.449293678015238,
+    "wall_seconds_estimate": 17.311187409000013,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 12.923,
-    "sampling_wall_seconds": 3.961,
-    "sampling_seconds_per_draw": 0.00099,
+    "warmup_wall_seconds": 11.297,
+    "sampling_wall_seconds": 4.952,
+    "sampling_seconds_per_draw": 0.001238,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -38,20 +37,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.3091396689414978, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0105.\nWall time to produce this recipe: ~31 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.4873060882091522, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0112.\nWall time to produce this recipe: ~17 s (machine-only).",
   "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_low_rank_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.002563422698382,
-      "min_bulk_ess": 3158.4002190036585,
+      "rhat_max": 1.0016834920083533,
+      "min_bulk_ess": 2882.2929823034833,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 0.4555021527487516,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.002563422698382,
+          "value": 1.0016834920083533,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -59,7 +72,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 3158.4002190036585,
+          "value": 2882.2929823034833,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -73,8 +86,18 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 0.4555021527487516,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
     },
     "override": {
       "reason": "",
@@ -84,9 +107,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-20T15:21:07Z",
+  "timestamp_utc": "2026-05-28T19:44:07Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

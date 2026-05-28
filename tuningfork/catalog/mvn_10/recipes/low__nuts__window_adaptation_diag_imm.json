@@ -19,10 +19,10 @@
   },
   "headline_metric": 0.25262755155563354,
   "sample_quality": {
-    "mae_vs_reference": 0.00028649760481175464,
-    "q05_error": 1.1081403208515959,
-    "q95_error": 1.1032838781473204,
-    "std_ratio_max_dev": 0.674274059458203
+    "mae_vs_reference": 0.0026890576415907644,
+    "q05_error": 1.106076051620192,
+    "q95_error": 1.1112619594913677,
+    "std_ratio_max_dev": 0.6761280089435014
   },
   "calibration_budget": {
     "trials": 0,
@@ -70,7 +70,7 @@
       "rhat_max": 1.0035703916198968,
       "min_bulk_ess": 6644.867900500341,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.208868687002728,
+      "max_abs_mean_z": 1.5055172003996942,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
