@@ -682,6 +682,10 @@ def emit_low_recipe_for_cell(
             wall_seconds=time.perf_counter() - t_start,
             note=note,
         )
+    # SYNC: block until warmup compute completes before stamping the clock.
+    # JAX dispatches kernels asynchronously — without this, t_warmup measures
+    # dispatch latency only (potentially 100× less than actual compute time).
+    jax.block_until_ready((batched_state, batched_params))
     t_warmup = time.perf_counter() - t_warmup0
 
     step_size_arr = batched_params.get("step_size", None)
@@ -902,6 +906,9 @@ def emit_low_recipe_for_cell(
             wall_seconds=time.perf_counter() - t_start,
             note=note,
         )
+    # SYNC: block until sampling compute completes before stamping the clock.
+    # positions/infos are JAX futures; without sync t_sample measures dispatch only.
+    jax.block_until_ready((states, infos))
     t_sample = time.perf_counter() - t_sample0
     t_total = time.perf_counter() - t_start
     _log(f"  Sampling done in {t_sample:.1f}s (total {t_total:.1f}s).")
@@ -1411,7 +1418,8 @@ def run_recipe_to_idata(
     if skip_warmup:
         # Bypass warmup entirely: build stationary init from GT-means, use
         # stored step_size / IMM from recipe.base_method_params.
-        _stored_ss = float(np.asarray(recipe.base_method_params["step_size"]))
+        # recipe.base_method_params["step_size"] is a Python float from JSON — no JAX conversion needed.
+        _stored_ss = float(recipe.base_method_params["step_size"])
         _stored_imm = jnp.asarray(recipe.base_method_params["inverse_mass_matrix"])
 
         # Build stationary positions: GT-means + per-chain jitter from reference/summary.json
@@ -1560,6 +1568,11 @@ def run_recipe_to_idata(
             target_acceptance_rate=target_acceptance,
         )
 
+    if not skip_warmup:
+        # SYNC: block until warmup compute completes before stamping the clock.
+        # Without this, _t_warmup measures dispatch latency only, not actual
+        # wall time (JAX async dispatch; same hazard as certify_reference.py:642).
+        jax.block_until_ready((batched_state, batched_params))
     _t_warmup = 0.0 if skip_warmup else (time.perf_counter() - _t_warmup_start)
 
     # Build shared kernel kwargs
@@ -1704,6 +1717,10 @@ def run_recipe_to_idata(
     # mutex deadlock in the post-scan ``np.asarray`` loop (recert v1/v3 hang,
     # 2026-05-28). Extract field-by-field below — only the four scalar fields
     # we actually persist get swapaxes'd + materialized.
+    # SYNC: block until sampling compute completes before stamping the clock.
+    # states.position is still a JAX future at this point; without sync
+    # _t_sample measures dispatch only (can be 10×+ underestimate).
+    jax.block_until_ready(states)
     _t_sample = time.perf_counter() - _t_sample_start
     positions = states.position  # shape: (num_chains, n_samples, *event_shape)
 

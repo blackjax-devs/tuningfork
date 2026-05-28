@@ -32,8 +32,11 @@ _warmup_key_p1 = jax.random.fold_in(jax.random.key($tuning_seed), 0)
 # ── Phase 2: Welford dense IMM capture ───────────────────────────────────────
 # Switch to Phase 2 LaplaceMarginal (higher maxiter for accurate Hessians).
 logdensity_fn = _laplace_warmup[1]
-# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (scalar — single chain).
-_initial_step_size_p2 = float(_adapted_params_phase1["step_size"])
+# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (0-d JAX scalar).
+# Keep as a JAX array — float() would trigger the buffer protocol on a still-live
+# device buffer and can deadlock under vmap contention (2026-05-28 lesson).
+# window_adaptation accepts 0-d JAX arrays for initial_step_size.
+_initial_step_size_p2 = _adapted_params_phase1["step_size"]
 _warmup_p2 = blackjax.window_adaptation(
     $warmup_algorithm,
     logdensity_fn,
