@@ -353,31 +353,17 @@ def _(
 
         try:
             if _use_cache:
-                # Cache path: load from cache ONLY (no silent re-sample fallback).
-                # NOTE: `cached_idata_for_recipe()` silently re-runs sampling on
-                # cache miss via `run_recipe_to_idata` (per `_rerun_inference.py`
-                # L113–119). For the explorer UX we want a cache HIT to be the
-                # only success outcome of this branch — a miss should surface a
-                # message so the user explicitly toggles off cache + clicks Run.
-                from tuningfork.catalog._rerun_inference import _load_from_cache
-                from tuningfork.recipes._recipe_runner import _CATALOG_ROOT
-
-                _stem = (
-                    "groundtruth"
-                    if recipe.effort.value == "groundtruth"
-                    else f"{recipe.effort.value}__{recipe.base_method_name}"
-                    f"__{recipe.warmup_name}"
-                )
-                _cache_dir = _CATALOG_ROOT / recipe.model_name / "_cache"
-                _draws_cache = _cache_dir / f"{_stem}.draws.npz"
-                _stats_cache = _cache_dir / f"{_stem}.chain_stats.npz"
-                if _draws_cache.exists():
-                    idata = _load_from_cache(_draws_cache, _stats_cache)
-                else:
+                # Cache path: cached_idata_for_recipe() now raises FileNotFoundError
+                # on cache miss (per the 2026-05-28 API change — no more silent
+                # re-sample). Catch + surface a UI message directing the user
+                # to toggle off cache and click Run.
+                try:
+                    idata = cached_idata_for_recipe(recipe)
+                except FileNotFoundError:
                     idata = None
                     mo.md(
-                        f"⚠ Cache miss at `{_draws_cache.name}`. "
-                        "Toggle off **Use cache** and click **Run** to generate it."
+                        "⚠ **Cache miss** for this recipe. Toggle off "
+                        "**Use cache** and click **Run** to generate it."
                     )
             elif run_button is not None and run_button.value:
                 # Non-cache path with Run button click: sample now.

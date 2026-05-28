@@ -45,15 +45,19 @@ def cached_idata_for_recipe(
     catalog_root: Path | str | None = None,
     force_regenerate: bool = False,
 ) -> arviz.InferenceData:
-    """Load or re-run a LOW/MEDIUM recipe with automatic caching.
+    """Load a cached LOW/MEDIUM recipe's draws; re-sample only on explicit opt-in.
 
-    On first call (cache miss), re-runs the recipe's warmup + sampling pipeline
-    via ``run_recipe_to_idata`` and saves the positions and chain_stats to:
+    Default behavior (``force_regenerate=False``) — **cache-only load**:
+    - Cache hit  → load from ``<catalog_root>/<model>/_cache/<recipe_stem>.draws.npz``.
+    - Cache miss → raises ``FileNotFoundError`` with an actionable hint.
 
-        <catalog_root>/<model>/_cache/<recipe_stem>.draws.npz
-        <catalog_root>/<model>/_cache/<recipe_stem>.chain_stats.npz
+    Explicit re-sample (``force_regenerate=True``):
+    - Skips cache check; re-runs the recipe's warmup + sampling pipeline via
+      ``run_recipe_to_idata``; saves to the cache; returns the InferenceData.
 
-    On subsequent calls (cache hit), loads directly from the cache.
+    Rationale: the prior default ("silent re-sample on cache miss") was a
+    UX footgun — a 30+ min sampling run could be triggered by what looked
+    like a cheap cache read. Re-sampling now requires explicit consent.
 
     For GROUNDTRUTH recipes, delegates to the standard ``load_idata`` path
     (no caching logic needed; those draws are already persisted).
@@ -67,8 +71,9 @@ def cached_idata_for_recipe(
     catalog_root
         Root of the catalog directory (default: ``tuningfork/catalog/``).
     force_regenerate
-        If True, skip cache check and re-run unconditionally.
-        Useful for when the recipe or JAX code has changed.
+        If True, ignore any cache and re-run sampling unconditionally
+        (saving the result for future cache hits). Use this when the recipe
+        or JAX code has changed, or to populate the cache for the first time.
 
     Returns
     -------
@@ -77,6 +82,10 @@ def cached_idata_for_recipe(
 
     Raises
     ------
+    FileNotFoundError
+        Cache miss with ``force_regenerate=False``. Call again with
+        ``force_regenerate=True`` to (re-)sample, or call
+        ``run_recipe_to_idata(recipe)`` directly.
     RecipeFailedError
         If the recipe is FAILED (no gate-passing config).
     ValueError
@@ -106,18 +115,24 @@ def cached_idata_for_recipe(
     draws_cache = cache_dir / f"{recipe_stem}.draws.npz"
     stats_cache = cache_dir / f"{recipe_stem}.chain_stats.npz"
 
-    # Try cache hit (unless force_regenerate=True)
-    if not force_regenerate and draws_cache.exists():
-        return _load_from_cache(draws_cache, stats_cache)
+    # Cache-only mode (default): hit or raise.
+    if not force_regenerate:
+        if draws_cache.exists():
+            return _load_from_cache(draws_cache, stats_cache)
+        raise FileNotFoundError(
+            f"No cache for {recipe.model_name}/"
+            f"{recipe.effort.value}__{recipe.base_method_name}__"
+            f"{recipe.warmup_name} at {draws_cache}.\n"
+            f"Call cached_idata_for_recipe(recipe, force_regenerate=True) to "
+            f"sample + populate the cache, or call run_recipe_to_idata(recipe) "
+            f"directly if you don't want to persist."
+        )
 
-    # Cache miss: re-run the recipe
+    # Explicit re-sample: run the pipeline and persist to cache.
     from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     idata = run_recipe_to_idata(recipe, catalog_root=catalog_root)
-
-    # Save to cache
     _save_to_cache(idata, draws_cache, stats_cache)
-
     return idata
 
 
