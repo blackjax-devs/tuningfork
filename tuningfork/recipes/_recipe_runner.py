@@ -1193,6 +1193,63 @@ def _build_stationary_init_positions(
     return jax.tree.map(lambda *arrs: jnp.stack(arrs, axis=0), *chain_positions)
 
 
+def _reduce_and_broadcast_warmup_output(
+    warmup_state: Any,
+    warmup_params: dict[str, Any],
+    num_warmup_chains: int,
+    num_sampling_chains: int,
+) -> tuple[Any, dict[str, Any]]:
+    """Reduce W warmup chains to shared params, broadcast to S sampling chains.
+
+    Used when ``warmup_num_chains[i] != num_chains`` for phase i.
+
+    The reduce step computes the arithmetic mean across the W warmup chains:
+    - ``step_size``: scalar mean of the W per-chain step sizes.
+    - ``inverse_mass_matrix``: element-wise mean across W chains.
+
+    The broadcast step replicates the shared params to S copies.
+    Position broadcast uses ``position[s % W]`` so each sampling chain
+    starts at one of the W warmup endpoints.
+
+    Parameters
+    ----------
+    warmup_state
+        Batched warmup state with leading dimension W.
+    warmup_params
+        Dict of batched warmup params with leading dimension W.
+    num_warmup_chains
+        W — number of warmup chains (leading dim of warmup_state).
+    num_sampling_chains
+        S — number of sampling chains to broadcast to.
+
+    Returns
+    -------
+    (broadcasted_state, broadcasted_params)
+        State with leading dim S; params dict with leading dim S.
+    """
+    # Reduce params to scalar via arithmetic mean (on-device, no host materialization).
+    mean_step_size = jnp.mean(warmup_params["step_size"])
+    mean_imm = jnp.mean(warmup_params["inverse_mass_matrix"], axis=0)
+
+    # Broadcast shared params to S sampling chains.
+    broad_step_size = jnp.broadcast_to(mean_step_size[None], (num_sampling_chains,))
+    broad_imm = jnp.broadcast_to(
+        mean_imm[None], (num_sampling_chains,) + mean_imm.shape
+    )
+    broadcasted_params = {
+        **warmup_params,
+        "step_size": broad_step_size,
+        "inverse_mass_matrix": broad_imm,
+    }
+
+    # Replicate position: sampling chain s starts at warmup endpoint s % W.
+    # Uses jax.tree.map + index selection — no Python loop over S.
+    # Build index array [0, 1, ..., S-1] % W → shape (S,)
+    indices = jnp.arange(num_sampling_chains) % num_warmup_chains
+    broadcasted_state = jax.tree.map(lambda x: x[indices], warmup_state)
+    return broadcasted_state, broadcasted_params
+
+
 def run_recipe_to_idata(
     recipe: Recipe,
     *,
@@ -1201,6 +1258,7 @@ def run_recipe_to_idata(
     force_resample: bool = False,
     force_resample_config: dict[str, Any] | None = None,
     catalog_root: Path = _CATALOG_ROOT,
+    warmup_num_chains: list[int] | None = None,
     _return_timing: bool = False,
 ) -> Any:
     """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
@@ -1257,6 +1315,16 @@ def run_recipe_to_idata(
         (backward-compatible).
     catalog_root
         Root of the catalog directory.
+    warmup_num_chains
+        Runtime override for ``recipe.warmup_num_chains``.  When not ``None``,
+        overrides the recipe-stamped value at call time.  Must satisfy the same
+        validation rules: list of ints, one per warmup phase, each >= 1.
+
+        Use ``warmup_num_chains=[1, 1]`` (or ``[1]`` for single-phase) to
+        force single-chain warmup + broadcast — avoids the vmap-of-while_loop
+        penalty for expensive-logprob models (e.g. gp_regression × laplace_*).
+        ``None`` (default) falls back to ``recipe.warmup_num_chains`` (which is
+        itself ``None`` for legacy recipes, meaning all phases use ``num_chains``).
 
     Returns
     -------
@@ -1323,6 +1391,18 @@ def run_recipe_to_idata(
     n_warmup = int(recipe.warmup_params.get("n_warmup", RECIPE_N_WARMUP))
     num_chains = int(recipe.warmup_params.get("num_chains", RECIPE_NUM_CHAINS))
     target_acceptance = recipe.warmup_params.get("target_acceptance", None)
+
+    # Resolve warmup_num_chains: call-time override wins over recipe-stamped value.
+    # None means "use num_chains for every phase" (current vmap'd behavior).
+    from tuningfork.recipes._base import validate_warmup_num_chains
+
+    _wnc_effective: list[int] | None = (
+        warmup_num_chains if warmup_num_chains is not None else recipe.warmup_num_chains
+    )
+    if _wnc_effective is not None:
+        _n_phases = max(len(recipe.warmups), 1)
+        validate_warmup_num_chains(_wnc_effective, _n_phases)
+
     if n_samples is None:
         # Prefer calibration_budget["n_samples"] (the validated config stamp)
         # over warmup_params (which is derived from Phase-1 warmup params and
@@ -1480,6 +1560,11 @@ def run_recipe_to_idata(
             )
             _phase_is_dense = "dense" in _phase["name"]
 
+            # Per-phase warmup chain count W (or num_chains if not set).
+            _phase_W = (
+                _wnc_effective[_phase_idx] if _wnc_effective is not None else num_chains
+            )
+
             # Build phase-specific LaplaceMarginal with this phase's maxiter.
             # Pass directly to window_adaptation as logdensity_fn: LaplaceMarginal
             # returns (lp, theta_star) which satisfies the has_aux=True contract
@@ -1499,17 +1584,32 @@ def run_recipe_to_idata(
             if _phase_idx > 0 and _phase_params.get("initial_step_size_from_phase1"):
                 _prev_ss = _prev_params_mp.get("step_size")
                 if _prev_ss is not None:
+                    # If prev phase had W > 1, step_size is batched; mean stays
+                    # on-device as 0-d JAX scalar.
                     _initial_step_size = jnp.mean(_prev_ss)
 
             # Use fold_in per phase to avoid key correlation between phases.
             _phase_key = jax.random.fold_in(warmup_key, _phase_idx)
-            _chain_keys = jax.random.split(_phase_key, num_chains)
+            _chain_keys = jax.random.split(_phase_key, _phase_W)
 
-            # Init positions for this phase.
+            # Init positions for this phase (W warmup chains).
             if _phase_idx == 0:
-                _init_pos_batch = _maybe_replicate(init_position, num_chains)
+                _init_pos_batch = _maybe_replicate(init_position, _phase_W)
             else:
-                _init_pos_batch = _prev_state.position  # type: ignore[union-attr]
+                # Carry forward from previous phase. If W changed between phases,
+                # index into the previous state via s % prev_W.
+                _prev_W = (
+                    _wnc_effective[_phase_idx - 1]
+                    if _wnc_effective is not None
+                    else num_chains
+                )
+                if _phase_W == _prev_W:
+                    _init_pos_batch = _prev_state.position  # type: ignore[union-attr]
+                else:
+                    _indices = jnp.arange(_phase_W) % _prev_W
+                    _init_pos_batch = jax.tree.map(
+                        lambda x: x[_indices], _prev_state.position  # type: ignore[union-attr]
+                    )
 
             # Build window_adaptation for this phase.
             # initial_step_size is a named window_adaptation param; num_integration_steps
@@ -1528,45 +1628,85 @@ def run_recipe_to_idata(
                 **_wa_kwargs,
             )
 
-            # Run per-chain warmup via vmap (matches existing _run_warmup_with_inner_kernel style).
+            # Dispatch: W == num_chains → vmap over num_chains (existing behavior).
+            # W != num_chains → vmap over W, then reduce+broadcast to num_chains.
             _n_steps_phase = _phase_n_warmup  # capture for closure
 
-            @jax.vmap
-            def _run_one_warmup_phase(k: Any, x0: Any) -> tuple[Any, Any]:  # noqa: B023
-                (st, pr), _ = _warmup_phase.run(k, x0, _n_steps_phase)
-                return st, pr
+            if _phase_W == num_chains:
+                # Current behavior: vmap warmup over all num_chains.
+                @jax.vmap
+                def _run_one_warmup_phase(
+                    k: Any, x0: Any
+                ) -> tuple[Any, Any]:  # noqa: B023
+                    (st, pr), _ = _warmup_phase.run(k, x0, _n_steps_phase)
+                    return st, pr
 
-            _phase_states, _phase_params_raw = _run_one_warmup_phase(
-                _chain_keys, _init_pos_batch
-            )
-            _prev_state = _phase_states
-            _prev_params_mp = dict(_phase_params_raw)
+                _phase_states, _phase_params_raw = _run_one_warmup_phase(
+                    _chain_keys, _init_pos_batch
+                )
+                _prev_state = _phase_states
+                _prev_params_mp = dict(_phase_params_raw)
+            else:
+                # W != num_chains: vmap over W warmup chains, reduce, broadcast to S.
+                @jax.vmap
+                def _run_W_warmup_phase(
+                    k: Any, x0: Any
+                ) -> tuple[Any, Any]:  # noqa: B023
+                    (st, pr), _ = _warmup_phase.run(k, x0, _n_steps_phase)
+                    return st, pr
+
+                _w_states, _w_params_raw = _run_W_warmup_phase(
+                    _chain_keys, _init_pos_batch
+                )
+                # Reduce W chains to 1 (mean), broadcast to num_chains.
+                _phase_states, _phase_params_raw = _reduce_and_broadcast_warmup_output(
+                    _w_states, dict(_w_params_raw), _phase_W, num_chains
+                )
+                _prev_state = _phase_states
+                _prev_params_mp = dict(_phase_params_raw)
+
             _prev_n_warmup = _phase_n_warmup
 
         batched_state = _prev_state
         batched_params = _prev_params_mp
     elif recipe.warmup_inner_kernel is not None:
-        batched_state, batched_params, _recipe_warmup_info = (
+        # Single-phase: resolve W from warmup_num_chains[0] or num_chains.
+        _single_W = _wnc_effective[0] if _wnc_effective is not None else num_chains
+        _raw_state_ik, _raw_params_ik, _recipe_warmup_info = (
             _run_warmup_with_inner_kernel(
                 warmup_key,
                 init_position,
                 n_warmup,
                 logdensity_fn,
                 warmup_inner_kernel_name=recipe.warmup_inner_kernel,
-                num_chains=num_chains,
+                num_chains=_single_W,
                 target_acceptance=target_acceptance,
             )
         )
+        if _single_W != num_chains:
+            batched_state, batched_params = _reduce_and_broadcast_warmup_output(
+                _raw_state_ik, _raw_params_ik, _single_W, num_chains
+            )
+        else:
+            batched_state, batched_params = _raw_state_ik, _raw_params_ik
     else:
-        batched_state, batched_params = warmup.runner(
+        # Single-phase standard warmup. Resolve W from warmup_num_chains[0].
+        _single_W = _wnc_effective[0] if _wnc_effective is not None else num_chains
+        _raw_state_std, _raw_params_std = warmup.runner(
             warmup_key,
             init_position,
             n_warmup,
             base_method,
             logdensity_fn=logdensity_fn,
-            num_chains=num_chains,
+            num_chains=_single_W,
             target_acceptance_rate=target_acceptance,
         )
+        if _single_W != num_chains:
+            batched_state, batched_params = _reduce_and_broadcast_warmup_output(
+                _raw_state_std, _raw_params_std, _single_W, num_chains
+            )
+        else:
+            batched_state, batched_params = _raw_state_std, _raw_params_std
 
     if not skip_warmup:
         # SYNC: block until warmup compute completes before stamping the clock.
