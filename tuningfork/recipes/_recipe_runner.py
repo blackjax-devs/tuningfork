@@ -46,6 +46,7 @@ Recipe runner spec (per the visualization-diagnostics decision record):
 
 import dataclasses
 import datetime
+import json
 import sys
 import time
 from pathlib import Path
@@ -67,6 +68,9 @@ from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.calibration.tune import default_params_for
 from tuningfork.metrics.grad_counter import total_grad_evals
 from tuningfork.metrics.headline import min_bulk_ess_per_grad
+from tuningfork.metrics.reference_compare import (
+    compute_sample_quality as _compute_sample_quality,
+)
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.recipes._base import Effort, Recipe, RecipeFailedError
@@ -391,6 +395,74 @@ def _apply_init_strategy(
 
 
 # ---------------------------------------------------------------------------
+# GT alignment helper
+# ---------------------------------------------------------------------------
+
+
+def _align_gt_keys_for_gate(
+    gt_summary: dict,
+    draws_dict: dict,
+    is_laplace_family: bool,
+    model_name: str,
+) -> dict | None:
+    """Build GT-alignment dict for ``auto_gate`` and ``compute_sample_quality``.
+
+    Returns ``{param: {"mean", "std", "q05", "q95", "n_samples"}}`` for
+    parameters present in both *draws_dict* and the GT summary.
+
+    Parameters
+    ----------
+    gt_summary
+        Parsed ``reference/summary.json`` dict with top-level keys
+        ``"mean"``, ``"std"``, ``"q05"``, ``"q95"``, ``"n_samples"``.
+    draws_dict
+        The post-warmup ``positions`` dict
+        ``{param: (num_chains, n_samples, *shape)}``.
+    is_laplace_family
+        When ``True``, restrict alignment to phi sites from
+        ``_LAPLACE_PHI_THETA_SPLITS[model_name]``.  The laplace sampler
+        only explores the phi subspace; theta is analytically marginalised
+        and absent from ``draws_dict``.
+    model_name
+        Registry key, used to look up phi sites.
+
+    Returns
+    -------
+    dict | None
+        Per-param GT dict, or ``None`` if no matching keys were found.
+    """
+    gt_mean = gt_summary.get("mean", {})
+    gt_std = gt_summary.get("std", {})
+    gt_q05 = gt_summary.get("q05", {})
+    gt_q95 = gt_summary.get("q95", {})
+    n_samples = int(gt_summary.get("n_samples", 0)) or None
+
+    if is_laplace_family and model_name in _LAPLACE_PHI_THETA_SPLITS:
+        # Only check the phi sites — theta is not in draws_dict for laplace.
+        phi_sites, _ = _LAPLACE_PHI_THETA_SPLITS[model_name]
+        candidate_keys = [k for k in phi_sites if k in draws_dict and k in gt_mean]
+    else:
+        # Full-posterior path: align on the intersection of draws and GT.
+        candidate_keys = [k for k in draws_dict if k in gt_mean]
+
+    if not candidate_keys:
+        return None
+
+    aligned: dict = {}
+    for k in candidate_keys:
+        aligned[k] = {
+            "mean": gt_mean[k],
+            "std": gt_std[k],
+            "q05": gt_q05[k],
+            "q95": gt_q95[k],
+        }
+        if n_samples is not None:
+            aligned[k]["n_samples"] = n_samples
+
+    return aligned if aligned else None
+
+
+# ---------------------------------------------------------------------------
 # Main emit function
 # ---------------------------------------------------------------------------
 
@@ -548,6 +620,18 @@ def emit_low_recipe_for_cell(
     posterior = MODELS[model_name]
     warmup = WARMUPS[warmup_name]
     base_method = BASE_METHODS[sampler_name]
+
+    # --- Load GT reference summary for gate + sample_quality wiring ---
+    # Loaded early (before any JAX work) so it's available at auto_gate time.
+    # Missing summary.json is graceful: _gt_summary stays None, aligned_gt
+    # stays None, and auto_gate / compute_sample_quality simply skip GT checks.
+    _gt_summary_path = catalog_root / model_name / "reference" / "summary.json"
+    _gt_summary: dict | None = None
+    if _gt_summary_path.exists():
+        try:
+            _gt_summary = json.loads(_gt_summary_path.read_text())
+        except Exception:  # noqa: BLE001
+            _gt_summary = None
 
     # Per-model x64 requirement: auto-enable BEFORE any JAX computation.
     # Must happen before jax.random.key() below.
@@ -929,11 +1013,21 @@ def emit_low_recipe_for_cell(
                 note=note,
             )
 
+    # --- Align GT keys for auto-gate and sample_quality ---
+    # For laplace-family: phi-subset alignment (only phi sites are in positions).
+    # For full-posterior: intersection of positions and GT keys.
+    _aligned_gt: dict | None = None
+    if _gt_summary is not None:
+        _aligned_gt = _align_gt_keys_for_gate(
+            _gt_summary, positions, is_laplace, model_name
+        )
+
     # --- Auto-gate ---
     _log("  Running auto-gate...")
     gate_verdict = auto_gate(
         positions,
         infos,
+        ground_truth_summaries=_aligned_gt,
         posterior=posterior,
         n_chunks=n_chunks,
     )
@@ -942,6 +1036,11 @@ def emit_low_recipe_for_cell(
         f"rhat_max={gate_verdict.rhat_max:.4f}, "
         f"min_ess={gate_verdict.min_bulk_ess:.1f}, "
         f"n_div={gate_verdict.n_divergences}"
+        + (
+            f", max_z={gate_verdict.max_abs_mean_z:.3f}"
+            if gate_verdict.max_abs_mean_z is not None
+            else ""
+        )
     )
 
     if gate_verdict.verdict != "PASS":
@@ -972,6 +1071,31 @@ def emit_low_recipe_for_cell(
     headline: float | None = None
     if grad_evals > 0:
         headline = float(min_bulk_ess_per_grad(mc_positions, grad_evals))
+
+    # --- Compute sample_quality (GT-agreement; compare draws to reference) ---
+    # Uses the same aligned GT keys used by auto_gate above.
+    # compute_sample_quality requires SCALAR reference stats (mean/std/q05/q95
+    # must be float-coercible).  For vector parameters (e.g. mvn_10 "x" is 10-D),
+    # the GT summary stores per-element arrays; we collapse those to their element-wise
+    # mean, consistent with _param_metrics which collapses draws via .mean(axis=1).
+    _sample_quality: dict | None = None
+    if _aligned_gt is not None:
+        _sq_draws = {k: mc_positions[k] for k in _aligned_gt if k in mc_positions}
+        _sq_refs: dict = {}
+        for _k, _v in _aligned_gt.items():
+            if _k not in _sq_draws:
+                continue
+            _sq_refs[_k] = {}
+            for _stat in ("mean", "std", "q05", "q95"):
+                # np.asarray(...).mean() is a no-op for scalars; element-wise mean
+                # for vector params — consistent with _param_metrics' flat.mean(axis=1).
+                _sq_refs[_k][_stat] = float(np.asarray(_v[_stat]).mean())
+        if _sq_draws and _sq_refs:
+            try:
+                _sample_quality = _compute_sample_quality(_sq_draws, _sq_refs)
+            except Exception:  # noqa: BLE001
+                # Non-fatal: leave sample_quality=None rather than failing the emit.
+                _sample_quality = None
 
     # --- Build recipe ---
     # The recipe pins ONE reproducible (step_size, IMM) config — the multi-chain
@@ -1039,7 +1163,7 @@ def emit_low_recipe_for_cell(
         warmups=[{"name": warmup.name, "params": _warmup_params_dict}],
         warmup_inner_kernel=warmup_inner_kernel,
         headline_metric=headline,
-        sample_quality=None,
+        sample_quality=_sample_quality,
         calibration_budget={
             "trials": 0,
             "wall_seconds_estimate": t_total,
