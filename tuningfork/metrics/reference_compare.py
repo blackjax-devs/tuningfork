@@ -276,6 +276,10 @@ def compute_sample_quality(
 
     # ── Check for NaN in draws ───────────────────────────────────────────────
     for param, arr in draws_dict.items():
+        # KEEP: the public API accepts jax.Array or np.ndarray draws; np.asarray
+        # materialises the buffer here for the NaN check + downstream stats.
+        # Callers must ensure jax.block_until_ready(draws) upstream so this
+        # materialisation does not contend with in-flight XLA work.
         arr = np.asarray(arr)
         if np.any(np.isnan(arr)):
             raise ValueError(
