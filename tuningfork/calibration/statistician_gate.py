@@ -430,8 +430,12 @@ def auto_gate(
         # no contention risk.  The recipe runner satisfies this precondition.
         n_divergences = int(jnp.sum(jnp.asarray(info.is_divergent)))
 
-    # --- max_abs_mean_z ---
+    # --- max_abs_mean_z + frac_z2 ---
     max_abs_mean_z: float | None = None
+    # frac_z2: fraction of sites with |z| > 2; secondary diagnostic (never alters verdict).
+    # Distinguishes Bonferroni-noise REVIEW (low frac_z2 at high k, e.g. horseshoe k=204)
+    # from systematic-elevation REVIEW (high frac_z2).
+    _frac_z2: float | None = None
     if ground_truth_summaries is not None and mc_samples:
         z_values: list[float] = []
         for name, arr in mc_samples.items():
@@ -469,6 +473,7 @@ def auto_gate(
 
         if z_values:
             max_abs_mean_z = float(max(z_values))
+            _frac_z2 = float(sum(1 for z in z_values if z > 2.0) / len(z_values))
 
     # --- Classify each metric and accumulate verdict ---
     overall_verdict = "PASS"
@@ -502,6 +507,10 @@ def auto_gate(
         margins["max_abs_mean_z"] = _build_margin(
             max_abs_mean_z, thresholds["max_abs_mean_z"], band
         )
+        if _frac_z2 is not None:
+            # Secondary diagnostic: fraction of sites with |z| > 2.
+            # Does NOT alter the verdict — purely informational for the statistician.
+            margins["max_abs_mean_z"]["frac_z2"] = _frac_z2
         overall_verdict = _worst(overall_verdict, band)
 
     return AutoGateVerdict(
