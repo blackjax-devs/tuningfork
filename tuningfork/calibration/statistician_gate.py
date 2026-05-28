@@ -291,6 +291,12 @@ def _samples_to_multichain(
     ``(n_samples, *event_shape)``), the samples are reshaped into ``n_chunks``
     contiguous segments following the reference-certification split-R̂ protocol.
 
+    **Precondition**: Callers must call ``jax.block_until_ready(samples)`` before
+    invoking this function. JAX arrays passed in are expected to be fully
+    materialised; ``np.asarray`` here is used for shape inspection and conversion
+    to ArviZ input format only.  See
+    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
+
     Parameters
     ----------
     samples
@@ -307,10 +313,6 @@ def _samples_to_multichain(
     if not samples:
         return samples
     first = next(iter(samples.values()))
-    # KEEP: np.asarray used here only for shape inspection; no downstream JAX op
-    # on the materialised buffer.  Callers (auto_gate) must ensure jax.block_until_ready
-    # on their sample arrays before calling _samples_to_multichain so this materialisation
-    # does not contend with in-flight XLA work.
     arr = np.asarray(first)
 
     # Heuristic: if the first axis is small (≤ 32), treat as n_chains.
@@ -324,13 +326,11 @@ def _samples_to_multichain(
     is_multichain = arr.ndim >= 2 and arr.shape[0] <= 64
 
     if is_multichain:
-        # KEEP: final numpy conversion for arviz (rhat/ess); callers already synced.
         return {k: np.asarray(v) for k, v in samples.items()}
 
     # Single-chain: reshape into n_chunks chunks
     result = {}
     for name, v in samples.items():
-        # KEEP: final numpy conversion for arviz; callers already synced.
         v_np = np.asarray(v)
         n_total = v_np.shape[0]
         event_shape = v_np.shape[1:]
@@ -396,6 +396,12 @@ def auto_gate(
       ``std_i / sqrt(min_bulk_ess)`` for simplicity).
     - The verdict is the *worst* contribution across all evaluated metrics
       (FAIL beats REVIEW beats PASS).  Skipped metrics do not contribute.
+
+    **Precondition**: Callers must call ``jax.block_until_ready((samples, info))``
+    before invoking this function. All JAX array materialisations below (``np.asarray``,
+    ``int(jnp_scalar)``, ``float(jnp_scalar)``) rely on this precondition to avoid
+    buffer-pool contention. See
+    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
     """
     thresholds = resolve_thresholds(posterior)
 
@@ -410,12 +416,10 @@ def auto_gate(
         rhat_values: list[float] = []
         ess_values: list[float] = []
         for arr in mc_samples.values():
-            # KEEP: arr is already numpy from _samples_to_multichain; no JAX buffer.
             arr_np = np.asarray(arr)
             # arviz expects (n_chains, n_draws, *event_shape)
             rhat_arr = az.rhat(arr_np, chain_axis=0, draw_axis=1)
             ess_arr = az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
-            # KEEP: np.asarray on arviz output (already numpy); float for list append.
             rhat_values.append(float(np.max(np.asarray(rhat_arr))))
             ess_values.append(float(np.min(np.asarray(ess_arr))))
 
@@ -425,9 +429,6 @@ def auto_gate(
     # --- Divergences ---
     n_divergences: int | None = None
     if info is not None:
-        # KEEP: int(jax_scalar) triggers the buffer protocol, but callers must ensure
-        # jax.block_until_ready(info) upstream so the buffer is fully materialised with
-        # no contention risk.  The recipe runner satisfies this precondition.
         n_divergences = int(jnp.sum(jnp.asarray(info.is_divergent)))
 
     # --- max_abs_mean_z + frac_z2 ---
@@ -442,7 +443,6 @@ def auto_gate(
             if name not in ground_truth_summaries:
                 continue
             gt = ground_truth_summaries[name]
-            # KEEP: arr already numpy from mc_samples; no JAX buffer protocol.
             arr_np = np.asarray(arr)
             # Merge chains: (n_chains, n_draws, *event_shape) → (n_total, *event_shape)
             n_chains, n_draws = arr_np.shape[0], arr_np.shape[1]
@@ -457,8 +457,6 @@ def auto_gate(
             # SE of sample mean
             se_sample = sample_std / np.sqrt(max(n_eff, 1.0))
 
-            # KEEP: gt["mean"] / gt["std"] are Python scalars or lists from the GT
-            # dict — no JAX device buffer involved; np.asarray converts cleanly.
             gt_mean = np.asarray(gt["mean"])
             gt_std = np.asarray(gt["std"])
             gt_n = gt.get("n_samples", n_chains * n_draws)
@@ -468,7 +466,6 @@ def auto_gate(
             # Avoid division by zero
             denom = np.where(denom > 0, denom, 1.0)
             z_scores = np.abs(sample_mean - gt_mean) / denom
-            # KEEP: z_scores is numpy; np.asarray is a no-op; float for list append.
             z_values.append(float(np.max(np.asarray(z_scores))))
 
         if z_values:
