@@ -822,6 +822,9 @@ class Recipe:
             logdensity_fn=logdensity_fn,
             num_chains=1,
         )
+        # SYNC: block until warmup compute completes before stamping wall time.
+        # Without this, elapsed measures dispatch latency only, not actual compute.
+        jax.block_until_ready((batched_state, batched_params))
         _state, adapted_params = squeeze_single_chain(batched_state, batched_params)
         elapsed = time.perf_counter() - t0
 
