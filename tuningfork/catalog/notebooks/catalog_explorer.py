@@ -244,11 +244,18 @@ def _(
 
     Naming convention: intermediate locals are underscore-prefixed (marimo
     cell-local — avoids `budget`/`spd` name collisions with the timing-display
-    cell). Only ``run_button`` is exported (consumed by the sampling cell);
-    it's predeclared ``None`` so the return statement is safe in all
-    branches and downstream gates handle ``None`` explicitly.
+    cell). ``run_button`` (non-cache "Run sampling") and ``populate_btn``
+    (cache-miss "Run + populate cache") are exported and consumed by the
+    sampling cell. Both are predeclared ``None`` so the return is safe in
+    all branches, and the sampling cell uses ``is not None`` guards.
+
+    Marimo rule (the reason both buttons are created here, not inline in
+    the sampling cell): a UI element's ``.value`` cannot be accessed in
+    the same cell that created it — the click event must propagate cross-cell.
+    So buttons are created here; the sampling cell reads ``.value``.
     """
     run_button = None
+    populate_btn = None
     _estimate_and_button = mo.md("")
     if recipe is None or recipe.effort in (Effort.GROUNDTRUTH, Effort.FAILED):
         # No estimate box or button needed — either load from cache or FAILED.
@@ -256,8 +263,11 @@ def _(
     else:
         _use_cache = use_cached_switch.value if use_cached_switch is not None else True
         if _use_cache:
-            # Cache path: no estimate box or button needed.
-            pass
+            # Cache path: create the populate button so the sampling cell can
+            # display it on a cache miss (no estimate box in this cell — the
+            # cache should be instant when it hits; the populate button is
+            # only surfaced on miss by the sampling cell).
+            populate_btn = mo.ui.run_button(label="Run + populate cache")
         else:
             # Non-cache path: show dynamic estimate + Run button.
             _n = n_samples_slider.value if n_samples_slider is not None else 1000
@@ -298,7 +308,7 @@ def _(
             _estimate_and_button = mo.vstack([_estimate_panel, run_button])
 
     _estimate_and_button
-    return (run_button,)
+    return run_button, populate_btn
 
 
 @app.cell
@@ -308,25 +318,37 @@ def _(
     load_idata,
     mo,
     n_samples_slider,
+    populate_btn,
     recipe,
     run_button,
     run_recipe_to_idata,
     skip_warmup_toggle,
     use_cached_switch,
 ):
+    # Marimo cell-display rule: only the LAST bare expression renders. Assign
+    # all UI messages to a single `_panel` variable + bare-display it at the
+    # end (matches the timing_panel / _estimate_and_button pattern in this
+    # same notebook). Without this, every `mo.md(...)` call in the branches
+    # below gets evaluated-and-discarded — explaining "mo.md is not displaying
+    # anything" debugging.
     idata = None
+    _panel = mo.md("")
     if recipe is None:
-        mo.md("*Pick a recipe to see diagnostic plots.*")
+        _panel = mo.md("*Pick a recipe to see diagnostic plots.*")
     elif recipe.effort == Effort.GROUNDTRUTH:
         # Groundtruth: load from cache (already persisted)
         try:
             idata = load_idata(recipe)
-            mo.md(f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`")
+            _panel = mo.md(
+                f"**Posterior sites**: `{list(idata['posterior'].data_vars)}`"
+            )
         except FileNotFoundError:
-            mo.md("*Cache miss for GROUNDTRUTH recipe (git lfs pull may be needed).*")
+            _panel = mo.md(
+                "*Cache miss for GROUNDTRUTH recipe (git lfs pull may be needed).*"
+            )
     elif recipe.effort == Effort.FAILED:
         # FAILED: no valid config to run.
-        mo.md(
+        _panel = mo.md(
             "*FAILED recipes have no gate-passing configuration to sample. "
             "See the recipe notes for attempted configurations and diagnostics.*"
         )
@@ -355,16 +377,35 @@ def _(
             if _use_cache:
                 # Cache path: cached_idata_for_recipe() now raises FileNotFoundError
                 # on cache miss (per the 2026-05-28 API change — no more silent
-                # re-sample). Catch + surface a UI message directing the user
-                # to toggle off cache and click Run.
+                # re-sample). On miss, surface the populate button (created in
+                # the estimate cell; marimo rule prevents creating + accessing
+                # .value in the same cell) so the user can opt-in to re-sample +
+                # populate the cache (force_regenerate=True — the explicit-
+                # consent path kept on the API).
                 try:
                     idata = cached_idata_for_recipe(recipe)
                 except FileNotFoundError:
-                    idata = None
-                    mo.md(
-                        "⚠ **Cache miss** for this recipe. Toggle off "
-                        "**Use cache** and click **Run** to generate it."
-                    )
+                    if populate_btn is not None and populate_btn.value:
+                        # Click: re-sample, save to cache, done.
+                        idata = cached_idata_for_recipe(recipe, force_regenerate=True)
+                    else:
+                        idata = None
+                        _panel = mo.vstack(
+                            [
+                                mo.callout(
+                                    mo.md(
+                                        "⚠ **Cache miss** for this recipe. "
+                                        "Click below to sample + populate the "
+                                        "cache (takes ~the wall-time you'd see "
+                                        "by toggling off **Use cache**), or "
+                                        "toggle off **Use cache** to preview "
+                                        "the estimate before running."
+                                    ),
+                                    kind="warn",
+                                ),
+                                populate_btn if populate_btn is not None else mo.md(""),
+                            ]
+                        )
             elif run_button is not None and run_button.value:
                 # Non-cache path with Run button click: sample now.
                 # (``run_button`` is None when the estimate cell short-circuited
@@ -384,7 +425,7 @@ def _(
                     )
 
             if idata is not None:
-                mo.vstack(
+                _panel = mo.vstack(
                     [
                         _skip_warn or mo.md(""),
                         mo.md(
@@ -393,7 +434,8 @@ def _(
                     ]
                 )
         except Exception as e:
-            mo.md(f"*Failed to sample recipe: {type(e).__name__}: {e}*")
+            _panel = mo.md(f"*Failed to sample recipe: {type(e).__name__}: {e}*")
+    _panel
     return (idata,)
 
 
