@@ -507,6 +507,11 @@ def _run_trial(
 
         # Check for non-finite values — diverged chains poison the score
         for site_arr in all_sites.values():
+            # KEEP: bool(jax_scalar) triggers buffer protocol, but all_sites is built
+            # from chain_positions whose infos were already synced per-chain via
+            # total_grad_evals (int(jnp.sum(...)) forced materialisation above).
+            # States co-materialise with infos from the same run_inference_algorithm call,
+            # so stacked site arrays are post-sync; no buffer-pool contention risk.
             if not bool(jnp.all(jnp.isfinite(site_arr))):
                 return float("-inf")
 
@@ -743,6 +748,7 @@ def tune_algorithm(
     # ------------------------------------------------------------------
     # 3. Optuna study with selected sampler
     # ------------------------------------------------------------------
+    # KEEP: int(jax_scalar) for Optuna seed; one-time setup (not in timing hot path).
     sampler_seed = int(
         jax.random.bits(jax.random.fold_in(rng_key_study, 0), dtype=jnp.uint32)
     )
@@ -809,6 +815,10 @@ def tune_algorithm(
         # Average score over n_seeds
         seed_scores: list[float] = []
         trial_num = trial.number
+        # Timing note (SYNC audit):  t_start → _run_trial → t_end is honest.
+        # _run_trial returns a Python float via min_bulk_ess_per_grad → float(min_ess/n),
+        # which forces full JAX materialisation before returning.  No block_until_ready
+        # needed here — the Python float return is the sync boundary.
         t_start = time.perf_counter()
         for seed_idx in range(n_seeds):
             seed_key = jax.random.fold_in(
