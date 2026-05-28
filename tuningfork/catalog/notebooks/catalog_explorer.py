@@ -231,6 +231,60 @@ def _(Effort, mo, recipe):
     return n_samples_slider, skip_warmup_toggle, use_cached_switch
 
 
+@app.cell(hide_code=True)
+def _(
+    Effort,
+    mo,
+    n_samples_slider,
+    recipe,
+    skip_warmup_toggle,
+    use_cached_switch,
+):
+    """Dynamic wall estimate + Run button for non-cache paths."""
+    estimate_and_button = None
+    if recipe is None or recipe.effort in (Effort.GROUNDTRUTH, Effort.FAILED):
+        # No estimate box or button needed — either load from cache or FAILED.
+        estimate_and_button = mo.md("")
+    else:
+        _use_cache = use_cached_switch.value if use_cached_switch is not None else True
+        if _use_cache:
+            # Cache path: no estimate box or button needed.
+            estimate_and_button = mo.md("")
+        else:
+            # Non-cache path: show dynamic estimate + Run button.
+            _n = n_samples_slider.value if n_samples_slider is not None else 1000
+            _skip = (
+                skip_warmup_toggle.value if skip_warmup_toggle is not None else False
+            )
+
+            budget = recipe.calibration_budget or {}
+            spd = budget.get("sampling_seconds_per_draw", 0.0)
+            ww = budget.get("warmup_wall_seconds", 0.0)
+            c = recipe.num_chains if recipe.num_chains is not None else 4
+
+            # Compute dynamic estimate.
+            est_samp = spd * _n * c  # per-draw is per-draw-per-chain
+            est_warm = 0.0 if _skip else ww
+            est_tot = est_samp + est_warm
+            est_min = est_tot / 60.0
+
+            run_button = mo.ui.run_button(label="Run sampling")
+
+            estimate_panel = mo.callout(
+                mo.md(
+                    f"This will sample for ~**{est_min:.1f} minutes** "
+                    f"(warmup ~{est_warm:.0f} s + sampling ~{est_samp:.0f} s across {c} chains × {_n} draws). "
+                    f"Click **Run** when ready."
+                ),
+                kind="warn",
+            )
+
+            estimate_and_button = mo.vstack([estimate_panel, run_button])
+
+    estimate_and_button
+    return run_button, estimate_and_button
+
+
 @app.cell
 def _(
     Effort,
@@ -239,16 +293,11 @@ def _(
     mo,
     n_samples_slider,
     recipe,
+    run_button,
     run_recipe_to_idata,
     skip_warmup_toggle,
     use_cached_switch,
 ):
-    # Auto-generate if stamped wall < WALL_TIME_LIMIT_S (15 min).
-    # Source: recipe.calibration_budget["wall_seconds_estimate"] — stamped at
-    # recipe-build time; always available for all non-stub recipes.
-    # Set to 900 s (not 600 s) to include HIGH-effort recipes with optimized
-    # params, e.g. gp_regression × laplace_mhmc stamps 798 s production wall.
-    WALL_TIME_LIMIT_S = 900
     idata = None
     if recipe is None:
         mo.md("*Pick a recipe to see diagnostic plots.*")
@@ -260,16 +309,13 @@ def _(
         except FileNotFoundError:
             mo.md("*Cache miss for GROUNDTRUTH recipe (git lfs pull may be needed).*")
     elif recipe.effort == Effort.FAILED:
-        # FAILED: no valid config to run (check before wall-time gate — FAILED
-        # recipes may stamp wall=0.0 which would pass the wall-time gate).
+        # FAILED: no valid config to run.
         mo.md(
             "*FAILED recipes have no gate-passing configuration to sample. "
             "See the recipe notes for attempted configurations and diagnostics.*"
         )
-    elif (
-        recipe.calibration_budget.get("wall_seconds_estimate", 0.0) < WALL_TIME_LIMIT_S
-    ):
-        # Wall-time gate: sample with one of 3 modes based on controls.
+    else:
+        # Non-GROUNDTRUTH, non-FAILED: sample with one of 3 modes based on controls.
         _skip = skip_warmup_toggle.value if skip_warmup_toggle is not None else False
         _use_cache = use_cached_switch.value if use_cached_switch is not None else True
         _n = n_samples_slider.value if n_samples_slider is not None else 1000
@@ -290,21 +336,23 @@ def _(
             )
 
         try:
-            if _skip:
-                # Skip-warmup: bypass adaptation, use stored step_size/IMM,
-                # stationary init from GT-means. Always re-runs (no cache path).
-                idata = run_recipe_to_idata(recipe, skip_warmup=True, n_samples=_n)
-            elif not _use_cache:
-                # Force resample: re-run warmup + sampling with recipe tuning_seed
-                # and the requested n_samples.
-                _seed = recipe.tuning_seed if recipe.tuning_seed != 0 else 20260517
-                idata = run_recipe_to_idata(
-                    recipe,
-                    force_resample_config={"seed": _seed, "n_samples": _n},
-                )
-            else:
-                # Default: use cached draws (fast; ignores n_samples slider).
+            if _use_cache:
+                # Cache path: load from cache (fast; ignores n_samples slider).
                 idata = cached_idata_for_recipe(recipe)
+            elif run_button.value:
+                # Non-cache path with Run button click: sample now.
+                if _skip:
+                    # Skip-warmup: bypass adaptation, use stored step_size/IMM,
+                    # stationary init from GT-means. Always re-runs (no cache path).
+                    idata = run_recipe_to_idata(recipe, skip_warmup=True, n_samples=_n)
+                else:
+                    # Force resample: re-run warmup + sampling with recipe tuning_seed
+                    # and the requested n_samples.
+                    _seed = recipe.tuning_seed if recipe.tuning_seed != 0 else 20260517
+                    idata = run_recipe_to_idata(
+                        recipe,
+                        force_resample_config={"seed": _seed, "n_samples": _n},
+                    )
 
             if idata is not None:
                 mo.vstack(
@@ -317,14 +365,6 @@ def _(
                 )
         except Exception as e:
             mo.md(f"*Failed to sample recipe: {type(e).__name__}: {e}*")
-    else:
-        # Stamped wall exceeds the auto-generation limit — too slow for the explorer.
-        wall = recipe.calibration_budget.get("wall_seconds_estimate", 0.0)
-        mo.md(
-            f"*Recipe stamped wall {wall:.0f} s exceeds the {WALL_TIME_LIMIT_S} s "
-            "auto-generation limit. Run manually: "
-            "`cached_idata_for_recipe(recipe, force_regenerate=True)`*"
-        )
     return (idata,)
 
 
