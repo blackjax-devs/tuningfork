@@ -19,13 +19,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 28.112916094018146,
+    "wall_seconds_estimate": 28.44314796407707,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 19.044,
-    "sampling_wall_seconds": 5.508,
-    "sampling_seconds_per_draw": 0.001377,
+    "warmup_wall_seconds": 19.474,
+    "sampling_wall_seconds": 5.235,
+    "sampling_seconds_per_draw": 0.001309,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -96,9 +96,11 @@
           "pass_lo": 0.0,
           "pass_hi": 2.0,
           "review_lo": 2.0,
-          "review_hi": 4.0
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
-      }
+      },
+      "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
     },
     "override": {
       "reason": "",
@@ -110,7 +112,7 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-28T16:46:45Z",
+  "timestamp_utc": "2026-05-28T17:26:09Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
