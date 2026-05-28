@@ -1,7 +1,6 @@
 {
   "model_name": "mvn_10",
   "base_method_name": "nuts",
-  "warmup_name": "window_adaptation_diag_imm",
   "effort": "low",
   "base_method_params": {
     "step_size": 0.783676028251648,
@@ -18,22 +17,22 @@
       1.0262962579727173
     ]
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.25262755155563354,
+  "sample_quality": {
+    "mae_vs_reference": 0.00028649760481175464,
+    "q05_error": 1.1081403208515959,
+    "q95_error": 1.1032838781473204,
+    "std_ratio_max_dev": 0.674274059458203
   },
-  "headline_metric": 0.25787028670310974,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 5.5675722129963106,
+    "wall_seconds_estimate": 5.461840727948584,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 1.093,
-    "sampling_wall_seconds": 1.109,
-    "sampling_seconds_per_draw": 0.000277,
+    "warmup_wall_seconds": 2.641,
+    "sampling_wall_seconds": 1.316,
+    "sampling_seconds_per_draw": 0.000329,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -48,20 +47,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.783676028251648, 'inverse_mass_matrix': [1.057571530342102, 0.9489613771438599, 0.9951630234718323, 0.824773371219635, 0.9710015654563904, 0.9162372946739197, 1.0355700254440308, 0.9333285689353943, 0.99281245470047, 1.0262962579727173]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2579.\nWall time to produce this recipe: ~5 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.783676028251648, 'inverse_mass_matrix': [1.057571530342102, 0.9489613771438599, 0.9951630234718323, 0.824773371219635, 0.9710015654563904, 0.9162372946739197, 1.0355700254440308, 0.9333285689353943, 0.99281245470047, 1.0262962579727173]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2526.\nWall time to produce this recipe: ~5 s (machine-only).",
   "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0045113745763803,
-      "min_bulk_ess": 6863.270963972786,
+      "rhat_max": 1.0035703916198968,
+      "min_bulk_ess": 6644.867900500341,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 1.208868687002728,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0045113745763803,
+          "value": 1.0035703916198968,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -69,7 +82,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 6863.270963972786,
+          "value": 6644.867900500341,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -83,6 +96,14 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.208868687002728,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0
         }
       }
     },
@@ -94,9 +115,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-19T21:47:47Z",
+  "timestamp_utc": "2026-05-28T16:45:42Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
