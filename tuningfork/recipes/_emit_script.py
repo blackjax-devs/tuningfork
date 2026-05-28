@@ -128,6 +128,7 @@ def emit_script(
     num_chains: int | None = None,
     num_warmup: int | list[int] | None = None,
     progress_bar: bool | None = None,
+    warmup_num_chains: list[int] | None = None,
 ) -> str:
     """Assemble a recipe-reproduction Python script.
 
@@ -179,6 +180,25 @@ def emit_script(
         AND the sampling ``_SAMPLING_PROGRESS_BAR`` constant in the emitted
         script.  When ``None`` (default), defaults are used: warmup
         ``progress_bar=True`` and sampling ``_SAMPLING_PROGRESS_BAR = True``.
+    warmup_num_chains : list[int] or None, optional
+        Runtime override for ``recipe.warmup_num_chains``.  Affects which warmup
+        template variant is selected:
+
+        - ``None`` (default): falls back to ``recipe.warmup_num_chains``, which
+          is itself ``None`` for legacy recipes (uses the multichain template when
+          ``progress_bar=False``).
+        - ``[1]`` or all-ones list: forces the single-chain warmup template
+          (``window_adaptation_*.py.tmpl``), regardless of ``progress_bar``.
+          Recommended for expensive-logprob models to avoid vmap-of-while_loop.
+        - ``[W]`` with ``W == num_chains``: same as ``None`` — uses the multichain
+          template when ``progress_bar=False``.
+        - ``[W]`` with ``W != num_chains``: uses the multichain template (vmap
+          over W chains); the reduce+broadcast is handled by the emitted script's
+          runner, not by template selection.
+
+        Only the first entry is used for single-phase warmups; for multi-phase
+        warmups (``laplace_multiphase``), the template is already single-chain
+        by design and this argument has no effect.
 
     Returns
     -------
@@ -524,12 +544,33 @@ def emit_script(
         }
     )
 
+    # Resolve effective warmup_num_chains: call-time override wins over recipe-stamped.
+    # None → fall back to recipe.warmup_num_chains (may also be None for legacy recipes).
+    _wnc_emit: list[int] | None = (
+        warmup_num_chains if warmup_num_chains is not None else recipe.warmup_num_chains
+    )
+    # For single-phase warmups, the first (and only) entry drives template selection:
+    # W == 1 → force single-chain template (ignore progress_bar for template selection).
+    # W == num_chains → use existing multichain/single-chain logic.
+    # W != num_chains but W > 1 → use multichain template (vmap over W; reduce+broadcast
+    # is the runner's concern, not the template's).
+    _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
+
     # Build the warmup body: multi-phase laplace uses a dedicated template;
     # single-phase uses the per-warmup template, branching on progress_bar for
     # warmup variants that support multi-chain execution.
     if _is_laplace and _is_multiphase_warmup:
+        # Multi-phase laplace: dedicated template (already single-chain + broadcast
+        # by design); warmup_num_chains doesn't affect template selection here.
         warmup_body = _load_template(
             "warmups/laplace_multiphase_warmup.py.tmpl"
+        ).safe_substitute(ctx)
+    elif _warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
+        # warmup_num_chains[0]=1 → force single-chain template regardless of
+        # progress_bar. Mirrors the laplace_multiphase_warmup pattern: one warmup
+        # chain, broadcast to num_chains for sampling.
+        warmup_body = _load_template(
+            f"warmups/{recipe.warmup_name}.py.tmpl"
         ).safe_substitute(ctx)
     elif not _warmup_pb and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
         # progress_bar=False → multi-chain warmup via jax.vmap(warmup.run).
