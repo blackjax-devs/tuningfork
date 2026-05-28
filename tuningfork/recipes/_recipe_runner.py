@@ -1481,11 +1481,17 @@ def run_recipe_to_idata(
             )
 
             # initial_step_size: seed Phase 2+ dual-averaging from Phase 1 result.
-            _initial_step_size: float | None = None
+            # Keep as a 0-d JAX scalar — no host materialization here. The prior
+            # `float(np.asarray(_prev_ss).mean())` used the buffer protocol on
+            # the *vmap'd* warmup output and deadlocked for gp_regression ×
+            # laplace_mhmc × multi-phase warmup (2026-05-28). `jnp.mean` stays
+            # on-device; window_adaptation accepts the 0-d JAX scalar at the
+            # use site (its `float` annotation is structural, not enforced).
+            _initial_step_size: Any | None = None
             if _phase_idx > 0 and _phase_params.get("initial_step_size_from_phase1"):
                 _prev_ss = _prev_params_mp.get("step_size")
                 if _prev_ss is not None:
-                    _initial_step_size = float(np.asarray(_prev_ss).mean())
+                    _initial_step_size = jnp.mean(_prev_ss)
 
             # Use fold_in per phase to avoid key correlation between phases.
             _phase_key = jax.random.fold_in(warmup_key, _phase_idx)
@@ -1689,7 +1695,15 @@ def run_recipe_to_idata(
     )
     # run_inference_algorithm output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
     states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist_r)
-    infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), infos)
+    # NOTE: we intentionally do NOT do `jax.tree.map(jnp.swapaxes, infos)`
+    # over the full info pytree here. The samplers' info NamedTuples (notably
+    # ``LaplaceHMCInfo``) carry large unused fields — ``momentum``, ``proposal``
+    # (full IntegratorState), ``lbfgs_*`` — that materialize-then-drop wasted
+    # both compute and buffer-pool capacity, and at production scale (1000 ×
+    # 4 chains, gp_regression × laplace_mhmc × dense_imm) triggered a buffer
+    # mutex deadlock in the post-scan ``np.asarray`` loop (recert v1/v3 hang,
+    # 2026-05-28). Extract field-by-field below — only the four scalar fields
+    # we actually persist get swapaxes'd + materialized.
     _t_sample = time.perf_counter() - _t_sample_start
     positions = states.position  # shape: (num_chains, n_samples, *event_shape)
 
@@ -1700,17 +1714,13 @@ def run_recipe_to_idata(
     # Convert to dict of arrays
     positions_dict = {k: np.asarray(v) for k, v in positions.items()}
 
-    # Prepare chain_stats if available (not persisting the full infos here,
-    # but construct minimal chain_stats for the InferenceData)
+    # Field-selective extraction from infos: swapaxes + materialize only the
+    # four scalar fields we persist. Functionally identical to the previous
+    # "swap whole tree then read these four" behavior, minus the wasted work.
     chain_stats = {}
-    if hasattr(infos, "is_divergent"):
-        chain_stats["is_divergent"] = np.asarray(infos.is_divergent)
-    if hasattr(infos, "energy"):
-        chain_stats["energy"] = np.asarray(infos.energy)
-    if hasattr(infos, "acceptance_rate"):
-        chain_stats["acceptance_rate"] = np.asarray(infos.acceptance_rate)
-    if hasattr(infos, "num_integration_steps"):
-        chain_stats["num_integration_steps"] = np.asarray(infos.num_integration_steps)
+    for _fld in ("is_divergent", "energy", "acceptance_rate", "num_integration_steps"):
+        if hasattr(infos, _fld):
+            chain_stats[_fld] = np.asarray(jnp.swapaxes(getattr(infos, _fld), 0, 1))
 
     idata_result = samples_to_idata(
         positions_dict,
