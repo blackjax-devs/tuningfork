@@ -93,7 +93,7 @@
           "pass_hi": 2.0,
           "review_lo": 2.0,
           "review_hi": 4.0,
-          "frac_z2": 0.0
+          "frac_z2": 0.038461538461538464
         }
       },
       "gt_cert_coverage": "full_posterior"

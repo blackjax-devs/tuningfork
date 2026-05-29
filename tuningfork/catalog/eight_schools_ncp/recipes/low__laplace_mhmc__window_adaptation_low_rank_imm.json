@@ -7,7 +7,7 @@
     "step_size": 0.4873060882091522,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.011195086874067783,
+  "headline_metric": 0.021769736264594622,
   "sample_quality": {
     "mae_vs_reference": 0.008566623029672142,
     "q05_error": 0.06749364142308083,
@@ -94,7 +94,7 @@
           "pass_hi": 2.0,
           "review_lo": 2.0,
           "review_hi": 4.0,
-          "frac_z2": 0.0
+          "frac_z2": 0.5
         }
       },
       "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"

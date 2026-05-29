@@ -21,7 +21,7 @@
     "num_chains": 4,
     "target_acceptance": 0.8
   },
-  "headline_metric": 0.015304498374462128,
+  "headline_metric": 0.03398202764066426,
   "sample_quality": {
     "mae_vs_reference": 0.01125456460595875,
     "q05_error": 0.017459522607621295,

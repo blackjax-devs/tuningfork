@@ -16,7 +16,7 @@
       ]
     ]
   },
-  "headline_metric": 0.011882318183779716,
+  "headline_metric": 0.022983207318722856,
   "sample_quality": {
     "mae_vs_reference": 0.026816132609860197,
     "q05_error": 0.0591360473151316,
@@ -103,7 +103,7 @@
           "pass_hi": 2.0,
           "review_lo": 2.0,
           "review_hi": 4.0,
-          "frac_z2": 0.0
+          "frac_z2": 0.5
         }
       },
       "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
