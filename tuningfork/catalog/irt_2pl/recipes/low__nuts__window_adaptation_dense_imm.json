@@ -1,28 +1,27 @@
 {
   "model_name": "irt_2pl",
-  "base_method_name": "mhmc",
+  "base_method_name": "nuts",
   "effort": "low",
   "base_method_params": {
-    "num_integration_steps": 63,
-    "step_size": 0.06175672876020505,
+    "step_size": 0.16427991877867285,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.0018899894115880591,
+  "headline_metric": 0.0034569212617171293,
   "sample_quality": {
-    "mae_vs_reference": 0.06153799428539293,
-    "q05_error": 1.307741384581131,
-    "q95_error": 1.3566269845474588,
-    "std_ratio_max_dev": 0.8121971642949634
+    "mae_vs_reference": 0.07947722476186136,
+    "q05_error": 1.306222442150921,
+    "q95_error": 1.355726006100499,
+    "std_ratio_max_dev": 0.8127369425188293
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 29.90442328399513,
+    "wall_seconds_estimate": 91.51793690100021,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 13.882,
-    "sampling_wall_seconds": 15.989,
-    "sampling_seconds_per_draw": 0.003997,
+    "warmup_wall_seconds": 80.14,
+    "sampling_wall_seconds": 6.466,
+    "sampling_seconds_per_draw": 0.001617,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -37,34 +36,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mhmc(logdensity_fn, **{'num_integration_steps': 63, 'step_size': 0.06175672876020505, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0019.\nWall time to produce this recipe: ~29 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.16427991877867285, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0035.\nWall time to produce this recipe: ~91 s (machine-only).",
   "notes": "",
   "step_policy": null,
   "warmups": [
     {
-      "name": "window_adaptation_diag_imm",
+      "name": "window_adaptation_dense_imm",
       "params": {
         "n_warmup": 1000,
         "num_chains": 4,
-        "target_acceptance": 0.95
+        "target_acceptance": 0.8
       }
     }
   ],
-  "warmup_inner_kernel": "nuts",
+  "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
-  "inverse_mass_matrix_path": "irt_2pl/recipes/low__mhmc__window_adaptation_diag_imm__inner_nuts.imm.npz",
+  "inverse_mass_matrix_path": "irt_2pl/recipes/low__nuts__window_adaptation_dense_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0089383211487413,
-      "min_bulk_ess": 751.3661805679434,
-      "n_divergences": 0,
-      "max_abs_mean_z": 1.9928216618968675,
+      "rhat_max": 1.0040235806468356,
+      "min_bulk_ess": 573.443084603565,
+      "n_divergences": 3,
+      "max_abs_mean_z": 1.6893084831143144,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0089383211487413,
+          "value": 1.0040235806468356,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -72,7 +71,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 751.3661805679434,
+          "value": 573.443084603565,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -80,7 +79,7 @@
           "review_hi": 400.0
         },
         "n_divergences": {
-          "value": 0.0,
+          "value": 3.0,
           "band": "PASS",
           "pass_lo": 0,
           "pass_hi": 6,
@@ -88,7 +87,7 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 1.9928216618968675,
+          "value": 1.6893084831143144,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 2.0,
@@ -97,7 +96,6 @@
           "frac_z2": 0.0
         }
       },
-      "resonance_warning": false,
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
@@ -110,7 +108,7 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-29T16:05:40Z",
+  "timestamp_utc": "2026-05-29T15:54:55Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
