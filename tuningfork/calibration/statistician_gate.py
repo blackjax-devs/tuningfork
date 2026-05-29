@@ -133,6 +133,7 @@ class AutoGateVerdict:
     max_abs_mean_z: float | None
     verdict: str  # "PASS" | "REVIEW" | "FAIL"
     margins: dict  # per-threshold proximity info
+    resonance_warning: bool | None = None  # True when L × ε ≥ 5.5 (fixed-L HMC only)
 
     def to_dict(self) -> dict:
         """Render in the exact shape ``Recipe.gate_evidence['auto']`` expects.
@@ -142,8 +143,9 @@ class AutoGateVerdict:
         dict with keys:
             ``rhat_max``, ``min_bulk_ess``, ``n_divergences``,
             ``max_abs_mean_z``, ``verdict``, ``margins``.
+            ``resonance_warning`` included when not ``None``.
         """
-        return {
+        d = {
             "rhat_max": self.rhat_max,
             "min_bulk_ess": self.min_bulk_ess,
             "n_divergences": self.n_divergences,
@@ -151,6 +153,9 @@ class AutoGateVerdict:
             "verdict": self.verdict,
             "margins": self.margins,
         }
+        if self.resonance_warning is not None:
+            d["resonance_warning"] = self.resonance_warning
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +357,8 @@ def auto_gate(
     ground_truth_summaries: dict | None = None,
     posterior=None,
     n_chunks: int = 4,
+    step_size: float | None = None,
+    num_integration_steps: int | None = None,
 ) -> AutoGateVerdict:
     """Compute MCMC quality metrics and render a 3-band verdict.
 
@@ -378,6 +385,17 @@ def auto_gate(
     n_chunks
         For single-chain ``samples``, reshape into this many contiguous
         segments before computing split-R̂.  Default 4.
+    step_size
+        Adapted step size (ε) for fixed-L HMC kernels.  When both
+        ``step_size`` and ``num_integration_steps`` are provided, a resonance
+        check is performed: ``num_integration_steps × step_size ≥ 5.5``
+        (~12% of 2π) flags the trajectory as near a resonance zone where
+        fixed-L HMC can exhibit systematic per-dimension bias (see lesson
+        ``2026-05-29-fixed-L-hmc-resonance-at-2pi.md``).  Does **not** affect
+        the verdict — stored as ``AutoGateVerdict.resonance_warning``.
+    num_integration_steps
+        Fixed leapfrog step count L.  Required with ``step_size`` for the
+        resonance check.  Pass ``None`` for dynamic-L kernels (NUTS/dmhmc).
 
     Returns
     -------
@@ -433,12 +451,17 @@ def auto_gate(
 
     # --- max_abs_mean_z + frac_z2 ---
     max_abs_mean_z: float | None = None
-    # frac_z2: fraction of sites with |z| > 2; secondary diagnostic (never alters verdict).
-    # Distinguishes Bonferroni-noise REVIEW (low frac_z2 at high k, e.g. horseshoe k=204)
-    # from systematic-elevation REVIEW (high frac_z2).
+    # frac_z2: fraction of *scalar dimensions* with |z_d| > 2 across all sites,
+    # flattened.  Secondary diagnostic — never alters verdict.
+    # Amendment (2026-05-29): dimension-level granularity, not site-level.
+    # Site-level collapsed to {0,1} for single-vector-param models (e.g. mvn_10
+    # x: 10-D = 1 site × 10 dims) — uninformative.  See decision doc
+    # 2026-05-28-max-abs-mean-z-threshold.md § Amendment.
     _frac_z2: float | None = None
     if ground_truth_summaries is not None and mc_samples:
         z_values: list[float] = []
+        # Per-dimension z-scores accumulated across all sites for frac_z2.
+        _all_z_dim_scores: list[float] = []
         for name, arr in mc_samples.items():
             if name not in ground_truth_summaries:
                 continue
@@ -467,10 +490,26 @@ def auto_gate(
             denom = np.where(denom > 0, denom, 1.0)
             z_scores = np.abs(sample_mean - gt_mean) / denom
             z_values.append(float(np.max(np.asarray(z_scores))))
+            # Accumulate per-dimension z-scores for frac_z2 (dimension-level).
+            _all_z_dim_scores.extend(float(z) for z in np.asarray(z_scores).ravel())
 
         if z_values:
             max_abs_mean_z = float(max(z_values))
-            _frac_z2 = float(sum(1 for z in z_values if z > 2.0) / len(z_values))
+            # frac_z2: dimension-level (not site-level) — avoids {0,1} collapse
+            # for single-vector-param models like mvn_10 (1 site × 10 dims).
+            if _all_z_dim_scores:
+                _frac_z2 = float(
+                    sum(1 for z in _all_z_dim_scores if z > 2.0)
+                    / len(_all_z_dim_scores)
+                )
+
+    # --- Resonance warning (fixed-L HMC only; does not alter verdict) ---
+    # L × ε ≥ 5.5 (~12% of 2π ≈ 6.28) puts the trajectory in the resonance
+    # zone where fixed-L HMC can exhibit per-dimension systematic bias.
+    # Lesson: worklog/lessons/code-patterns/2026-05-29-fixed-L-hmc-resonance-at-2pi.md
+    _resonance_warning: bool | None = None
+    if step_size is not None and num_integration_steps is not None:
+        _resonance_warning = bool(num_integration_steps * step_size >= 5.5)
 
     # --- Classify each metric and accumulate verdict ---
     overall_verdict = "PASS"
@@ -517,4 +556,5 @@ def auto_gate(
         max_abs_mean_z=max_abs_mean_z,
         verdict=overall_verdict,
         margins=margins,
+        resonance_warning=_resonance_warning,
     )

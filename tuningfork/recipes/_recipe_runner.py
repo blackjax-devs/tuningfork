@@ -1023,6 +1023,10 @@ def emit_low_recipe_for_cell(
         )
 
     # --- Auto-gate ---
+    # Pass step_size + num_integration_steps for the resonance check (fixed-L
+    # HMC only; dynamic kernels have no fixed L, so NIS is absent from shared_kwargs).
+    _gate_chain0_ss = float(np.asarray(batched_step_size).ravel()[0])
+    _gate_nis: int | None = shared_kwargs.get("num_integration_steps")
     _log("  Running auto-gate...")
     gate_verdict = auto_gate(
         positions,
@@ -1030,6 +1034,8 @@ def emit_low_recipe_for_cell(
         ground_truth_summaries=_aligned_gt,
         posterior=posterior,
         n_chunks=n_chunks,
+        step_size=_gate_chain0_ss,
+        num_integration_steps=_gate_nis,
     )
     _log(
         f"  Gate: {gate_verdict.verdict}, "
@@ -1039,6 +1045,11 @@ def emit_low_recipe_for_cell(
         + (
             f", max_z={gate_verdict.max_abs_mean_z:.3f}"
             if gate_verdict.max_abs_mean_z is not None
+            else ""
+        )
+        + (
+            f", RESONANCE_WARN(L×ε={(_gate_nis or 0) * _gate_chain0_ss:.2f})"
+            if gate_verdict.resonance_warning
             else ""
         )
     )
