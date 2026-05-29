@@ -161,6 +161,10 @@ def _runner(
         warmup_keys, init_states
     )
 
+    # SYNC: block until vmapped tuning completes before host-materialising the
+    # step count.  Without this, int() goes through the buffer protocol on an
+    # unsynced JAX future — same deadlock risk as the calibration/ subtree.
+    jax.block_until_ready((states, adaptation_states, total_tuning_steps_per_chain))
     # total_tuning_steps is the same for all chains (same num_steps).
     # Take the value from chain 0 and convert to Python int.
     total_tuning_steps = int(jnp.asarray(total_tuning_steps_per_chain)[0])

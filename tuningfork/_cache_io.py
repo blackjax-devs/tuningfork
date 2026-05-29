@@ -588,6 +588,9 @@ def get_reference_draws(
     # Time the regeneration to populate metadata.wall_time_seconds. The clock
     # encloses both analytic and NUTS branches, including the on-failure
     # persistence path (so wall is captured even when cert fails).
+    # KEEP: timing is honest because _regenerate_nuts / _regenerate_analytic both
+    # call jax.block_until_ready internally before returning — the wall stamp at
+    # line ~678 measures true compute wall, not dispatch latency.
     import time as _time
 
     _t0 = _time.perf_counter()
