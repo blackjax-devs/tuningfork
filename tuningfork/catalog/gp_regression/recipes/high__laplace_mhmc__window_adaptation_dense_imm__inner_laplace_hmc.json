@@ -34,16 +34,16 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 2528.5,
+    "wall_seconds_estimate": 3681.3,
     "n_warmup_phase1": 500,
     "n_warmup_phase2": 200,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 645.8,
-    "sampling_wall_seconds": 1877.0,
-    "sampling_seconds_per_draw": 0.4693,
+    "warmup_wall_seconds": 981.7,
+    "sampling_wall_seconds": 2697.0,
+    "sampling_seconds_per_draw": 0.6743,
     "split_source": "measured",
-    "split_note": "Reflects the 1000 samples/chain x 4 chains production run (TL, 2026-05-27), NOT the 80-sample benchmark. run1: warmup=645.8s, sampling=1877.0s (0.469 s/draw); run2: warmup=748.2s, sampling=1694.5s (0.424 s/draw); both n_div=0, mean_accept=0.964. MCMC wall varies ~+/-15% run-to-run; stored=run1. NOTE: gate_evidence R-hat/ESS + the ESS/s headline (instructions/notes) are still from the 80-sample timing-run benchmark - a 1000x4 run using the new R-hat/ESS postamble is needed to refresh the quality metrics at production scale.",
+    "split_note": "PR #81 canonical re-cert (2026-05-29): single-chain warmup [1,1], maxiter=400/maxcor=20, seed=20260517. warmup=981.7s, sampling=2697.0s (0.6743 s/draw-chain). Previous timing (2026-05-27, run1): warmup=645.8s, sampling=1877.0s used maxiter=500/maxcor=10 with a different warmup path; inconsistency removed here. Both runs used warmup_num_chains=[1,1].",
     "machine_info": {
       "cpu_model": "x86_64",
       "cpu_count_logical": 8,
@@ -174,7 +174,7 @@
   "tuningfork_version": "0.0.0.dev0",
   "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-25T00:00:00Z",
+  "timestamp_utc": "2026-05-29T15:00:00Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
