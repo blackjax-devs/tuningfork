@@ -25,8 +25,13 @@
       ]
     ]
   },
-  "headline_metric": 0.032319,
-  "sample_quality": null,
+  "headline_metric": 0.0008191125041636329,
+  "sample_quality": {
+    "mae_vs_reference": 0.03306431161907572,
+    "q05_error": 0.11944288318820585,
+    "q95_error": 0.04561281095214067,
+    "std_ratio_max_dev": 0.038225979571668844
+  },
   "calibration_budget": {
     "trials": 0,
     "wall_seconds_estimate": 2528.5,
@@ -89,11 +94,11 @@
   "workflow": "Arc expA\u2013expJ (2026-05-xx to 2026-05-25) in worklog/threads/gp-regression-laplace-factorisation.md.\n\n**Problem**: gp_regression (d=200 RBF kernel, N=10 obs, d_phi=3 hyperparams) fails ALL conventional warmup\u00d7sampler LOW/MEDIUM cells. Root causes: correlated 3-param geometry (ridge corr\u22480.8 between log_kernel_scale \u00d7 log_lengthscale), tiny phi-space (d_phi=3 embedded in d=200), and strong funnel-like coupling between latent function f and kernel hyperparams.\n\n**Approach**: Laplace-marginal factorisation. blackjax.laplace_mhmc integrates out f analytically via a warm-started L-BFGS Laplace approximation at each HMC step, reducing the effective sample space from d=203 to d_phi=3. This enables dense IMM adaptation to capture the ridge geometry.\n\n**Two-phase warmup rationale**:\n- Phase 1 (window_adaptation_diag_imm, n=500, maxiter=100): L-BFGS maxiter=100 is sufficient for traversal to the typical set; maxiter=500 is 4\u00d7 slower and unnecessary while the chain is far from stationarity. Diagonal IMM only.\n- Phase 2 (window_adaptation_dense_imm, n=200, maxiter=500): Once in the typical set, upgrade to maxiter=500 for accurate Hessian evaluations and enable Welford accumulation of the full 3\u00d73 dense IMM.\n\n**Key findings from expJ (confirming run, 2026-05-25)**:\n- Phase 1 wall: 525.7 s (L=10, n=500, diag IMM) \u2014 structural gate PASS (\u226460% of 968 s baseline)\n- Phase 2 step_size: 0.59492 (L=5, n=200, dense IMM)\n- IMM 3\u00d73 ridge corr: 0.791 (log_kernel_scale \u00d7 log_lengthscale correlation captured)\n- Sampling (4 chains \u00d7 80 samples): min_ESS=258.55, R-hat=0.9977, n_div=0\n- ESS/s (sampling-only): 1.848 (\u22651.1 floor, typical 1.4 stamp confirmed)\n- NUTS comparison (expI): laplace_mhmc 2.02\u00d7 intrinsic, 3.40\u00d7 with 4-chain vmap\n\n**N-scaling**: Both NUTS and laplace_mhmc cost O(N\u00b3) per step (Cholesky VJP dominates). The ~5\u00d7 per-step speedup is N-scale-invariant for N\u2208[100,500].",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0025,
-      "min_bulk_ess": 606.82,
+      "rhat_max": 1.0014385596342807,
+      "min_bulk_ess": 1224.5355145494398,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.49,
-      "verdict": "PASS",
+      "max_abs_mean_z": 2.014428617801301,
+      "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
           "value": 1.0025,
@@ -129,7 +134,7 @@
           "pass_lo": 0.0,
           "pass_hi": 2.0,
           "note": "First recipe in corpus to populate max_abs_mean_z (pilots the P0 GT-cert gap thread). z=1.49 for log_lengthscale is the max; all three phi params within |z|<2 threshold.",
-          "frac_z2": null,
+          "frac_z2": 0.3333333333333333,
           "frac_z2_note": "not recomputed at dimension-level \u2014 no draws cache, re-run cost-prohibitive"
         }
       },
@@ -147,7 +152,9 @@
         "timestamp_utc": "2026-05-28T11:58:35Z",
         "runner": "run_recipe_to_idata",
         "note": "Official production recert via run_recipe_to_idata path. ESS/s floor 0.28 (sampling-only), amortized 0.19, ~11.3x NUTS amortized. Source: /tmp/recert_results.json."
-      }
+      },
+      "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)",
+      "lbfgs_mean_iter_num": 62.28975
     },
     "history": {
       "previous_override": {

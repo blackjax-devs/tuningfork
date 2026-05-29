@@ -2110,6 +2110,7 @@ def run_recipe_to_idata(
         "acceptance_rate",
         "num_integration_steps",
         "lbfgs_iter_num",
+        "lbfgs_hit_maxiter",  # laplace-family: flag for truncated θ* solves
     ):
         if hasattr(infos, _fld):
             chain_stats[_fld] = np.asarray(jnp.swapaxes(getattr(infos, _fld), 0, 1))
