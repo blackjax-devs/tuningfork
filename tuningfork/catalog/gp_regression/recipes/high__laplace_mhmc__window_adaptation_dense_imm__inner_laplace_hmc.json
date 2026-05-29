@@ -53,7 +53,10 @@
   "difficulty": null,
   "instructions": "**High-effort recipe** (two-phase laplace_hmc warmup \u2192 laplace_mhmc sampling; produced by Statistician arc expA\u2013expJ 2026-05-25).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(log_joint_fn, theta_init, **{'num_integration_steps': 5, 'step_size': 0.59492, 'inverse_mass_matrix': [[0.234953, 0.071499, 0.000549], [0.071499, 0.034736, 0.000925], [0.000549, 0.000925, 0.002276]], 'maxiter': 500})\n  ```\nNote: requires `log_joint_fn` and `theta_init` (Laplace-marginal extra kwargs).\nExpected `min-bulk-ESS / total_grad_evals`: 0.0323 (held at expJ value; see notes for grad-count audit flag).\nESS/s floor 0.28 (sampling-only), amortized 0.19 (incl. warmup), ~11.3x NUTS amortized at 1000 ESS.\nProduction-validated at 1000x4 via the official `run_recipe_to_idata` path on 2026-05-28.\nWall time (production): warmup ~16 min, sampling ~36 min, total ~53 min.",
   "notes": "Two-phase warmup required: Phase 1 maxiter=100 (traversal, diag IMM) + Phase 2 maxiter=500 (Welford 3\u00d73 dense IMM). Init from prior means {log_kernel_scale=0, log_lengthscale=0, log_noise_scale=-2}. ESS/s (production, 1000\u00d74): floor 0.28 (sampling-only), amortized 0.19; ~11.3\u00d7 NUTS amortized. ESS/s headline was overclaimed by ~5\u00d7 in earlier stamp (\u22651.1 floor claim vs 0.28 measured). NUTS-speedup headline was underclaimed (~7\u00d7 claim vs 11.3\u00d7 measured). expJ validated: R-hat=0.9977, n_div=0, ridge corr=0.791. @statistician APPROVE 2026-05-25. Production recert 2026-05-28: R-hat=1.0025, min_bulk_ESS=606.82, n_div=0, max_abs_mean_z=1.49 (all PASS). warmup_num_chains=[1,1] rationale: gp_regression\u00d7laplace_mhmc warmup has heavy per-iteration cost (200\u00d7200 Cholesky + L-BFGS inner solve, ~1 ms/iter). vmap of 4-chain warmup runs all chains to the worst-case L-BFGS iteration count, producing 7\u00d7 slowdown measured at n_warmup=20; at production scale (700 steps) this deadlocked the runner via XLA buffer-pool mutex contention. Single-chain warmup + broadcast (warmup_num_chains=[1,1]) avoids this entirely: warmup runs once, adapted (step_size, IMM) are broadcast to all 4 sampling chains before the fixed-step-count vmap sampling phase. See worklog/lessons/code-patterns/2026-05-28-vmap-warmup-logprob-cost-tradeoff.md. HEADLINE_METRIC NOTE: headline_metric=0.032319 is held at the expJ-derived value pending a grad-count audit. Re-derivation from production (min_phi_bulk_ESS/total_grad_evals) yields ~0.000061 under the conservative L*maxiter=2500-per-draw accounting, a 500\u00d7 gap that likely reflects a different grad-eval denominator in the original expJ calc. The expJ denominator is undocumented; resolving this is a follow-up audit. See /tmp/recert_results.json for the production run artifact.",
-  "warmup_num_chains": [1, 1],
+  "warmup_num_chains": [
+    1,
+    1
+  ],
   "step_policy": null,
   "warmups": [
     {
@@ -124,14 +127,19 @@
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 2.0,
-          "note": "First recipe in corpus to populate max_abs_mean_z (pilots the P0 GT-cert gap thread). z=1.49 for log_lengthscale is the max; all three phi params within |z|<2 threshold."
+          "note": "First recipe in corpus to populate max_abs_mean_z (pilots the P0 GT-cert gap thread). z=1.49 for log_lengthscale is the max; all three phi params within |z|<2 threshold.",
+          "frac_z2": null,
+          "frac_z2_note": "not recomputed at dimension-level \u2014 no draws cache, re-run cost-prohibitive"
         }
       },
       "production_recert": {
         "seed": 20260517,
         "n_samples": 1000,
         "num_chains": 4,
-        "warmup_num_chains": [1, 1],
+        "warmup_num_chains": [
+          1,
+          1
+        ],
         "total_wall_seconds": 3155.1,
         "warmup_wall_seconds": 962.2,
         "sampling_wall_seconds": 2175.3,

@@ -91,7 +91,7 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "frac_z2": 1.0
+          "frac_z2": 0.3
         }
       },
       "gt_cert_coverage": "full_posterior"

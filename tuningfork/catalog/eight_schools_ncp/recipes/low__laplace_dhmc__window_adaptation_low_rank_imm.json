@@ -6,7 +6,7 @@
     "step_size": 0.4873060882091522,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.019494079053401947,
+  "headline_metric": 0.03624081172314526,
   "sample_quality": {
     "mae_vs_reference": 0.011589014175225178,
     "q05_error": 0.08130718415522808,

@@ -79,6 +79,9 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "frac_z2": 0.09027777777777778
         }
       },
       "gt_cert_coverage": "full_posterior"

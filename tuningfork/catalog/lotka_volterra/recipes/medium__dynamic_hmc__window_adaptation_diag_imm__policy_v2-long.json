@@ -93,7 +93,8 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "frac_z2": 0.0
+          "frac_z2": null,
+          "frac_z2_note": "not recomputed at dimension-level \u2014 no draws cache, re-run cost-prohibitive"
         }
       },
       "gt_cert_coverage": "full_posterior"

@@ -15,7 +15,7 @@
       ]
     ]
   },
-  "headline_metric": 0.005251717753708363,
+  "headline_metric": 0.010220061086385138,
   "sample_quality": {
     "mae_vs_reference": 0.032148435908645655,
     "q05_error": 0.21892911207735402,
