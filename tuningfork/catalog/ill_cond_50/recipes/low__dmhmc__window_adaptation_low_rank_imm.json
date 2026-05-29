@@ -1,0 +1,189 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "dmhmc",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 0.07900717854499817,
+    "inverse_mass_matrix": [
+      170.4248504638672,
+      182.3411865234375,
+      179.16510009765625,
+      202.00958251953125,
+      159.156982421875,
+      165.55918884277344,
+      115.4323959350586,
+      212.0965576171875,
+      106.4245834350586,
+      101.70252990722656,
+      124.37973022460938,
+      120.98696899414062,
+      205.09678649902344,
+      124.27607727050781,
+      221.6370849609375,
+      148.26437377929688,
+      209.51168823242188,
+      154.77877807617188,
+      234.83370971679688,
+      117.4900894165039,
+      222.66921997070312,
+      127.93892669677734,
+      183.85964965820312,
+      156.34237670898438,
+      164.49903869628906,
+      122.58295440673828,
+      55.385921478271484,
+      106.09539031982422,
+      136.6122283935547,
+      62.88218688964844,
+      78.61116027832031,
+      147.5311737060547,
+      115.42570495605469,
+      150.878662109375,
+      171.254638671875,
+      160.9171142578125,
+      79.50353240966797,
+      154.29933166503906,
+      64.40007019042969,
+      210.05624389648438,
+      177.73611450195312,
+      93.85675811767578,
+      129.68154907226562,
+      101.9157485961914,
+      226.5569610595703,
+      74.23688507080078,
+      146.3448944091797,
+      120.84547424316406,
+      107.78114318847656,
+      190.56948852539062
+    ]
+  },
+  "headline_metric": 0.004887833259999752,
+  "sample_quality": {
+    "mae_vs_reference": 0.001880914849891971,
+    "q05_error": 1.4193371501164829,
+    "q95_error": 1.421051221081299,
+    "std_ratio_max_dev": 0.8654728106836236
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 4.746169752004789,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 2.886,
+    "sampling_wall_seconds": 1.827,
+    "sampling_seconds_per_draw": 0.000457,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev84+g0ef2f578a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, dmhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dmhmc(logdensity_fn, **{'step_size': 0.07900717854499817, 'inverse_mass_matrix': [170.4248504638672, 182.3411865234375, 179.16510009765625, 202.00958251953125, 159.156982421875, 165.55918884277344, 115.4323959350586, 212.0965576171875, 106.4245834350586, 101.70252990722656, 124.37973022460938, 120.98696899414062, 205.09678649902344, 124.27607727050781, 221.6370849609375, 148.26437377929688, 209.51168823242188, 154.77877807617188, 234.83370971679688, 117.4900894165039, 222.66921997070312, 127.93892669677734, 183.85964965820312, 156.34237670898438, 164.49903869628906, 122.58295440673828, 55.385921478271484, 106.09539031982422, 136.6122283935547, 62.88218688964844, 78.61116027832031, 147.5311737060547, 115.42570495605469, 150.878662109375, 171.254638671875, 160.9171142578125, 79.50353240966797, 154.29933166503906, 64.40007019042969, 210.05624389648438, 177.73611450195312, 93.85675811767578, 129.68154907226562, 101.9157485961914, 226.5569610595703, 74.23688507080078, 146.3448944091797, 120.84547424316406, 107.78114318847656, 190.56948852539062]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0049.\nWall time to produce this recipe: ~4 s (machine-only).",
+  "notes": "",
+  "step_policy": {
+    "kind": "empirical",
+    "values": [
+      16,
+      48,
+      80,
+      112,
+      144,
+      176,
+      240,
+      496,
+      752
+    ],
+    "weights": [
+      0.11625,
+      0.587,
+      0.00575,
+      0.23925,
+      0.0005,
+      0.0025,
+      0.04125,
+      0.00725,
+      0.00025
+    ]
+  },
+  "warmups": [
+    {
+      "name": "window_adaptation_low_rank_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": "nuts",
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0045308742688648,
+      "min_bulk_ess": 1452.0034408801391,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.099861257004457,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0045308742688648,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 1452.0034408801391,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.099861257004457,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-29T15:27:06Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
