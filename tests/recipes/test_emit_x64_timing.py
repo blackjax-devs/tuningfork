@@ -247,11 +247,13 @@ def test_emitted_script_prints_timing_split() -> None:
 
 
 def test_emitted_script_has_block_until_ready_in_postamble() -> None:
-    """Postamble calls jax.block_until_ready(_samples) before measuring sampling time.
+    """Postamble calls jax.block_until_ready((_samples, _infos)) before timing + diagnostics.
 
     Without block_until_ready, JAX async dispatch means perf_counter() measures
-    kernel dispatch latency (microseconds) rather than actual computation time.
-    This test ensures the postamble has the barrier call before the timing stamp.
+    kernel dispatch latency (microseconds) rather than actual computation time, and
+    int()/float() on _infos fields go through the buffer protocol on an unsynced
+    JAX future (deadlock risk under buffer-pool contention).
+    The barrier syncs both _samples and _infos before any host materialisation.
     """
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     if recipe_path.exists():
@@ -261,10 +263,10 @@ def test_emitted_script_has_block_until_ready_in_postamble() -> None:
 
     script = emit_script(recipe, num_samples=10)
 
-    assert "jax.block_until_ready(_samples)" in script, (
-        "Emitted script postamble is missing 'jax.block_until_ready(_samples)'.\n"
-        "Without this barrier, the sampling_wall_seconds measurement is unreliable "
-        "(JAX async dispatch makes perf_counter() measure dispatch, not compute time)."
+    assert "jax.block_until_ready((_samples, _infos))" in script, (
+        "Emitted script postamble is missing 'jax.block_until_ready((_samples, _infos))'.\n"
+        "Without this barrier, sampling_wall_seconds is unreliable and int()/float() on "
+        "_infos fields may deadlock under buffer-pool contention."
     )
 
 

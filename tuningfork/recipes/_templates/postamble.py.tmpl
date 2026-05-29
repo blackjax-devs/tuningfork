@@ -1,3 +1,17 @@
+# SYNC: block until sampling scan completes before any host materialisation.
+# Syncs both _samples (positions) and _infos (diagnostics) — they are outputs
+# of the same jax.lax.scan and must be fully realised before int()/float()
+# calls below or before stamping the wall clock.  Without this, int(jnp.sum(
+# _infos.is_divergent)) would force sync via the buffer protocol under
+# buffer-pool contention (same deadlock pattern as the gp_regression recert
+# hang, 2026-05-28).
+jax.block_until_ready((_samples, _infos))
+
+# Timing split: warmup vs sampling — stamped immediately after the sync so the
+# clock captures actual compute wall, not dispatch latency.
+_sampling_wall = _recipe_time.perf_counter() - _warmup_t1
+_recipe_wall = _recipe_time.perf_counter() - _recipe_t0
+
 # Print headline diagnostics for verification.
 # Different sampler families have different Info namedtuples; we check what
 # fields are available rather than hardcoding.  The postamble is a coarse gate
@@ -11,14 +25,6 @@ if hasattr(_infos, "acceptance_rate"):
     _acceptance = float(jnp.mean(_infos.acceptance_rate))
 elif hasattr(_infos, "is_accepted"):
     _acceptance = float(jnp.mean(_infos.is_accepted))
-
-# Timing split: warmup vs sampling.
-# jax.block_until_ready ensures async dispatch has completed before we stamp
-# the sampling end time (JAX dispatches kernels asynchronously by default, so
-# perf_counter() without a block would measure dispatch time, not wall time).
-jax.block_until_ready(_samples)
-_sampling_wall = _recipe_time.perf_counter() - _warmup_t1
-_recipe_wall = _recipe_time.perf_counter() - _recipe_t0
 
 # ---------------------------------------------------------------------------
 # Persist draws as .npz — no external library dependency.
