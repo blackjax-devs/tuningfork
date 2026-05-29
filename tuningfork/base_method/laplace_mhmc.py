@@ -35,7 +35,7 @@ Grad cost approximation
 -----------------------
 Same approximation as ``laplace_hmc``::
 
-    grad_count_per_step = lambda info: jnp.asarray(info.num_integration_steps * 5)
+    grad_count_per_step = _laplace_grad_count
 
 ``extra_required_kwargs=("log_joint_fn", "theta_init")``: the standard
 ``no_warmup`` runner raises ``NotImplementedError`` for this method.
@@ -52,6 +52,16 @@ from typing import Any
 
 import blackjax
 import jax.numpy as jnp
+
+try:
+    from blackjax.mcmc.laplace_marginal import (
+        laplace_lbfgs_grad_evals as _laplace_grad_count,
+    )
+except ImportError:
+
+    def _laplace_grad_count(info):  # type: ignore[misc]
+        return jnp.asarray(info.num_integration_steps * 5)
+
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 
@@ -116,8 +126,8 @@ ENTRY = BaseMethod(
     name="laplace_mhmc",
     family="mcmc",
     factory=_factory,
-    # Grad cost approximation: num_integration_steps * ~5 inner L-BFGS grads.
-    grad_count_per_step=lambda info: jnp.asarray(info.num_integration_steps * 5),
+    # Grad cost: (num_integration_steps + 1) × lbfgs_iter_num — measured proxy.
+    grad_count_per_step=_laplace_grad_count,
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
         HyperparamSpace("num_integration_steps", "int", low=1, high=20),

@@ -2,7 +2,7 @@
   "model_name": "german_credit",
   "base_method_name": "hmc",
   "warmup_name": "window_adaptation_dense_imm",
-  "effort": "low",
+  "effort": "failed",
   "base_method_params": {
     "num_integration_steps": 64,
     "step_size": 0.7333482503890991,
@@ -38,8 +38,8 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.hmc(logdensity_fn, **{'num_integration_steps': 64, 'step_size': 0.7333482503890991, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0017.\nWall time to produce this recipe: ~12 s (machine-only).",
-  "notes": "",
+  "instructions": "**FAILED** — dense 26×26 Welford IMM warmup non-reproducible at practical n_warmup. See failure_diagnosis.",
+  "notes": "revisit_as: medium — candidate for a future MEDIUM-effort recipe (more warmup budget / alternate warmup / NUTS); not permanently abandoned.",
   "inverse_mass_matrix_path": "german_credit/recipes/low__hmc__window_adaptation_dense_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
@@ -88,7 +88,28 @@
   "blackjax_version": "1.6.dev80+ge324e92b3",
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-19T22:09:06Z",
-  "failure_diagnosis": null,
-  "attempted_configurations": [],
+  "failure_diagnosis": "Dense 26×26 Welford IMM warmup non-reproducible at practical n_warmup. PASS was only obtained at the original emit seed (n_warmup=1000, ta=0.8, L=64); all re-runs at varied seeds/budgets failed to reproduce. The dense IMM family for german_credit is covered by the PASSING low__dynamic_hmc__window_adaptation_dense_imm recipe. Marked FAILED per statistician REVIEW deep-dive (B3) + @user confirmation (2026-05-29).",
+  "attempted_configurations": [
+    {
+      "config": {"num_integration_steps": 64, "target_acceptance": 0.8, "n_warmup": 1000},
+      "verdict": "PASS",
+      "note": "Original emit seed only; ESS=437"
+    },
+    {
+      "config": {"num_integration_steps": 64, "target_acceptance": 0.95, "n_warmup": 2000},
+      "verdict": "FAIL",
+      "note": "B3 re-emit; ESS=67"
+    },
+    {
+      "config": {"num_integration_steps": 10, "target_acceptance": 0.8, "n_warmup": 3000},
+      "verdict": "FAIL",
+      "note": "E1 short-L; ESS=28"
+    },
+    {
+      "config": {"num_integration_steps": 64, "target_acceptance": 0.8, "n_warmup": 5000},
+      "verdict": "REVIEW",
+      "note": "E2 high-budget; ESS=161"
+    }
+  ],
   "warmup_num_chains": null
 }
