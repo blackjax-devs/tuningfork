@@ -1,28 +1,27 @@
 {
   "model_name": "ill_cond_50",
   "base_method_name": "nuts",
-  "warmup_name": "window_adaptation_low_rank_imm",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.0771903544664383,
+    "step_size": 0.024454161524772644,
     "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.0017727706581354141,
+  "sample_quality": {
+    "mae_vs_reference": 0.0032343412825720447,
+    "q05_error": 1.4252677993494496,
+    "q95_error": 1.4219228970359172,
+    "std_ratio_max_dev": 0.8635338729917411
   },
-  "headline_metric": 0.006603727582842112,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 10.844482668995624,
-    "n_warmup": 1000,
+    "wall_seconds_estimate": 28.05490515600104,
+    "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 5.078,
-    "sampling_wall_seconds": 1.035,
-    "sampling_seconds_per_draw": 0.000259,
+    "warmup_wall_seconds": 18.731,
+    "sampling_wall_seconds": 8.276,
+    "sampling_seconds_per_draw": 0.002069,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -37,20 +36,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.0771903544664383, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0066.\nWall time to produce this recipe: ~10 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.024454161524772644, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0018.\nWall time to produce this recipe: ~28 s (machine-only).",
   "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_low_rank_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.99
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.003508085828322,
-      "min_bulk_ess": 3285.495994210214,
+      "rhat_max": 1.003188522802809,
+      "min_bulk_ess": 2927.353021232575,
       "n_divergences": 0,
-      "max_abs_mean_z": 3.328,
+      "max_abs_mean_z": 1.3354700976484768,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.003508085828322,
+          "value": 1.003188522802809,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -58,7 +71,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 3285.495994210214,
+          "value": 2927.353021232575,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -72,6 +85,15 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.3354700976484768,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
       },
       "gt_cert_coverage": "full_posterior"
@@ -84,10 +106,9 @@
   },
   "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
+  "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-20T15:29:52Z",
+  "timestamp_utc": "2026-05-29T04:55:19Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [],
-  "warmup_num_chains": null
+  "attempted_configurations": []
 }
