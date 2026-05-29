@@ -1,44 +1,37 @@
 {
   "model_name": "eight_schools_ncp",
   "base_method_name": "laplace_dmhmc",
-  "warmup_name": "window_adaptation_dense_imm",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.6166571974754333,
+    "step_size": 0.3123078942298889,
     "inverse_mass_matrix": [
       [
-        12.023087501525879,
-        -0.038633499294519424
+        11.7457275390625,
+        -0.43967950344085693
       ],
       [
-        -0.038633499294519424,
-        1.3869810104370117
+        -0.4396795630455017,
+        0.9145910143852234
       ]
     ]
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
-  },
-  "headline_metric": 0.014668712392449379,
+  "headline_metric": 0.005251717753708363,
   "sample_quality": {
-    "mae_vs_reference": 0.06282247647747101,
-    "q05_error": 0.1406454991774234,
-    "q95_error": 0.08360754204722072,
-    "std_ratio_max_dev": 0.11454751598486146
+    "mae_vs_reference": 0.032148435908645655,
+    "q05_error": 0.21892911207735402,
+    "q95_error": 0.04271607586507647,
+    "std_ratio_max_dev": 0.022254360507243054
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 13.912,
+    "wall_seconds_estimate": 29.026556649994745,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 4.014,
-    "sampling_wall_seconds": 9.898,
-    "sampling_seconds_per_draw": 0.002475,
+    "warmup_wall_seconds": 21.402,
+    "sampling_wall_seconds": 4.533,
+    "sampling_seconds_per_draw": 0.001133,
     "split_source": "measured",
-    "split_note": "Measured at emit seed 20260517. n_div=0, rhat_max=1.0006 < 1.01. Seed-fragile: recipe diverges at derived tuning_seed 4089912102 (NUTS max-tree expansion on laplace marginal \u2192 step collapse \u2192 25% divergence rate).",
     "machine_info": {
       "cpu_model": "x86_64",
       "cpu_count_logical": 8,
@@ -52,21 +45,34 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, laplace_dmhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_dmhmc(logdensity_fn, **{'step_size': 0.6166571974754333, 'inverse_mass_matrix': [[12.023087501525879, -0.038633499294519424], [-0.038633499294519424, 1.3869810104370117]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0147.\nWall time to produce this recipe: ~13 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, laplace_dmhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_dmhmc(logdensity_fn, **{'step_size': 0.3123078942298889, 'inverse_mass_matrix': [[11.7457275390625, -0.43967950344085693], [-0.4396795630455017, 0.9145910143852234]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0053.\nWall time to produce this recipe: ~29 s (machine-only).",
   "notes": "",
   "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.99
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0059190280978145,
-      "min_bulk_ess": 1946.2418236008737,
+      "rhat_max": 1.0098956226649471,
+      "min_bulk_ess": 731.1108522894833,
       "n_divergences": 0,
-      "max_abs_mean_z": 2.486962084574789,
+      "max_abs_mean_z": 0.8891598933175692,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0059190280978145,
+          "value": 1.0098956226649471,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -74,7 +80,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 1946.2418236008737,
+          "value": 731.1108522894833,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -90,7 +96,13 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "frac_z2": 0.5
+          "value": 0.8891598933175692,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
         }
       },
       "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
@@ -101,12 +113,11 @@
       "decision": ""
     }
   },
-  "tuning_seed": 4089912102,
+  "tuning_seed": 682737,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev81+ga8998469a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-21T04:19:20Z",
+  "timestamp_utc": "2026-05-29T06:55:34Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [],
-  "warmup_num_chains": null
+  "attempted_configurations": []
 }
