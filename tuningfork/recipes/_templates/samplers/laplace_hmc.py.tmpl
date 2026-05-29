@@ -7,7 +7,7 @@ _flat_phi_init, _ = _ravel_pytree(init_position)
 _n_phi = int(_flat_phi_init.shape[0])
 
 _num_steps = $bm_num_integration_steps
-_maxiter = $bm_maxiter
+_optimizer_kwargs = $bm_optimizer_kwargs_expr  # e.g. {"maxiter": 30} or {"maxiter": 400, "maxcor": 20}
 _default_step_size = $bm_step_size
 _default_imm = jnp.ones(_n_phi)
 
@@ -19,7 +19,7 @@ def _build_kernel(step_size, inverse_mass_matrix):
         step_size=step_size,
         inverse_mass_matrix=inverse_mass_matrix,
         num_integration_steps=_num_steps,
-        maxiter=_maxiter,
+        **_optimizer_kwargs,
     ).step
 
 
@@ -39,5 +39,5 @@ except NameError:
         step_size=_default_step_size,
         inverse_mass_matrix=_default_imm,
         num_integration_steps=_num_steps,
-        maxiter=_maxiter,
+        **_optimizer_kwargs,
     ).init(init_position)

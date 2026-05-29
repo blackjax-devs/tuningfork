@@ -983,9 +983,10 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
     """Emitted laplace HIGH script contains the two-phase warmup structure.
 
     The HIGH gp_regression × laplace_mhmc recipe uses a two-phase warmup:
-    Phase 1 (diag IMM, maxiter=100) + Phase 2 (dense IMM, maxiter=500).
-    Verifies that both phases appear in the emitted script and that the
-    LaplaceMarginal factories are distinct (different maxiter values).
+    Phase 1 (diag IMM, maxiter=100) + Phase 2 (dense IMM, maxiter=400, maxcor=20).
+    Verifies that both phases appear in the emitted script, that the
+    LaplaceMarginal factories are distinct (different maxiter values), and that
+    the per-model maxcor=20 is reproduced in all factory calls.
     """
     if not _LAPLACE_HIGH_RECIPE_PATH.exists():
         pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
@@ -1001,9 +1002,15 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
         "_warmup_p2" in script
     ), "Phase 2 warmup (`_warmup_p2`) not found in emitted script"
 
-    # Phase 1 uses maxiter=100, Phase 2 uses maxiter=500 (from the recipe JSON).
+    # Phase 1 uses maxiter=100, Phase 2 uses maxiter=400 (from the recipe JSON).
     assert "maxiter=100" in script, "Expected maxiter=100 (Phase 1) in emitted script"
-    assert "maxiter=500" in script, "Expected maxiter=500 (Phase 2) in emitted script"
+    assert "maxiter=400" in script, "Expected maxiter=400 (Phase 2) in emitted script"
+
+    # maxcor=20 must be reproduced (per-model optimizer kwarg for 203-d L-BFGS convergence).
+    assert "maxcor=20" in script, (
+        "Expected maxcor=20 in emitted script — per-model optimizer kwarg for "
+        "gp_regression (203-d Cholesky L-BFGS needs maxcor=20 to converge)."
+    )
 
     # Phase 2 uses dense IMM (is_mass_matrix_diagonal=False).
     assert "is_mass_matrix_diagonal=False" in script, (
@@ -1016,6 +1023,60 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
         "Expected `_initial_step_size_p2` in emitted script "
         "(Phase 2 DA should be warm-started from Phase 1 adapted step_size)."
     )
+
+
+@pytest.mark.fast
+def test_emit_script_laplace_optimizer_kwargs_persisted() -> None:
+    """emit_script reproduces all optimizer_kwargs stored in base_method_params.
+
+    Regression for the optimizer_kwargs plumbing: recipes that store maxcor (or
+    other minimize_lbfgs kwargs) in base_method_params must reproduce them in the
+    emitted script's sampler section and LaplaceMarginal factory calls.
+
+    Uses a synthetic gp_regression recipe with maxiter=400 + maxcor=20 to verify
+    that both are in the emitted script — the same config needed for honest gp
+    HIGH convergence (203-d Cholesky L-BFGS needs maxcor=20, maxiter=400).
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+    from tuningfork.recipes._emit_script import emit_script
+
+    recipe = Recipe(
+        model_name="gp_regression",
+        base_method_name="laplace_mhmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={
+            "num_integration_steps": 5,
+            "step_size": 0.5,
+            "inverse_mass_matrix": [1.0, 1.0, 1.0],
+            "maxiter": 400,
+            "maxcor": 20,
+        },
+        warmup_params={"n_warmup": 100, "num_chains": 4, "target_acceptance": 0.8},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"trials": 0, "wall_seconds_estimate": 1.0},
+        difficulty=None,
+        instructions="test",
+    )
+
+    script = emit_script(recipe, num_samples=10, num_chains=2)
+
+    # sampler template must use optimizer_kwargs dict (not individual maxiter arg)
+    assert "_optimizer_kwargs" in script, (
+        "Emitted script missing _optimizer_kwargs — laplace sampler template "
+        "should use $bm_optimizer_kwargs_expr to pass all optimizer kwargs."
+    )
+    # Both maxiter and maxcor must appear in the sampler section
+    assert "maxiter" in script, "maxiter not reproduced in emitted script"
+    assert "maxcor" in script, "maxcor not reproduced in emitted script"
+    # The exact values must be present (not just the key names)
+    assert "400" in script, "maxiter=400 value not in emitted script"
+    assert "20" in script, "maxcor=20 value not in emitted script"
+    # LaplaceMarginal factory call must include the kwargs
+    assert (
+        "_lmf(log_joint_fn, theta_init" in script
+    ), "LaplaceMarginal factory call missing from emitted script"
 
 
 @pytest.mark.e2e
