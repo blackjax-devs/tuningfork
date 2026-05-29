@@ -9,7 +9,7 @@ from jax.flatten_util import ravel_pytree as _ravel_pytree
 _flat_phi_init, _ = _ravel_pytree(init_position)
 _n_phi = int(_flat_phi_init.shape[0])
 
-_maxiter = $bm_maxiter
+_optimizer_kwargs = $bm_optimizer_kwargs_expr
 _default_step_size = $bm_step_size
 _default_imm = jnp.ones(_n_phi)
 
@@ -20,7 +20,7 @@ def _build_kernel(step_size, inverse_mass_matrix):
         theta_init,
         step_size=step_size,
         inverse_mass_matrix=inverse_mass_matrix,
-        maxiter=_maxiter,
+        **_optimizer_kwargs,
     ).step
 
 
@@ -41,7 +41,7 @@ def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):
         theta_init,
         step_size=step_size,
         inverse_mass_matrix=inverse_mass_matrix,
-        maxiter=_maxiter,
+        **_optimizer_kwargs,
     ).init(position, rng_key)
 
 
@@ -56,5 +56,5 @@ except NameError:
         step_size=_default_step_size,
         inverse_mass_matrix=_default_imm,
         num_integration_steps=10,
-        maxiter=_maxiter,
+        **_optimizer_kwargs,
     ).init(init_position)

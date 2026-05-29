@@ -455,28 +455,36 @@ def emit_script(
         ctx["theta_sites_repr"] = repr(theta_sites)
 
         # Build the LaplaceMarginal factory expression for each warmup phase.
-        # Each phase may have a different maxiter (from phase.params.maxiter).
-        # For single-phase recipes: warmup_params["maxiter"] or bm_maxiter fallback.
-        # For multi-phase recipes: extract per-phase maxiter from recipe.warmups.
-        def _laplace_factory_expr(maxiter: int) -> str:
-            return f"_lmf(log_joint_fn, theta_init, maxiter={maxiter})"
+        # All _LAPLACE_OPTIMIZER_KWARG_NAMES keys from phase/recipe params are included.
+        from tuningfork.recipes._recipe_runner import _extract_laplace_optimizer_kwargs
+
+        def _laplace_factory_expr(opt_kwargs: dict) -> str:
+            kwargs_str = ", ".join(f"{k}={v!r}" for k, v in opt_kwargs.items())
+            sep = ", " if kwargs_str else ""
+            return f"_lmf(log_joint_fn, theta_init{sep}{kwargs_str})"
 
         if _is_multiphase_warmup:
             _factory_exprs = []
             for _phase in recipe.warmups:
-                _phase_maxiter = _phase["params"].get(
-                    "maxiter", recipe.base_method_params.get("maxiter", 30)
+                _phase_opt_kwargs = _extract_laplace_optimizer_kwargs(
+                    _phase["params"], recipe.base_method_params
                 )
-                _factory_exprs.append(_laplace_factory_expr(_phase_maxiter))
+                _factory_exprs.append(_laplace_factory_expr(_phase_opt_kwargs))
             ctx["laplace_factories_expr"] = ", ".join(_factory_exprs)
             ctx["num_warmup_phases"] = len(recipe.warmups)
         else:
-            # Single-phase: use warmup_params["maxiter"] or bm_maxiter fallback.
-            _single_maxiter = recipe.warmup_params.get(
-                "maxiter", recipe.base_method_params.get("maxiter", 30)
+            # Single-phase: extract optimizer kwargs from warmup_params then bm fallback.
+            _single_opt_kwargs = _extract_laplace_optimizer_kwargs(
+                recipe.warmup_params, recipe.base_method_params
             )
-            ctx["laplace_factories_expr"] = _laplace_factory_expr(_single_maxiter)
+            ctx["laplace_factories_expr"] = _laplace_factory_expr(_single_opt_kwargs)
             ctx["num_warmup_phases"] = 1
+
+        # Build a Python dict literal of optimizer kwargs for the sampler template.
+        # Templates use $bm_optimizer_kwargs_expr to get all optimizer kwargs as a
+        # dict they can spread: **_optimizer_kwargs.
+        _bm_opt_kwargs = _extract_laplace_optimizer_kwargs(recipe.base_method_params)
+        ctx["bm_optimizer_kwargs_expr"] = repr(_bm_opt_kwargs)
 
     # ── Multi-phase warmup slot population ───────────────────────────────────
     # For multi-phase laplace warmup (len(recipe.warmups) > 1), populate per-phase
@@ -511,6 +519,11 @@ def emit_script(
             ctx[f"{_prefix}maxiter"] = _phase_params.get(
                 "maxiter", recipe.base_method_params.get("maxiter", 30)
             )
+            # Full optimizer kwargs for per-phase notes (informational only in comment).
+            _ph_opt = _extract_laplace_optimizer_kwargs(
+                _phase_params, recipe.base_method_params
+            )
+            ctx[f"{_prefix}optimizer_kwargs"] = _ph_opt
             # Per-phase warmup extra kwargs for the laplace inner kernel.
             # blackjax.laplace_hmc requires num_integration_steps at warmup time.
             _phase_nis = _phase_params.get("num_integration_steps")

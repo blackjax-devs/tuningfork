@@ -81,6 +81,54 @@ from tuningfork.warmup._laplace_adapter import LAPLACE_METHOD_NAMES
 __all__ = ["emit_low_recipe_for_cell", "run_recipe_to_idata", "CellResult"]
 
 # ---------------------------------------------------------------------------
+# Laplace optimizer kwargs helpers
+# ---------------------------------------------------------------------------
+
+# Known optimizer kwargs for laplace_marginal_factory / minimize_lbfgs.
+# Stored as flat keys in recipe.base_method_params (per-model) or per-phase
+# warmup params; forwarded to laplace_marginal_factory at run + emit time.
+_LAPLACE_OPTIMIZER_KWARG_NAMES: tuple[str, ...] = (
+    "maxiter",
+    "maxcor",
+    "gtol",
+    "ftol",
+    "maxls",
+)
+
+
+def _extract_laplace_optimizer_kwargs(
+    primary: dict[str, Any], fallback: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Extract laplace_marginal_factory optimizer kwargs from a params dict.
+
+    Checks ``primary`` first; falls back to ``fallback`` (if provided) for any
+    key not found in ``primary``.  Returns only keys in
+    ``_LAPLACE_OPTIMIZER_KWARG_NAMES`` that are explicitly set.
+
+    Parameters
+    ----------
+    primary
+        Dict checked first (e.g. a per-phase ``warmup["params"]`` dict).
+    fallback
+        Dict used when a key is absent from ``primary``
+        (e.g. ``recipe.base_method_params``).
+
+    Returns
+    -------
+    dict
+        Subset of ``_LAPLACE_OPTIMIZER_KWARG_NAMES`` keys that are present,
+        with their values from ``primary`` or ``fallback``.
+    """
+    result: dict[str, Any] = {}
+    for key in _LAPLACE_OPTIMIZER_KWARG_NAMES:
+        if key in primary:
+            result[key] = primary[key]
+        elif fallback is not None and key in fallback:
+            result[key] = fallback[key]
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Laplace phi/theta split table — model-specific
 # ---------------------------------------------------------------------------
 # For laplace_* cells the recipe pipeline needs to split the joint position into
@@ -302,6 +350,7 @@ def _build_laplace_components(
     model_name: str,
     full_position: dict[str, Any],
     joint_logdensity_fn: Any,
+    **optimizer_kwargs: Any,
 ) -> tuple[dict[str, Any], Any, Any, Any] | None:
     """Build laplace pipeline components from the full joint position.
 
@@ -331,7 +380,7 @@ def _build_laplace_components(
     def log_joint_fn(theta: dict[str, Any], phi: dict[str, Any]) -> Any:
         return joint_logdensity_fn({**theta, **phi})
 
-    laplace = laplace_marginal_factory(log_joint_fn, theta_init)
+    laplace = laplace_marginal_factory(log_joint_fn, theta_init, **optimizer_kwargs)
 
     def marginal_logdensity_fn(phi: dict[str, Any]) -> Any:
         lp, _theta_star = laplace(phi)
@@ -680,8 +729,11 @@ def emit_low_recipe_for_cell(
     laplace_theta_init: Any = None
 
     if is_laplace:
+        _emit_opt_kwargs = _extract_laplace_optimizer_kwargs(
+            sampler_kwargs_override or {}, default_params_for(base_method)
+        )
         laplace_result = _build_laplace_components(
-            model_name, init_position, logdensity_fn
+            model_name, init_position, logdensity_fn, **_emit_opt_kwargs
         )
         if laplace_result is None:
             note = (
@@ -1581,8 +1633,9 @@ def run_recipe_to_idata(
     laplace_theta_init: Any = None
 
     if is_laplace:
+        _run_opt_kwargs = _extract_laplace_optimizer_kwargs(recipe.base_method_params)
         laplace_result = _build_laplace_components(
-            recipe.model_name, init_position, logdensity_fn
+            recipe.model_name, init_position, logdensity_fn, **_run_opt_kwargs
         )
         if laplace_result is None:
             raise ValueError(
@@ -1724,11 +1777,6 @@ def run_recipe_to_idata(
                     ),
                 )
             )
-            _phase_maxiter = int(
-                _phase_params.get(
-                    "maxiter", recipe.base_method_params.get("maxiter", 30)
-                )
-            )
             _phase_is_dense = "dense" in _phase["name"]
 
             # Per-phase warmup chain count W (or num_chains if not set).
@@ -1736,12 +1784,16 @@ def run_recipe_to_idata(
                 _wnc_effective[_phase_idx] if _wnc_effective is not None else num_chains
             )
 
-            # Build phase-specific LaplaceMarginal with this phase's maxiter.
+            # Build phase-specific LaplaceMarginal with this phase's optimizer kwargs.
+            # Phase params take precedence; recipe.base_method_params is the fallback.
             # Pass directly to window_adaptation as logdensity_fn: LaplaceMarginal
             # returns (lp, theta_star) which satisfies the has_aux=True contract
             # expected by laplace_hmc.init(phi, laplace).
+            _phase_opt_kwargs = _extract_laplace_optimizer_kwargs(
+                _phase_params, recipe.base_method_params
+            )
             _phase_laplace = laplace_marginal_factory(
-                laplace_log_joint_fn, laplace_theta_init, maxiter=_phase_maxiter
+                laplace_log_joint_fn, laplace_theta_init, **_phase_opt_kwargs
             )
 
             # initial_step_size: seed Phase 2+ dual-averaging from Phase 1 result.
@@ -2058,6 +2110,7 @@ def run_recipe_to_idata(
         "acceptance_rate",
         "num_integration_steps",
         "lbfgs_iter_num",
+        "lbfgs_hit_maxiter",  # laplace-family: flag for truncated θ* solves
     ):
         if hasattr(infos, _fld):
             chain_stats[_fld] = np.asarray(jnp.swapaxes(getattr(infos, _fld), 0, 1))

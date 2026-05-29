@@ -132,6 +132,9 @@ _CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
     # Laplace-family: post-accept L-BFGS iter count per step (blackjax PR #925).
     # Used to compute measured headline denominators via laplace_lbfgs_grad_evals.
     "lbfgs_iter_num": "lbfgs_iter_num",
+    # Laplace-family: True when solver hit maxiter budget (non-convergence alarm).
+    # lbfgs_hit_maxiter%=0 confirms maxiter budget is sufficient for the model.
+    "lbfgs_hit_maxiter": "lbfgs_hit_maxiter",
     # Derived fields (enrichment in tuningfork.catalog.render.load_idata for
     # GROUNDTRUTH recipes) — identity renames so they pass through this
     # projection without dropping:
