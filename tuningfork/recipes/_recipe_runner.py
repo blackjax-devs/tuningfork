@@ -2052,7 +2052,13 @@ def run_recipe_to_idata(
     # four scalar fields we persist. Functionally identical to the previous
     # "swap whole tree then read these four" behavior, minus the wasted work.
     chain_stats = {}
-    for _fld in ("is_divergent", "energy", "acceptance_rate", "num_integration_steps"):
+    for _fld in (
+        "is_divergent",
+        "energy",
+        "acceptance_rate",
+        "num_integration_steps",
+        "lbfgs_iter_num",
+    ):
         if hasattr(infos, _fld):
             chain_stats[_fld] = np.asarray(jnp.swapaxes(getattr(infos, _fld), 0, 1))
 

@@ -72,6 +72,17 @@ from typing import Any
 import blackjax
 import jax.numpy as jnp
 
+try:
+    # Available after blackjax PR #928 merges to main.
+    from blackjax.mcmc.laplace_marginal import (
+        laplace_lbfgs_grad_evals as _laplace_grad_count,
+    )
+except ImportError:
+    # Fallback: ×5 heuristic until blackjax is updated.
+    def _laplace_grad_count(info):  # type: ignore[misc]
+        return jnp.asarray(info.num_integration_steps * 5)
+
+
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 
 __all__ = ["ENTRY", "_factory"]
@@ -137,10 +148,11 @@ ENTRY = BaseMethod(
     name="laplace_hmc",
     family="mcmc",
     factory=_factory,
-    # Grad cost approximation: num_integration_steps * ~5 inner L-BFGS grads.
-    # The factor 5 is a coarse default assuming warm-started L-BFGS converges
-    # in ~5 iterations per leapfrog step; actual cost depends on the landscape.
-    grad_count_per_step=lambda info: jnp.asarray(info.num_integration_steps * 5),
+    # Grad cost: (num_integration_steps + 1) × lbfgs_iter_num — measured via the
+    # post-accept L-BFGS iter count as a proxy for per-leapfrog inner iters.
+    # Replaces the hardcoded ×5 heuristic with the measured value from info.
+    # See blackjax.mcmc.laplace_marginal.laplace_lbfgs_grad_evals for the formula.
+    grad_count_per_step=_laplace_grad_count,
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
         HyperparamSpace("num_integration_steps", "int", low=1, high=20),
