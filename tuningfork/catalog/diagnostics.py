@@ -129,6 +129,9 @@ _CHAIN_STATS_TO_SAMPLE_STATS: dict[str, str] = {
     # prefixed name so downstream consumers can opt in but it doesn't
     # collide with the schema.
     "is_turning": "tuningfork_is_turning",
+    # Laplace-family: post-accept L-BFGS iter count per step (blackjax PR #925).
+    # Used to compute measured headline denominators via laplace_lbfgs_grad_evals.
+    "lbfgs_iter_num": "lbfgs_iter_num",
     # Derived fields (enrichment in tuningfork.catalog.render.load_idata for
     # GROUNDTRUTH recipes) — identity renames so they pass through this
     # projection without dropping:
