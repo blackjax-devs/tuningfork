@@ -3,7 +3,7 @@
   "base_method_name": "hmc",
   "warmup_name": "window_adaptation_low_rank_imm",
   "effort": "failed",
-  "failure_diagnosis": "hard_direction",
+  "failure_diagnosis": "fixed-L HMC resonance trap: inner_nuts oracle L=127 \u00d7 \u03b5=0.048 \u2192 L\u00d7\u03b5=6.1\u22482\u03c0. All three warmup variants (W1/W2/W3) give identical rhat=1.031/ESS=265/RESONANCE_WARN \u2014 config (n_warmup/ta) cannot fix structural phase-lock. Resolution: use dynamic_hmc (variable-L, avoids resonance) \u2014 ill_cond_50\u00d7dynamic_hmc\u00d7{W2,W3} PASS in B-3a.",
   "attempted_configurations": [
     {
       "base_method_params": {},
@@ -40,17 +40,21 @@
   "inverse_mass_matrix_path": null,
   "gate_evidence": {
     "auto": {
-      "verdict": "REVIEW",
-      "rhat_max": 1.0108,
-      "min_bulk_ess": 1699.0,
+      "rhat_max": 1.0313,
+      "min_bulk_ess": 265.1,
       "n_divergences": 0,
-      "max_abs_mean_z": null
+      "max_abs_mean_z": null,
+      "verdict": "REVIEW",
+      "resonance_warn": true,
+      "resonance_warn_detail": "L\u00d7\u03b5=6.13 \u2248 2\u03c0 (fixed-L HMC structural failure)"
     },
     "override": {
-      "reason": "",
-      "statistician_id": "",
-      "decision": ""
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-29",
+      "date": "2026-05-29",
+      "reason": "KNOWN_RESONANCE: structural failure, not config-rescueable. See resonance lesson."
     }
   },
-  "workflow": "W3 sweep Group E. ill_cond_50 x hmc x W3 REVIEWs: rhat=1.011 (marginally above 1.01). W3 low-rank IMM improves on W1 x hmc (which failed hard at W1); REVIEW rather than hard-fail. Not pursued further; NUTS provides LOW."
+  "workflow": "W3 sweep Group E. ill_cond_50 x hmc x W3 REVIEWs: rhat=1.011 (marginally above 1.01). W3 low-rank IMM improves on W1 x hmc (which failed hard at W1); REVIEW rather than hard-fail. Not pursued further; NUTS provides LOW.",
+  "revisit_as": "dynamic_hmc"
 }

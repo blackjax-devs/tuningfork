@@ -1,0 +1,34 @@
+{
+  "model_name": "radon",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_diag_imm",
+  "warmup_inner_kernel": null,
+  "effort": "low",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 2000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0061,
+      "min_bulk_ess": 324.5,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.985,
+      "verdict": "REVIEW",
+      "gt_cert_coverage": "full_posterior",
+      "margins": {}
+    },
+    "override": {
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-05-29",
+      "date": "2026-05-29",
+      "reason": "ESS=324 just below 400 PASS threshold (REVIEW band) but z=0.985 PASSES (no bias evidence). Radon 919-county hierarchy requires n_warmup\u226b2000 for ESS\u2265400 \u2014 structural throughput limit. Approved: self-consistency borderline only."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

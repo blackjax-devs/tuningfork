@@ -1,0 +1,34 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "dynamic_hmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "warmup_inner_kernel": "nuts",
+  "effort": "low",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.95
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0068,
+      "min_bulk_ess": 937.7,
+      "n_divergences": 0,
+      "max_abs_mean_z": 2.553,
+      "verdict": "REVIEW",
+      "gt_cert_coverage": "full_posterior",
+      "margins": {}
+    },
+    "override": {
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-05-29",
+      "date": "2026-05-29",
+      "reason": "z=2.553 << Bonferroni z*\u22484.2 for k\u2248700 irt_2pl parameters (Bonferroni noise). Same as W3. Approved: no bias evidence."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
