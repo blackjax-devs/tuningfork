@@ -1,0 +1,161 @@
+{
+  "model_name": "eight_schools_ncp",
+  "base_method_name": "dynamic_hmc",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 0.29693785309791565,
+    "inverse_mass_matrix": [
+      11.77969741821289,
+      1.3501076698303223,
+      0.9492567181587219,
+      0.8896477818489075,
+      0.9687578678131104,
+      0.8107828497886658,
+      0.9167941808700562,
+      0.8489342331886292,
+      0.8700889348983765,
+      0.9128895998001099
+    ]
+  },
+  "headline_metric": 0.037496574223041534,
+  "sample_quality": {
+    "mae_vs_reference": 0.02646622328458902,
+    "q05_error": 1.056038795065546,
+    "q95_error": 1.0383228266503843,
+    "std_ratio_max_dev": 0.6379788056941712
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 7.594935960994917,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 4.174,
+    "sampling_wall_seconds": 0.883,
+    "sampling_seconds_per_draw": 0.000221,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev84+g0ef2f578a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.29693785309791565, 'inverse_mass_matrix': [11.77969741821289, 1.3501076698303223, 0.9492567181587219, 0.8896477818489075, 0.9687578678131104, 0.8107828497886658, 0.9167941808700562, 0.8489342331886292, 0.8700889348983765, 0.9128895998001099]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0375.\nWall time to produce this recipe: ~7 s (machine-only).",
+  "notes": "",
+  "step_policy": {
+    "kind": "empirical",
+    "values": [
+      1,
+      3,
+      4,
+      7,
+      11,
+      15,
+      23,
+      27,
+      31,
+      35,
+      39,
+      47,
+      63,
+      95,
+      127
+    ],
+    "weights": [
+      0.006,
+      0.00575,
+      0.00025,
+      0.32275,
+      0.00075,
+      0.57,
+      0.00375,
+      0.0005,
+      0.0715,
+      0.00025,
+      0.0005,
+      0.00125,
+      0.014,
+      0.00025,
+      0.0025
+    ]
+  },
+  "warmups": [
+    {
+      "name": "window_adaptation_low_rank_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.95
+      }
+    }
+  ],
+  "warmup_inner_kernel": "nuts",
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0016348268480677,
+      "min_bulk_ess": 2498.3354355573665,
+      "n_divergences": 1,
+      "max_abs_mean_z": 1.3708905354863246,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0016348268480677,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 2498.3354355573665,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 1.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.3708905354863246,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-29T16:35:00Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
