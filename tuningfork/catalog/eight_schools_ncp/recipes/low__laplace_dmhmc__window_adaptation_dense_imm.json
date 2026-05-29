@@ -102,7 +102,7 @@
           "pass_hi": 2.0,
           "review_lo": 2.0,
           "review_hi": 4.0,
-          "frac_z2": 0.0
+          "frac_z2": 0.5
         }
       },
       "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
