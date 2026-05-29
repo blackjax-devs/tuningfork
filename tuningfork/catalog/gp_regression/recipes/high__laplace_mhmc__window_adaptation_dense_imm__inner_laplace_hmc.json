@@ -163,6 +163,11 @@
         "decision": "APPROVE",
         "superseded_by": "production_recert 2026-05-28 \u2014 auto PASS outright at 1000\u00d74; override no longer needed"
       }
+    },
+    "override": {
+      "reason": "Bonferroni noise at k=3 phi sites. z=2.01 < z*=2.39 (Bonferroni threshold for k=3, FWER=5%). At n_eff=1224 vs n_gt=40000, 1 of 3 phi sites (log_kernel_scale) barely exceeds z=2.0 due to MC realization variance from maxcor 10\u219220 path change; the phi posterior is sampled correctly per all other diagnostics (R-hat=1.0014, n_div=0, min_ESS=1224.5, frac_z2=0.333=1/3 sites). z*=2.39 computed from Bonferroni correction for k=3 (z_i approx iid half-normal, z_max > c has P(c) = 1-(1-2*Phi(-c))^3, solving P=0.05 gives c=2.39). See threshold decision 2026-05-28-max-abs-mean-z-threshold.md \u00a72 + \u00a73(1) (Approve with note). Old run at maxcor=10 gave z=1.49 PASS; new maxcor=20 changed geometry sampling slightly. Both configurations converge correctly.",
+      "statistician_id": "tl-2026-05-29",
+      "decision": "approve-with-note"
     }
   },
   "tuning_seed": 20260517,
