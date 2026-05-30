@@ -1,0 +1,60 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "dmhmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 335.0,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 325.0
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Dense 144\u00d7144 IMM structural failure for irt_2pl \u00d7 dmhmc \u2014 extrapolated from F1 (irt_2pl \u00d7 W2 \u00d7 dynamic_hmc, same warmup). Root cause: Welford estimation of 144\u00d7144 covariance at n_warmup=2000 underde"
+    }
+  },
+  "failure_diagnosis": "Dense 144\u00d7144 IMM structural failure for irt_2pl \u00d7 dmhmc \u2014 extrapolated from F1 (irt_2pl \u00d7 W2 \u00d7 dynamic_hmc, same warmup). Root cause: Welford estimation of 144\u00d7144 covariance at n_warmup=2000 underdetermined (0.77 samples/param). step_size=0 on at least one chain expected. Not run (saved compute from F1 evidence). Use diag IMM (window_adaptation_diag_imm \u00d7 V2) for irt_2pl \u00d7 dmhmc.",
+  "attempted_configurations": [
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "step_policy": null,
+      "outcome": "FAIL_extrapolated",
+      "note": "not run; extrapolated from irt_2pl \u00d7 W2 \u00d7 dynamic_hmc failure (F1)"
+    }
+  ]
+}

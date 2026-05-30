@@ -1,0 +1,61 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "dmhmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 33.9,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 24.8
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.3215,
+      "min_bulk_ess": 9.9,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.918,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "V7 auto-oracle catastrophic for irt_2pl \u00d7 dmhmc at ta=0.8. step_size=0.085 \u2192 NUTS warmup fires at NIS\u224822 \u2192 oracle recommends L\u224822 \u2192 dmhmc persistent momentum with L\u224822 accumulates very high autocorrel"
+    }
+  },
+  "failure_diagnosis": "V7 auto-oracle catastrophic for irt_2pl \u00d7 dmhmc at ta=0.8. step_size=0.085 \u2192 NUTS warmup fires at NIS\u224822 \u2192 oracle recommends L\u224822 \u2192 dmhmc persistent momentum with L\u224822 accumulates very high autocorrelation (persistent momentum is not refreshed frequently enough). ESS=9.9, rhat=1.32. No bias (z=0.918). Fix: use V2 [50,200) L_mean=125 \u2014 see medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json.",
+  "attempted_configurations": [
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "step_policy": null,
+      "outcome": "FAIL",
+      "rhat_max": 1.3215,
+      "min_ess": 9.9
+    }
+  ]
+}

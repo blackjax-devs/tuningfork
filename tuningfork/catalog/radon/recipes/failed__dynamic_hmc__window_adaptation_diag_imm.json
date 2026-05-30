@@ -1,0 +1,61 @@
+{
+  "model_name": "radon",
+  "base_method_name": "dynamic_hmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 41.2,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 33.6
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0587,
+      "min_bulk_ess": 64.9,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.604,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "V7 auto-oracle miscalibrated for radon at ta=0.8. step_size=0.22 (large at d=390 from ta=0.8 adaptation) \u2192 NUTS warmup fires at NIS\u224814 steps \u2192 oracle recommends L\u224814 for dynamic_hmc \u2192 trajectory=3.1 p"
+    }
+  },
+  "failure_diagnosis": "V7 auto-oracle miscalibrated for radon at ta=0.8. step_size=0.22 (large at d=390 from ta=0.8 adaptation) \u2192 NUTS warmup fires at NIS\u224814 steps \u2192 oracle recommends L\u224814 for dynamic_hmc \u2192 trajectory=3.1 physical time units \u2192 insufficient decorrelation for 390-d hierarchical model. ESS=64.9 (FAIL gate). No bias (z=0.604). Fix: use V1 [5,50) L_mean=27 or longer \u2014 see medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json.",
+  "attempted_configurations": [
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "step_policy": null,
+      "outcome": "FAIL",
+      "rhat_max": 1.0587,
+      "min_ess": 64.9
+    }
+  ]
+}
