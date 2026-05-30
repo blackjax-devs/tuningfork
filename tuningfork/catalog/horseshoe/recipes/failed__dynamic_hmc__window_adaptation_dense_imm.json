@@ -1,0 +1,36 @@
+{
+  "model_name": "horseshoe",
+  "base_method_name": "dynamic_hmc",
+  "warmup_name": "window_adaptation_dense_imm",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 2000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "failure_diagnosis": "horseshoe d=204 dynamic_hmc structural non-mixing: dense IMM does not resolve trajectory length limitation. Dense 204x204 mass matrix adapted in 323.6s warmup but step_size=0.010-0.014 (still very small) -> rhat=3.01, ESS=4.6, n_div=0. Pattern matches W1 (diag): even with better mass matrix estimation, dynamic_hmc trajectory length (max fixed steps, no U-turn criterion) is insufficient to traverse horseshoe posterior at any single step. The horseshoe spike/slab geometry requires NUTS with max_doublings=15 (existing medium__nuts__window_adaptation_diag_imm) to take long enough trajectories. Dynamic_hmc with fixed max trajectory is structurally unsuitable for this geometry.",
+  "revisit_as": "nuts",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 3.0109,
+      "min_bulk_ess": 4.6,
+      "n_divergences": 0,
+      "max_abs_mean_z": 3.233,
+      "verdict": "FAIL",
+      "step_size_range": [0.01007, 0.01406],
+      "warmup_seconds": 323.6
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Structural: dynamic_hmc trajectory length insufficient for horseshoe geometry even with dense 204x204 IMM. Same ESS~4.6 as diag IMM (W1). NUTS medium recipe is the solution."
+    }
+  },
+  "attempted_configurations": [
+    {"n_warmup": 2000, "ta": 0.8, "outcome": "FAIL", "rhat_max": 3.0109, "min_ess": 4.6, "step_size_min": 0.01007, "step_size_max": 0.01406}
+  ]
+}
