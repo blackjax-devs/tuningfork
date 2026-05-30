@@ -1,0 +1,61 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "dynamic_hmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 335.3,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 325.5
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.5683,
+      "min_bulk_ess": 7.1,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.538,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Dense 144\u00d7144 IMM (window_adaptation_dense_imm) Welford estimation fails for irt_2pl at n_warmup=2000. At d=144, the full covariance has 10,296 independent parameters; with 8000 total warmup draws acr"
+    }
+  },
+  "failure_diagnosis": "Dense 144\u00d7144 IMM (window_adaptation_dense_imm) Welford estimation fails for irt_2pl at n_warmup=2000. At d=144, the full covariance has 10,296 independent parameters; with 8000 total warmup draws across 4 chains, the Welford estimator has ~0.77 samples/parameter \u2014 severely underdetermined. One chain adapts step_size=0 (Cholesky near-singular), causing chains to be stuck. rhat=1.57, ESS=7.1. Warmup took 325.5s (vs 6.5s for ill_cond_50 d=50 dense). Revised dense IMM ceiling: d\u224880-100 at n_warmup=2000. Not an OOM failure. Use diag IMM (window_adaptation_diag_imm) for irt_2pl or increase n_warmup >> 10,000 for dense IMM at d=144.",
+  "attempted_configurations": [
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "step_policy": null,
+      "outcome": "FAIL",
+      "rhat_max": 1.5683,
+      "min_ess": 7.1
+    }
+  ]
+}
