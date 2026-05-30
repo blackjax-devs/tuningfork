@@ -1,0 +1,152 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "dynamic_hmc",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 0.039880085113090075,
+    "inverse_mass_matrix": [
+      0.001276987580622525,
+      0.0011516131057425325,
+      0.0010609967474617987,
+      0.001269614608015847,
+      0.006135230336061255,
+      0.0002864281577873218,
+      0.0005408494786184436
+    ]
+  },
+  "headline_metric": 0.008110010900022396,
+  "sample_quality": {
+    "mae_vs_reference": 0.0184487467548042,
+    "q05_error": 0.07928025839379978,
+    "q95_error": 0.07366597378290643,
+    "std_ratio_max_dev": 0.026644010054799105
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 55.13128675000917,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 28.584,
+    "sampling_wall_seconds": 21.764,
+    "sampling_seconds_per_draw": 0.005441,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.0",
+      "blackjax_version": "1.6.dev84+g0ef2f578a",
+      "jax_x64_enabled": true,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.039880085113090075, 'inverse_mass_matrix': [0.001276987580622525, 0.0011516131057425325, 0.0010609967474617987, 0.001269614608015847, 0.006135230336061255, 0.0002864281577873218, 0.0005408494786184436]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0081.\nWall time to produce this recipe: ~55 s (machine-only).",
+  "notes": "",
+  "step_policy": {
+    "kind": "empirical",
+    "values": [
+      22,
+      64,
+      107,
+      150,
+      192,
+      235,
+      278,
+      320,
+      363,
+      405,
+      491,
+      1002
+    ],
+    "weights": [
+      0.2115,
+      0.374,
+      0.32,
+      0.01975,
+      0.03075,
+      0.03825,
+      0.00025,
+      0.0005,
+      0.00225,
+      0.00025,
+      0.0015,
+      0.001
+    ]
+  },
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.99
+      }
+    }
+  ],
+  "warmup_inner_kernel": "nuts",
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0008262950864764,
+      "min_bulk_ess": 2711.389406655399,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.9550389783923071,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0008262950864764,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 2711.389406655399,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 0.9550389783923071,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-05-29T21:13:00Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
