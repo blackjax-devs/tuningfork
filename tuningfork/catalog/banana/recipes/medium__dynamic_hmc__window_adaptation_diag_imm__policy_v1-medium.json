@@ -116,6 +116,12 @@
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.1",
   "timestamp_utc": "2026-05-30T09:00:48Z",
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
+    "is_lower_bound": false
+  },
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
