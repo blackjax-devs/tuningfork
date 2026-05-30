@@ -463,3 +463,47 @@ def test_mclmc_emit_uses_adapted_L_not_default(tmp_path: Path) -> None:
             f"Stored L={stored_L} is suspiciously close to the default_params_for "
             f"value ({default_L:.4f}) — the L plumbing fix may not be active."
         )
+
+
+# ---------------------------------------------------------------------------
+# adjusted_mclmc-family smoke emit regression (PR #100 / adjusted-family hardening)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("sampler", ["adjusted_mclmc", "adjusted_mclmc_dynamic"])
+def test_adjusted_mclmc_family_emits_without_crash(
+    tmp_path: Path, sampler: str
+) -> None:
+    """Both adjusted-MCLMC samplers run emit_low_recipe_for_cell without error.
+
+    Regression test covering:
+    - adjusted_mclmc: vmap-safe factory (jnp ops, no float(step_size))
+    - adjusted_mclmc_dynamic: same + DynamicHMCState reinit (needs_mclmc_dyn_reinit)
+
+    At n_warmup=200, n_samples=100 the verdict will typically be FAIL/REVIEW
+    (warmup too short for convergence) — we only gate on crash-free completion.
+    """
+    import jax
+
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    result = emit_low_recipe_for_cell(
+        "mvn_10",
+        "adjusted_mclmc_tuning",
+        sampler,
+        n_warmup=200,
+        n_samples=100,
+        num_chains=4,
+        seed=int(jax.random.bits(jax.random.key(99), dtype="uint32")),
+        catalog_root=tmp_path,
+        verbose=False,
+    )
+    # Any verdict is acceptable — the test gates on crash-free execution only.
+    assert result.verdict in (
+        "PASS",
+        "REVIEW",
+        "FAIL",
+    ), f"Unexpected verdict {result.verdict!r} for {sampler!r}"
+    assert result.gate_rhat_max is not None, "gate_rhat_max must be set"
+    assert result.gate_min_ess is not None, "gate_min_ess must be set"
