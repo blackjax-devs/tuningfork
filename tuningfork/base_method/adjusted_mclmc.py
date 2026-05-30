@@ -20,9 +20,11 @@ cost of a higher rejection rate.
 The BO hyperparameter space is ``(step_size, L)`` — matching vanilla MCLMC —
 but the upstream factory does not accept ``L`` directly.  Instead, the number
 of integration steps is derived as ``N = max(1, round(L / step_size))``, and
-``integration_steps_params=(N,)`` is passed to the upstream factory.  This
-translation is trace-safe because BO tuning supplies concrete float trial
-values (never traced JAX scalars) as HP trial arguments.
+``integration_steps_params=(N,)`` is passed to the upstream factory.  The
+translation uses JAX-native ``jnp.maximum`` / ``jnp.round`` so that the factory
+is safe to call inside ``jax.vmap`` (where ``step_size`` is a traced array).
+Both BO tuning (concrete float args) and the recipe runner (traced vmap args)
+are handled without a separate code path.
 
 Grad cost: the default integrator (isokinetic_mclachlan, a palindromic
 [b1,a1,b2,a1,b1] scheme) evaluates the gradient twice per integrator step
@@ -61,6 +63,8 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     L
         Target trajectory length in time units.  Converted to an integer
         number of integration steps via ``N = max(1, round(L / step_size))``.
+        Uses ``jnp.maximum`` / ``jnp.round`` so the factory is safe to call
+        inside ``jax.vmap`` when ``step_size`` is a traced array.
     inverse_mass_matrix
         Diagonal preconditioning matrix (scalar or 1-D array).
         Default ``1.0`` (identity preconditioning).
@@ -72,8 +76,9 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     blackjax.SamplingAlgorithm
         Object with ``.init`` and ``.step`` methods.
     """
-    # BO tuning supplies concrete float trial values; trace-safe.
-    n_steps = max(1, int(round(float(L) / float(step_size))))
+    # Use jnp ops so the factory is safe inside jax.vmap (step_size may be a
+    # traced array).  Works with concrete values from BO tuning too.
+    n_steps = jnp.maximum(1, jnp.round(L / step_size)).astype(jnp.int32)
     return blackjax.adjusted_mclmc(
         logdensity_fn,
         step_size=step_size,
@@ -97,7 +102,7 @@ ENTRY = BaseMethod(
     notes=(
         "Metropolis-adjusted MCLMC (adjusted_mclmc). "
         "Factory translates (step_size, L) -> integration_steps_params=(N,) "
-        "where N = max(1, round(L / step_size)). "
+        "where N = jnp.maximum(1, jnp.round(L / step_size)) (jax-vmap safe). "
         "grad_count_per_step = 2 * info.num_integration_steps "
         "(isokinetic_mclachlan default integrator: 2 grads/step). "
         "init: blackjax.adjusted_mclmc.init(position, logdensity_fn) — no rng_key. "

@@ -25,7 +25,8 @@ trajectory-length distribution:
 
 The BO hyperparameter space ``(step_size, L)`` matches vanilla MCLMC for
 consistency.  The adapter translates ``L`` to an average number of steps via
-``avg = max(1.0, L / step_size)``.
+``avg = jnp.maximum(1.0, L / step_size)`` — JAX-native so the factory is
+safe inside ``jax.vmap`` when ``step_size`` is a traced array.
 
 Grad cost: same formula as static adjusted_mclmc — the default integrator
 (isokinetic_mclachlan) evaluates 2 grads per integrator step.  For dynamic
@@ -69,7 +70,9 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
         Leapfrog step size.
     L
         Target trajectory length in time units.  Converted to an average
-        number of integration steps via ``avg = max(1.0, L / step_size)``.
+        number of integration steps via ``avg = jnp.maximum(1.0, L / step_size)``.
+        Uses ``jnp.maximum`` so the factory is safe inside ``jax.vmap`` when
+        ``step_size`` is a traced array.
     inverse_mass_matrix
         Diagonal preconditioning matrix (scalar or 1-D array).
         Default ``1.0`` (identity preconditioning).
@@ -81,8 +84,9 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     blackjax.SamplingAlgorithm
         Object with ``.init`` (requires ``rng_key``) and ``.step`` methods.
     """
-    # BO tuning supplies concrete float trial values; trace-safe.
-    avg = max(1.0, float(L) / float(step_size))
+    # Use jnp ops so the factory is safe inside jax.vmap (step_size may be a
+    # traced array).  Works with concrete values from BO tuning too.
+    avg = jnp.maximum(1.0, L / step_size)
     return blackjax.adjusted_mclmc_dynamic(
         logdensity_fn,
         step_size=step_size,
@@ -107,7 +111,7 @@ ENTRY = BaseMethod(
     notes=(
         "Dynamic Metropolis-adjusted MCLMC (adjusted_mclmc_dynamic). "
         "Factory translates (step_size, L) -> integration_steps_params=(avg,) "
-        "where avg = max(1.0, L / step_size); integration_steps_fn samples "
+        "where avg = jnp.maximum(1.0, L / step_size) (jax-vmap safe); integration_steps_fn samples "
         "uniformly around avg via make_random_trajectory_length_fn(True). "
         "grad_count_per_step = 2 * info.num_integration_steps "
         "(isokinetic_mclachlan default integrator: 2 grads/step; realized count). "
