@@ -1835,11 +1835,25 @@ def run_recipe_to_idata(
             **_skip_extra_kwargs,
         )
 
-        @jax.vmap
-        def _init_one_skip(pos: Any) -> Any:
-            return _skip_init_kernel.init(pos)
+        # adjusted_mclmc_dynamic.init requires a random_generator_arg (rng_key).
+        # All other samplers init from position only.
+        if recipe.base_method_name == "adjusted_mclmc_dynamic":
+            _skip_init_keys = jax.random.split(
+                jax.random.fold_in(init_key, 7777), num_chains
+            )
 
-        batched_state = _init_one_skip(_stationary_positions)
+            @jax.vmap
+            def _init_one_skip_dyn(pos: Any, key: Any) -> Any:
+                return _skip_init_kernel.init(pos, rng_key=key)
+
+            batched_state = _init_one_skip_dyn(_stationary_positions, _skip_init_keys)
+        else:
+
+            @jax.vmap
+            def _init_one_skip(pos: Any) -> Any:
+                return _skip_init_kernel.init(pos)
+
+            batched_state = _init_one_skip(_stationary_positions)
 
         # Replicate stored params to (num_chains, ...) to match warmup output shape
         batched_params = {
