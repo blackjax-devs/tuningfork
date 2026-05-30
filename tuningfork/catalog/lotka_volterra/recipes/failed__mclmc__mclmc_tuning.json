@@ -1,0 +1,46 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "mclmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_name": "mclmc_tuning",
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 41.7
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "",
+  "step_policy": null,
+  "warmups": [{"name": "mclmc_tuning", "params": {"n_warmup": 1000, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.1365,
+      "min_bulk_ess": 94.0,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.684,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "lotka_volterra stiff ODE causes MCLMC poor adaptation: mclmc_tuning adapts step_size=0.017-0.045 (2.6x cross-chain spread) — insufficient convergence. rhat=1.137, ESS=94, n_div=0 (rejection-free), z=0.684 (no bias). Prediction Y confirmed: stiff ODE + rejection-free MCLMC = poor mixing. adjusted_mclmc (with MH correction) would be the recommended fallback but is blocked by a runner vmap issue (BLOCKED.md)."
+    }
+  },
+  "failure_diagnosis": "lotka_volterra stiff ODE structural challenge for mclmc: mclmc_tuning converges to step_size=0.017-0.045 (2.6x spread across chains) — poor cross-chain tuning consistency on stiff ODE. rhat=1.137, ESS=94, n_div=0 (mclmc is rejection-free), z=0.684 (no bias). Y cell prediction confirmed. adjusted_mclmc (MH-corrected) blocked by runner vmap compatibility issue.",
+  "attempted_configurations": [
+    {"n_warmup": 1000, "outcome": "FAIL", "rhat_max": 1.1365, "min_ess": 94.0, "step_size_range": [0.01695, 0.04477]}
+  ]
+}
