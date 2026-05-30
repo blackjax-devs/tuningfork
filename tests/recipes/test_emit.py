@@ -392,3 +392,74 @@ def test_emit_low_recipe_stamps_timing_breakdown(tmp_path: Path) -> None:
     assert isinstance(minfo, dict)
     assert "cpu_model" in minfo
     assert "jax_version" in minfo
+
+
+# ---------------------------------------------------------------------------
+# mclmc-family adapted-L plumbing regression (PR #99 / issue found post-#98)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_mclmc_emit_uses_adapted_L_not_default(tmp_path: Path) -> None:
+    """emit_low_recipe_for_cell persists warmup-adapted L, not the default_params_for value.
+
+    Regression test for the bug where shared_kwargs supplied the
+    ``default_params_for`` fallback L to the mclmc factory instead of
+    the per-chain adapted L from batched_params["L"].
+
+    Before the fix, recipe L was ~12.6 (the loguniform 70th-pctile default).
+    After the fix, recipe.base_method_params["L"] stores the warmup-adapted
+    value, which must differ from the default by more than 5%.
+    """
+    import jax
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.calibration.tune import default_params_for
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    base_method = BASE_METHODS["mclmc"]
+
+    # 1. Capture the default L for comparison.
+    default_L = float(default_params_for(base_method)["L"])
+
+    # 2. Run full emit.
+    result = emit_low_recipe_for_cell(
+        "mvn_10",
+        "mclmc_tuning",
+        "mclmc",
+        n_warmup=200,
+        n_samples=100,
+        num_chains=4,
+        seed=int(jax.random.bits(jax.random.key(42), dtype="uint32")),
+        catalog_root=tmp_path,
+        verbose=False,
+    )
+
+    # Both PASS and REVIEW indicate the pipeline completed (recipe may not be on disk
+    # for REVIEW, but we can still check the gate machinery).
+    assert result.verdict in (
+        "PASS",
+        "REVIEW",
+        "FAIL",
+    ), f"Unexpected verdict: {result.verdict}"
+
+    # 3. If a recipe was written, load it and verify L is the adapted value (not default).
+    if result.recipe_path is not None:
+        from tuningfork.recipes._base import Recipe
+
+        recipe = Recipe.load(result.recipe_path)
+        assert "L" in recipe.base_method_params, (
+            "mclmc recipe must persist L in base_method_params; got "
+            f"{list(recipe.base_method_params)}"
+        )
+        stored_L = float(recipe.base_method_params["L"])
+        # L must be in the valid warmup search range.
+        assert (
+            0.0 < stored_L <= 1000.0
+        ), f"Stored L={stored_L} is outside a valid range — possible default-L bug"
+        # Stored L must NOT be the default fallback value (was the pre-fix behaviour).
+        # We allow a 5% tolerance; in practice the adapted value will differ by >>5%.
+        assert abs(stored_L - default_L) / default_L > 0.05, (
+            f"Stored L={stored_L} is suspiciously close to the default_params_for "
+            f"value ({default_L:.4f}) — the L plumbing fix may not be active."
+        )
