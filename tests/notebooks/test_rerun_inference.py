@@ -111,3 +111,103 @@ def test_load_from_cache_passes_unknown_keys_through(tmp_path: Path) -> None:
     # The canonical keys still survive
     assert "diverging" in idata.sample_stats.data_vars
     assert "n_steps" in idata.sample_stats.data_vars
+
+
+# ---------------------------------------------------------------------------
+# regenerate_idata: unit tests (no JAX; mock run_recipe_to_idata)
+# ---------------------------------------------------------------------------
+
+
+def test_regenerate_idata_is_exported() -> None:
+    """regenerate_idata is accessible from the catalog public API."""
+    from tuningfork.catalog import regenerate_idata
+
+    assert callable(regenerate_idata)
+
+
+def test_regenerate_idata_signature() -> None:
+    """regenerate_idata has the expected keyword-only parameters."""
+    import inspect
+
+    from tuningfork.catalog._rerun_inference import regenerate_idata
+
+    sig = inspect.signature(regenerate_idata)
+    params = sig.parameters
+    assert "recipe" in params, "missing 'recipe' parameter"
+    assert "n_samples" in params, "missing 'n_samples' parameter"
+    assert "seed" in params, "missing 'seed' parameter"
+    assert "catalog_root" in params, "missing 'catalog_root' parameter"
+    # recipe should be positional; the rest keyword-only
+    assert params["n_samples"].kind == inspect.Parameter.KEYWORD_ONLY
+    assert params["seed"].kind == inspect.Parameter.KEYWORD_ONLY
+    assert params["catalog_root"].kind == inspect.Parameter.KEYWORD_ONLY
+
+
+def test_regenerate_idata_passes_allow_failed_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """regenerate_idata passes _allow_failed_diagnostic=True to run_recipe_to_idata.
+
+    Verifies that FAIL recipes don't raise RecipeFailedError when called via
+    regenerate_idata, and that force_resample_config carries the correct params.
+    Uses monkeypatch on the module attribute (after first import) to intercept.
+    """
+    import tuningfork.catalog._rerun_inference as _mod
+    from tuningfork.recipes._base import Effort, Recipe
+
+    calls: list[dict] = []
+
+    def _fake_run(r, *, force_resample_config=None, catalog_root=None, **kw):
+        calls.append(
+            {
+                "force_resample_config": force_resample_config,
+                "catalog_root": catalog_root,
+                "allow_failed": kw.get("_allow_failed_diagnostic", False),
+            }
+        )
+        return object()  # fake InferenceData
+
+    # Patch at module level so the lazy import inside regenerate_idata sees it
+    monkeypatch.setattr(
+        "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
+        _fake_run,
+        raising=False,
+    )
+    import tuningfork.recipes._recipe_runner as _rr
+
+    monkeypatch.setattr(_rr, "run_recipe_to_idata", _fake_run, raising=False)
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.FAILED,
+        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 100, "num_chains": 4},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"trials": 0, "wall_seconds_estimate": 1.0},
+        difficulty=None,
+        instructions="test",
+    )
+
+    _mod.regenerate_idata(recipe, n_samples=200, seed=42, catalog_root=tmp_path)
+
+    assert len(calls) == 1, f"Expected exactly one call, got {len(calls)}"
+    cfg = calls[0]["force_resample_config"]
+    assert cfg["n_samples"] == 200
+    assert cfg["seed"] == 42
+    assert calls[0]["catalog_root"] == tmp_path
+
+
+def test_regenerate_idata_default_values() -> None:
+    """regenerate_idata has sane defaults for n_samples, seed, catalog_root."""
+    import inspect
+
+    from tuningfork.catalog._rerun_inference import regenerate_idata
+
+    sig = inspect.signature(regenerate_idata)
+    params = sig.parameters
+    assert params["n_samples"].default == 1000
+    assert params["seed"].default == 20260517
+    assert params["catalog_root"].default is None

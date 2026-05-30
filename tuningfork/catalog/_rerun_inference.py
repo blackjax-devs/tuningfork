@@ -36,7 +36,7 @@ import numpy as np
 if TYPE_CHECKING:
     import arviz
 
-__all__ = ["cached_idata_for_recipe"]
+__all__ = ["cached_idata_for_recipe", "regenerate_idata"]
 
 
 def cached_idata_for_recipe(
@@ -134,6 +134,85 @@ def cached_idata_for_recipe(
     idata = run_recipe_to_idata(recipe, catalog_root=catalog_root)
     _save_to_cache(idata, draws_cache, stats_cache)
     return idata
+
+
+def regenerate_idata(
+    recipe: Any,
+    *,
+    n_samples: int = 1000,
+    seed: int = 20260517,
+    catalog_root: Path | str | None = None,
+) -> arviz.InferenceData:
+    """Re-run a recipe's warmup + sampling pipeline and return InferenceData.
+
+    **User-triggered only** — this function runs the full warmup + sampler and
+    may take several minutes.  It is intended to be called from an explicit
+    user action (e.g. a ``Run`` button click in catalog_explorer) rather than
+    automatically on page load.
+
+    Primary use-case: **FAIL recipes**.  A FAIL recipe's failure mode is
+    invisible without running the config — divergent transitions, stuck chains,
+    and non-mixing patterns only appear in diagnostic plots.  By re-running the
+    pinned config you can visually inspect *why* it failed (trace plots,
+    divergence markers, rank plots) before investigating a fix.
+
+    Also works for PASS, REVIEW, and GROUNDTRUTH recipes (for verification or
+    different-seed experiments), but ``cached_idata_for_recipe`` is the
+    preferred path for those since it avoids redundant compute.
+
+    .. note::
+        Does **not** use ``skip_warmup=True`` — FAIL recipes may lack valid
+        skip-warmup params (e.g. divergent step_size).  Full warmup is run.
+
+    Parameters
+    ----------
+    recipe
+        A Recipe object loaded via ``load_recipe``.  Works for any effort level
+        including FAILED.
+    n_samples
+        Number of post-warmup samples per chain (default 1000).  Reduce to
+        ~200–400 for a quick diagnostic preview of failure modes.
+    seed
+        Random seed for reproducibility.  Defaults to the canonical recipe seed.
+    catalog_root
+        Root of the catalog directory (default: ``tuningfork/catalog/``).
+
+    Returns
+    -------
+    arviz.InferenceData
+        Posterior group + sample_stats group.  Pass to
+        ``plot_recipe_diagnostics(idata, posterior_entry)`` to render trace,
+        pair, and forest plots.
+
+    Raises
+    ------
+    RuntimeError
+        If the sampler raises an exception (e.g. non-terminating trajectory).
+
+    Examples
+    --------
+    Inspect a FAIL recipe in catalog_explorer::
+
+        idata = regenerate_idata(recipe, n_samples=400, seed=42)
+        figs = plot_recipe_diagnostics(idata, posterior_entry)
+    """
+    from pathlib import Path as _Path
+
+    if catalog_root is None:
+        from tuningfork.recipes._recipe_runner import _CATALOG_ROOT
+
+        catalog_root = _CATALOG_ROOT
+    else:
+        catalog_root = _Path(catalog_root)
+
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    return run_recipe_to_idata(
+        recipe,
+        force_resample_config={"seed": seed, "n_samples": n_samples},
+        catalog_root=catalog_root,
+        _allow_failed_diagnostic=True,
+    )
 
 
 def _load_from_cache(

@@ -31,7 +31,10 @@ Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
 - ``_cache/{draws,chain_stats}.npz`` — gitignored runtime cache
 """
 
-from tuningfork.catalog._rerun_inference import cached_idata_for_recipe
+from tuningfork.catalog._rerun_inference import (
+    cached_idata_for_recipe,
+    regenerate_idata,
+)
 from tuningfork.catalog._timing import compute_total_warmup_steps, format_timing_context
 from tuningfork.catalog.diagnostics import (
     plot_recipe_diagnostics,
@@ -57,6 +60,7 @@ __all__ = [
     "load_chain_stats",
     "load_idata",
     "cached_idata_for_recipe",
+    "regenerate_idata",
     "samples_to_idata",
     # diagnostics
     "render_universal_summary",
