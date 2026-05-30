@@ -1,12 +1,18 @@
 {
   "model_name": "irt_2pl",
   "base_method_name": "dmhmc",
+  "warmup_name": "window_adaptation_diag_imm",
   "effort": "medium",
   "base_method_params": {
     "step_size": 0.07895,
     "inverse_mass_matrix": null
   },
-  "headline_metric": null,
+  "warmup_params": {
+    "n_warmup": 2000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": 0.0004760319788008593,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
@@ -14,11 +20,21 @@
     "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 26.9
+    "warmup_wall_seconds": 26.9,
+    "sampling_wall_seconds": null,
+    "sampling_seconds_per_draw": null,
+    "split_source": null,
+    "machine_info": null
   },
   "difficulty": null,
   "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) \u2014 step_policy {'kind': 'uniform_int', 'low': 50, 'high': 200}.\nREVIEW gate approved by statistician (Bonferroni): z=2.849 < z*=3.87 for k=144 sites.",
   "notes": "dmhmc requires V2 [50,200) L_mean=125 for irt_2pl \u2014 persistent momentum accumulates high autocorrelation at shorter trajectories. V1 gave ESS=282 (below gate). V7 auto-oracle gave ESS=9.9 (catastrophic). 1 divergence in 4000 draws (0.025%, well under 5% gate).",
+  "headline_basis": {
+    "total_grad_evals": 2487648,
+    "min_bulk_ess": 1184.2,
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
+    "is_lower_bound": false
+  },
   "step_policy": {
     "kind": "uniform_int",
     "low": 50,
@@ -55,6 +71,11 @@
       "reason": "z=2.849 < Bonferroni z*=3.87 for k=144 sites (FWER=5%). ESS=1184 >> 400 (PASS band). rhat=1.0045 (PASS band). No bias evidence."
     }
   },
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "",
+  "jax_version": "",
+  "timestamp_utc": "",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
