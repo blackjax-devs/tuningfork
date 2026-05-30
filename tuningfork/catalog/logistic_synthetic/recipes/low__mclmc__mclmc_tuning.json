@@ -1,0 +1,125 @@
+{
+  "model_name": "logistic_synthetic",
+  "base_method_name": "mclmc",
+  "effort": "low",
+  "base_method_params": {
+    "L": 12.58925411794167,
+    "step_size": 1.0281894207000732,
+    "inverse_mass_matrix": [
+      0.5898919701576233,
+      0.9743895530700684,
+      1.1859512329101562
+    ]
+  },
+  "headline_metric": 99.93022155761719,
+  "sample_quality": {
+    "mae_vs_reference": 0.007827340120300912,
+    "q05_error": 0.4022521483870288,
+    "q95_error": 0.4946900842767574,
+    "std_ratio_max_dev": 0.2754005296858294
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 16.390680893993704,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 11.808,
+    "sampling_wall_seconds": 0.982,
+    "sampling_seconds_per_draw": 0.000246,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev84+g0ef2f578a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'L': 12.58925411794167, 'step_size': 1.0281894207000732, 'inverse_mass_matrix': [0.5898919701576233, 0.9743895530700684, 1.1859512329101562]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 99.9302.\nWall time to produce this recipe: ~16 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 8,
+    "min_bulk_ess": 799.4417724609375,
+    "grad_count_convention": "2",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "mclmc_tuning",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.001886031472636,
+      "min_bulk_ess": 858.9645502330752,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.43754288397358093,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.001886031472636,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 858.9645502330752,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 0.43754288397358093,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev433+g0edd988a3",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-05-30T09:59:37Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
