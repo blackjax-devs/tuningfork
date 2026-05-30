@@ -1,0 +1,31 @@
+{
+  "model_name": "stoch_vol",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 2000,
+    "num_chains": 4,
+    "target_acceptance": 0.99
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "failure_diagnosis": "Low_rank IMM (window_adaptation_low_rank_imm) is not viable at d=503 (AR(1) stochastic volatility) due to JAX JIT compilation memory exhaustion. Extrapolated from mhmc x W3 single-process OOM (exit 143 from systemd cgroup OOM killer) — the same 503-d low_rank JIT compilation graph applies to nuts. The diagonal IMM (W1, nuts x window_adaptation_diag_imm, PASS) is the correct recipe: element-wise mass matrix ops compile efficiently at d=503. Low_rank IMM is appropriate for d<~200 on this system.",
+  "revisit_as": "window_adaptation_diag_imm",
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "failure_mode": "OOM_during_JIT_extrapolated"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Structural: low_rank 503-d IMM JIT OOM (extrapolated from mhmc W3 single-process OOM). nuts x diag IMM (W1) already PASS."
+    }
+  },
+  "attempted_configurations": [
+    {"n_warmup": 2000, "ta": 0.99, "outcome": "OOM_during_JIT_extrapolated", "note": "not run: extrapolated from mhmc x window_adaptation_low_rank_imm OOM at d=503"}
+  ]
+}

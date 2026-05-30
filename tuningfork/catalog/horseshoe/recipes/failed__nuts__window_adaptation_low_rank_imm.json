@@ -1,0 +1,30 @@
+{
+  "model_name": "horseshoe",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "failure_diagnosis": "d=204 horseshoe nuts structural under-mixing with dense/low_rank IMM at n_warmup=1000. rhat\u22481.18, ESS<20 (FAIL). The dense/low_rank Welford estimator cannot reliably adapt the 204\u00d7204 covariance matrix in 1000 warmup steps. nuts\u00d7W1 (diag, existing MEDIUM recipe with max_doublings=15) converges properly. Resolution: use diag IMM (already PASS) or increase n_warmup>>5000 for dense/low_rank.",
+  "revisit_as": "window_adaptation_diag_imm",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.18,
+      "min_bulk_ess": 18.0,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Structural: d=204 dense/low_rank IMM n_warmup-insufficient."
+    }
+  },
+  "attempted_configurations": []
+}
