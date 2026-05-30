@@ -443,6 +443,10 @@ class Recipe:
     # ---- User-facing prose ----
     instructions: str
     notes: str = ""
+    # headline_basis records the accounting details behind headline_metric so that
+    # cross-recipe comparisons are interpretable (Gap-1, decisions/2026-05-30).
+    # None when headline_metric is None (e.g., failed recipes or scaffolding stubs).
+    headline_basis: dict[str, Any] | None = None  # optional; added 2026-05-30
 
     # ---- Callable-injection policy ----
     # Callable-injection policy for samplers that accept a distribution over
@@ -758,6 +762,8 @@ class Recipe:
         d.setdefault("calibration_budget", {"trials": 0, "wall_seconds_estimate": 0.0})
         d.setdefault("difficulty", None)
         d.setdefault("instructions", "")
+        # Backward-compat: headline_basis absent in recipes emitted before Gap-1 (2026-05-30).
+        d.setdefault("headline_basis", None)
         # Strip unknown keys (e.g. triage-only annotations like 'revisit_as') so
         # cls(**d) doesn't raise on non-standard fields from manual recipe edits.
         _known_fields = {f.name for f in fields(cls)}
