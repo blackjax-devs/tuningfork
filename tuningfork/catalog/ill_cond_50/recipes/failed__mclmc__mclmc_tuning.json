@@ -39,9 +39,11 @@
       "reason": "MCLMC trajectory length (L) adaptation insufficient for ill_cond_50 kappa=1000 at n_warmup=1000. mclmc_tuning finds step_size=0.83-1.21 but L does not cover the long eigenaxis. No bias (z=0.935) but catastrophic non-mixing (ESS=6.9). Prediction G was wrong: ill_cond_50 kappa=1000 requires much larger L than mclmc_tuning finds at n_warmup=1000. Consider n_warmup>>2000 or a different warm-start."
     }
   },
-  "failure_diagnosis": "ill_cond_50 kappa=1000 progressive improvement with n_warmup but not yet PASS. At n_warmup=1K rhat=1.609/ESS=6.9, at n_warmup=10K rhat=1.051/ESS=98.4. The mclmc_tuning is gradually adapting L but kappa=1000 requires very large trajectory length. n_warmup>>10K likely needed for PASS. No bias (z<1.5 at all levels). RECIPE_GENERATION.md prediction G was wrong at practical n_warmup budgets.",
+  "failure_diagnosis": "ill_cond_50 kappa=1000 PLATEAUED at FAIL. Full trajectory: 1K rhat=1.609/ESS=7, 10K rhat=1.051/ESS=98, 50K rhat=1.063/ESS=128, 100K rhat=1.071/ESS=135. rhat OSCILLATES around 1.05-1.07 rather than converging to <1.01; ESS barely improves beyond 100K. Step_size stabilized at 1.05-1.17 (1.12x spread) at 50K-100K — adaptation has converged to a local minimum. CONCLUSION: geometry, not budget. kappa=1000 anisotropy is fundamentally too large for mclmc_tuning to resolve via L adaptation alone at any practical n_warmup.",
   "attempted_configurations": [
     {"n_warmup": 1000, "outcome": "FAIL", "rhat_max": 1.6088, "min_ess": 6.9, "step_size_range": [0.834, 1.207]},
-    {"n_warmup": 10000, "outcome": "FAIL", "rhat_max": 1.0514, "min_ess": 98.4, "step_size_range": [0.929, 1.252], "note": "Major improvement but still FAIL; ESS=98 vs ESS=7 at 1K"}
+    {"n_warmup": 10000, "outcome": "FAIL", "rhat_max": 1.0514, "min_ess": 98.4, "step_size_range": [0.929, 1.252]},
+    {"n_warmup": 50000, "outcome": "FAIL", "rhat_max": 1.0634, "min_ess": 128.0, "step_size_range": [1.048, 1.186], "note": "rhat worsened vs 10K; adaptation oscillating"},
+    {"n_warmup": 100000, "outcome": "FAIL", "rhat_max": 1.0705, "min_ess": 135.0, "step_size_range": [1.050, 1.174], "note": "PLATEAU CONFIRMED: rhat 1.051->1.063->1.071 across 10K/50K/100K; STOP"}
   ]
 }
