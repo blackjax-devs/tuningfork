@@ -15,13 +15,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 49.10473823500797,
+    "wall_seconds_estimate": 36.24295529999654,
     "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 26.596,
-    "sampling_wall_seconds": 15.969,
-    "sampling_seconds_per_draw": 0.003992,
+    "warmup_wall_seconds": 20.752,
+    "sampling_wall_seconds": 15.417,
+    "sampling_seconds_per_draw": 0.003854,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -36,7 +36,7 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.10323378443717957, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0054.\nWall time to produce this recipe: ~49 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.10323378443717957, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0054.\nWall time to produce this recipe: ~36 s (machine-only).",
   "notes": "",
   "step_policy": {
     "kind": "empirical",
@@ -65,7 +65,7 @@
   },
   "warmups": [
     {
-      "name": "window_adaptation_diag_imm",
+      "name": "window_adaptation_low_rank_imm",
       "params": {
         "n_warmup": 2000,
         "num_chains": 4,
@@ -76,7 +76,7 @@
   "warmup_inner_kernel": "nuts",
   "warmup_num_chains": null,
   "init_strategy": null,
-  "inverse_mass_matrix_path": "irt_2pl/recipes/low__dynamic_hmc__window_adaptation_diag_imm.imm.npz",
+  "inverse_mass_matrix_path": "irt_2pl/recipes/low__dynamic_hmc__window_adaptation_low_rank_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
@@ -132,7 +132,7 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-30T04:26:02Z",
+  "timestamp_utc": "2026-05-30T04:26:40Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
