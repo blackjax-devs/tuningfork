@@ -447,7 +447,13 @@ def auto_gate(
     # --- Divergences ---
     n_divergences: int | None = None
     if info is not None:
-        n_divergences = int(jnp.sum(jnp.asarray(info.is_divergent)))
+        if hasattr(info, "is_divergent"):
+            # HMC/NUTS/laplace family: explicit divergence flag per step.
+            n_divergences = int(jnp.sum(jnp.asarray(info.is_divergent)))
+        else:
+            # MCLMC family (MCLMCInfo, AdjustedMCLMCInfo): rejection-free /
+            # no HMC-style divergent transition concept → 0 by definition.
+            n_divergences = 0
 
     # --- max_abs_mean_z + frac_z2 ---
     max_abs_mean_z: float | None = None

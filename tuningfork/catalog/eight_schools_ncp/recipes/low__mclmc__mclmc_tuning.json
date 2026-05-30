@@ -1,0 +1,46 @@
+{
+  "model_name": "eight_schools_ncp",
+  "base_method_name": "mclmc",
+  "effort": "low",
+  "base_method_params": {},
+  "warmup_name": "mclmc_tuning",
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 17.6
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "REVIEW: rhat=1.011 is 0.001 above gate (1.01). Step_size spread 0.636-3.221 (5x) indicates mclmc_tuning struggling with eight_schools_ncp funnel geometry. ESS=620 and z=1.236 are good. Likely passes with n_warmup=2000 or a different seed.",
+  "step_policy": null,
+  "warmups": [{"name": "mclmc_tuning", "params": {"n_warmup": 1000, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0109,
+      "min_bulk_ess": 620.8,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.236,
+      "verdict": "REVIEW"
+    },
+    "override": {
+      "decision": "pending-retry",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "rhat=1.011 is 0.001 above PASS threshold. Step_size spread 0.636-3.221 (5x cross-chain) suggests mclmc_tuning instability on eight_schools hierarchical funnel. ESS=620 and z=1.236 are both in PASS band. Recommend retry at n_warmup=2000 before approving. The large step_size spread is the key diagnostic — mclmc_tuning convergence is sensitive to eight_schools NCP funnel geometry at n_warmup=1000."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": [
+    {"n_warmup": 1000, "outcome": "REVIEW", "rhat_max": 1.0109, "min_ess": 620.8, "step_size_range": [0.6362, 3.221]}
+  ]
+}
