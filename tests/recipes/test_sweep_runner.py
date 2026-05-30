@@ -372,18 +372,27 @@ class TestVerdictGuard:
             timestamp_utc="2026-01-01T00:00:00Z",
         )
 
-    def test_review_raises(self) -> None:
-        """stamp_headline_from_chain_stats raises on REVIEW recipe."""
+    def test_review_no_longer_raises(self, tmp_path) -> None:
+        """stamp_headline_from_chain_stats allows REVIEW recipes (convention update 2026-05-30).
+
+        User decision: REVIEW recipes now expose headline for easier review.
+        REVIEW is borderline GT-agreement; ESS is real and useful.
+        """
+        import warnings
+
         from tuningfork.base_method import BASE_METHODS
         from tuningfork.recipes._recipe_runner import stamp_headline_from_chain_stats
 
         recipe = self._make_recipe("REVIEW")
         bm = BASE_METHODS["dynamic_hmc"]
-        with pytest.raises(ValueError, match="refusing.*REVIEW"):
-            stamp_headline_from_chain_stats(recipe, bm)
+        # REVIEW is now allowed — no chain_stats in tmp_path → warning, returns unchanged
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = stamp_headline_from_chain_stats(recipe, bm, catalog_root=tmp_path)
+        assert result.headline_metric is None  # no chain_stats → unchanged (not raised)
 
     def test_fail_raises(self) -> None:
-        """stamp_headline_from_chain_stats raises on FAIL recipe."""
+        """stamp_headline_from_chain_stats raises on FAIL recipe (no meaningful ESS)."""
         from tuningfork.base_method import BASE_METHODS
         from tuningfork.recipes._recipe_runner import stamp_headline_from_chain_stats
 

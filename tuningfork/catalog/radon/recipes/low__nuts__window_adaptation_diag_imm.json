@@ -2,7 +2,6 @@
   "model_name": "radon",
   "base_method_name": "nuts",
   "warmup_name": "window_adaptation_diag_imm",
-  "warmup_inner_kernel": null,
   "effort": "low",
   "base_method_params": {},
   "warmup_params": {
@@ -10,8 +9,42 @@
     "num_chains": 4,
     "target_acceptance": 0.8
   },
-  "headline_metric": null,
+  "headline_metric": 0.0005408333333333334,
   "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "warmup_wall_seconds": null,
+    "sampling_wall_seconds": null,
+    "sampling_seconds_per_draw": null,
+    "split_source": null,
+    "machine_info": null
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: not yet measured.\nWall time to produce this recipe: ~0 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 600000,
+    "min_bulk_ess": 324.5,
+    "grad_count_convention": "info.num_integration_steps",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
   "gate_evidence": {
     "auto": {
       "rhat_max": 1.0061,
@@ -29,12 +62,11 @@
       "reason": "ESS=324 just below 400 PASS threshold (REVIEW band) but z=0.985 PASSES (no bias evidence). Radon 919-county hierarchy requires n_warmup\u226b2000 for ESS\u2265400 \u2014 structural throughput limit. Approved: self-consistency borderline only."
     }
   },
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "",
+  "jax_version": "",
+  "timestamp_utc": "",
   "failure_diagnosis": null,
-  "attempted_configurations": [],
-  "calibration_budget": {
-    "trials": 0,
-    "wall_seconds_estimate": 0.0
-  },
-  "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: not yet measured.\nWall time to produce this recipe: ~0 s (machine-only)."
+  "attempted_configurations": []
 }

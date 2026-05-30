@@ -1188,9 +1188,12 @@ def emit_low_recipe_for_cell(
         )
     )
 
-    if gate_verdict.verdict != "PASS":
+    # Convention (user decision 2026-05-30): PASS + REVIEW both get headline/recipe.
+    # FAIL = catastrophic non-mixing → no meaningful ESS → early return, no recipe.
+    # REVIEW = borderline GT-agreement → ESS is real and useful for review → stamp it.
+    if gate_verdict.verdict == "FAIL":
         note = (
-            f"{gate_verdict.verdict} "
+            f"FAIL "
             f"rhat={gate_verdict.rhat_max:.4f} "
             f"ess={gate_verdict.min_bulk_ess:.1f} "
             f"div={gate_verdict.n_divergences}"
@@ -1201,12 +1204,18 @@ def emit_low_recipe_for_cell(
             model_name=model_name,
             warmup_name=warmup_name,
             sampler_name=sampler_name,
-            verdict=gate_verdict.verdict,
+            verdict="FAIL",
             gate_rhat_max=gate_verdict.rhat_max,
             gate_min_ess=gate_verdict.min_bulk_ess,
             gate_n_div=gate_verdict.n_divergences,
             wall_seconds=t_total,
             note=note,
+        )
+    # REVIEW: fall through to headline computation + recipe building (same as PASS).
+    if gate_verdict.verdict == "REVIEW":
+        _log(
+            f"  => gate REVIEW (rhat={gate_verdict.rhat_max:.4f}, "
+            f"ess={gate_verdict.min_bulk_ess:.1f}) — stamping headline and emitting recipe."
         )
 
     # --- Build headline metric + basis ---
@@ -1405,19 +1414,21 @@ def emit_low_recipe_for_cell(
         recipe.save(catalog_root, filename_tag=_combined_tag)
         _log(f"  Saved IMM sidecar: {imm_sidecar_rel}")
 
-    _log(f"  PASS. headline={headline:.4g}" if headline is not None else "  PASS.")
+    _verdict = gate_verdict.verdict  # "PASS" or "REVIEW" (FAIL returned early above)
+    _hl_str = f" headline={headline:.4g}" if headline is not None else ""
+    _log(f"  {_verdict}.{_hl_str}")
     return CellResult(
         model_name=model_name,
         warmup_name=warmup_name,
         sampler_name=sampler_name,
-        verdict="PASS",
+        verdict=_verdict,
         recipe_path=recipe_path,
         imm_sidecar_path=imm_sidecar_rel,
         gate_rhat_max=gate_verdict.rhat_max,
         gate_min_ess=gate_verdict.min_bulk_ess,
         gate_n_div=gate_verdict.n_divergences,
         wall_seconds=t_total,
-        note=f"PASS rhat={gate_verdict.rhat_max:.4f} ess={gate_verdict.min_bulk_ess:.1f} div={gate_verdict.n_divergences}",
+        note=f"{_verdict} rhat={gate_verdict.rhat_max:.4f} ess={gate_verdict.min_bulk_ess:.1f} div={gate_verdict.n_divergences}",
     )
 
 
@@ -2319,15 +2330,15 @@ def stamp_headline_from_chain_stats(
     if recipe.headline_metric is not None:
         return recipe  # already stamped; no-op
 
-    # Convention guard (TL ruling 2026-05-30): headline is reserved for PASS recipes.
-    # REVIEW/FAIL recipes correctly carry null headline_metric — do NOT stamp them.
+    # Convention (user decision 2026-05-30): PASS + REVIEW both expose headline.
+    # FAIL = catastrophic non-mixing → no meaningful ESS → refuse to stamp.
     verdict = recipe.gate_evidence.get("auto", {}).get("verdict")
-    if verdict is not None and verdict != "PASS":
+    if verdict == "FAIL":
         raise ValueError(
             f"stamp_headline_from_chain_stats: refusing to stamp headline on a "
-            f"{verdict!r} recipe ({recipe.model_name}/{recipe.base_method_name}). "
-            "headline_metric is reserved for PASS recipes; REVIEW/FAIL recipes "
-            "correctly carry null headline. Use this function only on PASS recipes."
+            f"FAIL recipe ({recipe.model_name}/{recipe.base_method_name}). "
+            "FAIL recipes have no meaningful ESS and correctly carry null headline_metric. "
+            "Only PASS and REVIEW recipes may be stamped."
         )
 
     min_bulk_ess = recipe.gate_evidence.get("auto", {}).get("min_bulk_ess")
@@ -2355,21 +2366,15 @@ def stamp_headline_from_chain_stats(
     from tuningfork.metrics.grad_counter import total_grad_evals as _total_grad_evals
 
     stats_data = np.load(str(chain_stats_path))
-    # Reconstruct a minimal infos-like object from chain_stats
-    # chain_stats shape: (n_samples,) or (num_chains, n_samples)
-    # Build a SimpleNamespace-like object that grad_count_per_step can vmap over
+    # Reconstruct a minimal infos-like object from chain_stats so that
+    # grad_count_per_step can access the needed fields via attribute access.
+    # Must be a NamedTuple (not a plain class instance) so that jax.vmap can
+    # traverse it as a pytree (plain class instances are not JAX pytrees).
+    from collections import namedtuple
 
-    class _InfoProxy:
-        """Minimal proxy for grad_count_per_step callable."""
-
-        pass
-
-    # Collect all fields from chain_stats into a NamedTuple-compatible object
-    # For total_grad_evals, we need the field that grad_count_per_step accesses
-    # (e.g. num_integration_steps). Build a mock infos dict.
-    proxy = type(
-        "_InfoProxy", (), {k: jnp.asarray(stats_data[k]) for k in stats_data.files}
-    )()
+    _fields = list(stats_data.files)
+    _ChainStatsProxy = namedtuple("_ChainStatsProxy", _fields)  # type: ignore[misc]
+    proxy = _ChainStatsProxy(**{k: jnp.asarray(stats_data[k]) for k in _fields})
     try:
         grad_evals = _total_grad_evals(proxy, base_method.grad_count_per_step)
         if grad_evals <= 0:
