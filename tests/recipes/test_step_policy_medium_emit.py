@@ -110,6 +110,25 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
     assert recipe.step_policy["values"] == policy_spec["values"]
     assert np.allclose(recipe.step_policy["weights"], policy_spec["weights"], atol=1e-6)
 
+    # MEDIUM recipes must stamp the full performance block (runner fix, 2026-05-30).
+    # Regression: the MEDIUM/step-policy path was skipping headline_metric + headline_basis,
+    # leaving the core benchmark number null in step-policy MEDIUM recipes.
+    assert recipe.headline_metric is not None, (
+        f"MEDIUM recipe headline_metric is null — the runner must stamp the performance "
+        f"block on MEDIUM/step-policy emits identically to LOW. "
+        f"gate_evidence.min_bulk_ess={recipe.gate_evidence.get('auto', {}).get('min_bulk_ess')}"
+    )
+    assert recipe.headline_basis is not None, (
+        "MEDIUM recipe headline_basis is null — grad_count_convention + is_lower_bound "
+        "must be populated from BaseMethod.grad_count_convention."
+    )
+    assert recipe.headline_basis.get(
+        "grad_count_convention"
+    ), f"headline_basis.grad_count_convention is empty: {recipe.headline_basis}"
+    assert isinstance(
+        recipe.headline_basis.get("is_lower_bound"), bool
+    ), f"headline_basis.is_lower_bound must be bool, got: {recipe.headline_basis}"
+
 
 def test_medium_with_policy_tag_none_preserves_low(tmp_path):
     """policy_tag=None (default) preserves LOW effort and canonical filename."""

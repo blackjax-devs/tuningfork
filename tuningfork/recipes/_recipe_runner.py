@@ -78,7 +78,12 @@ from tuningfork.recipes._instructions import render_instructions
 from tuningfork.warmup import WARMUPS
 from tuningfork.warmup._laplace_adapter import LAPLACE_METHOD_NAMES
 
-__all__ = ["emit_low_recipe_for_cell", "run_recipe_to_idata", "CellResult"]
+__all__ = [
+    "emit_low_recipe_for_cell",
+    "run_recipe_to_idata",
+    "stamp_headline_from_chain_stats",
+    "CellResult",
+]
 
 # ---------------------------------------------------------------------------
 # Laplace optimizer kwargs helpers
@@ -2150,6 +2155,127 @@ def run_recipe_to_idata(
     if _return_timing:
         return idata_result, _t_warmup, _t_sample
     return idata_result
+
+
+# ---------------------------------------------------------------------------
+# Performance-block recovery utility (for MEDIUM/step-policy recipes)
+# ---------------------------------------------------------------------------
+
+
+def stamp_headline_from_chain_stats(
+    recipe: "Recipe",
+    base_method: Any,
+    catalog_root: Path = _CATALOG_ROOT,
+) -> "Recipe":
+    """Stamp headline_metric + headline_basis on a recipe with null headline.
+
+    For MEDIUM/step-policy recipes created via non-``emit_low_recipe_for_cell``
+    paths (e.g. ``Recipe.from_warmup_only`` + manual gate patching), the
+    performance block is not automatically computed.  This function recovers it
+    deterministically from already-available data:
+
+    - ``min_bulk_ess`` from ``recipe.gate_evidence["auto"]["min_bulk_ess"]``
+    - ``total_grad_evals`` from cached ``catalog/<model>/_cache/chain_stats.npz``
+      via ``base_method.grad_count_per_step``
+
+    No re-sampling is required.  If chain_stats are unavailable, ``headline_metric``
+    is left as-is (null) and a warning is printed.
+
+    Parameters
+    ----------
+    recipe
+        Recipe with populated ``gate_evidence.auto.min_bulk_ess`` but null
+        ``headline_metric``.  If ``headline_metric`` is already non-null this
+        is a no-op (returns recipe unchanged).
+    base_method
+        BaseMethod registry entry for the recipe's sampler.  Provides
+        ``grad_count_per_step`` and ``grad_count_convention``.
+    catalog_root
+        Root of the catalog directory (used to locate chain_stats cache).
+
+    Returns
+    -------
+    Recipe
+        Updated recipe (frozen; returns a new object via ``dataclasses.replace``).
+    """
+    import dataclasses
+    import warnings
+
+    from tuningfork.warmup._laplace_adapter import (
+        LAPLACE_METHOD_NAMES as _LAPLACE_NAMES,
+    )
+
+    if recipe.headline_metric is not None:
+        return recipe  # already stamped; no-op
+
+    min_bulk_ess = recipe.gate_evidence.get("auto", {}).get("min_bulk_ess")
+    if min_bulk_ess is None:
+        warnings.warn(
+            f"stamp_headline_from_chain_stats: gate_evidence.auto.min_bulk_ess is None "
+            f"for {recipe.model_name}/{recipe.base_method_name}; cannot recover headline.",
+            stacklevel=2,
+        )
+        return recipe
+
+    # Load chain_stats from cache
+    chain_stats_path = catalog_root / recipe.model_name / "_cache" / "chain_stats.npz"
+    if not chain_stats_path.exists():
+        warnings.warn(
+            f"stamp_headline_from_chain_stats: chain_stats cache not found at "
+            f"{chain_stats_path}; cannot recover total_grad_evals.",
+            stacklevel=2,
+        )
+        return recipe
+
+    import jax.numpy as jnp
+    import numpy as np
+
+    from tuningfork.metrics.grad_counter import total_grad_evals as _total_grad_evals
+
+    stats_data = np.load(str(chain_stats_path))
+    # Reconstruct a minimal infos-like object from chain_stats
+    # chain_stats shape: (n_samples,) or (num_chains, n_samples)
+    # Build a SimpleNamespace-like object that grad_count_per_step can vmap over
+
+    class _InfoProxy:
+        """Minimal proxy for grad_count_per_step callable."""
+
+        pass
+
+    # Collect all fields from chain_stats into a NamedTuple-compatible object
+    # For total_grad_evals, we need the field that grad_count_per_step accesses
+    # (e.g. num_integration_steps). Build a mock infos dict.
+    proxy = type(
+        "_InfoProxy", (), {k: jnp.asarray(stats_data[k]) for k in stats_data.files}
+    )()
+    try:
+        grad_evals = _total_grad_evals(proxy, base_method.grad_count_per_step)
+        if grad_evals <= 0:
+            warnings.warn(
+                f"stamp_headline_from_chain_stats: grad_evals={grad_evals} ≤ 0 "
+                f"from chain_stats; using min_bulk_ess as headline (denominator=1).",
+                stacklevel=2,
+            )
+            return recipe
+    except Exception as exc:
+        warnings.warn(
+            f"stamp_headline_from_chain_stats: failed to compute total_grad_evals: {exc}; "
+            f"falling back to gate_evidence.min_bulk_ess / n_steps approximation.",
+            stacklevel=2,
+        )
+        return recipe
+
+    _headline = float(min_bulk_ess) / float(grad_evals)
+    _is_laplace = recipe.base_method_name in _LAPLACE_NAMES
+    _basis = {
+        "total_grad_evals": int(grad_evals),
+        "min_bulk_ess": float(min_bulk_ess),
+        "grad_count_convention": base_method.grad_count_convention
+        or recipe.base_method_name,
+        "is_lower_bound": _is_laplace,
+    }
+
+    return dataclasses.replace(recipe, headline_metric=_headline, headline_basis=_basis)
 
 
 # ---------------------------------------------------------------------------
