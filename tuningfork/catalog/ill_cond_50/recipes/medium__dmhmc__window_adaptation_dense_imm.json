@@ -1,0 +1,56 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "dmhmc",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.459,
+    "inverse_mass_matrix": null
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 9.8,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 6.5
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (window_adaptation_dense_imm, dmhmc) \u2014 step_policy None.\nREVIEW gate approved by statistician (Bonferroni): z=2.355 < z*=3.29 for k=50 sites.",
+  "notes": "ill_cond_50 \u00d7 W2 \u00d7 dmhmc with V7 auto-oracle (from NUTS warmup_info). Dense 50\u00d750 IMM adapts in 6.5s (contrast: irt_2pl d=144 dense fails at 325s). rhat=1.010 is borderline at the PASS/REVIEW threshold. ESS=1667 excellent. Completes the ill_cond_50 \u00d7 W2 coverage alongside dynamic_hmc (PASS, ESS=2885).",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0097,
+      "min_bulk_ess": 1666.8,
+      "n_divergences": 0,
+      "max_abs_mean_z": 2.355,
+      "verdict": "REVIEW",
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "z=2.355 < Bonferroni z*=3.29 for k=50 sites (FWER=5%). ESS=1667 >> 400 (PASS band). rhat=1.0097 (PASS band). No bias evidence."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

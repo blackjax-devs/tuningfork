@@ -1,0 +1,60 @@
+{
+  "model_name": "irt_2pl",
+  "base_method_name": "dmhmc",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.07895,
+    "inverse_mass_matrix": null
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 69.7,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 26.9
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) \u2014 step_policy {'kind': 'uniform_int', 'low': 50, 'high': 200}.\nREVIEW gate approved by statistician (Bonferroni): z=2.849 < z*=3.87 for k=144 sites.",
+  "notes": "dmhmc requires V2 [50,200) L_mean=125 for irt_2pl \u2014 persistent momentum accumulates high autocorrelation at shorter trajectories. V1 gave ESS=282 (below gate). V7 auto-oracle gave ESS=9.9 (catastrophic). 1 divergence in 4000 draws (0.025%, well under 5% gate).",
+  "step_policy": {
+    "kind": "uniform_int",
+    "low": 50,
+    "high": 200
+  },
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0045,
+      "min_bulk_ess": 1184.2,
+      "n_divergences": 1,
+      "max_abs_mean_z": 2.849,
+      "verdict": "REVIEW",
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "z=2.849 < Bonferroni z*=3.87 for k=144 sites (FWER=5%). ESS=1184 >> 400 (PASS band). rhat=1.0045 (PASS band). No bias evidence."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
