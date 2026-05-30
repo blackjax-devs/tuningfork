@@ -894,6 +894,14 @@ def emit_low_recipe_for_cell(
                 elif _tk == "num_integration_steps":
                     shared_kwargs["num_integration_steps"] = _tv
 
+    # Compute step_policy to persist HERE (before any early returns) so that
+    # dynamic_hmc/dmhmc with inner_nuts always carry the harvested step_policy
+    # regardless of gate verdict.  For non-dynamic kernels this is always None.
+    # NOTE: this must stay before the NaN-check + gate early-returns below.
+    _recipe_step_policy = (
+        _effective_step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None
+    )
+
     # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
     # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
     # Strip the int; then inject the step_policy callable (V0 = library default
@@ -1209,12 +1217,8 @@ def emit_low_recipe_for_cell(
         else "full_posterior"
     )
 
-    # Determine the effective step_policy to store in the recipe.
-    # For dynamic_hmc/dmhmc: use _effective_step_policy (may be updated by transform).
-    # For all other samplers: None.
-    _recipe_step_policy = (
-        _effective_step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None
-    )
+    # _recipe_step_policy is computed above (before gate early-returns) so that
+    # it's available regardless of gate verdict.  See the assignment near line 897.
 
     _warmup_params_dict: dict[str, Any] = {
         "n_warmup": n_warmup,
