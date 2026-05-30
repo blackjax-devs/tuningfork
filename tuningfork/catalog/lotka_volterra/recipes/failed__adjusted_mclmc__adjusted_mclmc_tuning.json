@@ -1,0 +1,27 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "adjusted_mclmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_name": "adjusted_mclmc_tuning",
+  "warmup_params": {"n_warmup": 50, "num_chains": 4},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {"trials": 1, "wall_seconds_estimate": 60.0},
+  "difficulty": null,
+  "instructions": null,
+  "notes": "FAIL: non-terminating warmup. adjusted_mclmc_tuning hangs during adjusted_mclmc warmup on lotka_volterra stiff ODE — warmup did not complete within 60s at n_warmup=50 (normally completes in ~6s for easy models). Stiff-ODE geometry causes adjusted_mclmc_tuning variable-trajectory adaptation to non-terminate. Do not run without a tight timeout guard.",
+  "step_policy": null,
+  "warmups": [{"name": "adjusted_mclmc_tuning", "params": {"n_warmup": 50, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {"verdict": "FAIL", "failure_mode": "NON_TERMINATING_WARMUP"},
+    "override": {"decision": "FAIL", "statistician_id": "stat-2026-05-30", "date": "2026-05-30", "reason": "Warmup hangs: adjusted_mclmc_tuning non-terminates on lotka_volterra stiff ODE. Timed out after 60s at n_warmup=50."}
+  },
+  "failure_diagnosis": "Non-terminating warmup: adjusted_mclmc_tuning hangs on lotka_volterra stiff ODE during adjusted_mclmc sampling. The variable-trajectory adapted_mclmc warmup appears to enter an infinite loop or extreme slowdown when the ODE solver encounters stiff gradient regions. Smoke test at n_warmup=50 did not complete within 60s (normal: ~6s). Route to swe for investigation of adjusted_mclmc_tuning + stiff-ODE interaction.",
+  "attempted_configurations": [{"n_warmup": 50, "outcome": "NON_TERMINATING_WARMUP", "note": "killed after 60s timeout; normally completes in ~6s for easy models"}]
+}

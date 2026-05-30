@@ -1,0 +1,27 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "adjusted_mclmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_name": "adjusted_mclmc_tuning",
+  "warmup_params": {"n_warmup": 10000, "num_chains": 4},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {"trials": 1, "wall_seconds_estimate": 9.4},
+  "difficulty": null,
+  "instructions": null,
+  "notes": "ill_cond_50 kappa=1000 structural failure. adjusted_mclmc_tuning at n_warmup=10000 adapts step_size=1.22-1.44 but trajectory length (L) insufficient for 1000:1 anisotropy. rhat=1.125, ESS=26.1. No bias (z=0.864). Improvement vs 1K warmup (rhat 1.548->1.125, ESS 7.4->26.1) but still structural FAIL. Neither mclmc nor adjusted_mclmc can resolve kappa=1000 at practical n_warmup.",
+  "step_policy": null,
+  "warmups": [{"name": "adjusted_mclmc_tuning", "params": {"n_warmup": 10000, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {"rhat_max": 1.1251, "min_bulk_ess": 26.1, "n_divergences": 0, "max_abs_mean_z": 0.864, "verdict": "FAIL"},
+    "override": {"decision": "FAIL", "statistician_id": "stat-2026-05-30", "date": "2026-05-30", "reason": "Structural: kappa=1000 trajectory length insufficient even at n_warmup=10K (rhat=1.125, ESS=26)."}
+  },
+  "failure_diagnosis": "ill_cond_50 kappa=1000 structural FAIL for adjusted_mclmc at n_warmup=10000. step_size=1.22-1.44 but L adaptation insufficient for 1000:1 anisotropy. No bias (z=0.864); purely trajectory/mixing failure. Same root cause as vanilla mclmc.",
+  "attempted_configurations": [{"n_warmup": 10000, "outcome": "FAIL", "rhat_max": 1.1251, "min_ess": 26.1}]
+}
