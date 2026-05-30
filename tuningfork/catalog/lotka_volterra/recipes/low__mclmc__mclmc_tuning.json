@@ -3,34 +3,34 @@
   "base_method_name": "mclmc",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.3006119324053501,
-    "L": 5.635751748273011,
+    "step_size": 0.4757256294938311,
+    "L": 6.675072004507663,
     "inverse_mass_matrix": [
-      0.001273484326230423,
-      0.001138761658886267,
-      0.0010809685583357265,
-      0.0012857181498261427,
-      0.022107424762220884,
-      0.00018185278686999595,
-      0.0005559976914746301
+      0.000689573395721288,
+      0.0006271008080105389,
+      0.0006020481165460723,
+      0.0007138897322413462,
+      0.010292135726994278,
+      0.00017315562143949137,
+      0.0003652477507705143
     ]
   },
-  "headline_metric": 12.564430004459885,
+  "headline_metric": 12.747456609932934,
   "sample_quality": {
-    "mae_vs_reference": 0.04176820056191207,
-    "q05_error": 0.19603460450128998,
-    "q95_error": 0.19164002455968526,
-    "std_ratio_max_dev": 0.09164297292577495
+    "mae_vs_reference": 0.02173611917192661,
+    "q05_error": 0.2504574268893995,
+    "q95_error": 0.23902211252850394,
+    "std_ratio_max_dev": 0.12528373304829066
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 38.498007088986924,
-    "n_warmup": 10000,
+    "wall_seconds_estimate": 46.316187108983286,
+    "n_warmup": 50000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 22.469,
-    "sampling_wall_seconds": 3.816,
-    "sampling_seconds_per_draw": 0.000954,
+    "warmup_wall_seconds": 31.681,
+    "sampling_wall_seconds": 3.637,
+    "sampling_seconds_per_draw": 0.000909,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -45,11 +45,11 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 0.3006119324053501, 'L': 5.635751748273011, 'inverse_mass_matrix': [0.001273484326230423, 0.001138761658886267, 0.0010809685583357265, 0.0012857181498261427, 0.022107424762220884, 0.00018185278686999595, 0.0005559976914746301]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 12.5644.\nWall time to produce this recipe: ~38 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 0.4757256294938311, 'L': 6.675072004507663, 'inverse_mass_matrix': [0.000689573395721288, 0.0006271008080105389, 0.0006020481165460723, 0.0007138897322413462, 0.010292135726994278, 0.00017315562143949137, 0.0003652477507705143]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 12.7475.\nWall time to produce this recipe: ~46 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 8,
-    "min_bulk_ess": 100.51544003567908,
+    "min_bulk_ess": 101.97965287946347,
     "grad_count_convention": "2",
     "is_lower_bound": false
   },
@@ -58,7 +58,7 @@
     {
       "name": "mclmc_tuning",
       "params": {
-        "n_warmup": 10000,
+        "n_warmup": 50000,
         "num_chains": 4,
         "target_acceptance": 0.8
       }
@@ -71,14 +71,14 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.026060492040105,
-      "min_bulk_ess": 108.1913285718019,
+      "rhat_max": 1.0136679002481253,
+      "min_bulk_ess": 106.96987063716846,
       "n_divergences": 0,
-      "max_abs_mean_z": 0.43063630447543383,
+      "max_abs_mean_z": 0.2389627232600096,
       "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.026060492040105,
+          "value": 1.0136679002481253,
           "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -86,7 +86,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 108.1913285718019,
+          "value": 106.96987063716846,
           "band": "REVIEW",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -102,7 +102,7 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 0.43063630447543383,
+          "value": 0.2389627232600096,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 2.0,
@@ -123,16 +123,16 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-30T16:51:05Z",
+  "timestamp_utc": "2026-05-30T16:53:26Z",
   "failure_diagnosis": null,
   "attempted_configurations": [
     {
-      "n_warmup": 50000,
+      "n_warmup": 10000,
       "outcome": "REVIEW",
-      "rhat_max": 1.0137,
-      "min_ess": 107.0,
-      "headline": 12.75,
-      "note": "rhat improved 1.037->1.014; step_size spread tightened 1.9x->1.3x; no verdict change."
+      "rhat_max": 1.0366,
+      "min_ess": 104.9,
+      "headline": 12.48,
+      "note": "10K: rhat=1.037, step_size spread 1.9x (0.023-0.044). Converging but not optimal."
     },
     {
       "n_warmup": 100000,
@@ -140,7 +140,7 @@
       "rhat_max": 1.0163,
       "min_ess": 112.9,
       "headline": 13.47,
-      "note": "rhat worsened 1.014->1.016 vs 50K; step_size spread widened back to 1.55x. OSCILLATING. Geometry-bound STOP. 10K is the efficient pinned config."
+      "note": "100K: rhat worsened 1.014->1.016 vs 50K; step_size spread widened (1.55x). Oscillating \u2014 50K is the genuine sweet spot for stiff-ODE geometry."
     }
   ]
 }
