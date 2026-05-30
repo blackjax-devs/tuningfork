@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -676,14 +676,27 @@ class Recipe:
         """
         d = json.loads(Path(path).read_text())
         d["effort"] = Effort(d["effort"])
-        # Deserialize failure_diagnosis if present (backward compat: missing key defaults to None)
+        # Deserialize failure_diagnosis if present (backward compat: missing key defaults to None).
+        # Coerce free-text strings (from older triage notes) to HARD_DIRECTION.
         if "failure_diagnosis" in d and d["failure_diagnosis"] is not None:
-            d["failure_diagnosis"] = FailureDiagnosis(d["failure_diagnosis"])
-        # Deserialize attempted_configurations if present (backward compat: missing key defaults to [])
+            try:
+                d["failure_diagnosis"] = FailureDiagnosis(d["failure_diagnosis"])
+            except ValueError:
+                d["failure_diagnosis"] = FailureDiagnosis.HARD_DIRECTION
+        # Deserialize attempted_configurations if present (backward compat: missing key defaults to []).
+        # Strip unknown keys from each entry for forward-compat (triage may add extra fields).
+        _ac_known = {f.name for f in fields(AttemptedConfig)}
         if "attempted_configurations" in d and d["attempted_configurations"]:
-            d["attempted_configurations"] = [
-                AttemptedConfig(**ac) for ac in d["attempted_configurations"]
-            ]
+            _parsed_acs = []
+            for ac in d["attempted_configurations"]:
+                _ac_filtered = {k: v for k, v in ac.items() if k in _ac_known}
+                # Skip entries missing required AttemptedConfig fields (e.g. old
+                # triage-format entries that use 'config' key instead of the schema).
+                try:
+                    _parsed_acs.append(AttemptedConfig(**_ac_filtered))
+                except TypeError:
+                    pass  # non-standard format; omit rather than crash
+            d["attempted_configurations"] = _parsed_acs
         else:
             # Ensure default if key missing
             d.setdefault("attempted_configurations", [])
@@ -738,6 +751,17 @@ class Recipe:
                 "machine_info",
             ):
                 d["calibration_budget"].setdefault(_k, None)
+        # Backward-compat: calibration_budget / difficulty / instructions absent in
+        # recipes that were emitted before the full schema stamp (e.g. via manual
+        # triage or before the emit-path fix that moved these before early-returns).
+        # Defaults: minimal calibration_budget stub; None difficulty; empty instructions.
+        d.setdefault("calibration_budget", {"trials": 0, "wall_seconds_estimate": 0.0})
+        d.setdefault("difficulty", None)
+        d.setdefault("instructions", "")
+        # Strip unknown keys (e.g. triage-only annotations like 'revisit_as') so
+        # cls(**d) doesn't raise on non-standard fields from manual recipe edits.
+        _known_fields = {f.name for f in fields(cls)}
+        d = {k: v for k, v in d.items() if k in _known_fields}
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────

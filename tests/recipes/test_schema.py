@@ -1386,3 +1386,37 @@ def test_old_recipe_without_timing_fields_loads_with_none_defaults(
     assert budget.get("machine_info") is None
     # Legacy fields should still be there
     assert budget["wall_seconds_estimate"] == pytest.approx(35.0)
+
+
+@pytest.mark.fast
+def test_every_catalog_recipe_round_trips_through_load() -> None:
+    """Every committed catalog recipe JSON must round-trip through Recipe.load.
+
+    Tripwire that catches schema gaps before they reach the user: any recipe that
+    fails Recipe.load crashes the catalog_explorer and blocks MCMC re-runs.
+
+    Regression for the calibration_budget/difficulty/instructions missing-field bug
+    (PRs #86-triage recipes, user-reported catalog_explorer crash 2026-05-30) and
+    the free-text failure_diagnosis + non-standard AttemptedConfig fields.
+    """
+    import glob
+
+    CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
+    recipe_paths = sorted(glob.glob(str(CATALOG_ROOT) + "/*/recipes/*.json"))
+    assert len(recipe_paths) > 50, (
+        f"Expected >50 catalog recipes; found {len(recipe_paths)}. "
+        "Check CATALOG_ROOT path is correct."
+    )
+
+    failures = []
+    for p in recipe_paths:
+        try:
+            Recipe.load(Path(p))
+        except Exception as exc:
+            failures.append((Path(p).name, type(exc).__name__, str(exc)[:120]))
+
+    assert (
+        not failures
+    ), f"{len(failures)} catalog recipes fail Recipe.load round-trip:\n" + "\n".join(
+        f"  {name}: {etype}: {emsg}" for name, etype, emsg in failures
+    )
