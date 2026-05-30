@@ -226,6 +226,98 @@ class TestAdjustedMclmcGradCount:
 
 
 # ---------------------------------------------------------------------------
+# 4b. vmap-safety: factory must not call float() on traced step_size / L
+# ---------------------------------------------------------------------------
+
+
+class TestAdjustedMclmcVmapSafety:
+    """Factory is safe inside jax.vmap — no ConcretizationTypeError.
+
+    Regression test for the bug where `float(step_size)` inside the factory
+    raised ``ConcretizationTypeError`` when called under ``jax.vmap``.
+    """
+
+    def test_factory_callable_under_jit(self) -> None:
+        """jax.jit traces step_size; factory must not call float() on it."""
+        key = jax.random.key(200)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+
+        @jax.jit
+        def build_and_step(step_size, L, key):
+            algo = ENTRY.factory(
+                logdensity_fn,
+                step_size=step_size,
+                L=L,
+                inverse_mass_matrix=jnp.ones(_D),
+            )
+            state = algo.init(init_pos)
+            return algo.step(key, state)
+
+        # Should not raise ConcretizationTypeError
+        new_state, info = build_and_step(
+            jnp.array(0.1), jnp.array(1.0), jax.random.key(1)
+        )
+        assert hasattr(new_state, "position")
+
+    def test_factory_callable_under_vmap(self) -> None:
+        """jax.vmap traces step_size per-chain; factory must handle it.
+
+        This is the exact scenario triggered by the recipe runner's
+        ``_step_one_chain`` function.
+        """
+        key = jax.random.key(201)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+
+        num_chains = 4
+        per_chain_ss = jnp.array([0.05, 0.08, 0.12, 0.15])
+        per_chain_L = jnp.full((num_chains,), 1.0)
+        per_chain_keys = jax.random.split(key, num_chains)
+
+        # Build states (no rng_key needed for adjusted_mclmc.init)
+        init_states = jax.vmap(
+            lambda _: ENTRY.factory(
+                logdensity_fn,
+                step_size=0.1,
+                L=1.0,
+                inverse_mass_matrix=jnp.ones(_D),
+            ).init(init_pos)
+        )(jnp.arange(num_chains))
+
+        def _step_one_chain(state, key, step_size, L):
+            """Mirrors _step_one_chain in _recipe_runner.py."""
+            kernel_step = ENTRY.factory(
+                logdensity_fn,
+                step_size=step_size,
+                L=L,
+                inverse_mass_matrix=jnp.ones(_D),
+            ).step
+            return kernel_step(key, state)
+
+        # Should not raise ConcretizationTypeError
+        new_states, infos = jax.vmap(_step_one_chain)(
+            init_states, per_chain_keys, per_chain_ss, per_chain_L
+        )
+        # position is a dict of site arrays from numpyro; check leading dim = num_chains
+        pos_leaf = jax.tree.leaves(new_states.position)[0]
+        assert pos_leaf.shape[0] == num_chains
+
+    def test_n_steps_minimum_is_1(self) -> None:
+        """When L < step_size, n_steps should be clamped to 1 (not 0)."""
+        key = jax.random.key(202)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        # L=0.001, step_size=1.0 → raw ratio=0.001 → clamped to 1
+        algo = ENTRY.factory(
+            logdensity_fn,
+            step_size=jnp.array(1.0),
+            L=jnp.array(0.001),
+            inverse_mass_matrix=jnp.ones(_D),
+        )
+        state = algo.init(init_pos)
+        _, info = algo.step(jax.random.key(1), state)
+        assert int(info.num_integration_steps) >= 1
+
+
+# ---------------------------------------------------------------------------
 # 5. 10-D Gaussian sanity check: warmup + sampling
 # ---------------------------------------------------------------------------
 
