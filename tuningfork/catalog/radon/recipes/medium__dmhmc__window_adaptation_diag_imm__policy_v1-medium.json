@@ -1,0 +1,60 @@
+{
+  "model_name": "radon",
+  "base_method_name": "dmhmc",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.202,
+    "inverse_mass_matrix": null
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 57.0,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 38.9
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) \u2014 step_policy {'kind': 'uniform_int', 'low': 5, 'high': 50}.\nREVIEW gate approved by statistician (Bonferroni): z=2.548 < z*=3.98 for k=390 sites.",
+  "notes": "V1 [5,50) L_mean=27 sufficient for radon dmhmc. ESS=1054 slightly lower than dynamic_hmc (1527) due to persistent momentum overhead at moderate trajectory lengths.",
+  "step_policy": {
+    "kind": "uniform_int",
+    "low": 5,
+    "high": 50
+  },
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0093,
+      "min_bulk_ess": 1053.7,
+      "n_divergences": 0,
+      "max_abs_mean_z": 2.548,
+      "verdict": "REVIEW",
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "z=2.548 < Bonferroni z*=3.98 for k=390 sites (FWER=5%). ESS=1054 >> 400 (PASS band). rhat=1.0093 (PASS band). No bias evidence."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
