@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Multinomial proposal + random-L same diagnosis as dynamic_hmc.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

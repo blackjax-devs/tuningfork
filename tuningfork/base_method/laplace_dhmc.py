@@ -129,6 +129,7 @@ ENTRY = BaseMethod(
     # Grad cost: (num_integration_steps + 1) × lbfgs_iter_num — measured proxy.
     # Replaces the hardcoded ×5 heuristic (blackjax PR #928).
     grad_count_per_step=_laplace_grad_count,
+    grad_count_convention="(info.num_integration_steps + 1) × info.lbfgs_iter_num (lower bound; line-search ≈ 1)",
     default_hp_space=(HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),),
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,

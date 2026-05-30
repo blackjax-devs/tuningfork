@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "laplace_hmc fixed-L consistently underperforms laplace_dhmc on eight_schools_ncp. Phase 3c (W1) and Phase 3c (W2) both showed laplace_hmc REVIEW/FAIL vs laplace_dhmc PASS. W3 confirms the pattern. Superseded by low__laplace_dhmc__window_adaptation_low_rank_imm.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Stiff ODE + random-L \u2208 [1,10) catastrophically fails \u2014 ta=0.99 isn't enough because L is too short to traverse the long-correlation directions of the (alpha,beta,gamma,delta) posterior.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

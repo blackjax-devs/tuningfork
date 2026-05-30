@@ -11,7 +11,7 @@
   },
   "headline_metric": null,
   "sample_quality": null,
-  "failure_diagnosis": "horseshoe d=204 dynamic_hmc structural non-mixing confirmed across all 3 IMM variants (diag/dense/low_rank). Low_rank IMM gives rhat=2.80, ESS=4.7, max_z=11.46, step_size=0.005-0.006 (worst of 3 variants). ESS~4-5 is consistent across W1/W2/W3 regardless of mass matrix quality — the binding constraint is dynamic_hmc trajectory length, not mass matrix estimation. The horseshoe posterior requires NUTS U-turn criterion with max_doublings=15 (medium__nuts__window_adaptation_diag_imm) to take long enough trajectories for the spike/slab geometry. All 3 dynamic_hmc variants are structurally unsuitable: fixed max-trajectory cannot traverse horseshoe posterior in any single chain step.",
+  "failure_diagnosis": "horseshoe d=204 dynamic_hmc structural non-mixing confirmed across all 3 IMM variants (diag/dense/low_rank). Low_rank IMM gives rhat=2.80, ESS=4.7, max_z=11.46, step_size=0.005-0.006 (worst of 3 variants). ESS~4-5 is consistent across W1/W2/W3 regardless of mass matrix quality \u2014 the binding constraint is dynamic_hmc trajectory length, not mass matrix estimation. The horseshoe posterior requires NUTS U-turn criterion with max_doublings=15 (medium__nuts__window_adaptation_diag_imm) to take long enough trajectories for the spike/slab geometry. All 3 dynamic_hmc variants are structurally unsuitable: fixed max-trajectory cannot traverse horseshoe posterior in any single chain step.",
   "revisit_as": "nuts",
   "gate_evidence": {
     "auto": {
@@ -20,7 +20,10 @@
       "n_divergences": 0,
       "max_abs_mean_z": 11.459,
       "verdict": "FAIL",
-      "step_size_range": [0.005364, 0.006393],
+      "step_size_range": [
+        0.005364,
+        0.006393
+      ],
       "warmup_seconds": 109.5
     },
     "override": {
@@ -31,6 +34,21 @@
     }
   },
   "attempted_configurations": [
-    {"n_warmup": 2000, "ta": 0.8, "outcome": "FAIL", "rhat_max": 2.8007, "min_ess": 4.7, "max_z": 11.459, "step_size_min": 0.005364, "step_size_max": 0.006393}
-  ]
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "outcome": "FAIL",
+      "rhat_max": 2.8007,
+      "min_ess": 4.7,
+      "max_z": 11.459,
+      "step_size_min": 0.005364,
+      "step_size_max": 0.006393
+    }
+  ],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]"
 }

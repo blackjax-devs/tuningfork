@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Same as dmhmc \u00d7 diag \u2014 multinomial proposal + random-L cannot rescue Rosenbrock geometry.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

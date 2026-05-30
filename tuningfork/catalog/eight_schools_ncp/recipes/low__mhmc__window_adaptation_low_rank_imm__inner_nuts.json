@@ -123,5 +123,11 @@
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-29T15:50:37Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "info.num_integration_steps",
+    "is_lower_bound": false
+  }
 }

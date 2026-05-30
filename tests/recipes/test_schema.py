@@ -19,6 +19,7 @@ All tests are marked @pytest.mark.fast.
 """
 
 import dataclasses
+import glob
 import json
 import math
 from pathlib import Path
@@ -1419,4 +1420,68 @@ def test_every_catalog_recipe_round_trips_through_load() -> None:
         not failures
     ), f"{len(failures)} catalog recipes fail Recipe.load round-trip:\n" + "\n".join(
         f"  {name}: {etype}: {emsg}" for name, etype, emsg in failures
+    )
+
+
+@pytest.mark.fast
+def test_every_catalog_recipe_has_required_fields_on_disk() -> None:
+    """On-disk completeness: every catalog recipe JSON must have calibration_budget,
+    difficulty, and instructions as present keys (not just load-tolerant via setdefault).
+
+    This tripwire catches the class of bug where triage scripts create minimal recipe
+    files that omit required fields — these load fine after #90's setdefault fix, but
+    the on-disk data is still incomplete and breaks catalog_explorer display.
+    """
+    import json
+
+    CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
+    recipe_paths = sorted(glob.glob(str(CATALOG_ROOT) + "/*/recipes/*.json"))
+
+    missing = []
+    for p in recipe_paths:
+        d = json.loads(Path(p).read_text())
+        absent = [
+            k
+            for k in ("calibration_budget", "difficulty", "instructions")
+            if k not in d
+        ]
+        if absent:
+            missing.append((Path(p).name, absent))
+
+    assert (
+        not missing
+    ), f"{len(missing)} recipes missing required keys on disk:\n" + "\n".join(
+        f"  {name}: missing {keys}" for name, keys in missing
+    )
+
+
+@pytest.mark.fast
+def test_every_recipe_with_headline_has_headline_basis() -> None:
+    """On-disk WG2 tripwire: every recipe with a non-null headline_metric must have
+    a non-null headline_basis dict with the 4 required keys.
+
+    headline_basis records the accounting convention so cross-method comparisons
+    are interpretable (Gap-1, decisions/2026-05-30-schema-comparison-completeness.md).
+    """
+    import json
+
+    CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
+    recipe_paths = sorted(glob.glob(str(CATALOG_ROOT) + "/*/recipes/*.json"))
+
+    failures = []
+    for p in recipe_paths:
+        d = json.loads(Path(p).read_text())
+        if d.get("headline_metric") is None:
+            continue
+        basis = d.get("headline_basis")
+        if basis is None:
+            failures.append((Path(p).name, "headline_basis is None"))
+            continue
+        for k in ("grad_count_convention", "is_lower_bound"):
+            if k not in basis:
+                failures.append((Path(p).name, f"headline_basis missing key '{k}'"))
+
+    assert not failures, (
+        f"{len(failures)} recipes with non-null headline_metric are missing headline_basis:\n"
+        + "\n".join(f"  {name}: {issue}" for name, issue in failures)
     )

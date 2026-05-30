@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Fixed-L HMC fails on mvn_10 regardless of IMM type (W1/W2/W3). The default integration-steps does not match the Hamiltonian resonance at d=10. L=5 with W1/W2 passes as MEDIUM (Phase 4 cluster 2). W3 analogue not attempted; superseded by low__nuts__window_adaptation_low_rank_imm.json.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

@@ -1135,13 +1135,26 @@ def emit_low_recipe_for_cell(
             note=note,
         )
 
-    # --- Build headline metric ---
+    # --- Build headline metric + basis ---
     # positions is already (num_chains, n_samples, *event) — no rechunk needed.
     mc_positions = {k: np.asarray(v) for k, v in positions.items()}
     grad_evals = total_grad_evals(infos, base_method.grad_count_per_step)
     headline: float | None = None
+    _headline_basis: dict | None = None
     if grad_evals > 0:
         headline = float(min_bulk_ess_per_grad(mc_positions, grad_evals))
+        # Gap-1 (decisions/2026-05-30): capture accounting details so cross-recipe
+        # comparisons are interpretable (convention varies by base_method family).
+        # Back-compute min_bulk_ess = headline × grad_evals (exact, no rounding).
+        _is_laplace = sampler_name in LAPLACE_METHOD_NAMES
+        _headline_basis = {
+            "total_grad_evals": int(grad_evals),
+            "min_bulk_ess": headline * grad_evals,  # back-derived from headline
+            # Complete formula text from BaseMethod.grad_count_convention (single
+            # source of truth), not a truncated slice of the general notes.
+            "grad_count_convention": base_method.grad_count_convention or sampler_name,
+            "is_lower_bound": _is_laplace,
+        }
 
     # --- Compute sample_quality (GT-agreement; compare draws to reference) ---
     # Uses the same aligned GT keys used by auto_gate above.
@@ -1240,6 +1253,7 @@ def emit_low_recipe_for_cell(
         warmups=[{"name": warmup.name, "params": _warmup_params_dict}],
         warmup_inner_kernel=warmup_inner_kernel,
         headline_metric=headline,
+        headline_basis=_headline_basis,
         sample_quality=_sample_quality,
         calibration_budget={
             "trials": 0,

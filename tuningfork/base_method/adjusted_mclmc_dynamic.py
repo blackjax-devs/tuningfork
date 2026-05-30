@@ -97,6 +97,7 @@ ENTRY = BaseMethod(
     family="mcmc",
     factory=_factory,
     grad_count_per_step=lambda info: jnp.asarray(2 * info.num_integration_steps),
+    grad_count_convention="2 × info.num_integration_steps",
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
         HyperparamSpace("L", "loguniform", low=0.1, high=100.0),

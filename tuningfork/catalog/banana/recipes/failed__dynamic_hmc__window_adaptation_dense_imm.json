@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Random-L + dense IMM does not change diagnosis.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

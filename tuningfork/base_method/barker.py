@@ -41,6 +41,7 @@ ENTRY = BaseMethod(
     family="mcmc",
     factory=blackjax.barker,  # called as factory(logdensity_fn, step_size=..., inverse_mass_matrix=...)
     grad_count_per_step=lambda info: jnp.asarray(1),
+    grad_count_convention="1",
     default_hp_space=(HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),),
     needs_mass_matrix=True,
     target_acceptance_rate=0.40,

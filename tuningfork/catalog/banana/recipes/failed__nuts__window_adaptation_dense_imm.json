@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Dense IMM has no advantage on banana \u2014 the pathology is geometric (curvature), not statistical (correlation). ta=0.99 fixes divergences but ESS still below 400-gate.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

@@ -49,6 +49,7 @@ ENTRY = BaseMethod(
     family="mcmc",
     factory=blackjax.dynamic_hmc,  # blackjax.dhmc is blackjax.dynamic_hmc (alias)
     grad_count_per_step=lambda info: jnp.asarray(info.num_integration_steps),
+    grad_count_convention="info.num_integration_steps (realized count per step)",
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
         # inverse_mass_matrix is NOT BO-tunable — it comes from CHEES warmup.

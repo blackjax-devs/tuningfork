@@ -18,9 +18,12 @@
       "rhat_max": 3.4114,
       "min_bulk_ess": 4.4,
       "n_divergences": 0,
-      "max_abs_mean_z": 3.380,
+      "max_abs_mean_z": 3.38,
       "verdict": "FAIL",
-      "step_size_range": [0.008136, 0.009467]
+      "step_size_range": [
+        0.008136,
+        0.009467
+      ]
     },
     "override": {
       "decision": "FAIL",
@@ -30,6 +33,18 @@
     }
   },
   "attempted_configurations": [
-    {"n_warmup": 2000, "ta": 0.8, "outcome": "FAIL", "rhat_max": 3.4114, "min_ess": 4.4}
-  ]
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "outcome": "FAIL",
+      "rhat_max": 3.4114,
+      "min_ess": 4.4
+    }
+  ],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]"
 }

@@ -51,6 +51,7 @@ ENTRY = BaseMethod(
     family="mcmc",
     factory=blackjax.ghmc,  # called as factory(logdensity_fn, **trial_params)
     grad_count_per_step=lambda info: jnp.asarray(1),  # 1 leapfrog per step (constant)
+    grad_count_convention="1 (one leapfrog per step, constant)",
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
         HyperparamSpace("alpha", "uniform", low=0.0, high=1.0),
