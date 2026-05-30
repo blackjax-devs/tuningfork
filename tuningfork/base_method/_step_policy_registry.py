@@ -22,11 +22,13 @@ Schema wiring (PR #39):
 - ``spec is None`` → V0 library default: ``lambda key: jax.random.randint(key, (), 1, 10)``
 - ``spec["kind"] == "uniform_int"`` → V0/V1/V2 uniform integer in [low, high)
 
-NUTS-harvested step_policy work (this module):
+NUTS-harvested + parametric step_policy work (this module):
 
-- ``spec["kind"] == "empirical"`` → NUTS-harvested step_policy via inverse-CDF
+- ``spec["kind"] == "empirical"`` → V7 NUTS-harvested step_policy via inverse-CDF
   sampling over a normalised histogram ``{"values": [...], "weights": [...]}``.
-  See ``_build_empirical_step_policy`` and ``harvest_step_policy_from_chain_stats``.
+- ``spec["kind"] == "poisson"`` → V4 Poisson(λ) with floor/ceiling bounds.
+- ``spec["kind"] == "log_uniform_int"`` → V5 log-uniform broad spread.
+- ``spec["kind"] == "pow2_choice"`` → V6 power-of-2 discrete choice grid.
 
 References
 ----------
@@ -121,15 +123,21 @@ def build_step_policy(spec: dict | None) -> Callable:
         Supported kinds:
 
         - ``None`` → V0: ``lambda key: jax.random.randint(key, (), 1, 10)``
-        - ``{"kind": "uniform_int", "low": L, "high": H}`` → uniform integer
-          in [L, H) (``low`` inclusive, ``high`` exclusive;
+        - ``{"kind": "uniform_int", "low": L, "high": H}`` → V1/V2 uniform
+          integer in [L, H) (``low`` inclusive, ``high`` exclusive;
           matches ``jax.random.randint`` semantics).
         - ``{"kind": "empirical", "values": [...], "weights": [...]}`` →
-          NUTS-harvested step_policy: inverse-CDF sampling over a discrete NIS
-          histogram harvested from a NUTS chain.
-
-        Other kinds (``"log_uniform_int"``, ``"poisson"``, ``"pow2_choice"``)
-        raise ``NotImplementedError`` (deferred follow-up).
+          V7 NUTS-harvested step_policy: inverse-CDF sampling over a discrete
+          NIS histogram harvested from a NUTS chain.
+        - ``{"kind": "poisson", "lam": λ, "low": L, "high": H|null}`` →
+          V4 Poisson(λ) with floor L; optional ceiling H (null = uncapped).
+          E[L] ≈ λ + L (Betancourt 2017; biased approximation).
+        - ``{"kind": "log_uniform_int", "low": L, "high": H}`` →
+          V5 log-uniform broad spread uniform on log scale over [L, H].
+          E[L] ≈ (H-L)/log(H/L).  For [1, 1024]: E[L] ≈ 148.
+        - ``{"kind": "pow2_choice", "options": [2, 4, 8, ...]}`` →
+          V6 power-of-2 discrete choice (NUTS-like doubling grid).
+          ``lambda key: jax.random.choice(key, jnp.array(options))``.
 
     Returns
     -------
@@ -158,6 +166,7 @@ def build_step_policy(spec: dict | None) -> Callable:
     >>> # fn(key) samples from the discrete distribution {60:30%, 80:50%, 100:20%}
     """
     import jax
+    import jax.numpy as jnp
 
     if spec is None:
         # V0: library default — uniform integer in [1, 10)
@@ -183,17 +192,108 @@ def build_step_policy(spec: dict | None) -> Callable:
     if kind == "empirical":
         return _build_empirical_step_policy(spec)
 
-    # All other kinds are deferred to future work.
-    _DEFERRED_KINDS = ("log_uniform_int", "poisson", "pow2_choice")
-    if kind in _DEFERRED_KINDS:
-        raise NotImplementedError(
-            f"step_policy kind {kind!r} is deferred to future work; "
-            f"currently supported: None (V0), 'uniform_int', 'empirical'."
-        )
+    if kind == "poisson":
+        # V4: Poisson(lam) with hard floor low and optional ceiling high.
+        # low=1 is the standard floor (no zero-step draws).
+        # high=null means no ceiling (unbounded truncated Poisson).
+        if "lam" not in spec:
+            raise ValueError(
+                f"poisson step_policy requires 'lam' field; got spec={spec!r}"
+            )
+        lam = float(spec["lam"])
+        low = int(spec.get("low", 1))
+        high_raw = spec.get("high", None)
+
+        if high_raw is None:
+            # No truncation: floor only via jnp.maximum.
+            def _poisson_fn(key: jax.Array) -> jax.Array:
+                raw = jax.random.poisson(key, lam=lam)
+                return jnp.maximum(raw, low).astype(jnp.int32)
+
+            return _poisson_fn
+        else:
+            high = int(high_raw)
+            if low >= high:
+                raise ValueError(
+                    f"poisson step_policy requires low < high; got low={low}, high={high}"
+                )
+
+            # Truncated Poisson via jax.lax.while_loop (jittable).
+            def _truncated_poisson_fn(key: jax.Array) -> jax.Array:
+                def _body(state: tuple) -> tuple:
+                    k, _ = state
+                    k, subkey = jax.random.split(k)
+                    sample = jax.random.poisson(subkey, lam=lam)
+                    sample = jnp.maximum(sample, low).astype(jnp.int32)
+                    return k, sample
+
+                def _cond(state: tuple) -> jax.Array:
+                    _, sample = state
+                    return sample >= high
+
+                key, subkey = jax.random.split(key)
+                initial = jax.random.poisson(subkey, lam=lam)
+                initial = jnp.maximum(initial, low).astype(jnp.int32)
+                _, result = jax.lax.while_loop(_cond, _body, (key, initial))
+                return result
+
+            return _truncated_poisson_fn
+
+    if kind == "log_uniform_int":
+        # V5: uniform on log scale over [low, high].
+        # u ~ Uniform(log(low), log(high)); L = round(exp(u)) clipped to [low, high].
+        if "low" not in spec or "high" not in spec:
+            raise ValueError(
+                f"log_uniform_int step_policy requires 'low' and 'high'; "
+                f"got spec={spec!r}"
+            )
+        low = int(spec["low"])
+        high = int(spec["high"])
+        if low < 1:
+            raise ValueError(
+                f"log_uniform_int 'low' must be ≥ 1 (log(0) is undefined); got {low}"
+            )
+        if low >= high:
+            raise ValueError(
+                f"log_uniform_int requires low < high; got low={low}, high={high}"
+            )
+        import math
+
+        log_low = math.log(low)
+        log_high = math.log(high)
+
+        def _log_uniform_fn(key: jax.Array) -> jax.Array:
+            u = jax.random.uniform(key, minval=log_low, maxval=log_high)
+            sample = jnp.round(jnp.exp(u)).astype(jnp.int32)
+            return jnp.clip(sample, low, high)
+
+        return _log_uniform_fn
+
+    if kind == "pow2_choice":
+        # V6: uniform choice over an explicit discrete set (powers-of-2 grid).
+        # options must be non-empty positive integers.
+        if "options" not in spec:
+            raise ValueError(
+                f"pow2_choice step_policy requires 'options'; got spec={spec!r}"
+            )
+        options = spec["options"]
+        if len(options) == 0:
+            raise ValueError("pow2_choice 'options' must be non-empty")
+        if any(int(o) < 1 for o in options):
+            raise ValueError(
+                f"pow2_choice 'options' must all be positive integers; got {options!r}"
+            )
+        opts_arr = jnp.array([int(o) for o in options], dtype=jnp.int32)
+
+        def _pow2_choice_fn(key: jax.Array) -> jax.Array:
+            return jax.random.choice(key, opts_arr)
+
+        return _pow2_choice_fn
 
     raise NotImplementedError(
         f"Unknown step_policy kind {kind!r}; "
-        f"supported: None (V0), 'uniform_int', 'empirical'."
+        f"supported: None (V0), 'uniform_int', 'empirical', "
+        f"'poisson' (V4), 'log_uniform_int' (V5), 'pow2_choice' (V6)."
     )
 
 
