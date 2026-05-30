@@ -3,37 +3,37 @@
   "base_method_name": "mclmc",
   "effort": "low",
   "base_method_params": {
-    "step_size": 3.586219310760498,
-    "L": 2.6999197006225586,
+    "step_size": 3.4272587299346924,
+    "L": 2.6940128803253174,
     "inverse_mass_matrix": [
-      0.9834879636764526,
-      0.9708120822906494,
-      0.993682324886322,
-      0.9593743681907654,
-      0.9576067328453064,
-      0.9635957479476929,
-      0.9730220437049866,
-      0.9865151643753052,
-      0.9484370350837708,
-      1.0054763555526733
+      0.9641655683517456,
+      1.0688475370407104,
+      0.9651588201522827,
+      0.9758087992668152,
+      0.9736080169677734,
+      0.8904812932014465,
+      0.9563887715339661,
+      0.9833000898361206,
+      0.9166107773780823,
+      0.9843713641166687
     ]
   },
-  "headline_metric": 266.13543701171875,
+  "headline_metric": 255.85911560058594,
   "sample_quality": {
-    "mae_vs_reference": 0.008913004216907184,
-    "q05_error": 1.1005711945694203,
-    "q95_error": 1.138645793123393,
-    "std_ratio_max_dev": 0.6850441831233522
+    "mae_vs_reference": 0.008865516191928114,
+    "q05_error": 1.0994733350330603,
+    "q95_error": 1.14014968661404,
+    "std_ratio_max_dev": 0.6840456710520957
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 13.450810536975041,
-    "n_warmup": 50000,
+    "wall_seconds_estimate": 13.39104109199252,
+    "n_warmup": 10000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 10.43,
-    "sampling_wall_seconds": 1.067,
-    "sampling_seconds_per_draw": 0.000267,
+    "warmup_wall_seconds": 10.502,
+    "sampling_wall_seconds": 0.929,
+    "sampling_seconds_per_draw": 0.000232,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -48,11 +48,11 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 3.586219310760498, 'L': 2.6999197006225586, 'inverse_mass_matrix': [0.9834879636764526, 0.9708120822906494, 0.993682324886322, 0.9593743681907654, 0.9576067328453064, 0.9635957479476929, 0.9730220437049866, 0.9865151643753052, 0.9484370350837708, 1.0054763555526733]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 266.1354.\nWall time to produce this recipe: ~13 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 3.4272587299346924, 'L': 2.6940128803253174, 'inverse_mass_matrix': [0.9641655683517456, 1.0688475370407104, 0.9651588201522827, 0.9758087992668152, 0.9736080169677734, 0.8904812932014465, 0.9563887715339661, 0.9833000898361206, 0.9166107773780823, 0.9843713641166687]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 255.8591.\nWall time to produce this recipe: ~13 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 8,
-    "min_bulk_ess": 2129.08349609375,
+    "min_bulk_ess": 2046.8729248046875,
     "grad_count_convention": "2",
     "is_lower_bound": false
   },
@@ -61,7 +61,7 @@
     {
       "name": "mclmc_tuning",
       "params": {
-        "n_warmup": 50000,
+        "n_warmup": 10000,
         "num_chains": 4,
         "target_acceptance": 0.8
       }
@@ -74,14 +74,14 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0015951167698993,
-      "min_bulk_ess": 2130.9581285076147,
+      "rhat_max": 1.0015693526112186,
+      "min_bulk_ess": 2050.843089334052,
       "n_divergences": 0,
-      "max_abs_mean_z": 2.134221410699454,
+      "max_abs_mean_z": 2.147757833335125,
       "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.0015951167698993,
+          "value": 1.0015693526112186,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -89,7 +89,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 2130.9581285076147,
+          "value": 2050.843089334052,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -105,7 +105,7 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 2.134221410699454,
+          "value": 2.147757833335125,
           "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 2.0,
@@ -126,7 +126,17 @@
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-30T16:40:48Z",
+  "timestamp_utc": "2026-05-30T16:50:09Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [
+    {
+      "n_warmup": 50000,
+      "outcome": "REVIEW",
+      "rhat_max": 1.0016,
+      "min_ess": 2131.0,
+      "max_abs_mean_z": 2.134,
+      "headline": 266.1,
+      "note": "z 2.15->2.13 (MC noise, not warmup-dependent); no verdict change; 10K is efficient optimum (5x cost for noise-level gain)."
+    }
+  ]
 }
