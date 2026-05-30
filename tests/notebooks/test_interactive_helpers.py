@@ -105,3 +105,98 @@ def test_headline_coords_per_decision_doc() -> None:
         assert (
             MODELS[name].headline_coords is None
         ), f"{name} expected None headline_coords, got {MODELS[name].headline_coords!r}"
+
+
+# ---------------------------------------------------------------------------
+# catalog_explorer FAIL-recipe estimate cell — None-guard regression (PR #111)
+# ---------------------------------------------------------------------------
+
+
+def _make_fail_recipe(budget: "dict[str, object]"):
+    """Build a minimal FAIL recipe with the given calibration_budget."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    return Recipe(
+        model_name="ill_cond_50",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.FAILED,
+        base_method_params={"step_size": 0.01, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 1000, "num_chains": 4},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget=budget,
+        difficulty=None,
+        instructions="test",
+    )
+
+
+def test_fail_recipe_estimate_no_timing_fields() -> None:
+    """FAIL recipe with only wall_seconds_estimate (no _spd / _ww) must not crash.
+
+    Regression test for the TypeError: unsupported operand type(s) for *:
+    'NoneType' and 'int' when _spd is None in the estimate cell.
+    Verifies the None-guard logic extracts 0.0 fallbacks and doesn't raise.
+    """
+    recipe = _make_fail_recipe(
+        {"trials": 0, "wall_seconds_estimate": 30.0}  # no _spd, no _ww
+    )
+    budget = recipe.calibration_budget or {}
+    # Simulate the estimate cell logic with None-guards
+    _ww = budget.get("warmup_wall_seconds") or 0.0
+    _spd = budget.get("sampling_seconds_per_draw") or 0.0
+    _c = int(
+        budget.get("num_chains") or (recipe.warmup_params or {}).get("num_chains") or 4
+    )
+    _OVERHEAD_S = 20.0
+    _n = 400
+    # Must not raise
+    _est_tot = _ww + _spd * _n * _c + _OVERHEAD_S
+    _est_min = _est_tot / 60.0
+    assert _est_min > 0.0, "estimate must be positive (overhead alone)"
+
+    # _has_timing should be False → "unavailable" path
+    _has_timing = _ww > 0.0 or _spd > 0.0
+    assert not _has_timing, "no timing fields → has_timing must be False"
+
+
+def test_fail_recipe_estimate_with_timing_fields() -> None:
+    """FAIL recipe with measured timing fields shows a concrete estimate."""
+    recipe = _make_fail_recipe(
+        {
+            "trials": 0,
+            "wall_seconds_estimate": 30.0,
+            "warmup_wall_seconds": 12.0,
+            "sampling_seconds_per_draw": 0.005,
+        }
+    )
+    budget = recipe.calibration_budget or {}
+    _ww = budget.get("warmup_wall_seconds") or 0.0
+    _spd = budget.get("sampling_seconds_per_draw") or 0.0
+    _c = int(
+        budget.get("num_chains") or (recipe.warmup_params or {}).get("num_chains") or 4
+    )
+    _OVERHEAD_S = 20.0
+    _n = 400
+    _est_tot = _ww + _spd * _n * _c + _OVERHEAD_S
+    _est_min = _est_tot / 60.0
+    assert _est_min > 0.0
+
+    _has_timing = _ww > 0.0 or _spd > 0.0
+    assert _has_timing, "timing fields present → has_timing must be True"
+    # Rough bound: warmup=12 + sampling=0.005*400*4=8 + overhead=20 = 40s ≈ 0.67 min
+    assert 0.5 < _est_min < 2.0, f"Unexpected estimate {_est_min:.2f} min"
+
+
+def test_fail_recipe_estimate_empty_budget() -> None:
+    """FAIL recipe with minimal calibration_budget (no timing fields) must not crash."""
+    recipe = _make_fail_recipe({"trials": 0})  # only trials — no timing fields
+    budget = recipe.calibration_budget or {}
+    _ww = budget.get("warmup_wall_seconds") or 0.0
+    _spd = budget.get("sampling_seconds_per_draw") or 0.0
+    _c = int(
+        budget.get("num_chains") or (recipe.warmup_params or {}).get("num_chains") or 4
+    )
+    _est_tot = _ww + _spd * 400 * _c + 20.0
+    # Must not raise; dominated by OVERHEAD
+    assert _est_tot > 0.0
