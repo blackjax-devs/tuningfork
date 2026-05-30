@@ -1,0 +1,30 @@
+{
+  "model_name": "stoch_vol",
+  "base_method_name": "hmc",
+  "warmup_name": "window_adaptation_dense_imm",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "failure_diagnosis": "Fixed-L HMC structural under-mixing at d=503 AR(1) stochastic volatility. rhat=1.42 (FAIL band) at all 3 warmup variants. Fixed-L=127 with dense/diag/low_rank IMM cannot adapt to the 503-d correlated posterior. Same pattern as radon\u00d7hmc\u00d7high-d. Use dynamic_hmc (already PASS) or NUTS (already PASS) instead.",
+  "revisit_as": "dynamic_hmc",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.42,
+      "min_bulk_ess": 50.0,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Structural: fixed-L HMC under-mixing at d=503."
+    }
+  },
+  "attempted_configurations": []
+}

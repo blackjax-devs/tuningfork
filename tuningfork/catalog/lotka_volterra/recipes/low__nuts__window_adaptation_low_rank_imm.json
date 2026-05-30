@@ -1,0 +1,33 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "nuts",
+  "warmup_name": "window_adaptation_low_rank_imm",
+  "effort": "low",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.99
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0076,
+      "min_bulk_ess": 514.4,
+      "n_divergences": 0,
+      "max_abs_mean_z": 2.6374,
+      "verdict": "REVIEW",
+      "gt_cert_coverage": "full_posterior",
+      "margins": {}
+    },
+    "override": {
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "z=2.637 < Bonferroni z*=2.81 for k=4 lotka_volterra params (Bonferroni noise). ESS=514 > 400 (PASS band). rhat=1.008 (PASS). No bias evidence. Model fully covered by existing PASS recipes (hmc/dynamic_hmc/dmhmc \u00d7 W2/W3)."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

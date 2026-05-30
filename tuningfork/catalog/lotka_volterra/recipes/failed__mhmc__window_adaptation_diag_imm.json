@@ -1,0 +1,31 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "mhmc",
+  "warmup_name": "window_adaptation_diag_imm",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "failure_diagnosis": "mhmc structurally unsuitable for stiff ODE: step_size adaptation collapses to near-zero (min=4e-9) or explodes \u2192 catastrophic divergences (up to 1051/4000=26%) at ta=0.8 and ta=0.99. All 3 warmup variants give identical rhat\u22483.5, ESS\u22484.4. Model fully covered by PASSING hmc/dynamic_hmc/dmhmc recipes.",
+  "revisit_as": "dynamic_hmc",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 3.44,
+      "min_bulk_ess": 4.4,
+      "n_divergences": 700,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-05-30",
+      "date": "2026-05-30",
+      "reason": "Structural: mhmc step_size collapse on stiff ODE."
+    }
+  },
+  "attempted_configurations": []
+}
