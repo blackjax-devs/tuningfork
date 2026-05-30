@@ -343,18 +343,27 @@ def test_harvest_step_policy_from_chain_stats_n_steps_fallback(tmp_path: Path) -
 
 
 # ---------------------------------------------------------------------------
-# Deferred kinds raise NotImplementedError
+# V4/V5/V6 are now implemented (Phase G) — verify they are callable
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "kind",
-    ["log_uniform_int", "poisson", "pow2_choice"],
+    "spec",
+    [
+        {"kind": "poisson", "lam": 20, "low": 1, "high": None},
+        {"kind": "log_uniform_int", "low": 1, "high": 1024},
+        {"kind": "pow2_choice", "options": [2, 4, 8, 16, 32, 64]},
+    ],
 )
-def test_deferred_kind_raises_not_implemented(kind: str) -> None:
-    """Deferred kinds raise NotImplementedError."""
-    with pytest.raises(NotImplementedError, match="deferred to future work"):
-        build_step_policy({"kind": kind})
+def test_v4_v5_v6_kinds_are_callable(spec: dict) -> None:
+    """V4/V5/V6 kinds (Phase G) build callable integration_steps_fn."""
+    import jax
+
+    fn = build_step_policy(spec)
+    assert callable(fn), f"{spec['kind']!r} must return a callable"
+    key = jax.random.key(0)
+    result = fn(key)
+    assert int(result) >= 1, f"{spec['kind']!r}: L must be ≥ 1; got {int(result)}"
 
 
 # ---------------------------------------------------------------------------

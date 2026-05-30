@@ -2208,6 +2208,17 @@ def stamp_headline_from_chain_stats(
     if recipe.headline_metric is not None:
         return recipe  # already stamped; no-op
 
+    # Convention guard (TL ruling 2026-05-30): headline is reserved for PASS recipes.
+    # REVIEW/FAIL recipes correctly carry null headline_metric — do NOT stamp them.
+    verdict = recipe.gate_evidence.get("auto", {}).get("verdict")
+    if verdict is not None and verdict != "PASS":
+        raise ValueError(
+            f"stamp_headline_from_chain_stats: refusing to stamp headline on a "
+            f"{verdict!r} recipe ({recipe.model_name}/{recipe.base_method_name}). "
+            "headline_metric is reserved for PASS recipes; REVIEW/FAIL recipes "
+            "correctly carry null headline. Use this function only on PASS recipes."
+        )
+
     min_bulk_ess = recipe.gate_evidence.get("auto", {}).get("min_bulk_ess")
     if min_bulk_ess is None:
         warnings.warn(
