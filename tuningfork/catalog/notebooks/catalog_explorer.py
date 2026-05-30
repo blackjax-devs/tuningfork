@@ -286,14 +286,29 @@ def _(
         pass
     elif recipe.effort == Effort.FAILED:
         # FAILED: show a diagnostic callout + regenerate button.
+        # FAIL recipes may have incomplete calibration_budget (stub entries
+        # with only wall_seconds_estimate; no sampling_seconds_per_draw or
+        # warmup_wall_seconds) — guard every timing field against None.
         _n = n_samples_slider.value if n_samples_slider is not None else 400
         _budget = recipe.calibration_budget or {}
-        _ww = _budget.get("warmup_wall_seconds", 0.0)
-        _spd = _budget.get("sampling_seconds_per_draw", 0.0)
-        _c = int((recipe.warmup_params or {}).get("num_chains", 4))
+        _ww = _budget.get("warmup_wall_seconds") or 0.0
+        _spd = _budget.get("sampling_seconds_per_draw") or 0.0
+        _c = int(
+            _budget.get("num_chains")
+            or (recipe.warmup_params or {}).get("num_chains")
+            or 4
+        )
         _OVERHEAD_S = 20.0
         _est_tot = _ww + _spd * _n * _c + _OVERHEAD_S
         _est_min = _est_tot / 60.0
+        # If all timing fields were None, the estimate is dominated by _OVERHEAD_S
+        # alone (~0.3 min) — show "estimate unavailable" instead of a misleading 0.
+        _has_timing = _ww > 0.0 or _spd > 0.0
+        _est_str = (
+            f"Estimated wall: **{_est_min:.1f} min** for n_samples={_n}"
+            if _has_timing
+            else "Estimated wall: **unavailable** (no timing stamp on this FAIL recipe)"
+        )
 
         fail_regenerate_btn = mo.ui.run_button(label="Re-run failed config")
 
@@ -303,7 +318,7 @@ def _(
                 "Click **Re-run failed config** to execute the pinned warmup + "
                 "sampler settings and render diagnostic plots (trace, rank, "
                 "divergences) so the failure mode is visually inspectable. "
-                f"Estimated wall: **{_est_min:.1f} min** for n_samples={_n} "
+                f"{_est_str} "
                 "(full warmup; skip_warmup not used)."
             ),
             kind="danger",
