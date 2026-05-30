@@ -319,6 +319,88 @@ def test_skip_warmup_lotka_volterra_x64_dtype() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Slow: adjusted_mclmc_dynamic skip_warmup regression (PR #102)
+# adjusted_mclmc_dynamic.init requires rng_key; skip_warmup path must thread it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_skip_warmup_adjusted_mclmc_dynamic_no_crash() -> None:
+    """skip_warmup=True for adjusted_mclmc_dynamic completes without crash.
+
+    Regression test for the bug where _init_one_skip called
+    ``_skip_init_kernel.init(pos)`` without rng_key, failing for
+    adjusted_mclmc_dynamic whose init requires random_generator_arg.
+
+    Builds a synthetic recipe directly (no emit) with plausible adapted
+    params from a quick warmup run, then calls run_recipe_to_idata with
+    skip_warmup=True.  The test gates on crash-free completion only
+    (R̂ / ESS are not meaningful at n_samples=50).
+    """
+    import jax
+    import numpy as np
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.recipes._base import Effort, Recipe
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+    from tuningfork.warmup import WARMUPS
+
+    base_method = BASE_METHODS["adjusted_mclmc"]
+    warmup = WARMUPS["adjusted_mclmc_tuning"]
+
+    # 1. Run a short warmup to get plausible (step_size, L, imm) params for mvn_10.
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+
+    posterior = MODELS["mvn_10"]
+    rng_key = jax.random.key(77)
+    init_key, warmup_key = jax.random.split(rng_key)
+    init_pos, logdensity_fn, _ = build_logdensity_fn(init_key, posterior)
+
+    _, adapted = warmup.runner(
+        warmup_key,
+        init_pos,
+        200,  # n_warmup (tiny)
+        base_method,
+        logdensity_fn=logdensity_fn,
+        num_chains=4,
+    )
+    chain0_ss = float(np.asarray(adapted["step_size"]).ravel()[0])
+    chain0_L = float(np.asarray(adapted["L"]).ravel()[0])
+    chain0_imm = np.asarray(adapted["inverse_mass_matrix"])[0].tolist()
+
+    # 2. Build a synthetic adjusted_mclmc_dynamic recipe using the adapted params.
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="adjusted_mclmc_dynamic",
+        warmup_name="adjusted_mclmc_tuning",
+        effort=Effort.LOW,
+        base_method_params={
+            "step_size": chain0_ss,
+            "L": chain0_L,
+            "inverse_mass_matrix": chain0_imm,
+        },
+        warmup_params={"n_warmup": 200, "num_chains": 4},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"trials": 0, "wall_seconds_estimate": 5.0},
+        difficulty=None,
+        instructions="skip_warmup regression test",
+    )
+
+    # 3. Run with skip_warmup=True — must NOT raise.
+    idata = run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=50,
+        catalog_root=_CATALOG_ROOT,
+    )
+
+    # Basic sanity: InferenceData with posterior group.
+    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
+
+
+# ---------------------------------------------------------------------------
 # Slow: regression — Bug 1 (sidecar IMM) + Bug 2 (num_integration_steps)
 # ---------------------------------------------------------------------------
 
