@@ -42,6 +42,7 @@ def _():
         load_idata,
         load_recipe,
         plot_recipe_diagnostics,
+        regenerate_idata,
         summarize_recipe,
     )
     from tuningfork.model import MODELS
@@ -60,6 +61,7 @@ def _():
         mo,
         plot_recipe_diagnostics,
         pyinspect,
+        regenerate_idata,
         run_recipe_to_idata,
         summarize_recipe,
     )
@@ -189,13 +191,34 @@ def _(format_timing_context, mo, recipe):
 
 @app.cell(hide_code=True)
 def _(Effort, mo, recipe):
-    """Sampling controls — 3 knobs for the run mode."""
-    if recipe is None or recipe.effort in (Effort.GROUNDTRUTH, Effort.FAILED):
-        # No controls needed for GROUNDTRUTH (load from cache) or FAILED.
+    """Sampling controls — 3 knobs for the run mode (+ regenerate slider for FAIL)."""
+    if recipe is None or recipe.effort == Effort.GROUNDTRUTH:
+        # No controls needed for GROUNDTRUTH (load from cache).
         use_cached_switch = None
         skip_warmup_toggle = None
         n_samples_slider = None
         controls_panel = mo.md("")
+    elif recipe.effort == Effort.FAILED:
+        # FAILED: only offer the n_samples slider for the on-demand re-run.
+        use_cached_switch = None
+        skip_warmup_toggle = None
+        n_samples_slider = mo.ui.slider(
+            start=100,
+            stop=2000,
+            step=100,
+            value=400,
+            label="n_samples (diagnostic preview)",
+        )
+        controls_panel = mo.vstack(
+            [
+                mo.md("#### Regenerate controls (FAIL recipe)"),
+                n_samples_slider,
+                mo.md(
+                    "_Lower n_samples (200–400) for a quick preview of the "
+                    "failure mode. Full warmup is always run._"
+                ),
+            ]
+        )
     else:
         use_cached_switch = mo.ui.switch(
             value=True,
@@ -256,10 +279,36 @@ def _(
     """
     run_button = None
     populate_btn = None
+    fail_regenerate_btn = None
     _estimate_and_button = mo.md("")
-    if recipe is None or recipe.effort in (Effort.GROUNDTRUTH, Effort.FAILED):
-        # No estimate box or button needed — either load from cache or FAILED.
+    if recipe is None or recipe.effort == Effort.GROUNDTRUTH:
+        # No estimate box or button needed — load from cache.
         pass
+    elif recipe.effort == Effort.FAILED:
+        # FAILED: show a diagnostic callout + regenerate button.
+        _n = n_samples_slider.value if n_samples_slider is not None else 400
+        _budget = recipe.calibration_budget or {}
+        _ww = _budget.get("warmup_wall_seconds", 0.0)
+        _spd = _budget.get("sampling_seconds_per_draw", 0.0)
+        _c = int((recipe.warmup_params or {}).get("num_chains", 4))
+        _OVERHEAD_S = 20.0
+        _est_tot = _ww + _spd * _n * _c + _OVERHEAD_S
+        _est_min = _est_tot / 60.0
+
+        fail_regenerate_btn = mo.ui.run_button(label="Re-run failed config")
+
+        _fail_callout = mo.callout(
+            mo.md(
+                "⚠️ **FAIL recipe** — no gate-passing configuration. "
+                "Click **Re-run failed config** to execute the pinned warmup + "
+                "sampler settings and render diagnostic plots (trace, rank, "
+                "divergences) so the failure mode is visually inspectable. "
+                f"Estimated wall: **{_est_min:.1f} min** for n_samples={_n} "
+                "(full warmup; skip_warmup not used)."
+            ),
+            kind="danger",
+        )
+        _estimate_and_button = mo.vstack([_fail_callout, fail_regenerate_btn])
     else:
         _use_cache = use_cached_switch.value if use_cached_switch is not None else True
         if _use_cache:
@@ -308,18 +357,20 @@ def _(
             _estimate_and_button = mo.vstack([_estimate_panel, run_button])
 
     _estimate_and_button
-    return run_button, populate_btn
+    return run_button, populate_btn, fail_regenerate_btn
 
 
 @app.cell
 def _(
     Effort,
     cached_idata_for_recipe,
+    fail_regenerate_btn,
     load_idata,
     mo,
     n_samples_slider,
     populate_btn,
     recipe,
+    regenerate_idata,
     run_button,
     run_recipe_to_idata,
     skip_warmup_toggle,
@@ -347,11 +398,37 @@ def _(
                 "*Cache miss for GROUNDTRUTH recipe (git lfs pull may be needed).*"
             )
     elif recipe.effort == Effort.FAILED:
-        # FAILED: no valid config to run.
-        _panel = mo.md(
-            "*FAILED recipes have no gate-passing configuration to sample. "
-            "See the recipe notes for attempted configurations and diagnostics.*"
-        )
+        # FAILED: offer on-demand re-run via the regenerate button created above.
+        # The button was already displayed by the estimate cell; here we consume its
+        # .value and trigger regenerate_idata when clicked.
+        _n = n_samples_slider.value if n_samples_slider is not None else 400
+        if fail_regenerate_btn is not None and fail_regenerate_btn.value:
+            try:
+                idata = regenerate_idata(recipe, n_samples=_n)
+                _panel = mo.callout(
+                    mo.md(
+                        f"✅ Re-run complete — **n_samples={_n}** per chain. "
+                        "Diagnostic plots render below. "
+                        "Divergence markers (▲ in trace plots) indicate divergent "
+                        "transitions; stuck chains appear as flat traces."
+                    ),
+                    kind="success",
+                )
+            except Exception as exc:
+                _panel = mo.callout(
+                    mo.md(
+                        f"❌ Re-run failed: `{type(exc).__name__}: {exc}`\n\n"
+                        "This may indicate the sampler is non-terminating "
+                        "(e.g. stiff ODE geometry with adjusted_mclmc_tuning) "
+                        "or a genuine runtime error."
+                    ),
+                    kind="danger",
+                )
+        else:
+            _panel = mo.md(
+                "*Click **Re-run failed config** above to visually inspect "
+                "the failure mode (trace plots, divergences, rank plots).*"
+            )
     else:
         # Non-GROUNDTRUTH, non-FAILED: sample with one of 3 modes based on controls.
         _skip = skip_warmup_toggle.value if skip_warmup_toggle is not None else False
