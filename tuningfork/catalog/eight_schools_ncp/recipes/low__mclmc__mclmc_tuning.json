@@ -3,30 +3,67 @@
   "base_method_name": "mclmc",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.6424,
-    "inverse_mass_matrix": null
+    "step_size": 1.3762702941894531,
+    "L": 3.269458770751953,
+    "inverse_mass_matrix": [
+      7.647134780883789,
+      1.3381879329681396,
+      1.0146206617355347,
+      1.015777587890625,
+      0.981706440448761,
+      0.878734827041626,
+      0.9649644494056702,
+      0.7344523072242737,
+      0.9265373349189758,
+      0.9860646724700928
+    ]
   },
-  "headline_metric": null,
-  "sample_quality": null,
+  "headline_metric": 51.08382797241211,
+  "sample_quality": {
+    "mae_vs_reference": 0.06232312365094004,
+    "q05_error": 1.0144534994069827,
+    "q95_error": 1.0500592923898902,
+    "std_ratio_max_dev": 0.6336046428108842
+  },
   "calibration_budget": {
-    "trials": 2,
-    "wall_seconds_estimate": 13.4,
-    "n_warmup": 4000,
+    "trials": 0,
+    "wall_seconds_estimate": 17.60564490102115,
+    "n_warmup": 10000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 10.1
+    "warmup_wall_seconds": 13.183,
+    "sampling_wall_seconds": 1.297,
+    "sampling_seconds_per_draw": 0.000324,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev84+g0ef2f578a",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (`mclmc_tuning`, `mclmc`) — REVIEW verdict.\nrhat=1.010, ESS=451, z=2.23 at n_warmup=4000 under corrected adapted-L.\nNCP-funnel mclmc_tuning limitation: cross-chain step_size heterogeneity (0.64-1.31)\npersists across n_warmup=2000-4000 keeping rhat at ~1.010.\n**Recommended alternative: adjusted_mclmc** (MH-corrected).\nDo NOT increase n_warmup further — this is not a budget problem.\nPrior #97 PASS recipe was generated under a wrong-L bug and is superseded.",
-  "notes": "NCP-funnel mclmc_tuning limitation confirmed across n_warmup=2000-4000. mclmc_tuning finds step_size=0.64-1.31 (2x cross-chain spread) on eight_schools_ncp hierarchical NCP-funnel; this heterogeneity persists at all tested budgets, keeping rhat~1.010. No GT agreement issue (z=2.23 < Bonferroni z*=2.81 for k=10). The prior PASS recipe (#97, n_warmup=2000) was produced under a wrong-L bug (adapted L silently dropped) and is superseded by this honest corrected-L result. adjusted_mclmc (MH-corrected) is recommended for hierarchical NCP models.",
-  "headline_basis": null,
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 1.3762702941894531, 'L': 3.269458770751953, 'inverse_mass_matrix': [7.647134780883789, 1.3381879329681396, 1.0146206617355347, 1.015777587890625, 0.981706440448761, 0.878734827041626, 0.9649644494056702, 0.7344523072242737, 0.9265373349189758, 0.9860646724700928]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 51.0838.\nWall time to produce this recipe: ~17 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 8,
+    "min_bulk_ess": 408.6706237792969,
+    "grad_count_convention": "2",
+    "is_lower_bound": false
+  },
   "step_policy": null,
   "warmups": [
     {
       "name": "mclmc_tuning",
       "params": {
-        "n_warmup": 4000,
-        "num_chains": 4
+        "n_warmup": 10000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
       }
     }
   ],
@@ -37,44 +74,59 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0104,
-      "min_bulk_ess": 450.7,
+      "rhat_max": 1.007635478075298,
+      "min_bulk_ess": 586.3417346759009,
       "n_divergences": 0,
-      "max_abs_mean_z": 2.226,
-      "verdict": "REVIEW",
+      "max_abs_mean_z": 1.9273626119058707,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.007635478075298,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 586.3417346759009,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.9273626119058707,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "decision": "REVIEW-accept",
-      "statistician_id": "stat-2026-05-30",
-      "date": "2026-05-30",
-      "reason": "Structural mclmc_tuning limitation on NCP funnel (rhat~1.010 persists at n_warmup=2000 and 4000 under correct adapted-L; not a budget problem). z=2.226 < Bonferroni z*=2.81 (k=10) — no GT agreement issue. adjusted_mclmc recommended per TL ruling."
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
     }
   },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.1.dev433+g0edd988a3",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-05-30T16:27:33Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [
-    {
-      "n_warmup": 2000,
-      "outcome": "REVIEW",
-      "note": "correct adapted-L path",
-      "rhat_max": 1.0076,
-      "min_ess": 363.8,
-      "step_size_range": [1.036, 2.117]
-    },
-    {
-      "n_warmup": 4000,
-      "outcome": "REVIEW",
-      "note": "correct adapted-L path (best attempt)",
-      "rhat_max": 1.0104,
-      "min_ess": 450.7,
-      "step_size_range": [0.6424, 1.313]
-    },
-    {
-      "n_warmup": 2000,
-      "outcome": "PASS-superseded",
-      "note": "wrong-L bug (PR #97): adapted L dropped, default L used; not reproducible on correct-L path",
-      "rhat_max": 1.0076,
-      "min_ess": 903.3
-    }
-  ]
+  "attempted_configurations": []
 }

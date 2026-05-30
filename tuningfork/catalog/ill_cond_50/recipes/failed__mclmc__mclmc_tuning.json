@@ -39,8 +39,9 @@
       "reason": "MCLMC trajectory length (L) adaptation insufficient for ill_cond_50 kappa=1000 at n_warmup=1000. mclmc_tuning finds step_size=0.83-1.21 but L does not cover the long eigenaxis. No bias (z=0.935) but catastrophic non-mixing (ESS=6.9). Prediction G was wrong: ill_cond_50 kappa=1000 requires much larger L than mclmc_tuning finds at n_warmup=1000. Consider n_warmup>>2000 or a different warm-start."
     }
   },
-  "failure_diagnosis": "ill_cond_50 kappa=1000 structural failure for mclmc at n_warmup=1000: mclmc_tuning adapts step_size=0.83-1.21 but L adaptation is insufficient to traverse the 1000:1 anisotropy. rhat=1.609, ESS=6.9, n_div=0 (rejection-free), z=0.935 (no bias). The chain is at the correct location but cannot mix. RECIPE_GENERATION.md prediction G was wrong for this cell at n_warmup=1000.",
+  "failure_diagnosis": "ill_cond_50 kappa=1000 progressive improvement with n_warmup but not yet PASS. At n_warmup=1K rhat=1.609/ESS=6.9, at n_warmup=10K rhat=1.051/ESS=98.4. The mclmc_tuning is gradually adapting L but kappa=1000 requires very large trajectory length. n_warmup>>10K likely needed for PASS. No bias (z<1.5 at all levels). RECIPE_GENERATION.md prediction G was wrong at practical n_warmup budgets.",
   "attempted_configurations": [
-    {"n_warmup": 1000, "outcome": "FAIL", "rhat_max": 1.6088, "min_ess": 6.9, "step_size_range": [0.834, 1.207]}
+    {"n_warmup": 1000, "outcome": "FAIL", "rhat_max": 1.6088, "min_ess": 6.9, "step_size_range": [0.834, 1.207]},
+    {"n_warmup": 10000, "outcome": "FAIL", "rhat_max": 1.0514, "min_ess": 98.4, "step_size_range": [0.929, 1.252], "note": "Major improvement but still FAIL; ESS=98 vs ESS=7 at 1K"}
   ]
 }
