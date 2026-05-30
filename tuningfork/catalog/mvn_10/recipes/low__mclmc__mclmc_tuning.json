@@ -3,8 +3,8 @@
   "base_method_name": "mclmc",
   "effort": "low",
   "base_method_params": {
-    "L": 12.58925411794167,
     "step_size": 3.2968499660491943,
+    "L": 2.5683469772338867,
     "inverse_mass_matrix": [
       1.249017596244812,
       0.9242512583732605,
@@ -18,22 +18,22 @@
       0.8877513408660889
     ]
   },
-  "headline_metric": 234.72923278808594,
+  "headline_metric": 204.58670043945312,
   "sample_quality": {
-    "mae_vs_reference": 0.00711951122608695,
-    "q05_error": 1.1109208575856802,
-    "q95_error": 1.1358253147141697,
-    "std_ratio_max_dev": 0.6831748531124031
+    "mae_vs_reference": 0.011562003550966192,
+    "q05_error": 1.1093529978003704,
+    "q95_error": 1.143219591842341,
+    "std_ratio_max_dev": 0.6840213781675895
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 13.613647435005987,
+    "wall_seconds_estimate": 12.69784837498446,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 10.79,
-    "sampling_wall_seconds": 1.019,
-    "sampling_seconds_per_draw": 0.000255,
+    "warmup_wall_seconds": 9.963,
+    "sampling_wall_seconds": 1.023,
+    "sampling_seconds_per_draw": 0.000256,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -48,11 +48,11 @@
     }
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'L': 12.58925411794167, 'step_size': 3.2968499660491943, 'inverse_mass_matrix': [1.249017596244812, 0.9242512583732605, 0.9660196304321289, 0.8703975081443787, 0.9998031854629517, 0.8806784152984619, 0.7189441323280334, 1.0309855937957764, 0.9459302425384521, 0.8877513408660889]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 234.7292.\nWall time to produce this recipe: ~13 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 3.2968499660491943, 'L': 2.5683469772338867, 'inverse_mass_matrix': [1.249017596244812, 0.9242512583732605, 0.9660196304321289, 0.8703975081443787, 0.9998031854629517, 0.8806784152984619, 0.7189441323280334, 1.0309855937957764, 0.9459302425384521, 0.8877513408660889]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 204.5867.\nWall time to produce this recipe: ~12 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 8,
-    "min_bulk_ess": 1877.8338623046875,
+    "min_bulk_ess": 1636.693603515625,
     "grad_count_convention": "2",
     "is_lower_bound": false
   },
@@ -74,14 +74,14 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.005197151154162,
-      "min_bulk_ess": 1882.7341310372929,
+      "rhat_max": 1.0021173234786647,
+      "min_bulk_ess": 1647.734983777409,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.0999375645367624,
+      "max_abs_mean_z": 1.9891870046377786,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.005197151154162,
+          "value": 1.0021173234786647,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -89,7 +89,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 1882.7341310372929,
+          "value": 1647.734983777409,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -105,7 +105,7 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 1.0999375645367624,
+          "value": 1.9891870046377786,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 2.0,
@@ -126,7 +126,7 @@
   "tuningfork_version": "0.1.dev433+g0edd988a3",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.1",
-  "timestamp_utc": "2026-05-30T10:03:23Z",
+  "timestamp_utc": "2026-05-30T10:44:08Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
