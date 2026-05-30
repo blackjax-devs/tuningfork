@@ -1565,6 +1565,7 @@ def run_recipe_to_idata(
     force_resample_config: dict[str, Any] | None = None,
     catalog_root: Path = _CATALOG_ROOT,
     warmup_num_chains: list[int] | None = None,
+    _allow_failed_diagnostic: bool = False,
     _return_timing: bool = False,
 ) -> Any:
     """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
@@ -1662,8 +1663,11 @@ def run_recipe_to_idata(
     if recipe.effort == Effort.GROUNDTRUTH:
         return load_idata(recipe, cache_dir=catalog_root)
 
-    # FAILED recipes cannot be re-run
-    if recipe.effort == Effort.FAILED:
+    # FAILED recipes raise by default — no gate-passing config.
+    # _allow_failed_diagnostic=True bypasses this for on-demand diagnostic
+    # re-runs (catalog_explorer "Re-run failed config" path): the user explicitly
+    # opts in to running the failed config to inspect the failure mode visually.
+    if recipe.effort == Effort.FAILED and not _allow_failed_diagnostic:
         raise RecipeFailedError(recipe)
 
     # Validate registry membership
