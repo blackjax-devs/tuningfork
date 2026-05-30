@@ -185,5 +185,11 @@
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-29T15:27:01Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "Dynamic HMC (Hoffman et al. 2022). Each step samples a random number of leapfrog steps from a length distribution adapte",
+    "is_lower_bound": false
+  }
 }

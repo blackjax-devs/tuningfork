@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Dense IMM at d=7 makes lotka_volterra HARDER than diag (cf. W1\u00d7nuts which PASSes at ta=0.99). Likely the dense IMM at the boundary of well-conditioning + the ODE-stiffness interaction amplifies the geometric difficulty.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

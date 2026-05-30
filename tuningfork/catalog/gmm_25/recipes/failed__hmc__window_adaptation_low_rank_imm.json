@@ -17,7 +17,7 @@
     "num_chains": 0
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "25-mode Gaussian mixture; gradient samplers cannot cross mode barriers. W3 IMM does not help. SMC is required.",
   "tuning_seed": 0,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

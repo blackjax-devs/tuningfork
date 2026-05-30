@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Fixed-L HMC fails on german_credit \u00d7 W3 (rhat=1.057, ess=47). W1 \u00d7 hmc also failed; W1 \u00d7 hmc at L=5 passed as MEDIUM (Phase 4 cluster 2). W3 analogue not attempted. Superseded by low__nuts__window_adaptation_low_rank_imm.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

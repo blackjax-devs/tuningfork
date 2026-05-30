@@ -176,5 +176,11 @@
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-29T15:00:00Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "Multinomial HMC on the Laplace-approximated marginal log-density. Identical to laplace_hmc but proposes from the full tr",
+    "is_lower_bound": true
+  }
 }

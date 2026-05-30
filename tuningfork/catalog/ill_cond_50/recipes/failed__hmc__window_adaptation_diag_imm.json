@@ -31,5 +31,11 @@
       "date": "2026-05-29",
       "reason": "KNOWN_RESONANCE: structural failure, not config-rescueable. See resonance lesson."
     }
-  }
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]"
 }

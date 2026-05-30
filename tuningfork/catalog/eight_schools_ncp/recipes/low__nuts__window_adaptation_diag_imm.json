@@ -108,5 +108,11 @@
   "timestamp_utc": "2026-05-19T21:59:50Z",
   "failure_diagnosis": null,
   "attempted_configurations": [],
-  "warmup_num_chains": null
+  "warmup_num_chains": null,
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "Stan-default target acceptance 0.80; inverse_mass_matrix supplied by warmup adaptation, not BO. step_size is the only BO",
+    "is_lower_bound": false
+  }
 }

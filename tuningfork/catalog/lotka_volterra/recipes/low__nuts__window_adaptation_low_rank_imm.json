@@ -29,5 +29,11 @@
     }
   },
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_low_rank_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: not yet measured.\nWall time to produce this recipe: ~0 s (machine-only)."
 }

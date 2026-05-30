@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "HMC fixed-L at ill_cond_50 (d=50, kappa=1000) REVIEWs with low-rank IMM (rhat=1.011, ess=1699). Not as bad as W1 x hmc (which wasn't attempted in Phase 3); the W3 low-rank IMM captures the principal axes so HMC's fixed-L issue is less severe. However rhat just above gate. Phase 4 with L=5 could rescue, but NUTS already provides LOW. Superseded by low__nuts__window_adaptation_low_rank_imm.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

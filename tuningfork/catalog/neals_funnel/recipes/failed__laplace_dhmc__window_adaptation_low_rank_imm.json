@@ -17,7 +17,7 @@
     "num_chains": 0
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "neals_funnel has no usable (phi, theta) factorisation for laplace marginal.",
   "tuning_seed": 0,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

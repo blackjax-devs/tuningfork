@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Rosenbrock-shape banana defeats step-size adaptation at any ta. ta=0.99 eliminates divergences but ESS collapses (smaller steps \u00d7 curved manifold \u2192 autocorrelated draws). Likely requires Riemannian metric or x2-substitution reparameterisation.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

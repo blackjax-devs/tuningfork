@@ -11,7 +11,7 @@
   },
   "headline_metric": null,
   "sample_quality": null,
-  "failure_diagnosis": "Dense IMM (window_adaptation_dense_imm) is not practically viable at d=503 (AR(1) stochastic volatility). Two independent rescue attempts (n_warmup=2000, ta=0.8) both OOM-killed during JAX JIT compilation of the 503x503 dense Welford update rule — XLA XLA HLO for a 503x503 dense matrix update exceeds available memory at 4-chain compilation. Structurally infeasible at this dimensionality. Model is fully covered by mhmc x window_adaptation_diag_imm (PASS, W1) + dynamic_hmc/dmhmc x {W1,W2,W3} (PASS). Dense IMM is appropriate for d<~100; use diag or low_rank for d=503.",
+  "failure_diagnosis": "Dense IMM (window_adaptation_dense_imm) is not practically viable at d=503 (AR(1) stochastic volatility). Two independent rescue attempts (n_warmup=2000, ta=0.8) both OOM-killed during JAX JIT compilation of the 503x503 dense Welford update rule \u2014 XLA XLA HLO for a 503x503 dense matrix update exceeds available memory at 4-chain compilation. Structurally infeasible at this dimensionality. Model is fully covered by mhmc x window_adaptation_diag_imm (PASS, W1) + dynamic_hmc/dmhmc x {W1,W2,W3} (PASS). Dense IMM is appropriate for d<~100; use diag or low_rank for d=503.",
   "revisit_as": "window_adaptation_diag_imm",
   "gate_evidence": {
     "auto": {
@@ -26,7 +26,21 @@
     }
   },
   "attempted_configurations": [
-    {"n_warmup": 2000, "ta": 0.8, "outcome": "OOM_during_JIT"},
-    {"n_warmup": 2000, "ta": 0.8, "outcome": "OOM_during_JIT"}
-  ]
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "outcome": "OOM_during_JIT"
+    },
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "outcome": "OOM_during_JIT"
+    }
+  ],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]"
 }

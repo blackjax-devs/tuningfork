@@ -109,5 +109,11 @@
   "timestamp_utc": "2026-05-19T22:00:14Z",
   "failure_diagnosis": null,
   "attempted_configurations": [],
-  "warmup_num_chains": null
+  "warmup_num_chains": null,
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "Beskos et al. optimal accept \u2248 0.65 for fixed-L HMC; both step_size and num_integration_steps are BO-tunable. inverse_ma",
+    "is_lower_bound": false
+  }
 }

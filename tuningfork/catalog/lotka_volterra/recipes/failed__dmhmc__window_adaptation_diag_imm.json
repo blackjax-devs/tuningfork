@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Same diagnosis as dynamic_hmc \u2014 multinomial proposal does not change trajectory length.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

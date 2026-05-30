@@ -26,5 +26,11 @@
       "reason": "Structural: fixed-L HMC under-mixing at d=503."
     }
   },
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]"
 }

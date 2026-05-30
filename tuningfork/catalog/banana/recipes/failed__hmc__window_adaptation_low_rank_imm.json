@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Rosenbrock-shape banana defeats step-size + IMM adaptation at any configuration. W3 low-rank IMM does not capture the Rosenbrock curvature (non-linear manifold, not a correlation issue). ta=0.99 was shown in Phase 4 to eliminate divergences but collapse ESS. Out of scope for this sweep.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",

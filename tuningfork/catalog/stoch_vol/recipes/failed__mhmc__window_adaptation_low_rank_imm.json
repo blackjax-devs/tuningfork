@@ -26,6 +26,17 @@
     }
   },
   "attempted_configurations": [
-    {"n_warmup": 2000, "ta": 0.8, "outcome": "OOM_during_JIT", "note": "single isolated systemd scope, no parallel competition"}
-  ]
+    {
+      "n_warmup": 2000,
+      "ta": 0.8,
+      "outcome": "OOM_during_JIT",
+      "note": "single isolated systemd scope, no parallel competition"
+    }
+  ],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]"
 }

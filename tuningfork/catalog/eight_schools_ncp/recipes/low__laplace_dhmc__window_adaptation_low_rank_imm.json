@@ -110,5 +110,11 @@
   "jax_version": "0.10.0",
   "timestamp_utc": "2026-05-28T19:43:16Z",
   "failure_diagnosis": null,
-  "attempted_configurations": []
+  "attempted_configurations": [],
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "Dynamic HMC on the Laplace-approximated marginal log-density. Combines Laplace marginalisation (latent theta integrated ",
+    "is_lower_bound": true
+  }
 }

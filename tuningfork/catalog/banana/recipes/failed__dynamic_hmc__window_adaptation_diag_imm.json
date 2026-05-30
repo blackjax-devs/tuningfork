@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Random-L \u2208 [1,10) inadequate for banana's curved long axis. ta=0.99 helps the step-size but trajectory is too short to traverse the manifold.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.0.0.dev0",

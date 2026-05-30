@@ -114,5 +114,11 @@
   "timestamp_utc": "2026-05-21T04:21:03Z",
   "failure_diagnosis": null,
   "attempted_configurations": [],
-  "warmup_num_chains": null
+  "warmup_num_chains": null,
+  "headline_basis": {
+    "total_grad_evals": null,
+    "min_bulk_ess": null,
+    "grad_count_convention": "Dynamic Multinomial HMC (Betancourt 2017 \u00a7A.2 + Hoffman et al. 2022). Dynamic HMC with multinomial trajectory proposal; ",
+    "is_lower_bound": false
+  }
 }

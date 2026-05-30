@@ -30,7 +30,7 @@
     "num_chains": 4
   },
   "difficulty": null,
-  "instructions": "",
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
   "notes": "Fixed-L HMC + funnel: 82 divergences. The funnel scale-coupling requires either Riemannian metric or NCP reparameterisation. Phase 2b predicted HIGH for hmc+funnel (fixed-L mismatch). W3 confirms: low-rank IMM cannot resolve funnel.",
   "tuning_seed": 20260517,
   "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
