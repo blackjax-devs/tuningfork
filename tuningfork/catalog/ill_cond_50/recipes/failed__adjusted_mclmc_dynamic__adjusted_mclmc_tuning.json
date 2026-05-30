@@ -1,0 +1,27 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "adjusted_mclmc_dynamic",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_name": "adjusted_mclmc_tuning",
+  "warmup_params": {"n_warmup": 10000, "num_chains": 4},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {"trials": 1, "wall_seconds_estimate": 10.0},
+  "difficulty": null,
+  "instructions": null,
+  "notes": "ill_cond_50 kappa=1000 structural failure for adjusted_mclmc_dynamic. rhat=1.087, ESS=43.8, z=1.12. Slightly better than adjusted_mclmc (ESS 26->44) due to variable trajectory length, but still structural FAIL. kappa=1000 requires adaptive geometry (NUTS-style) not MCLMC trajectory tuning.",
+  "step_policy": null,
+  "warmups": [{"name": "adjusted_mclmc_tuning", "params": {"n_warmup": 10000, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {"rhat_max": 1.0872, "min_bulk_ess": 43.8, "n_divergences": 0, "max_abs_mean_z": 1.121, "verdict": "FAIL"},
+    "override": {"decision": "FAIL", "statistician_id": "stat-2026-05-30", "date": "2026-05-30", "reason": "Structural: kappa=1000 trajectory length insufficient (rhat=1.087, ESS=44). Variable L (dynamic) helps slightly vs fixed L but not enough."}
+  },
+  "failure_diagnosis": "ill_cond_50 kappa=1000 structural FAIL for adjusted_mclmc_dynamic at n_warmup=10000. Variable trajectory length reduces rhat 1.125->1.087 and improves ESS 26->44 vs adjusted_mclmc, but both are structural FAILs.",
+  "attempted_configurations": [{"n_warmup": 10000, "outcome": "FAIL", "rhat_max": 1.0872, "min_ess": 43.8}]
+}
