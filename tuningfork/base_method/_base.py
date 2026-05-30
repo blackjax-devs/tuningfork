@@ -204,6 +204,11 @@ class BaseMethod:
     needs_mass_matrix: bool = False
     target_acceptance_rate: float | None = None
     notes: str = ""
+    # ---- grad-count convention string (for headline_basis.grad_count_convention) ----
+    # Short formula text describing how grad_count_per_step maps info → gradient count.
+    # Example: "info.num_integration_steps" or "(NIS+1) × lbfgs_iter_num (lower bound)".
+    # Defaults to empty string; populated in every BaseMethod ENTRY.
+    grad_count_convention: str = ""
     # ---- specialised: factory requires extra kwargs beyond logdensity_fn + HP-space ----
     extra_required_kwargs: tuple[str, ...] = ()
     """Names of kwargs the factory requires beyond logdensity_fn + HP-space items.

@@ -1150,9 +1150,9 @@ def emit_low_recipe_for_cell(
         _headline_basis = {
             "total_grad_evals": int(grad_evals),
             "min_bulk_ess": headline * grad_evals,  # back-derived from headline
-            "grad_count_convention": (
-                base_method.notes[:120] if base_method.notes else sampler_name
-            ),
+            # Complete formula text from BaseMethod.grad_count_convention (single
+            # source of truth), not a truncated slice of the general notes.
+            "grad_count_convention": base_method.grad_count_convention or sampler_name,
             "is_lower_bound": _is_laplace,
         }
 

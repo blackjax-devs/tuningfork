@@ -117,7 +117,7 @@
   "headline_basis": {
     "total_grad_evals": null,
     "min_bulk_ess": null,
-    "grad_count_convention": "Stan-default target acceptance 0.80; inverse_mass_matrix supplied by warmup adaptation, not BO. step_size is the only BO",
+    "grad_count_convention": "info.num_integration_steps",
     "is_lower_bound": false
   }
 }

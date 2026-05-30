@@ -213,6 +213,7 @@ ENTRY = BaseMethod(
     family="vi",
     factory=_factory,
     grad_count_per_step=lambda info: jnp.asarray(1),
+    grad_count_convention="1",
     default_hp_space=(
         # num_optimization_steps is recipe-time by default (not BO-tuned),
         # but must be listed here to satisfy BaseMethod validation (at least

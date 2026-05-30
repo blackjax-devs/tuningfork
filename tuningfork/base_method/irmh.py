@@ -91,6 +91,7 @@ ENTRY = BaseMethod(
     family="mcmc",
     factory=_factory,
     grad_count_per_step=lambda info: jnp.asarray(0),  # gradient-free MH
+    grad_count_convention="0 (gradient-free)",
     default_hp_space=(),  # truly HP-free; proposal is a full callable
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # depends entirely on proposal-vs-target overlap

@@ -102,6 +102,7 @@ ENTRY = BaseMethod(
     # For a more accurate accounting, the runner should read the period from
     # the state.directions.max() + 1 or from the recipe params.
     grad_count_per_step=lambda info: jnp.asarray(1),  # lower-bound: 1 grad/step
+    grad_count_convention="1 (lower bound; OHO samples a full orbit, NIS ≥ 1)",
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
         HyperparamSpace("period", "int", low=2, high=20),

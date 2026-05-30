@@ -114,7 +114,7 @@
   "headline_basis": {
     "total_grad_evals": null,
     "min_bulk_ess": null,
-    "grad_count_convention": "Dynamic Multinomial HMC (Betancourt 2017 \u00a7A.2 + Hoffman et al. 2022). Dynamic HMC with multinomial trajectory proposal; ",
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
     "is_lower_bound": false
   }
 }

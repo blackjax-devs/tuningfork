@@ -105,7 +105,7 @@
   "headline_basis": {
     "total_grad_evals": null,
     "min_bulk_ess": null,
-    "grad_count_convention": "HMC on the Laplace-approximated marginal log-density of hierarchical models. Latent vars theta integrated out via L-BFGS",
+    "grad_count_convention": "(info.num_integration_steps + 1) \u00d7 info.lbfgs_iter_num (lower bound; line-search \u2248 1)",
     "is_lower_bound": true
   }
 }

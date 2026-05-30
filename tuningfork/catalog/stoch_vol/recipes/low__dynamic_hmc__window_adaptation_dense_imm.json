@@ -132,7 +132,7 @@
   "headline_basis": {
     "total_grad_evals": null,
     "min_bulk_ess": null,
-    "grad_count_convention": "Dynamic HMC (Hoffman et al. 2022). Each step samples a random number of leapfrog steps from a length distribution adapte",
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
     "is_lower_bound": false
   }
 }

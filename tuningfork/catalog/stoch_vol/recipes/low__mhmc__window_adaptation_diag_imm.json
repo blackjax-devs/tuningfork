@@ -116,7 +116,7 @@
   "headline_basis": {
     "total_grad_evals": null,
     "min_bulk_ess": null,
-    "grad_count_convention": "Multinomial HMC (Betancourt 2017 \u00a7A.2). Replaces HMC's slice-sampling trajectory selector with multinomial sampling; HP ",
+    "grad_count_convention": "info.num_integration_steps",
     "is_lower_bound": false
   }
 }
