@@ -962,6 +962,13 @@ def emit_low_recipe_for_cell(
         # L comes per-chain from batched_L; remove the static default from shared_kwargs.
         shared_kwargs.pop("L", None)
 
+    # adjusted_mclmc_dynamic uses adjusted_mclmc_tuning which returns HMCState,
+    # but the sampling kernel needs DynamicHMCState (has random_generator_arg).
+    # A per-chain reinit converts HMCState → DynamicHMCState via kernel.init().
+    needs_mclmc_dyn_reinit = (
+        sampler_name == "adjusted_mclmc_dynamic" and is_mclmc_family
+    )
+
     # Capture laplace extras in closure for per-chain step function.
     _laplace_log_joint_fn = laplace_log_joint_fn
     _laplace_theta_init = laplace_theta_init
@@ -969,6 +976,7 @@ def emit_low_recipe_for_cell(
     # --- Pre-scan init: handle samplers that need a different state type ---
     # Laplace and dynamic_hmc/dmhmc require re-init before the scan loop because
     # window_adaptation produces HMCState while these kernels need their own state.
+    # adjusted_mclmc_dynamic needs the same treatment (adapted HMCState → DynamicHMCState).
     # Per-chain reinit is safe (vmapping .init() has no io_callback issues).
     _reinit_keys = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
     if is_laplace:
@@ -1000,6 +1008,23 @@ def emit_low_recipe_for_cell(
 
         _run_states = jax.vmap(_init_one_chain_dyn)(
             batched_state, batched_step_size, batched_imm, _reinit_keys
+        )
+    elif needs_mclmc_dyn_reinit:
+        # adjusted_mclmc_dynamic: convert warmup HMCState → DynamicHMCState using
+        # the per-chain adapted L (required by the factory; not in shared_kwargs).
+
+        def _init_one_chain_mclmc_dyn(init_state, step_size, imm, L, reinit_key):
+            kernel = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                L=L,
+                **shared_kwargs,
+            )
+            return kernel.init(init_state.position, reinit_key)
+
+        _run_states = jax.vmap(_init_one_chain_mclmc_dyn)(
+            batched_state, batched_step_size, batched_imm, batched_L, _reinit_keys
         )
     else:
         _run_states = batched_state
@@ -2057,6 +2082,11 @@ def run_recipe_to_idata(
     batched_step_size = batched_params["step_size"]
     batched_imm = batched_params["inverse_mass_matrix"]
     needs_dyn_reinit = recipe.base_method_name in ("dynamic_hmc", "dmhmc")
+    # adjusted_mclmc_dynamic: L is in shared_kwargs (from recipe_params above);
+    # needs reinit from HMCState → DynamicHMCState using the stored scalar L.
+    # Unlike the emit path, L here is a Python float (not a vmapped array), so the
+    # factory call uses **shared_kwargs which already contains the correct stored L.
+    needs_mclmc_dyn_reinit_r = recipe.base_method_name == "adjusted_mclmc_dynamic"
 
     _laplace_log_joint_fn = laplace_log_joint_fn
     _laplace_theta_init = laplace_theta_init
@@ -2064,6 +2094,7 @@ def run_recipe_to_idata(
     # --- Pre-scan init: handle samplers that need a different state type ---
     # Laplace and dynamic_hmc/dmhmc require re-init before the scan loop because
     # window_adaptation produces HMCState while these kernels need their own state.
+    # adjusted_mclmc_dynamic needs the same treatment (HMCState → DynamicHMCState).
     _reinit_keys_r = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
     if is_laplace:
 
@@ -2093,6 +2124,22 @@ def run_recipe_to_idata(
             return kernel.init(init_state.position, reinit_key)
 
         _run_states_r = jax.vmap(_init_one_chain_dyn_r)(
+            batched_state, batched_step_size, batched_imm, _reinit_keys_r
+        )
+    elif needs_mclmc_dyn_reinit_r:
+        # adjusted_mclmc_dynamic: L is in shared_kwargs (from recipe_params).
+        # The factory call includes L; kernel.init converts HMCState→DynamicHMCState.
+
+        def _init_one_chain_mclmc_dyn_r(init_state, step_size, imm, reinit_key):
+            kernel = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            return kernel.init(init_state.position, reinit_key)
+
+        _run_states_r = jax.vmap(_init_one_chain_mclmc_dyn_r)(
             batched_state, batched_step_size, batched_imm, _reinit_keys_r
         )
     else:
