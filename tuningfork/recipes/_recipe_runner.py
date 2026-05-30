@@ -86,6 +86,19 @@ __all__ = [
 ]
 
 # ---------------------------------------------------------------------------
+# MCLMC-family constants
+# ---------------------------------------------------------------------------
+
+# Samplers that accept ``L`` as a factory kwarg and whose warmup routines
+# (mclmc_tuning / adjusted_mclmc_tuning) return the adapted ``L`` in
+# ``batched_params["L"]``.  This key must be vmapped per-chain (not served from
+# the default_params_for fallback) to ensure the warmup-adapted trajectory
+# length reaches the sampling kernel.
+_MCLMC_FAMILY_NAMES: frozenset[str] = frozenset(
+    ("mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic")
+)
+
+# ---------------------------------------------------------------------------
 # Laplace optimizer kwargs helpers
 # ---------------------------------------------------------------------------
 
@@ -940,6 +953,15 @@ def emit_low_recipe_for_cell(
     batched_imm = batched_params["inverse_mass_matrix"]
     needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
 
+    # mclmc-family: warmup returns adapted L in batched_params["L"].  Extract it
+    # and remove the default-L entry from shared_kwargs so the factory receives
+    # the per-chain warmup-adapted value, not the default_params_for fallback.
+    batched_L = batched_params.get("L")  # (num_chains,) array or None
+    is_mclmc_family = sampler_name in _MCLMC_FAMILY_NAMES and batched_L is not None
+    if is_mclmc_family:
+        # L comes per-chain from batched_L; remove the static default from shared_kwargs.
+        shared_kwargs.pop("L", None)
+
     # Capture laplace extras in closure for per-chain step function.
     _laplace_log_joint_fn = laplace_log_joint_fn
     _laplace_theta_init = laplace_theta_init
@@ -1006,6 +1028,28 @@ def emit_low_recipe_for_cell(
             )
 
         _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace)
+    elif is_mclmc_family:
+        # mclmc-family: vmap L alongside step_size and imm so each chain
+        # receives its warmup-adapted trajectory length.  L was removed from
+        # shared_kwargs above; it arrives here as batched_L (num_chains,).
+
+        def _step_one_chain_mclmc(state, key, step_size, imm, L):
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                L=L,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _vmapped_step_mclmc(rng_key, states):
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain_mclmc)(
+                states, keys, batched_step_size, batched_imm, batched_L
+            )
+
+        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_mclmc)
     else:
 
         def _step_one_chain(state, key, step_size, imm):
@@ -1199,6 +1243,12 @@ def emit_low_recipe_for_cell(
         k: v for k, v in shared_kwargs.items() if k != "integration_steps_fn"
     }
     pinned_params["step_size"] = chain0_step_size
+    # mclmc-family: save the warmup-adapted L (chain 0) to the recipe so that
+    # recipe re-runs (recertification) use the correct trajectory length rather
+    # than the default_params_for fallback.  L was removed from shared_kwargs
+    # above; add it back here as a concrete scalar for JSON serialisation.
+    if is_mclmc_family and batched_L is not None:
+        pinned_params["L"] = float(np.asarray(batched_L).ravel()[0])
     jsonable_params = _to_jsonable(pinned_params)
 
     imm_arr: np.ndarray | None = None
