@@ -410,8 +410,9 @@ def auto_gate(
     - Bulk-ESS uses ``az.ess(method="bulk")``.
     - ``n_divergences = int(jnp.sum(info.is_divergent))`` (flattened).
     - ``max_abs_mean_z = max_i |mean_i - gt_mean_i| / max(SE_i, SE_gt_i)``
-      where ``SE_i = std_i / sqrt(n_eff_i)`` (approximated as
-      ``std_i / sqrt(min_bulk_ess)`` for simplicity).
+      where ``SE_i = std_i / sqrt(ess_i)`` using **per-dimension** bulk-ESS
+      from ``az.ess``.  (Previously used the global ``min_bulk_ess`` for every
+      dim, which over-inflated SE for well-mixing dims — M1 fix 2026-05-31.)
     - The verdict is the *worst* contribution across all evaluated metrics
       (FAIL beats REVIEW beats PASS).  Skipped metrics do not contribute.
 
@@ -478,13 +479,29 @@ def auto_gate(
             merged = arr_np.reshape(n_chains * n_draws, *arr_np.shape[2:])
             sample_mean = np.mean(merged, axis=0)
             sample_std = np.std(merged, axis=0)
-            n_eff = (
-                min_bulk_ess
-                if min_bulk_ess and min_bulk_ess > 0
-                else float(n_chains * n_draws)
-            )
-            # SE of sample mean
-            se_sample = sample_std / np.sqrt(max(n_eff, 1.0))
+            # Per-dimension ESS for SE computation (M1 fix).
+            # Using the global min_bulk_ess for every dimension's SE was
+            # inaccurate: for a model where most dims mix at ESS=2000 but
+            # the worst dim has ESS=450, applying ESS=450 to all dims
+            # over-inflates SE → z-scores too small → gate too lenient.
+            # Fix: compute az.ess per-dim; fall back to min_bulk_ess only
+            # if the computation fails (e.g., insufficient samples).
+            try:
+                per_dim_ess = np.asarray(
+                    az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
+                )
+                per_dim_ess = np.maximum(per_dim_ess, 1.0)
+                if per_dim_ess.shape == ():
+                    per_dim_ess = np.full(sample_mean.shape, float(per_dim_ess))
+            except Exception:
+                _fallback_n_eff = (
+                    min_bulk_ess
+                    if min_bulk_ess and min_bulk_ess > 0
+                    else float(n_chains * n_draws)
+                )
+                per_dim_ess = np.full(sample_mean.shape, max(_fallback_n_eff, 1.0))
+            # SE of sample mean (per-dimension)
+            se_sample = sample_std / np.sqrt(per_dim_ess)
 
             gt_mean = np.asarray(gt["mean"])
             gt_std = np.asarray(gt["std"])
