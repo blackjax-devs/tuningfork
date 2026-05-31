@@ -29,7 +29,10 @@ notebook = [
 ]
 
 bench = [
-    "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@main",
+    # Pinned to the v0.0.1 release baseline (batch_size SMC addition, #929).
+    # Tracks our api-pin tests in tests/test_api_pins_smc.py.
+    # Update this SHA when upgrading blackjax; run make test-fast to verify.
+    "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@78ae6e52d1126e7e5832446acd7ccd62ac20c2b1",
     "aeppl",
     "aesara",
     "arviz",
