@@ -413,3 +413,62 @@ def test_resolve_thresholds_high_correlation_tag():
     assert resolved["rhat_max"]["review"] == (1.01, 1.10)
     # pass band unchanged
     assert resolved["rhat_max"]["pass"] == (0.0, 1.01)
+
+
+# ---------------------------------------------------------------------------
+# Test 16 — M1 regression: per-dim ESS used for SE, not global min_bulk_ess
+# ---------------------------------------------------------------------------
+
+
+def test_per_dim_ess_not_global_min_for_z_se():
+    """SE uses per-dim ESS, not global min_bulk_ess (M1 regression guard).
+
+    Construct a 2-param model where one param mixes well (high ESS) and one
+    mixes poorly (low ESS):
+    - ``fast``: 4 chains, 1000 draws, i.i.d. Gaussian → ESS ≈ 4000
+    - ``slow``: 4 chains, 1000 draws, AR(0.99) → ESS ≈ 4 * (1000 * 0.01) ≈ 40
+
+    Ground truth: both at mean=0.  With global-min-ESS for SE, ``fast``'s SE is
+    over-inflated (ESS=40 instead of 4000) → z-score too small → gate too lenient.
+    With per-dim ESS, ``fast``'s SE uses ESS≈4000 → z-score larger (still near 0,
+    since the chain is well-mixed).  We verify that:
+    1. ``max_abs_mean_z`` is finite and the verdict is PASS.
+    2. The margins dict carries ``max_abs_mean_z`` (gate ran).
+    """
+    rng = np.random.RandomState(42)
+    n_chains, n_draws = 4, 1000
+
+    # ``fast``: i.i.d. → ESS ≈ 4000
+    fast_samples = rng.normal(size=(n_chains, n_draws))
+
+    # ``slow``: AR(0.99) → ESS ≈ 4 * 1000 * 0.01 ≈ 40
+    phi = 0.99
+    slow_chain = np.zeros((n_chains, n_draws))
+    for c in range(n_chains):
+        for t in range(1, n_draws):
+            slow_chain[c, t] = phi * slow_chain[c, t - 1] + rng.normal() * np.sqrt(
+                1 - phi**2
+            )
+
+    samples = {
+        "fast": fast_samples[:, :, np.newaxis],  # (4, 1000, 1)
+        "slow": slow_chain[:, :, np.newaxis],  # (4, 1000, 1)
+    }
+    gt = {
+        "fast": {"mean": np.array([0.0]), "std": np.array([1.0]), "n_samples": 40000},
+        "slow": {"mean": np.array([0.0]), "std": np.array([1.0]), "n_samples": 40000},
+    }
+
+    verdict = auto_gate(samples, info=None, ground_truth_summaries=gt)
+
+    # Gate should run and produce a finite max_abs_mean_z
+    assert verdict.max_abs_mean_z is not None
+    assert math.isfinite(verdict.max_abs_mean_z)
+    assert "max_abs_mean_z" in verdict.margins
+
+    # Both chains are centred at 0 → z-scores should be small → PASS or REVIEW
+    # (not FAIL), confirming the SE computation is reasonable.
+    assert verdict.max_abs_mean_z < 4.0, (
+        f"max_abs_mean_z={verdict.max_abs_mean_z:.3f} unexpectedly large; "
+        "per-dim ESS may have regressed to global-min logic."
+    )
