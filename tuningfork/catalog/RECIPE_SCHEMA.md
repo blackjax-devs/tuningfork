@@ -295,7 +295,7 @@ medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json
 medium__dynamic_hmc__window_adaptation_diag_imm__policy_v2-long.json              ← V2 parametric
 ```
 
-The `<slug>` matches a variant in the policy catalog (the d-hmc thread §1 maintains the V0–V7 inventory). Slug-to-anchor mapping is 1:1 with the catalog.
+The `<slug>` matches a variant in the policy catalog (see worklog for step_policy inventory). Slug-to-anchor mapping is 1:1 with the catalog.
 
 ## §5 — Filename composition
 
@@ -309,7 +309,7 @@ Examples:
 
 - `low__nuts__window_adaptation_diag_imm.json` (baseline)
 - `medium__hmc__window_adaptation_dense_imm.json` (MEDIUM — no modifiers)
-- `medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json` (V7 empirical-oracle work)
+- `medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json` (NUTS-harvested empirical-oracle step_policy)
 - `low__hmc__window_adaptation_diag_imm__inner_nuts.json` (hypothetical hmc-via-NUTS-warmup variant)
 - `low__nuts__pathfinder+window_adaptation_diag_imm.json` (hypothetical chained warmup — §2.2)
 
@@ -357,7 +357,7 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 
 ## §10 — Related documents
 
-- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog (V0–V7), per-cell prediction matrix, NUTS-harvested step_policy work execution log
+- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog, per-cell prediction matrix, NUTS-harvested step_policy work execution log
 - **Effort taxonomy** decision: [`worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md)
 - **Catalog README**: [`catalog/README.md`](README.md) — user-facing consumption guide
 - **Inspection API**: [`catalog/notebooks/inspect_README.md`](notebooks/inspect_README.md)
