@@ -20,9 +20,9 @@
   "headline_metric": 0.037496574223041534,
   "sample_quality": {
     "mae_vs_reference": 0.02646622328458902,
-    "q05_error": 1.056038795065546,
-    "q95_error": 1.0383228266503843,
-    "std_ratio_max_dev": 0.6379788056941712
+    "q05_error": null,
+    "q95_error": null,
+    "std_ratio_max_dev": null
   },
   "calibration_budget": {
     "trials": 0,
