@@ -6,16 +6,11 @@ name: Benchmark suite (Phase 8 v1)
 
 on:
   schedule:
-    # Nightly at 02:00 UTC (off-peak; avoids contention with PR CI)
+    # Nightly at 02:00 UTC (off-peak; avoids contention with other CI)
     - cron: '0 2 * * *'
-  pull_request:
-    paths:
-      # Re-run on sampler/runner/recipe changes; skip docs-only PRs
-      - 'tuningfork/blackjax/**'
-      - 'tuningfork/tuningfork/base_method/**'
-      - 'tuningfork/tuningfork/warmup/**'
-      - 'tuningfork/tuningfork/recipes/_recipe_runner.py'
-      - 'tuningfork/benchmarks/**'
+  # pull_request trigger intentionally omitted: the suite will grow to ~2h
+  # (Tier 1+2 nightly), making per-PR CI untenable. Nightly + on-demand is
+  # the right model — use workflow_dispatch for targeted pre-merge validation.
   workflow_dispatch:
     inputs:
       tiers:
@@ -45,18 +40,14 @@ jobs:
       - name: Select benchmark filter
         id: filter
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # PR CI: only Tier 1 calibrated (fast ~60s; catches sampling regressions)
-            echo "filter=-k 'tier1 and calibrated'" >> "$GITHUB_OUTPUT"
-            echo "group=pr-calibrated-tier1" >> "$GITHUB_OUTPUT"
-          elif [ "${{ inputs.tiers }}" = "tier1" ]; then
+          if [ "${{ inputs.tiers }}" = "tier1" ]; then
             echo "filter=-k 'tier1'" >> "$GITHUB_OUTPUT"
             echo "group=manual-tier1" >> "$GITHUB_OUTPUT"
           elif [ "${{ inputs.tiers }}" = "tier2" ]; then
             echo "filter=-k 'tier2'" >> "$GITHUB_OUTPUT"
             echo "group=manual-tier2" >> "$GITHUB_OUTPUT"
           else
-            # Nightly / manual 'all': full Tier 1 + Tier 2
+            # Nightly / manual 'all' (default): full Tier 1 + Tier 2
             echo "filter=" >> "$GITHUB_OUTPUT"
             echo "group=nightly-all" >> "$GITHUB_OUTPUT"
           fi
@@ -84,7 +75,7 @@ jobs:
           retention-days: 90
 
       # Trend tracking: compare against the most recent stored result on main.
-      # Only runs on nightly (not PR CI) to keep the trend baseline clean.
+      # Only on nightly schedule (not manual dispatch) to keep the trend baseline clean.
       - name: Store + compare benchmark trend (nightly only)
         if: github.event_name == 'schedule'
         uses: benchmark-action/github-action-benchmark@v1
