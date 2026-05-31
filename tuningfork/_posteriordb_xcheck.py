@@ -111,21 +111,30 @@ def _aggregate_stan_draws(
 ) -> dict[str, np.ndarray]:
     """Aggregate posteriordb reference draws across chains.
 
-    Posteriordb ``reference_draws()`` returns a dict like::
+    Posteriordb ``reference_draws()`` returns one of two formats depending on
+    the client and database version:
 
-        {
-            "chain:1": {"mu": [v1, v2, ...], "theta": [[...], ...], ...},
-            "chain:2": {...},
-            ...
-        }
+    - ``PosteriorDatabaseGithub``: a dict keyed by ``"chain:1"``, ``"chain:2"``
+      etc., each value being a dict ``{param: [draw, ...]}``.
+    - ``PosteriorDatabase`` (local clone): a list of chain-dicts, each being
+      ``{param: [draw, ...]}``.
+
+    Both formats are supported.
 
     Returns
     -------
-    dict mapping param_name → 1-D numpy array of all values (all chains
-    concatenated), with multi-dim params flattened per draw.
+    dict mapping param_name → 1-D or 2-D numpy array (all chains
+    concatenated).
     """
+    # Normalise to an iterable of chain-value dicts
+    if isinstance(stan_draws, dict):
+        chain_iter = stan_draws.values()
+    else:
+        # list (local PosteriorDatabase format)
+        chain_iter = stan_draws
+
     all_params: dict[str, list[Any]] = {}
-    for chain_values in stan_draws.values():
+    for chain_values in chain_iter:
         for param, values in chain_values.items():
             if param not in all_params:
                 all_params[param] = []
@@ -154,6 +163,8 @@ def cross_check_against_posteriordb(
     our_summaries: dict[str, dict[str, Any]],
     n_samples_ours: int,
     posteriordb_root: Path | None = None,
+    postprocess_fn: Any = None,
+    our_draws: dict[str, Any] | None = None,
 ) -> XCheckResult:
     """Compare our summaries to posteriordb's Stan reference draws.
 
@@ -179,6 +190,18 @@ def cross_check_against_posteriordb(
         Optional path to a local posteriordb checkout.  When ``None``,
         uses the ``POSTERIOR_DB_PATH`` environment variable (or the
         installed posteriordb default).
+    postprocess_fn
+        Optional callable that transforms unconstrained draws to the
+        constrained parameter space.  When provided together with
+        ``our_draws``, the transform is applied before computing our
+        summary statistics, enabling apples-to-apples comparison against
+        posteriordb's constrained reference.  This is the ``postprocess_fn``
+        returned by ``tuningfork.model._numpyro.build_logdensity_fn``.
+        When ``None`` (default), ``our_summaries`` is used directly.
+    our_draws
+        Optional dict ``{site: array(n_samples, *event)}`` of unconstrained
+        draws (e.g. from ``_cache/draws.npz``).  Must be provided when
+        ``postprocess_fn`` is set; ignored otherwise.
 
     Returns
     -------
@@ -197,7 +220,36 @@ def cross_check_against_posteriordb(
     uses a direct equality check.  If posteriordb uses a different naming
     convention (e.g. ``"theta[1]"`` vs our ``"theta"``), only matched
     params are compared; unmatched params are silently skipped.
+
+    **Scale matching:** NumPyro stores parameters in unconstrained space
+    internally; ``postprocess_fn`` maps back to constrained space.
+    posteriordb reference draws are always in constrained space.  Pass
+    ``postprocess_fn`` + ``our_draws`` to align scales before comparing.
     """
+    # ------------------------------------------------------------------
+    # 0. If postprocess_fn + our_draws provided, recompute our_summaries
+    #    in constrained space so the comparison is apples-to-apples.
+    # ------------------------------------------------------------------
+    if postprocess_fn is not None and our_draws is not None:
+        # Apply the model's constrain_fn (postprocess_fn) to each draw.
+        # postprocess_fn takes a single-sample dict; vmap over the sample axis.
+        import jax
+
+        constrained_draws_jax = jax.vmap(postprocess_fn)(our_draws)
+        our_summaries = {}
+        n_samples_ours = 0
+        for site, arr in constrained_draws_jax.items():
+            arr_np = np.asarray(arr, dtype=float)
+            # arr_np shape: (n_samples,) for scalars or (n_samples, *event)
+            n_samples_ours = arr_np.shape[0]
+            flat = arr_np.reshape(n_samples_ours, -1)  # (n_samples, d)
+            our_summaries[site] = {
+                "mean": np.mean(flat, axis=0),  # (d,) or scalar
+                "std": np.std(flat, axis=0, ddof=1),
+                "q05": np.quantile(flat, 0.05, axis=0),
+                "q95": np.quantile(flat, 0.95, axis=0),
+            }
+
     # ------------------------------------------------------------------
     # 1. Load posteriordb reference draws (lazy import — heavy dep)
     # ------------------------------------------------------------------
