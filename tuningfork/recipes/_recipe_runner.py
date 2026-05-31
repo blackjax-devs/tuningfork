@@ -530,6 +530,75 @@ def _align_gt_keys_for_gate(
 
 
 # ---------------------------------------------------------------------------
+# Warmup gradient-eval counter (M2)
+# ---------------------------------------------------------------------------
+
+
+def _compute_warmup_grad_evals(
+    batched_params: Any,
+    batched_warmup_info: Any,
+    base_method: Any,
+    n_warmup: int,
+    num_chains: int,
+) -> int | None:
+    """Compute total warmup gradient evaluations (summed across all chains).
+
+    Three sources, in priority order:
+
+    1. ``_total_tuning_steps`` in ``batched_params`` (mclmc / adjusted_mclmc
+       family): the mclmc-specific warmup runner returns this metadata key.
+       It is the total number of integrator steps across all chains.
+
+    2. ``batched_warmup_info.num_integration_steps`` (inner-kernel warmup):
+       when ``warmup_inner_kernel`` is set, the warmup trace carries per-step
+       NIS.  Sum over all steps × chains.
+
+    3. ``None`` — standard HMC window adaptation without inner-kernel info:
+       gradient counts not available without re-running warmup.
+
+    Parameters
+    ----------
+    batched_params
+        Dict returned by ``warmup.runner``.
+    batched_warmup_info
+        Per-step warmup trace (only populated for inner-kernel path).
+    base_method
+        BaseMethod entry (used for ``grad_count_per_step`` if needed).
+    n_warmup
+        Warmup steps (for context).
+    num_chains
+        Number of chains.
+
+    Returns
+    -------
+    int | None
+        Total warmup gradient evaluations, or ``None`` if not available.
+    """
+    import numpy as np
+
+    # Source 1: mclmc-family _total_tuning_steps
+    total_tuning = batched_params.get("_total_tuning_steps") if batched_params else None
+    if total_tuning is not None:
+        try:
+            return int(total_tuning)
+        except (TypeError, ValueError):
+            pass
+
+    # Source 2: inner-kernel warmup info (has num_integration_steps per step)
+    if batched_warmup_info is not None:
+        try:
+            nis = getattr(batched_warmup_info, "num_integration_steps", None)
+            if nis is not None:
+                arr = np.asarray(nis)
+                # batched_warmup_info shape: (num_chains, n_warmup) or (n_warmup,)
+                return int(np.sum(arr))
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Source 3: not available
+    return None
+
+
 # Main emit function
 # ---------------------------------------------------------------------------
 
@@ -1254,9 +1323,11 @@ def emit_low_recipe_for_cell(
                 continue
             _sq_refs[_k] = {}
             for _stat in ("mean", "std", "q05", "q95"):
-                # np.asarray(...).mean() is a no-op for scalars; element-wise mean
-                # for vector params — consistent with _param_metrics' flat.mean(axis=1).
-                _sq_refs[_k][_stat] = float(np.asarray(_v[_stat]).mean())
+                # Pass per-element reference stats as-is (scalar or list/array).
+                # _param_metrics now handles per-element comparison correctly;
+                # the old .mean() collapse caused a dimension-collapse artefact
+                # (std_ratio_dev ≈ 1−1/√d for perfect draws of d-dim params).
+                _sq_refs[_k][_stat] = _v[_stat]
         if _sq_draws and _sq_refs:
             try:
                 _sample_quality = _compute_sample_quality(_sq_draws, _sq_refs)
@@ -1359,6 +1430,14 @@ def emit_low_recipe_for_cell(
             ),
             "split_source": "measured",
             "machine_info": get_machine_info(),
+            # warmup_grad_evals: total gradient evaluations during warmup (M2).
+            # For mclmc-family: read from _total_tuning_steps in batched_params.
+            # For inner-kernel warmup: sum num_integration_steps over warmup trace.
+            # For standard HMC (window adaptation without inner kernel): None (unknown
+            # without re-running warmup; window_adaptation doesn't return per-step NIS).
+            "warmup_grad_evals": _compute_warmup_grad_evals(
+                batched_params, batched_warmup_info, base_method, n_warmup, num_chains
+            ),
         },
         difficulty=None,
         instructions="",

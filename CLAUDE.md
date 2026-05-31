@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`tuningfork` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 10 warmups × 6 SMC methods, composed against a 14-model suite. The recipe generation phase is now active; the active plan is [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md) (statistician-authored, 8-table colour-coded effort matrix + supersession map). The library will be open-sourced once the initial set of recipes lands.
+`tuningfork` is a BlackJAX-native benchmark library for MCMC / VI / SMC samplers. **Phase 5 closed at `32613f4` (2026-05-10) with the complete in-scope BlackJAX inventory wrapped**: 24 base methods × 12 warmups × 6 SMC methods, composed against a 14-model suite. The recipe generation phase is now active; the active plan is [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md) (statistician-authored, 8-table colour-coded effort matrix + supersession map). The library will be open-sourced once the initial set of recipes lands.
 
 Architecture decisions: 14-model suite, calibration protocol (certified reference draws as ground truth, BO over hyperparameters, warmup-only execution), headline metric `min-bulk-ESS / total_grad_evals`. Phase-by-phase history is preserved in `worklog/threads/_archive/` under the claude-config project structure; the pre-rename branch is at `bjx-bench-history` on the `tuningfork` remote.
 
@@ -107,7 +107,7 @@ tuningfork/
 │   ├── <model>.py × 14        # one file per model (banana, eight_schools_ncp, ...)
 │   └── __init__.py            # thin re-export from _registry
 ├── base_method/               # 24 sampler wrappers — see ENTRIES list below
-├── warmup/                    # 10 warmup wrappers — see ENTRIES list below
+├── warmup/                    # 12 warmup wrappers — see ENTRIES list below
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
 ├── recipes/                   # Recipe schema + generators (CODE ONLY)
 │   ├── _base.py, _instructions.py
@@ -170,7 +170,7 @@ NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
 
 **24 base methods** (`base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
 
-**10 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, window_adaptation_diag_imm, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
+**12 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, window_adaptation_diag_imm, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
 
 **6 SMC methods** (`smc/__init__.py:SMC_METHODS`): adaptive_tempered_smc, tempered_smc, partial_posteriors_smc, inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc.
 
