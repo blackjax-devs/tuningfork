@@ -1,4 +1,4 @@
-.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans
+.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans benchmark benchmark-pr
 
 install:
 	uv sync --group bench
@@ -32,6 +32,40 @@ test-full:
 # The script is vendored at tools/clean_orphans.sh (self-contained; no external dep).
 clean-orphans:
 	@bash tools/clean_orphans.sh
+
+# ---------------------------------------------------------------------------
+# Phase 8 benchmark suite (opt-in; requires bench-perf dep group)
+# ---------------------------------------------------------------------------
+
+# Full benchmark: Tier 1+2, e2e + calibrated, all 12 sampler families (~15min)
+# D5 budget cap: select < 180s, exec ≤ 240s per cell (CONTRIBUTING.md)
+benchmark:
+	$(MAKE) clean-orphans
+	uv sync --group bench-perf
+	JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
+		-m benchmark \
+		--benchmark-json=benchmark_results.json \
+		--benchmark-disable-gc \
+		--benchmark-warmup=on \
+		--benchmark-warmup-iterations=1 \
+		--benchmark-min-rounds=1 \
+		--benchmark-max-time=240 \
+		-v
+
+# PR benchmark: Tier 1 calibrated only (~60s; fast regression check for PRs)
+benchmark-pr:
+	$(MAKE) clean-orphans
+	uv sync --group bench-perf
+	JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
+		-m benchmark \
+		-k "tier1 and calibrated" \
+		--benchmark-json=benchmark_pr_results.json \
+		--benchmark-disable-gc \
+		--benchmark-warmup=on \
+		--benchmark-warmup-iterations=1 \
+		--benchmark-min-rounds=1 \
+		--benchmark-max-time=60 \
+		-v
 
 lint:
 	uv run pre-commit run --all-files

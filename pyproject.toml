@@ -60,6 +60,14 @@ bench = [
     "jupyterlab>=4.5.7",
 ]
 
+# Phase 8 benchmark harness.  Install separately to avoid benchmark deps
+# in the default CI environment (`uv sync --group bench-perf`).
+# Note: includes `bench` to satisfy recipe + model imports.
+bench-perf = [
+    {include-group = "bench"},
+    "pytest-benchmark>=4.0",    # timing harness; --benchmark-json output
+]
+
 [project.urls]
 homepage = "https://github.com/blackjax-devs/tuningfork"
 

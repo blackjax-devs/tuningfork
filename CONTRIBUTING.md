@@ -151,11 +151,45 @@ Post-R3 restructure (2026-05-17), the package is split into two layers.
 | `emit_script` (recipe → standalone `.py`) | `tuningfork/catalog/emit.py`, `tuningfork/recipes/_emit_script.py`, `tuningfork/recipes/_templates/` | `tests/recipes/test_emit_script.py` |
 | Per-model artifacts (lessons.md, groundtruth.json, recipes/, reference/) | `tuningfork/catalog/<model>/` | (artifact-only; verified via parametric tests in `tests/recipes/test_schema.py`) |
 
-**Benchmark suite**:
+**Benchmark suite** (Phase 8 v1):
 
-| Component | Module Path | Tests Location |
-|-----------|-------------|-----------------|
-| Recipe perf-regression benchmarks (D5 thresholds: select < 180 s, exec ≤ 240 s) | n/a | `benchmarks/test_fast_recipes.py` (opt-in via `make benchmark`; weekly CI cron) |
+| Component | Module Path | Notes |
+|-----------|-------------|-------|
+| Recipe perf-regression benchmarks | `benchmarks/test_fast_recipes.py` | opt-in via `make benchmark`; nightly CI + per-PR (Tier 1 calibrated) |
+
+### Running the benchmark suite
+
+The benchmark suite requires the `bench-perf` dep group (`pytest-benchmark` + all `bench` deps):
+
+```bash
+# Install bench-perf deps
+uv sync --group bench-perf
+
+# Full nightly benchmark: Tier 1+2, e2e + calibrated (~15 min)
+make benchmark
+
+# PR-speed benchmark: Tier 1 calibrated only (~60s)
+make benchmark-pr
+```
+
+### Benchmark design (D5 caps)
+
+- **D5 budget cap**: select < 180 s, exec ≤ 240 s per cell.
+- **n_samples=500**: minimum for reliable GT z-score at threshold=2.0.
+- **GT-correctness gate**: each benchmark asserts `max_abs_mean_z < 2.0` vs `reference/summary.json` AFTER the timed run. This makes the benchmark a *correctness regression test*, not just timing.
+- **Two modes**: `e2e` (full warmup+sample) and `calibrated` (skip_warmup=True, sample only). Families where skip_warmup raises (mclmc momentum init, laplace phi-space) are `e2e` only.
+- **GitHub Actions**: nightly runs full Tier 1+2; per-PR runs Tier 1 calibrated only. Results stored as artifacts (90-day retention) + trend tracking via `benchmark-action/github-action-benchmark`.
+
+### Adding a new benchmark cell
+
+1. Emit a PASS recipe for the new (model, sampler, warmup) cell.
+2. Add an entry to `_BENCH_CELLS` in `benchmarks/test_fast_recipes.py`:
+   ```python
+   ("tier1", "model_name", "recipe_filename.json", "e2e"),      # e2e mode
+   ("tier1", "model_name", "recipe_filename.json", "calibrated"),  # calibrated (if supported)
+   ```
+3. Run `make benchmark-pr` locally to verify it completes within D5 budget.
+4. The GT-correctness check runs automatically.
 
 ## Testing Before Commit
 

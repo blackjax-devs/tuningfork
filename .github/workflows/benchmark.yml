@@ -1,0 +1,101 @@
+name: Benchmark suite (Phase 8 v1)
+
+# Nightly: full Tier 1+2, e2e + calibrated, all 12 sampler families.
+# Per-PR:  Tier 1 calibrated only (~60s wall), catches sampling regressions fast.
+# Manual:  workflow_dispatch for on-demand runs.
+
+on:
+  schedule:
+    # Nightly at 02:00 UTC (off-peak; avoids contention with PR CI)
+    - cron: '0 2 * * *'
+  pull_request:
+    paths:
+      # Re-run on sampler/runner/recipe changes; skip docs-only PRs
+      - 'tuningfork/blackjax/**'
+      - 'tuningfork/tuningfork/base_method/**'
+      - 'tuningfork/tuningfork/warmup/**'
+      - 'tuningfork/tuningfork/recipes/_recipe_runner.py'
+      - 'tuningfork/benchmarks/**'
+  workflow_dispatch:
+    inputs:
+      tiers:
+        description: 'Which tiers to run (tier1, tier2, or all)'
+        required: false
+        default: 'all'
+
+jobs:
+  benchmark:
+    name: Recipe benchmark (${{ github.event_name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60   # hard cap: prevents hung CI slots
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install bench-perf deps
+        run: uv sync --group bench-perf
+        working-directory: tuningfork
+
+      - name: Select benchmark filter
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR CI: only Tier 1 calibrated (fast ~60s; catches sampling regressions)
+            echo "filter=-k 'tier1 and calibrated'" >> "$GITHUB_OUTPUT"
+            echo "group=pr-calibrated-tier1" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.tiers }}" = "tier1" ]; then
+            echo "filter=-k 'tier1'" >> "$GITHUB_OUTPUT"
+            echo "group=manual-tier1" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.tiers }}" = "tier2" ]; then
+            echo "filter=-k 'tier2'" >> "$GITHUB_OUTPUT"
+            echo "group=manual-tier2" >> "$GITHUB_OUTPUT"
+          else
+            # Nightly / manual 'all': full Tier 1 + Tier 2
+            echo "filter=" >> "$GITHUB_OUTPUT"
+            echo "group=nightly-all" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run benchmarks
+        run: |
+          JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
+            -m benchmark \
+            ${{ steps.filter.outputs.filter }} \
+            --benchmark-json=benchmark_results.json \
+            --benchmark-disable-gc \
+            --benchmark-warmup=on \
+            --benchmark-warmup-iterations=1 \
+            --benchmark-min-rounds=1 \
+            --benchmark-max-time=240 \
+            -v
+        working-directory: tuningfork
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}-${{ steps.filter.outputs.group }}
+          path: tuningfork/benchmark_results.json
+          retention-days: 90
+
+      # Trend tracking: compare against the most recent stored result on main.
+      # Only runs on nightly (not PR CI) to keep the trend baseline clean.
+      - name: Store + compare benchmark trend (nightly only)
+        if: github.event_name == 'schedule'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "tuningfork recipe benchmarks"
+          tool: "pytest"
+          output-file-path: tuningfork/benchmark_results.json
+          # Push results to gh-pages branch for the trend dashboard
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Alert when performance regresses > 20% vs the rolling mean
+          alert-threshold: "120%"
+          comment-on-alert: true
+          fail-on-alert: false   # non-blocking: alert but don't fail the workflow
