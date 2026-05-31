@@ -34,37 +34,39 @@ clean-orphans:
 	@bash tools/clean_orphans.sh
 
 # ---------------------------------------------------------------------------
-# Phase 8 benchmark suite (opt-in; requires bench-perf dep group)
+# Benchmark suite (opt-in; requires bench-perf dep group)
 # ---------------------------------------------------------------------------
+# IMPORTANT: --benchmark-max-time=0 means "run exactly --benchmark-min-rounds=1
+# time" — do NOT use a large max-time for expensive MCMC benchmarks. A 240s
+# max-time causes ~240 repeated runs per cell (fine for microbenchmarks, fatal
+# for MCMC: cumulative JAX recompilation + memory → native abort).
 
 # Full benchmark: Tier 1+2, e2e + calibrated, all 12 sampler families (~15min)
-# D5 budget cap: select < 180s, exec ≤ 240s per cell (CONTRIBUTING.md)
+# Budget: one timed run per cell (30s–1min each); D5 wall cap is per-cell, not window.
 benchmark:
 	$(MAKE) clean-orphans
-	uv sync --group bench-perf
-	JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
+	uv sync --group bench-perf --python 3.13
+	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
 		-m benchmark \
 		--benchmark-json=benchmark_results.json \
 		--benchmark-disable-gc \
-		--benchmark-warmup=on \
-		--benchmark-warmup-iterations=1 \
+		--benchmark-warmup=off \
 		--benchmark-min-rounds=1 \
-		--benchmark-max-time=240 \
+		--benchmark-max-time=0 \
 		-v
 
-# PR benchmark: Tier 1 calibrated only (~60s; fast regression check for PRs)
+# Tier 1 only (~60s; fast local smoke check)
 benchmark-pr:
 	$(MAKE) clean-orphans
-	uv sync --group bench-perf
-	JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
+	uv sync --group bench-perf --python 3.13
+	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
 		-m benchmark \
 		-k "tier1 and calibrated" \
 		--benchmark-json=benchmark_pr_results.json \
 		--benchmark-disable-gc \
-		--benchmark-warmup=on \
-		--benchmark-warmup-iterations=1 \
+		--benchmark-warmup=off \
 		--benchmark-min-rounds=1 \
-		--benchmark-max-time=60 \
+		--benchmark-max-time=0 \
 		-v
 
 lint:

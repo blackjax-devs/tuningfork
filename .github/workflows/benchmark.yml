@@ -71,16 +71,23 @@ jobs:
 
       - name: Run benchmarks
         # No working-directory: benchmarks/ is at the repo root.
+        # --benchmark-max-time=0: each cell runs exactly --benchmark-min-rounds=1
+        # time (1 round). Do NOT use a large max-time (e.g. 240s) for expensive
+        # MCMC benchmarks — that causes pytest-benchmark to repeat each cell for
+        # up to 240s to gather timing samples (~240 rounds for a 1s cell), leading
+        # to cumulative JAX recompilation + memory pressure → native abort (exit 134).
+        # The D5 ≤240s budget is a per-cell WALL-TIME cap, not a repetition window.
+        # --benchmark-warmup=off: warmup round doubles cost; GT-gate already
+        # validates correctness so a warmup run is redundant.
         run: |
           JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
             -m benchmark \
             ${{ steps.filter.outputs.filter }} \
             --benchmark-json=benchmark_results.json \
             --benchmark-disable-gc \
-            --benchmark-warmup=on \
-            --benchmark-warmup-iterations=1 \
+            --benchmark-warmup=off \
             --benchmark-min-rounds=1 \
-            --benchmark-max-time=240 \
+            --benchmark-max-time=0 \
             -v
 
       - name: Upload benchmark results
