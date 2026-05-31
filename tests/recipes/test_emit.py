@@ -507,3 +507,82 @@ def test_adjusted_mclmc_family_emits_without_crash(
     ), f"Unexpected verdict {result.verdict!r} for {sampler!r}"
     assert result.gate_rhat_max is not None, "gate_rhat_max must be set"
     assert result.gate_min_ess is not None, "gate_min_ess must be set"
+
+
+# ---------------------------------------------------------------------------
+# M2: warmup_grad_evals forward-wiring tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_compute_warmup_grad_evals_mclmc_tuning_steps() -> None:
+    """_compute_warmup_grad_evals reads _total_tuning_steps from mclmc warmup params."""
+    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
+
+    batched_params = {"_total_tuning_steps": 12345, "step_size": 0.1}
+    result = _compute_warmup_grad_evals(batched_params, None, None, 1000, 4)
+    assert result == 12345, f"Expected 12345, got {result}"
+
+
+@pytest.mark.fast
+def test_compute_warmup_grad_evals_inner_kernel_nis() -> None:
+    """_compute_warmup_grad_evals sums num_integration_steps from warmup_info."""
+    import numpy as np
+
+    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
+
+    class _FakeInfo:
+        num_integration_steps = np.array(
+            [[5, 10, 8, 7], [6, 9, 11, 4]]
+        )  # (2_chains, 4_steps)
+
+    result = _compute_warmup_grad_evals({"step_size": 0.1}, _FakeInfo(), None, 4, 2)
+    assert result == 5 + 10 + 8 + 7 + 6 + 9 + 11 + 4, f"Got {result}"
+
+
+@pytest.mark.fast
+def test_compute_warmup_grad_evals_standard_hmc_returns_none() -> None:
+    """_compute_warmup_grad_evals returns None for standard HMC (grad count unknown)."""
+    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
+
+    batched_params = {"step_size": 0.1, "inverse_mass_matrix": [1.0]}
+    result = _compute_warmup_grad_evals(batched_params, None, None, 1000, 4)
+    assert result is None, f"Expected None for standard HMC, got {result}"
+
+
+@pytest.mark.slow
+def test_mclmc_emit_has_warmup_grad_evals(tmp_path: Path) -> None:
+    """Emitted mclmc recipe has warmup_grad_evals in calibration_budget (M2).
+
+    mclmc_tuning returns _total_tuning_steps which should be threaded into
+    calibration_budget.warmup_grad_evals by the emit path.
+    """
+    import jax
+
+    from tuningfork.catalog.inspect import load_recipe
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    result = emit_low_recipe_for_cell(
+        "logistic_synthetic",
+        "mclmc_tuning",
+        "mclmc",
+        n_warmup=100,
+        n_samples=50,
+        num_chains=4,
+        seed=int(jax.random.bits(jax.random.key(7), dtype="uint32")),
+        catalog_root=tmp_path,
+        verbose=False,
+    )
+    # Emit succeeded (any verdict OK — short run)
+    assert result.verdict in ("PASS", "REVIEW", "FAIL")
+
+    if result.recipe_path is not None:
+        recipe = load_recipe(result.recipe_path)
+        budget = recipe.calibration_budget or {}
+        assert (
+            "warmup_grad_evals" in budget
+        ), "mclmc recipe must have warmup_grad_evals in calibration_budget"
+        wge = budget["warmup_grad_evals"]
+        assert (
+            wge is not None and wge > 0
+        ), f"warmup_grad_evals must be positive; got {wge}"

@@ -466,7 +466,7 @@ class TestPosteriordbunavailable:
         assert any("posteriordb-error" in d for d in result.failed_dims)
 
     def test_no_common_params(self) -> None:
-        """When parameter names don't match, returns a no-common-params result."""
+        """When parameter names don't match, returns a no-common-params result with warning."""
         # Stan draws has "mu", our summaries has "sigma" → no overlap
         rng = np.random.default_rng(5)
         stan_samples = rng.normal(size=100)
@@ -488,13 +488,174 @@ class TestPosteriordbunavailable:
             mock_pdb.posterior.return_value = mock_posterior
             mock_posterior.reference_draws.return_value = stan_draws
 
-            result = cross_check_against_posteriordb(
-                model_name="test_model",
-                posteriordb_id="test-posterior",
-                our_summaries=our_summaries,
-                n_samples_ours=100,
-            )
+            with pytest.warns(UserWarning):  # H2 fix: mismatch warns loudly
+                result = cross_check_against_posteriordb(
+                    model_name="test_model",
+                    posteriordb_id="test-posterior",
+                    our_summaries=our_summaries,
+                    n_samples_ours=100,
+                )
 
         assert result.passed is False
         assert result.n_dims_compared == 0
         assert any("no-common-params" in d for d in result.failed_dims)
+
+
+# ---------------------------------------------------------------------------
+# Test H2 wiring: GitHub fallback + bracket name matching
+# ---------------------------------------------------------------------------
+
+
+class TestH2Wiring:
+    """Tests for the H2 posteriordb xcheck wiring fixes.
+
+    Covers:
+    - GitHub PosteriorDatabaseGithub fallback when POSTERIOR_DB_PATH absent
+    - Bracket notation name-matching (stan "theta[1]".."theta[8]" → our "theta")
+    - Loud warning on no-common-params (not silent skip)
+    - Local PosteriorDatabase path takes priority over GitHub
+    """
+
+    def test_github_fallback_used_when_local_fails(self) -> None:
+        """When local PosteriorDatabase raises, PosteriorDatabaseGithub is used as fallback."""
+        rng = np.random.default_rng(10)
+        stan_draws = _make_stan_draws({"mu": rng.normal(0, 1, 200).tolist()})
+
+        import warnings
+
+        with (
+            patch("posteriordb.PosteriorDatabase") as MockLocal,
+            patch("posteriordb.PosteriorDatabaseGithub") as MockGH,
+            warnings.catch_warnings(),  # suppress the fallback warning
+        ):
+            warnings.simplefilter("ignore")
+            # Local DB raises (simulates missing posteriordb data file)
+            MockLocal.return_value.posterior.side_effect = FileNotFoundError(
+                "not found"
+            )
+            mock_gh_pdb = MagicMock()
+            MockGH.return_value = mock_gh_pdb
+            mock_posterior = MagicMock()
+            mock_gh_pdb.posterior.return_value = mock_posterior
+            mock_posterior.reference_draws.return_value = stan_draws
+
+            result = cross_check_against_posteriordb(
+                model_name="test_model",
+                posteriordb_id="test-posterior",
+                our_summaries={
+                    "mu": {"mean": [0.0], "std": [1.0], "q05": [-1.6], "q95": [1.6]}
+                },
+                n_samples_ours=1000,
+                posteriordb_root=None,
+            )
+
+        MockGH.assert_called_once()
+        assert result.n_dims_compared >= 1, "GitHub fallback must compare dims"
+
+    def test_bracket_notation_matching(self) -> None:
+        """Stan 'theta[1]'..'theta[8]' maps to our 'theta' 8-D vector param.
+
+        Pre-fix: 'theta' not in stan_arrays → silently skipped → n_dims_compared=0.
+        Post-fix: reconstructed from bracketed keys → 8 dims compared.
+        """
+        rng = np.random.default_rng(99)
+        n_draws = 500
+
+        # Stan style: theta[1]..theta[8] as separate scalar keys
+        stan_params = {
+            f"theta[{i}]": rng.normal(0, 1, n_draws).tolist() for i in range(1, 9)
+        }
+        stan_draws = _make_stan_draws(stan_params)
+
+        # Our style: theta is an 8-D vector summary
+        our_summaries = {
+            "theta": {
+                "mean": [0.0] * 8,
+                "std": [1.0] * 8,
+                "q05": [-1.645] * 8,
+                "q95": [1.645] * 8,
+            }
+        }
+
+        with patch("posteriordb.PosteriorDatabase") as MockPDB:
+            mock_pdb = MagicMock()
+            MockPDB.return_value = mock_pdb
+            mock_posterior = MagicMock()
+            mock_pdb.posterior.return_value = mock_posterior
+            mock_posterior.reference_draws.return_value = stan_draws
+
+            result = cross_check_against_posteriordb(
+                model_name="test_model",
+                posteriordb_id="test-posterior",
+                our_summaries=our_summaries,
+                n_samples_ours=n_draws * 2,  # 2 chains
+                posteriordb_root=Path("/dummy"),
+            )
+
+        assert result.n_dims_compared == 8, (
+            f"Bracket notation: expected 8 dims compared, got {result.n_dims_compared}. "
+            f"Pre-fix this was 0 (silent skip)."
+        )
+        # Key invariant: n_dims_compared > 0 (the bracket matching worked).
+        # Whether passed=True depends on MC noise at n_draws=500; don't gate on it.
+
+    def test_no_common_params_warns_loudly(self) -> None:
+        """Param name mismatch emits a UserWarning (not silently skipped)."""
+        rng = np.random.default_rng(5)
+        stan_draws = _make_stan_draws({"stan_param": rng.normal(0, 1, 100).tolist()})
+
+        with (
+            patch("posteriordb.PosteriorDatabase") as MockPDB,
+            pytest.warns(UserWarning),  # either per-site or no-common-params warning
+        ):
+            mock_pdb = MagicMock()
+            MockPDB.return_value = mock_pdb
+            mock_pdb.posterior_names.return_value = ["test-posterior"]
+            mock_posterior = MagicMock()
+            mock_pdb.posterior.return_value = mock_posterior
+            mock_posterior.reference_draws.return_value = stan_draws
+
+            result = cross_check_against_posteriordb(
+                model_name="test_model",
+                posteriordb_id="test-posterior",
+                our_summaries={
+                    "our_param": {
+                        "mean": [0.0],
+                        "std": [1.0],
+                        "q05": [-1.6],
+                        "q95": [1.6],
+                    }
+                },
+                n_samples_ours=100,
+                posteriordb_root=Path("/dummy"),
+            )
+
+        assert result.n_dims_compared == 0
+        assert any("no-common-params" in d for d in result.failed_dims)
+
+    def test_local_db_takes_priority_over_github(self) -> None:
+        """When posteriordb_root is provided and has the posterior, local DB is used."""
+        rng = np.random.default_rng(77)
+        stan_draws = _make_stan_draws({"mu": rng.normal(0, 1, 200).tolist()})
+
+        with (
+            patch("posteriordb.PosteriorDatabase") as MockLocal,
+            patch("posteriordb.PosteriorDatabaseGithub") as MockGH,
+        ):
+            mock_local_pdb = MagicMock()
+            MockLocal.return_value = mock_local_pdb
+            mock_posterior = MagicMock()
+            mock_local_pdb.posterior.return_value = mock_posterior
+            mock_posterior.reference_draws.return_value = stan_draws
+
+            cross_check_against_posteriordb(
+                model_name="test_model",
+                posteriordb_id="test-posterior",
+                our_summaries={
+                    "mu": {"mean": [0.0], "std": [1.0], "q05": [-1.6], "q95": [1.6]}
+                },
+                n_samples_ours=1000,
+                posteriordb_root=Path("/local/pdb"),
+            )
+
+        MockGH.assert_not_called()  # GitHub fallback must NOT be triggered
