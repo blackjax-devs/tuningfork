@@ -86,8 +86,19 @@ tuningfork = "tuningfork.cli:main"
 platforms = ["Linux", "Mac OS-X", "Unix"]
 
 [tool.setuptools.packages.find]
+# Ship only the tuningfork package. Dev-internal directories are excluded from
+# both package discovery and sdist via MANIFEST.in (see repo root).
 include = ["tuningfork*"]
-exclude = ["tests", "tests.*", "notebooks", "notebooks.*", "results", "results.*"]
+exclude = [
+    "experiments",
+    "experiments.*",
+    "tests",
+    "tests.*",
+    "notebooks",
+    "notebooks.*",
+    "results",
+    "results.*",
+]
 
 [tool.setuptools_scm]
 write_to = "tuningfork/_version.py"
