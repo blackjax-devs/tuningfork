@@ -192,7 +192,7 @@ the `jax.lax.scan` inference loop) with the recipe's pinned hyperparameters
 hard-coded. Users can inspect the inference shape without spelunking through
 the tuningfork wiring layer.
 
-**Design rationale** (R3.5-MVP follow-up clarification, 2026-05-17): we
+**Design rationale** (follow-up clarification): we
 considered fully-standalone scripts (model body inlined per-model template),
 but that would have meant 14 model templates duplicating canonical NumPyro
 code from `tuningfork/model/<model>.py` with permanent drift risk. Importing
@@ -201,8 +201,8 @@ the model upstream eliminates drift and keeps templates focused on the
 heavy sampler or warmup template signals an upstream BlackJAX design smell
 worth fixing there). The cost is one `pip install tuningfork` step.
 
-As of R3.5-MVP (2026-05-17), templates exist for `window_adaptation_diag_imm` warmup and
-`nuts` sampler only. R3.5b expands to the full 10 warmups × 24 samplers.
+As of tuningfork v1, templates exist for `window_adaptation_diag_imm` warmup and
+`nuts` sampler only. The full 10 warmups × 24 samplers are planned for future releases.
 
 ## Sampling-book pattern reference
 
