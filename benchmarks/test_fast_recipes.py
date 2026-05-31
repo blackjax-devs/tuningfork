@@ -196,17 +196,19 @@ _BENCH_CELLS: list[tuple[str, str, str, str]] = [
     # nuts × stoch_vol: high-d AR(1) (~45s)
     ("tier2", "stoch_vol", "low__nuts__window_adaptation_diag_imm.json", "e2e"),
     ("tier2", "stoch_vol", "low__nuts__window_adaptation_diag_imm.json", "calibrated"),
-    # dynamic_hmc × banana: curved geometry with step policy
+    # banana × dynamic_hmc × policy_v1 → Phase 8B (unknown wall estimate; deferred)
+    # nuts × ill_cond_50 × dense IMM: κ=1000 correlated geometry (~10-28s)
+    # (substituted for hmc×ill_cond which has no PASS recipe; statistician correction)
     (
         "tier2",
-        "banana",
-        "medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json",
+        "ill_cond_50",
+        "low__nuts__window_adaptation_dense_imm.json",
         "e2e",
     ),
     (
         "tier2",
-        "banana",
-        "medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json",
+        "ill_cond_50",
+        "low__nuts__window_adaptation_dense_imm.json",
         "calibrated",
     ),
     # hmc × lotka_volterra: stiff ODE (~42s)
