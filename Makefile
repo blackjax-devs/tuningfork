@@ -1,4 +1,4 @@
-.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans benchmark benchmark-pr
+.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans benchmark benchmark-fast benchmark-pr
 
 install:
 	uv sync --group bench
@@ -41,12 +41,12 @@ clean-orphans:
 # max-time causes ~240 repeated runs per cell (fine for microbenchmarks, fatal
 # for MCMC: cumulative JAX recompilation + memory → native abort).
 
-# Full benchmark: Tier 1+2, e2e + calibrated, all 12 sampler families (~15min)
-# Budget: one timed run per cell (30s–1min each); D5 wall cap is per-cell, not window.
+# Full nightly benchmark: fast + e2e cells (~8 min fast + 2 slow cells)
 benchmark:
 	$(MAKE) clean-orphans
 	uv sync --group bench-perf --python 3.13
-	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
+	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest \
+		benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py \
 		-m benchmark \
 		--benchmark-json=benchmark_results.json \
 		--benchmark-disable-gc \
@@ -55,11 +55,24 @@ benchmark:
 		--benchmark-max-time=0 \
 		-v
 
-# Tier 1 only (~60s; fast local smoke check)
+# Fast suite only (~8 min; 31 cells ≤60s each)
+benchmark-fast:
+	$(MAKE) clean-orphans
+	uv sync --group bench-perf --python 3.13
+	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/test_fast_recipes.py \
+		-m benchmark \
+		--benchmark-json=benchmark_fast_results.json \
+		--benchmark-disable-gc \
+		--benchmark-warmup=off \
+		--benchmark-min-rounds=1 \
+		--benchmark-max-time=0 \
+		-v
+
+# Quick smoke (Tier 1 calibrated only, ~1 min)
 benchmark-pr:
 	$(MAKE) clean-orphans
 	uv sync --group bench-perf --python 3.13
-	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
+	JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/test_fast_recipes.py \
 		-m benchmark \
 		-k "tier1 and calibrated" \
 		--benchmark-json=benchmark_pr_results.json \
