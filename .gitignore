@@ -86,6 +86,10 @@ reproduce_*.py
 
 # Local-only Claude scratchpads
 CLAUDE.md.local
+# CLAUDE.md is tracked (committed repo guidance for agents) but listed here
+# following blackjax convention (blackjax .gitignore line 115) to signal it
+# is an agent-config file and prevent accidental local churn commits.
+CLAUDE.md
 
 # Per-user-device agent transcripts and consolidated timelines.
 # Lives at ../.agent_logs/ (parent dir, outside this repo) — these patterns
