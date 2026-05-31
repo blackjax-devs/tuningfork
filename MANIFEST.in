@@ -1,0 +1,21 @@
+# MANIFEST.in — controls what goes into the sdist (source distribution).
+#
+# Policy (docs-shipping decision 2026-05-31):
+#   SHIP:     README.md, LICENSE, CONTRIBUTING.md (user-facing)
+#   INTERNAL: CLAUDE.md, RECIPE_GENERATION.md, worklog/, experiments/
+#             (developer docs; stay in repo for contributors, not in sdist/wheel)
+#
+# setuptools.packages.find handles Python package inclusion.
+# This file handles repo-root docs + non-package directories.
+
+# Include user-facing root docs
+include README.md
+include LICENSE
+include CONTRIBUTING.md
+
+# Exclude internal developer docs from sdist
+prune worklog
+prune experiments
+exclude CLAUDE.md
+exclude RECIPE_GENERATION.md
+exclude PHASE_NAMING_AUDIT_PLAN.md
