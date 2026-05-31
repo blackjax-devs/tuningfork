@@ -788,16 +788,26 @@ def certify_reference_nuts(
     # Compute split-R̂ and bulk-ESS
     # blackjax.diagnostics.potential_scale_reduction: (num_chains, num_draws, *param_shape) → scalar
     # blackjax.diagnostics.effective_sample_size: same shape → scalar
+    #
+    # M3-A fix (external-review finding): compute per-chunk ESS directly on each
+    # chunk rather than approximating as pooled_ess / n_chunks.  The pooled ESS
+    # over the reshaped 4-chunk array conflates within-chunk and between-chunk
+    # variation; dividing by n_chunks approximates but is technically only exact
+    # for perfectly stationary chains.  Computing ESS on each individual chunk
+    # (shape: 1 × chunk_size × *site_shape) gives the correct within-chunk ESS.
     rhat_values = []
-    ess_values = []
+    ess_values: list[float] = []  # collects per-chunk per-site minimums
     for site, arr in chunked.items():
+        # arr shape: (n_chunks, chunk_size, *site_shape)
         rhat = blackjax.diagnostics.potential_scale_reduction(arr)
-        ess = blackjax.diagnostics.effective_sample_size(arr)
-        # rhat and ess may be scalars or arrays (per-dim)
         rhat_values.append(float(jnp.max(jnp.asarray(rhat))))
-        # ESS per chunk: ess already computed over all chunks; divide by n_chunks
-        # to get per-chunk bulk-ESS
-        ess_values.append(float(jnp.min(jnp.asarray(ess))) / n_chunks)
+
+        # Per-chunk ESS: evaluate each chunk as a 1-chain sequence.
+        for ci in range(n_chunks):
+            # chunk_ci shape: (1, chunk_size, *site_shape) — single-"chain" input
+            chunk_ci = arr[ci : ci + 1]
+            ess_ci = blackjax.diagnostics.effective_sample_size(chunk_ci)
+            ess_values.append(float(jnp.min(jnp.asarray(ess_ci))))
 
     split_rhat_max = max(rhat_values)
     min_chunk_bulk_ess = min(ess_values)
