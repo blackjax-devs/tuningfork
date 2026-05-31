@@ -123,6 +123,7 @@ def test_blackjax_partial_posteriors_path_as_top_level_api_signature():
         "num_mcmc_steps",
         "partial_logposterior_factory",
         "update_strategy",
+        "batch_size",  # added upstream; tuningfork wrappers accept via **kwargs default
     }
     missing = expected_named - set(sig.parameters)
     assert not missing, (
@@ -271,6 +272,7 @@ def test_blackjax_persistent_sampling_as_top_level_api_signature():
         "resampling_fn",
         "num_mcmc_steps",
         "update_strategy",
+        "batch_size",  # added upstream; tuningfork wrappers accept via **kwargs default
     }
     missing = expected_named - set(sig.parameters)
     assert not missing, (
@@ -312,6 +314,7 @@ def test_blackjax_adaptive_persistent_sampling_as_top_level_api_signature():
         "num_mcmc_steps",
         "update_strategy",
         "root_solver",
+        "batch_size",  # added upstream; tuningfork wrappers accept via **kwargs default
     }
     missing = expected_named - set(sig.parameters)
     assert not missing, (
