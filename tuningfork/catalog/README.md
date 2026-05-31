@@ -58,6 +58,12 @@ Each of the 14 models has a subdirectory `tuningfork/catalog/<model>/`. The cont
 | `_cache/chain_stats.npz` | Local-only working cache | **gitignored** |
 | `_cache/warmup_checkpoint/` | Mid-run warmup state for resume-after-crash | **gitignored** |
 
+## Design: Single-chain reference draws
+
+**tuningfork uses a single long chain (1 chain × 40,000 post-warmup samples) for groundtruth, following Vehtari et al. (2021) rank-normalized split-R̂ protocol.** This contrasts with multi-chain approaches: a single long chain better captures slow-mixing autocorrelation structure and allows diagnostic power via contiguous chunk ranks. We reshape the 40,000 samples into 4 contiguous chunks for split-R̂ computation.
+
+**Literature precedent:** This matches posteriordb's reference protocol (Stan's default long-chain approach) and Vehtari et al.'s recommendation for split-R̂: detect slow mixing that multi-chain designs can hide.
+
 ## Current groundtruth status (as of 2026-05-18)
 
 All 14 models have certified groundtruth. The 9 NUTS-path models ran a 1 chain × 5,000 warmup × 40,000 post-warmup NUTS chain with `window_adaptation_diag_imm`; the 5 analytic models drew i.i.d. samples directly from the posterior. Certification gate (the auto-gate that every groundtruth must clear before commit): **split-R̂ < 1.01, min per-chunk bulk-ESS > 400, E-BFMI > 0.3, divergence count below per-model tolerance**.

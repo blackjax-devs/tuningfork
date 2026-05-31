@@ -9,7 +9,7 @@ Tests mirror the source structure under `tuningfork/`:
 ```
 tests/
 ├── base_method/            # 24 sampler wrappers
-├── warmup/                 # 10 warmup wrappers
+├── warmup/                 # 12 warmup wrappers
 ├── smc/                    # 6 SMC method wrappers
 ├── models/                 # Model-specific tests (one per model)
 ├── recipes/                # Recipe schema + emission + emit_script tests

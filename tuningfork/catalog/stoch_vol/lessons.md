@@ -2,7 +2,9 @@
 
 ## TL;DR
 
-AR(1) unit-root geometry once caused divergence clusters at high persistence; a 2026-05-18 weakly-informative prior revision (Beta(4,4) phi factor + Normal(0,5) mu, PR #27) shifted the posterior bulk away from the boundary and drove cert divergences to 0 under bare `window_adaptation_diag_imm` (the catalog default). The per-model `divergence_rate_tolerance` override (0.005) was removed 2026-05-19 — the current cert is well under the global default 0.001 (40 divergences allowed in 40k; current cert has 0).
+**Prior divergence:** stoch_vol uses a **deliberately modified prior (Beta(4,4) phi factor + Normal(0,5) mu)** divergent from posteriordb's canonical (Uniform(-1,1) phi / Cauchy(0,10) mu). Ground-truth draws are certified via tuningfork's own NUTS reference (seed=20260517, cert wall ≈99 s). **We explicitly do NOT claim posteriordb agreement** for stoch_vol — the prior revision is an intentional departure justified by convergence geometry on the unit-root boundary. See § "Sampling quirks" for the full prior-sensitivity rationale.
+
+AR(1) unit-root geometry once caused divergence clusters at high persistence; the 2026-05-18 weakly-informative prior revision shifted the posterior bulk away from the boundary and drove cert divergences to 0 under bare `window_adaptation_diag_imm` (the catalog default). The per-model `divergence_rate_tolerance` override (0.005) was removed 2026-05-19 — the current cert is well under the global default 0.001 (40 divergences allowed in 40k; current cert has 0).
 
 ## Canonical recipe
 
