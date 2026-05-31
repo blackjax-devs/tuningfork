@@ -151,7 +151,7 @@ Post-R3 restructure (2026-05-17), the package is split into two layers.
 | `emit_script` (recipe → standalone `.py`) | `tuningfork/catalog/emit.py`, `tuningfork/recipes/_emit_script.py`, `tuningfork/recipes/_templates/` | `tests/recipes/test_emit_script.py` |
 | Per-model artifacts (lessons.md, groundtruth.json, recipes/, reference/) | `tuningfork/catalog/<model>/` | (artifact-only; verified via parametric tests in `tests/recipes/test_schema.py`) |
 
-**Benchmark suite** (Phase 8 v1):
+**Benchmark suite** (initial release):
 
 | Component | Module Path | Notes |
 |-----------|-------------|-------|

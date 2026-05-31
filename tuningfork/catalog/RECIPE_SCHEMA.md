@@ -291,7 +291,7 @@ When `step_policy` is non-None AND differs from V0 default, append `__policy_<sl
 
 ```
 low__dynamic_hmc__window_adaptation_diag_imm.json                              ← V0 default
-medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json   ← V7 (NUTS-harvested step_policy work)
+medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json   ← NUTS-harvested step_policy
 medium__dynamic_hmc__window_adaptation_diag_imm__policy_v2-long.json              ← V2 parametric
 ```
 

@@ -128,7 +128,7 @@ Multi-path Pathfinder with PSIS resampling. Provides diverse init positions (use
 
 #### Subgroup D: `meanfield_vi` warmup — compatible: nuts, hmc, mala, rwm, barker
 
-Provides diagonal IMM from VI covariance. Same applicability as P5.12 VI table: hard excludes = gmm_25, neals_funnel, horseshoe, stoch_vol, banana.
+Provides diagonal IMM from VI covariance. Same applicability as reference certification VI analysis: hard excludes = gmm_25, neals_funnel, horseshoe, stoch_vol, banana.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|

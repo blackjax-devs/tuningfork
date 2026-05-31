@@ -19,8 +19,8 @@ reference draws, and run ArviZ diagnostics directly.
 **Target audience**: a statistician verifying that a recipe's cached reference
 draws look healthy before using them as a benchmark ground truth.
 
-For other sampler families (MCLMC, SMC, VI, specialised), see the deferred
-design in `worklog/threads/notebook-arviz-redesign.md`.
+For other sampler families (MCLMC, SMC, VI, specialised), see the corresponding
+diagnostic notebooks or the interactive catalog explorer (`catalog_explorer.py`).
 
 ```{code-cell} ipython3
 :tags: [parameters]
