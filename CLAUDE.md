@@ -107,7 +107,7 @@ tuningfork/
 │   ├── <model>.py × 14        # one file per model (banana, eight_schools_ncp, ...)
 │   └── __init__.py            # thin re-export from _registry
 ├── base_method/               # 24 sampler wrappers — see ENTRIES list below
-├── warmup/                    # 10 warmup wrappers — see ENTRIES list below
+├── warmup/                    # 12 warmup wrappers — see ENTRIES list below
 ├── smc/                       # 6 SMC method wrappers — see ENTRIES list below
 ├── recipes/                   # Recipe schema + generators (CODE ONLY)
 │   ├── _base.py, _instructions.py
@@ -170,7 +170,7 @@ NUTS/HMC only; other sampler families are deferred to Recipe Phases 2+.
 
 **24 base methods** (`base_method/__init__.py:BASE_METHODS`): hmc, nuts, dynamic_hmc, mhmc, dmhmc, ghmc, mala, barker, rwm, irmh, additive_step_random_walk, mclmc, adjusted_mclmc, adjusted_mclmc_dynamic, orbital_hmc, rmhmc, elliptical_slice, mgrad_gaussian, laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc, meanfield_vi, fullrank_vi.
 
-**10 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, window_adaptation_diag_imm, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
+**12 warmups** (`warmup/__init__.py:WARMUPS`): no_warmup, window_adaptation_diag_imm, low_rank_window_adaptation, pathfinder, multipathfinder, meads, chees, mclmc_tuning, adjusted_mclmc_tuning, laps, meanfield_vi, fullrank_vi.
 
 **6 SMC methods** (`smc/__init__.py:SMC_METHODS`): adaptive_tempered_smc, tempered_smc, partial_posteriors_smc, inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc.
 

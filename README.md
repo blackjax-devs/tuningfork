@@ -28,7 +28,7 @@ Future cross-sampler comparison questions (deferred to v2, pending full-suite re
 
 ## Status
 
-**Recipe generation.** Inventory close-out (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 10 warmups × 6 SMC variants × 14 models. Recipe-generation prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Per-cell `Recipe` artifacts that pass the auto-gate are emitted as recipe sweeps execute. The library will be open-sourced once the initial set of recipes lands.
+**Recipe generation.** Inventory close-out (2026-05-10, `32613f4`) wrapped the BlackJAX in-scope inventory: 24 sampler kernels × 12 warmups × 6 SMC variants × 14 models. Recipe-generation prep landed 2026-05-11 (sample-quality metric in `tuningfork/metrics/reference_compare.py` + diagnostic notebook at `notebooks/recipe_diagnostics.md`). Per-cell `Recipe` artifacts that pass the auto-gate are emitted as recipe sweeps execute. The library will be open-sourced once the initial set of recipes lands.
 
 ## Suite (14 models)
 
@@ -171,7 +171,7 @@ tuningfork/
 │   ├── model/                 # 14 NumPyro models + MODELS, MODELS_BY_FAMILY
 │   │   └── _data/             # raw input datasets (CSV/NPZ); fetch via tools/
 │   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
-│   ├── warmup/                # 10 warmup wrappers (window_adaptation_diag_imm, pathfinder, ...)
+│   ├── warmup/                # 12 warmup wrappers (window_adaptation_diag_imm, pathfinder, ...)
 │   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
 │   ├── recipes/               # Recipe schema + generators + emit_script templates
 │   │   ├── _base.py, _instructions.py
