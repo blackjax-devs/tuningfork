@@ -1567,6 +1567,7 @@ def run_recipe_to_idata(
     warmup_num_chains: list[int] | None = None,
     _allow_failed_diagnostic: bool = False,
     _return_timing: bool = False,
+    _suppress_print: bool = False,
 ) -> Any:
     """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
 
@@ -2272,12 +2273,13 @@ def run_recipe_to_idata(
     )
 
     _wall_idata = time.perf_counter() - _t0_idata
-    print(
-        f"[run_recipe_to_idata] wall_seconds={_wall_idata:.1f}"
-        f"  warmup={_t_warmup:.1f}s  sampling={_t_sample:.1f}s"
-        f"  n_samples={n_samples}  num_chains={num_chains}"
-        f"  recipe={recipe.model_name}/{recipe.effort.value}__{recipe.base_method_name}"
-    )
+    if not _suppress_print:
+        print(
+            f"[run_recipe_to_idata] wall_seconds={_wall_idata:.1f}"
+            f"  warmup={_t_warmup:.1f}s  sampling={_t_sample:.1f}s"
+            f"  n_samples={n_samples}  num_chains={num_chains}"
+            f"  recipe={recipe.model_name}/{recipe.effort.value}__{recipe.base_method_name}"
+        )
     if _return_timing:
         return idata_result, _t_warmup, _t_sample
     return idata_result
