@@ -1,6 +1,6 @@
 # tuningfork
 
-A BlackJAX-native benchmark library for comparing MCMC, VI, and SMC sampling algorithms — modeled after [`inference-gym`](https://pypi.org/project/inference-gym/) and [`posteriordb`](https://github.com/stan-dev/posteriordb), but designed around **calibrated, gradient-counted comparisons** over a curated 14-model suite.
+A reproducible reference catalog + methodology exemplar for MCMC, VI, and SMC sampling algorithms. Calibrated hyperparameter recipes for 24 samplers × 12 warmups × 14 models, with **certified reference draws and auto-gate verdicts** — allowing principled comparisons on gradient budget and effective-sample-size metrics.
 
 ## The garden of forking paths
 
@@ -10,13 +10,21 @@ Borges's *Garden of Forking Paths* (1941) gave Gelman & Loken ([2013][gl2013]) a
 
 [gl2013]: https://sites.stat.columbia.edu/gelman/research/unpublished/p_hacking.pdf
 
-## Why
+## Coverage
 
-BlackJAX has 24 sampler kernels (22 MCMC + 2 VI), 10 warmup/adaptation strategies, and 6 SMC variants. None are currently benchmarked together with calibrated configurations, gradient-budget accounting, or posteriordb-style certified reference draws. `tuningfork` answers questions like:
+**Current scope (v1):** NUTS + HMC families + MCLMC + partial SMC recipes. ~20% of the full 24 × 12 × 14 inventory has recipes shipped; the remaining 80% is defer-scoped. Per-model artifacts are committed for the 14-model suite; recipes land incrementally as the statistical validation phase completes.
 
+**Out of scope for v1:** SGMCMC, VI (Laplace, VI warmups), specialised samplers, multi-chain reference generation, step-policy oracle harvesting, standalone external-sampler interop. Roadmap in CONTRIBUTING.md.
+
+## Questions
+
+When to use tuningfork:
 - *"What is the best calibrated HMC config for Neal's funnel, and how many leapfrog steps does it cost per effective sample?"*
-- *"Does Pathfinder→HMC dominate Stan-window→HMC on hierarchical models, or only on well-conditioned ones?"*
 - *"Is MCLMC actually worth it on a 500-D state-space model when both algorithms are tuned to their best?"*
+
+Future cross-sampler comparison questions (deferred to v2, pending full-suite recipe availability):
+- *"Does Pathfinder→HMC dominate Stan-window→HMC on hierarchical models, or only on well-conditioned ones?"*
+- *"How does VI with full-rank covariance compare to MCMC on the sparse horseshoe?"*
 
 ## Status
 
@@ -60,7 +68,7 @@ Gaps in Table 1 are filled by other warmup families: **MCLMC + `mclmc_tuning`** 
 
 ### Cell-count summary
 
-Across all 8 sub-tables (24 base methods × 10 warmups × 14 models, plus 6 SMC outer × 8 inner-kernel cells ≈ 1080 unique triples):
+Across all 8 sub-tables (24 base methods × 12 warmups × 14 models, plus 6 SMC outer × 8 inner-kernel cells ≈ 1080 unique triples):
 
 | Effort tier | Approx count | Description |
 |---|---|---|
@@ -74,7 +82,7 @@ The full 8-table matrix, supersession map (e.g., `adaptive_tempered_smc` strictl
 
 Recipe construction draws on three building blocks under `tuningfork/calibration/`:
 
-- **`certify_reference.py` — Gold reference draws**: 1 chain × 100 000 samples (NUTS + Stan window adaptation), reshaped into 10 chunks for rank-normalized split-R̂ (Vehtari et al. 2021). Multimodal exception for `gmm_25` (parallel-tempered SMC + multi-restart with mode-coverage check).
+- **`certify_reference.py` — Gold reference draws**: 1 chain × 40 000 samples (NUTS + Stan window adaptation), reshaped into 4 chunks for rank-normalized split-R̂ (Vehtari et al. 2021). Multimodal exception for `gmm_25` (parallel-tempered SMC + multi-restart with mode-coverage check).
 - **`tune.py` — Hyperparameter optimization**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
 - **`statistician_gate.py` — Auto-gate**: pre-committed thresholds (R̂ < 1.01, min bulk-ESS ≥ 400, divergences = 0, `max_abs_mean_z` < 2) that every recipe must clear before emission. Thresholds are fixed before sampling — see "The garden of forking paths" above.
 
