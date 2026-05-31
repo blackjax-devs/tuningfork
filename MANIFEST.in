@@ -1,0 +1,18 @@
+# MANIFEST.in — controls what goes into the sdist (source distribution).
+#
+# Policy (worklog/decisions/2026-05-31-docs-shipping-policy.md):
+#   SHIP:     README.md, LICENSE, CONTRIBUTING.md  (user-facing)
+#   INTERNAL: CLAUDE.md, RECIPE_GENERATION.md, worklog/, experiments/
+#             (stay in repo for contributors; excluded from sdist/PyPI)
+
+# Include user-facing root docs
+include README.md
+include LICENSE
+include CONTRIBUTING.md
+
+# Exclude internal developer docs and directories from sdist
+prune worklog
+prune experiments
+exclude CLAUDE.md
+exclude RECIPE_GENERATION.md
+exclude PHASE_NAMING_AUDIT_PLAN.md

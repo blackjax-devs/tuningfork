@@ -86,8 +86,20 @@ tuningfork = "tuningfork.cli:main"
 platforms = ["Linux", "Mac OS-X", "Unix"]
 
 [tool.setuptools.packages.find]
+# Ship only the tuningfork package. experiments/ and tests/ are excluded.
+# Internal docs (CLAUDE.md, RECIPE_GENERATION.md) are excluded from sdist
+# via MANIFEST.in per docs-shipping-policy.md.
 include = ["tuningfork*"]
-exclude = ["tests", "tests.*", "notebooks", "notebooks.*", "results", "results.*"]
+exclude = [
+    "experiments",
+    "experiments.*",
+    "tests",
+    "tests.*",
+    "notebooks",
+    "notebooks.*",
+    "results",
+    "results.*",
+]
 
 [tool.setuptools_scm]
 write_to = "tuningfork/_version.py"
