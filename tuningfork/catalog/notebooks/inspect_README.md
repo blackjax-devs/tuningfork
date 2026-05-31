@@ -202,7 +202,7 @@ heavy sampler or warmup template signals an upstream BlackJAX design smell
 worth fixing there). The cost is one `pip install tuningfork` step.
 
 As of tuningfork v1, templates exist for `window_adaptation_diag_imm` warmup and
-`nuts` sampler only. The full 10 warmups × 24 samplers are planned for future releases.
+`nuts` sampler only. The full 12 warmups × 24 samplers are planned for future releases.
 
 ## Sampling-book pattern reference
 

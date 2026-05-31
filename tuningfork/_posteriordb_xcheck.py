@@ -201,13 +201,42 @@ def cross_check_against_posteriordb(
     # ------------------------------------------------------------------
     # 1. Load posteriordb reference draws (lazy import — heavy dep)
     # ------------------------------------------------------------------
+    # Priority: explicit posteriordb_root > POSTERIOR_DB_PATH env var >
+    # PosteriorDatabaseGithub (network fallback, rate-limited).
+    _db_error: str | None = None
+    stan_draws_raw: Any = None
     try:
-        from posteriordb import PosteriorDatabase
+        import os
 
-        pdb_path = str(posteriordb_root) if posteriordb_root is not None else None
-        pdb = PosteriorDatabase(pdb_path)
-        posterior = pdb.posterior(posteriordb_id)
-        stan_draws_raw = posterior.reference_draws()
+        from posteriordb import PosteriorDatabase, PosteriorDatabaseGithub
+
+        env_path = os.environ.get("POSTERIOR_DB_PATH")
+        pdb_path = (
+            str(posteriordb_root)
+            if posteriordb_root is not None
+            else env_path if env_path else None
+        )
+
+        # Priority: local PosteriorDatabase → PosteriorDatabaseGithub fallback.
+        # Don't use posterior_names() check (slow, not always supported);
+        # just try pdb.posterior() directly and fall through on any exception.
+        try:
+            pdb = PosteriorDatabase(pdb_path)
+            posterior = pdb.posterior(posteriordb_id)
+            stan_draws_raw = posterior.reference_draws()
+        except Exception as local_exc:  # noqa: BLE001
+            _db_error = (
+                f"local PosteriorDatabase ({pdb_path!r}) failed for "
+                f"{posteriordb_id!r}: {type(local_exc).__name__}: {local_exc}; "
+                f"falling back to PosteriorDatabaseGithub"
+            )
+            # Network fallback — uses the posteriordb GitHub API (rate-limited without PAT)
+            pdb_gh = PosteriorDatabaseGithub()
+            posterior = pdb_gh.posterior(posteriordb_id)
+            stan_draws_raw = posterior.reference_draws()
+            import warnings
+
+            warnings.warn(_db_error, stacklevel=3)
     except Exception as exc:  # noqa: BLE001
         return XCheckResult(
             model_name=model_name,
@@ -240,12 +269,42 @@ def cross_check_against_posteriordb(
 
         site_ndim = our_mean_arr.size
 
-        # Find matching posteriordb param
-        if site not in stan_arrays:
-            # Parameter naming mismatch — skip silently
-            continue
+        # Find matching posteriordb param — handle two naming conventions:
+        # (a) Direct match: our "theta_raw" == stan "theta_raw"
+        # (b) Bracketed elements: stan has "theta[1]".."theta[d]" but we have
+        #     "theta" as a d-dim vector.  Detect by checking for "{site}[1]".
+        stan_arr: np.ndarray | None = None
+        if site in stan_arrays:
+            stan_arr = stan_arrays[site]
+        else:
+            # Try bracket convention: reconstruct from "site[1]".."site[d]" keys
+            # that exist in stan_arrays.
+            bracketed_keys = [k for k in stan_arrays if k.startswith(f"{site}[")]
+            if bracketed_keys:
+                # Sort by bracket index and concatenate column-wise
+                def _bracket_idx(k: str) -> int:
+                    try:
+                        return int(k[len(site) + 1 : -1])
+                    except ValueError:
+                        return 0
 
-        stan_arr = stan_arrays[site]
+                bracketed_keys.sort(key=_bracket_idx)
+                cols = [stan_arrays[k].reshape(-1, 1) for k in bracketed_keys]
+                stan_arr = np.hstack(cols)  # (n_draws, d)
+            else:
+                # Genuine mismatch — warn loudly (not silent skip)
+                import warnings
+
+                warnings.warn(
+                    f"cross_check_against_posteriordb: parameter {site!r} not found "
+                    f"in posteriordb {posteriordb_id!r}. "
+                    f"Available params: {sorted(stan_arrays.keys())}",
+                    stacklevel=2,
+                )
+                continue
+
+        if stan_arr is None:
+            continue
 
         # Handle scalar vs vector: ensure 2-D (n_draws, n_dims_at_site)
         if stan_arr.ndim == 1:
@@ -292,7 +351,17 @@ def cross_check_against_posteriordb(
     # 4. Build result
     # ------------------------------------------------------------------
     if not abs_mean_z_values:
-        # No common params found between our summaries and posteriordb
+        # No common params found — this is a name-matching failure, log loudly
+        import warnings
+
+        warnings.warn(
+            f"cross_check_against_posteriordb: no parameters matched between "
+            f"{model_name!r} summaries and posteriordb {posteriordb_id!r} "
+            f"(our params: {sorted(our_summaries.keys())}; "
+            f"stan params: {sorted(stan_arrays.keys())}). "
+            f"Check the param name conventions (bracket notation vs vector).",
+            stacklevel=2,
+        )
         return XCheckResult(
             model_name=model_name,
             posteriordb_id=posteriordb_id,

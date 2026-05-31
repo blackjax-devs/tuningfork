@@ -47,7 +47,11 @@ import numpy as np
 __all__ = ["compute_sample_quality"]
 
 # Type aliases
-_RefSummary = dict[str, float]
+# _RefSummary values may be scalars (for scalar params) or lists/arrays (for
+# vector params).  The type annotation uses Any to avoid verbose Union types.
+from typing import Any as _Any
+
+_RefSummary = dict[str, _Any]  # {"mean", "std", "q05", "q95"}: float | list[float]
 _DrawsDict = dict[str, np.ndarray]
 _RefDict = dict[str, _RefSummary]
 
@@ -65,6 +69,7 @@ def _validate_ref_summary(name: str, ref: _RefSummary) -> bool:
         Parameter name, used only for the warning message.
     ref
         A dict that must contain ``{"mean", "std", "q05", "q95"}``.
+        Values may be scalars (for scalar params) or lists/arrays (for vector params).
 
     Returns
     -------
@@ -77,14 +82,14 @@ def _validate_ref_summary(name: str, ref: _RefSummary) -> bool:
                 f"Reference summary for parameter {name!r} is missing required key "
                 f"{key!r}; expected keys: {sorted(_REQUIRED_KEYS)}"
             )
-    if any(np.isnan(float(ref[k])) for k in _REQUIRED_KEYS):
+    if any(np.any(np.isnan(np.asarray(ref[k], dtype=float))) for k in _REQUIRED_KEYS):
         warnings.warn(
             f"Reference summary for parameter {name!r} contains NaN; "
             "skipping this parameter in the max-reduction.",
             stacklevel=3,
         )
         return False
-    if float(ref["std"]) <= 0.0:
+    if np.all(np.asarray(ref["std"], dtype=float) <= 0.0):
         warnings.warn(
             f"Reference std for parameter {name!r} is non-positive "
             f"({ref['std']!r}); skipping this parameter.",
@@ -138,31 +143,49 @@ def _param_metrics(
         ``(mae_norm, q05_err, q95_err, std_ratio_dev)`` — all normalised by
         ``ref["std"]``.
     """
-    # Collapse event dims: compute a scalar summary per sample site.
-    # For vector/matrix params we flatten and then compute the mean over
-    # all event elements, giving a single "site mean" to compare.
-    # This matches how reference summaries are typically produced
-    # (marginal summary per scalar parameter, or mean-of-means for vectors).
-    flat_scalar = (
-        flat.reshape(flat.shape[0], -1).mean(axis=1) if flat.ndim > 1 else flat
+    # Per-element comparison: reshape flat to (N, d) and compute statistics
+    # per element, then reduce by max over elements.
+    #
+    # The old approach (mean over event dims → scalar series) caused a
+    # dimension-collapse artefact: for a d-dim param, the scalar series
+    # std equals the true element-std/√d, so std_ratio_dev ≈ 1−1/√d even
+    # for perfect draws.  The per-element approach fixes this.
+    flat_2d = flat.reshape(flat.shape[0], -1)  # (N, d)
+    d = flat_2d.shape[1]
+    n = flat_2d.shape[0]
+
+    emp_mean_elem = np.mean(flat_2d, axis=0)  # (d,)
+    emp_std_elem = np.std(flat_2d, axis=0, ddof=1) if n > 1 else np.zeros(d)  # (d,)
+    emp_q05_elem = np.quantile(flat_2d, _QUANTILE_05, axis=0)  # (d,)
+    emp_q95_elem = np.quantile(flat_2d, _QUANTILE_95, axis=0)  # (d,)
+
+    # Reference stats may be scalar (scalar params) or array (vector params).
+    # Broadcast to (d,) so per-element comparison works uniformly.
+    ref_mean_arr = np.broadcast_to(np.asarray(ref["mean"], dtype=float).ravel(), (d,))
+    ref_std_arr = np.broadcast_to(np.asarray(ref["std"], dtype=float).ravel(), (d,))
+    ref_q05_arr = np.broadcast_to(np.asarray(ref["q05"], dtype=float).ravel(), (d,))
+    ref_q95_arr = np.broadcast_to(np.asarray(ref["q95"], dtype=float).ravel(), (d,))
+
+    # Guard against zero ref_std elements (keep max-of-nonzero semantics).
+    nonzero = ref_std_arr > 0
+
+    def _safe_max(arr: np.ndarray) -> float:
+        vals = arr[nonzero]
+        return float(np.max(vals)) if vals.size > 0 else 0.0
+
+    # Per-element normalised errors; max-over-elements reduction (Design invariant #3).
+    mae_norm = _safe_max(
+        np.abs(emp_mean_elem - ref_mean_arr) / np.where(nonzero, ref_std_arr, 1.0)
     )
-
-    ref_std = float(ref["std"])
-    ref_mean = float(ref["mean"])
-    ref_q05 = float(ref["q05"])
-    ref_q95 = float(ref["q95"])
-
-    emp_mean = float(np.mean(flat_scalar))
-    emp_std = float(np.std(flat_scalar, ddof=1)) if flat_scalar.size > 1 else 0.0
-    emp_q05 = float(np.quantile(flat_scalar, _QUANTILE_05))
-    emp_q95 = float(np.quantile(flat_scalar, _QUANTILE_95))
-
-    # Normalise by REFERENCE std — see module-level Design invariant #1.
-    mae_norm = abs(emp_mean - ref_mean) / ref_std
-    q05_err = abs(emp_q05 - ref_q05) / ref_std
-    q95_err = abs(emp_q95 - ref_q95) / ref_std
-    # std_ratio_dev measures whether the recipe produces the right spread.
-    std_ratio_dev = abs(emp_std / ref_std - 1.0)
+    q05_err = _safe_max(
+        np.abs(emp_q05_elem - ref_q05_arr) / np.where(nonzero, ref_std_arr, 1.0)
+    )
+    q95_err = _safe_max(
+        np.abs(emp_q95_elem - ref_q95_arr) / np.where(nonzero, ref_std_arr, 1.0)
+    )
+    std_ratio_dev = _safe_max(
+        np.abs(emp_std_elem / np.where(nonzero, ref_std_arr, 1.0) - 1.0)
+    )
 
     return mae_norm, q05_err, q95_err, std_ratio_dev
 
