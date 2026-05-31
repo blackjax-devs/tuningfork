@@ -36,13 +36,23 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
-          # Pin to the project's minimum Python (requires-python = ">=3.13")
-          # to avoid drifting onto unsupported interpreters (e.g. Python 3.14).
+          # python-version hint alone is not sufficient — uv resolves "highest
+          # satisfying requires-python>=3.13" and picks 3.14 when available.
+          # The authoritative pin is .python-version (committed to the repo) +
+          # --python 3.13 on every uv invocation below. See: jaxlib crashes on
+          # 3.14 with Fatal Python error: Aborted (exit 134).
           python-version: "3.13"
 
       - name: Install bench-perf deps
-        # No working-directory: checkout IS the repo root; pyproject.toml is here.
-        run: uv sync --group bench-perf
+        # --python 3.13 forces uv to use 3.13 regardless of available interpreters.
+        # .python-version in the repo root provides the same pin for local runs.
+        run: uv sync --group bench-perf --python 3.13
+
+      - name: Verify Python version
+        # Fails the workflow if jax imports on the wrong Python (prevents silent 3.14 drift).
+        run: |
+          uv run --python 3.13 python --version
+          uv run --python 3.13 python -c "import sys; assert sys.version_info[:2] == (3, 13), f'Expected Python 3.13, got {sys.version}'"
 
       - name: Select benchmark filter
         id: filter
@@ -62,7 +72,7 @@ jobs:
       - name: Run benchmarks
         # No working-directory: benchmarks/ is at the repo root.
         run: |
-          JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
             -m benchmark \
             ${{ steps.filter.outputs.filter }} \
             --benchmark-json=benchmark_results.json \
