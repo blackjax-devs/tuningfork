@@ -38,12 +38,9 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
-          # python-version hint alone is not sufficient — uv resolves "highest
-          # satisfying requires-python>=3.13" and picks 3.14 when available.
-          # The authoritative pin is .python-version (committed to the repo) +
-          # --python 3.13 on every uv invocation below. See: jaxlib crashes on
-          # 3.14 with Fatal Python error: Aborted (exit 134).
-          python-version: "3.13"
+          # Python is pinned via .python-version (repo root) + --python 3.13 on
+          # every uv invocation below. setup-uv does not accept python-version
+          # as an input; the pin is enforced by uv itself at sync/run time.
 
       - name: Install bench-perf deps
         # --python 3.13 forces uv to use 3.13 regardless of available interpreters.
