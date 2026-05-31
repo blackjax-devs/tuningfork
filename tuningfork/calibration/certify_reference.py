@@ -624,7 +624,9 @@ def certify_reference_nuts(
     rng_key_init, rng_key_warmup, rng_key_sample = jax.random.split(rng_key, 3)
 
     # --- Build logdensity_fn ---
-    init_position, logdensity_fn, _ = build_logdensity_fn(rng_key_init, entry)
+    init_position, logdensity_fn, postprocess_fn = build_logdensity_fn(
+        rng_key_init, entry
+    )
 
     # --- Warmup (or load pre_adapted) ---
     _warmup_wall: float | None = (
@@ -858,11 +860,17 @@ def certify_reference_nuts(
             }
             for site in summaries.mean
         }
+        # Pass postprocess_fn + raw draws so the xcheck compares constrained
+        # moments (posteriordb scale) rather than our unconstrained moments.
+        # This avoids false positives from scale-mismatch (e.g. tau stored as
+        # softplus-transformed unconstrained vs Stan's positive-real tau).
         xcheck = cross_check_against_posteriordb(
             model_name=entry.name,
             posteriordb_id=entry.posteriordb_id,
             our_summaries=our_summaries,
             n_samples_ours=n_samples,
+            postprocess_fn=postprocess_fn,
+            our_draws=draws,
         )
         # Post-R2 (2026-05-17): xcheck.json lives in the committed reference/
         # subdir under the per-model catalog dir.

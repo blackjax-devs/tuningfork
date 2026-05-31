@@ -163,6 +163,8 @@ def cross_check_against_posteriordb(
     our_summaries: dict[str, dict[str, Any]],
     n_samples_ours: int,
     posteriordb_root: Path | None = None,
+    postprocess_fn: Any = None,
+    our_draws: dict[str, Any] | None = None,
 ) -> XCheckResult:
     """Compare our summaries to posteriordb's Stan reference draws.
 
@@ -188,6 +190,18 @@ def cross_check_against_posteriordb(
         Optional path to a local posteriordb checkout.  When ``None``,
         uses the ``POSTERIOR_DB_PATH`` environment variable (or the
         installed posteriordb default).
+    postprocess_fn
+        Optional callable that transforms unconstrained draws to the
+        constrained parameter space.  When provided together with
+        ``our_draws``, the transform is applied before computing our
+        summary statistics, enabling apples-to-apples comparison against
+        posteriordb's constrained reference.  This is the ``postprocess_fn``
+        returned by ``tuningfork.model._numpyro.build_logdensity_fn``.
+        When ``None`` (default), ``our_summaries`` is used directly.
+    our_draws
+        Optional dict ``{site: array(n_samples, *event)}`` of unconstrained
+        draws (e.g. from ``_cache/draws.npz``).  Must be provided when
+        ``postprocess_fn`` is set; ignored otherwise.
 
     Returns
     -------
@@ -206,7 +220,36 @@ def cross_check_against_posteriordb(
     uses a direct equality check.  If posteriordb uses a different naming
     convention (e.g. ``"theta[1]"`` vs our ``"theta"``), only matched
     params are compared; unmatched params are silently skipped.
+
+    **Scale matching:** NumPyro stores parameters in unconstrained space
+    internally; ``postprocess_fn`` maps back to constrained space.
+    posteriordb reference draws are always in constrained space.  Pass
+    ``postprocess_fn`` + ``our_draws`` to align scales before comparing.
     """
+    # ------------------------------------------------------------------
+    # 0. If postprocess_fn + our_draws provided, recompute our_summaries
+    #    in constrained space so the comparison is apples-to-apples.
+    # ------------------------------------------------------------------
+    if postprocess_fn is not None and our_draws is not None:
+        # Apply the model's constrain_fn (postprocess_fn) to each draw.
+        # postprocess_fn takes a single-sample dict; vmap over the sample axis.
+        import jax
+
+        constrained_draws_jax = jax.vmap(postprocess_fn)(our_draws)
+        our_summaries = {}
+        n_samples_ours = 0
+        for site, arr in constrained_draws_jax.items():
+            arr_np = np.asarray(arr, dtype=float)
+            # arr_np shape: (n_samples,) for scalars or (n_samples, *event)
+            n_samples_ours = arr_np.shape[0]
+            flat = arr_np.reshape(n_samples_ours, -1)  # (n_samples, d)
+            our_summaries[site] = {
+                "mean": np.mean(flat, axis=0),  # (d,) or scalar
+                "std": np.std(flat, axis=0, ddof=1),
+                "q05": np.quantile(flat, 0.05, axis=0),
+                "q95": np.quantile(flat, 0.95, axis=0),
+            }
+
     # ------------------------------------------------------------------
     # 1. Load posteriordb reference draws (lazy import — heavy dep)
     # ------------------------------------------------------------------
