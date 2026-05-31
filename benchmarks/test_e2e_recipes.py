@@ -11,19 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Fast recipe benchmarks (≤60s each, ~8 min total nightly).
+"""Slow e2e recipe benchmarks (>60s each, nightly only).
+
+These cells run the full warmup + sampling pipeline for models where the
+e2e wall time exceeds 60s per CI run (from round-4 CI timings):
+  - lotka_volterra × hmc × inner_nuts e2e:  204s (stiff ODE, full warmup)
+  - horseshoe × dmhmc × dense_imm e2e:       75s (extreme geometry)
 
 Runs via:
-    make benchmark-fast    # this file only (fast suite, ~8 min)
-    make benchmark         # fast + e2e (full nightly suite)
+    make benchmark    # fast + e2e (full nightly suite)
 
-Each benchmark:
-  1. Runs a PASS recipe's sampler via ``run_recipe_to_idata``.
-  2. Times the run with pytest-benchmark (1 round per cell).
-  3. Asserts GT-correctness post-timing: ``max_abs_mean_z < 2.0``.
-
-Cell selection: see ``benchmarks/config.py`` (FAST_CELLS, ≤60s/cell in CI).
-Slow e2e cells (>60s): see ``benchmarks/test_e2e_recipes.py``.
+DO NOT add these to ``make benchmark-fast`` or per-PR triggers — the wall
+time makes them unsuitable for quick local checks.
 """
 from __future__ import annotations
 
@@ -32,25 +31,26 @@ from typing import Any
 import pytest
 
 from benchmarks._benchmark_helpers import bench_id, run_benchmark_cell
-from benchmarks.config import FAST_CELLS
+from benchmarks.config import SLOW_CELLS
 
 
-@pytest.mark.benchmark(group="recipes-fast")
+@pytest.mark.benchmark(group="recipes-e2e")
 @pytest.mark.parametrize(
     "tier,model_name,recipe_file,mode",
-    FAST_CELLS,
-    ids=[bench_id(c) for c in FAST_CELLS],
+    SLOW_CELLS,
+    ids=[bench_id(c) for c in SLOW_CELLS],
 )
-def test_recipe_perf(
+def test_recipe_e2e_perf(
     benchmark: Any,
     tier: str,
     model_name: str,
     recipe_file: str,
     mode: str,
 ) -> None:
-    """Benchmark a recipe's sampler and assert GT-correctness.
+    """Benchmark a slow e2e recipe's sampler and assert GT-correctness.
 
-    Timing is measured by pytest-benchmark (1 timed run per cell).
-    GT-correctness (max_abs_mean_z < 2.0) is asserted after the timed run.
+    These cells take >60s in CI and are nightly-only. Timing is measured by
+    pytest-benchmark (1 timed run per cell). GT-correctness (max_abs_mean_z
+    < 2.0) is asserted after the timed run.
     """
     run_benchmark_cell(benchmark, model_name, recipe_file, mode)

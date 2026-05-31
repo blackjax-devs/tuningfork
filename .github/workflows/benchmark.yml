@@ -1,12 +1,14 @@
 name: Recipe benchmark suite
 
-# Nightly: full Tier 1+2, e2e + calibrated, 12 sampler families.
-# Manual:  workflow_dispatch for on-demand runs (tier-selectable: tier1/tier2/all).
-# No per-PR trigger: the suite grows to ~2h; nightly + on-demand is the right model.
+# Nightly: fast + e2e benchmarks (all 33 cells, ~8 min fast + 2 slow e2e cells).
+# Manual:  workflow_dispatch; suite=fast runs test_fast_recipes only (~8 min).
+# No per-PR trigger: nightly + on-demand is the right model.
 #
-# Working-directory note: the checkout IS the tuningfork repo root, so all steps
-# run from the root (no working-directory override). benchmarks/ and pyproject.toml
-# are both at the repo root.
+# Cell routing (by CI wall time from round-4 run):
+#   test_fast_recipes.py: 31 cells ≤60s each → ~8 min total
+#   test_e2e_recipes.py:   2 cells >60s each (lotka 204s, horseshoe 75s) → nightly only
+#
+# Working-directory note: the checkout IS the tuningfork repo root.
 
 on:
   schedule:
@@ -17,8 +19,8 @@ on:
   # the right model — use workflow_dispatch for targeted pre-merge validation.
   workflow_dispatch:
     inputs:
-      tiers:
-        description: 'Which tiers to run (tier1, tier2, or all)'
+      suite:
+        description: 'Which suite to run (fast | e2e | all)'
         required: false
         default: 'all'
 
@@ -54,35 +56,28 @@ jobs:
           uv run --python 3.13 python --version
           uv run --python 3.13 python -c "import sys; assert sys.version_info[:2] == (3, 13), f'Expected Python 3.13, got {sys.version}'"
 
-      - name: Select benchmark filter
-        id: filter
+      - name: Select benchmark suite
+        id: suite
         run: |
-          if [ "${{ inputs.tiers }}" = "tier1" ]; then
-            echo "filter=-k 'tier1'" >> "$GITHUB_OUTPUT"
-            echo "group=manual-tier1" >> "$GITHUB_OUTPUT"
-          elif [ "${{ inputs.tiers }}" = "tier2" ]; then
-            echo "filter=-k 'tier2'" >> "$GITHUB_OUTPUT"
-            echo "group=manual-tier2" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.suite }}" = "fast" ]; then
+            echo "files=benchmarks/test_fast_recipes.py" >> "$GITHUB_OUTPUT"
+            echo "group=manual-fast" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.suite }}" = "e2e" ]; then
+            echo "files=benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
+            echo "group=manual-e2e" >> "$GITHUB_OUTPUT"
           else
-            # Nightly / manual 'all' (default): full Tier 1 + Tier 2
-            echo "filter=" >> "$GITHUB_OUTPUT"
+            # Nightly / manual 'all': fast + e2e
+            echo "files=benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
             echo "group=nightly-all" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run benchmarks
         # No working-directory: benchmarks/ is at the repo root.
-        # --benchmark-max-time=0: each cell runs exactly --benchmark-min-rounds=1
-        # time (1 round). Do NOT use a large max-time (e.g. 240s) for expensive
-        # MCMC benchmarks — that causes pytest-benchmark to repeat each cell for
-        # up to 240s to gather timing samples (~240 rounds for a 1s cell), leading
-        # to cumulative JAX recompilation + memory pressure → native abort (exit 134).
-        # The D5 ≤240s budget is a per-cell WALL-TIME cap, not a repetition window.
-        # --benchmark-warmup=off: warmup round doubles cost; GT-gate already
-        # validates correctness so a warmup run is redundant.
+        # --benchmark-max-time=0: each cell runs exactly once (1 round).
+        # --benchmark-warmup=off: GT-gate validates correctness; warmup is redundant.
         run: |
-          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/ \
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
-            ${{ steps.filter.outputs.filter }} \
             --benchmark-json=benchmark_results.json \
             --benchmark-disable-gc \
             --benchmark-warmup=off \
