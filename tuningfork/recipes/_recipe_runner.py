@@ -1254,9 +1254,11 @@ def emit_low_recipe_for_cell(
                 continue
             _sq_refs[_k] = {}
             for _stat in ("mean", "std", "q05", "q95"):
-                # np.asarray(...).mean() is a no-op for scalars; element-wise mean
-                # for vector params — consistent with _param_metrics' flat.mean(axis=1).
-                _sq_refs[_k][_stat] = float(np.asarray(_v[_stat]).mean())
+                # Pass per-element reference stats as-is (scalar or list/array).
+                # _param_metrics now handles per-element comparison correctly;
+                # the old .mean() collapse caused a dimension-collapse artefact
+                # (std_ratio_dev ≈ 1−1/√d for perfect draws of d-dim params).
+                _sq_refs[_k][_stat] = _v[_stat]
         if _sq_draws and _sq_refs:
             try:
                 _sample_quality = _compute_sample_quality(_sq_draws, _sq_refs)

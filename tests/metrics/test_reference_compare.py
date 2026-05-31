@@ -377,3 +377,88 @@ class TestErrorPaths:
         ref = _std_normal_ref_flat()
         with pytest.raises(ValueError, match="at least 2 axes"):
             compute_sample_quality(arr, ref)
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: dimension-collapse bug fix (H1)
+# ---------------------------------------------------------------------------
+# Before the fix: _param_metrics collapsed event dims to per-sample mean,
+# so std_ratio_max_dev ≈ 1−1/√d for perfect draws of a d-dim param.
+# After the fix: per-element comparison → all four metrics ≈ 0 for perfect draws.
+
+
+class TestDimensionCollapseRegression:
+    """Perfect draws must yield ≈0 for all four metrics (regression for H1 bug)."""
+
+    def test_perfect_scalar_draws_near_zero(self) -> None:
+        """1-D scalar param: all metrics near 0 for perfect N(0,1) draws."""
+        from tuningfork.metrics.reference_compare import compute_sample_quality
+
+        rng = np.random.default_rng(0)
+        draws = {"x": rng.standard_normal((4, 4000, 1))}
+        ref = {"x": {"mean": 0.0, "std": 1.0, "q05": -1.645, "q95": 1.645}}
+        sq = compute_sample_quality(draws, ref)
+        assert (
+            sq["std_ratio_max_dev"] < 0.05
+        ), f"scalar std_ratio_max_dev={sq['std_ratio_max_dev']:.4f}"
+        assert sq["q05_error"] < 0.1, f"scalar q05_error={sq['q05_error']:.4f}"
+        assert sq["q95_error"] < 0.1, f"scalar q95_error={sq['q95_error']:.4f}"
+
+    def test_perfect_vector_draws_near_zero(self) -> None:
+        """8-D vector param: all metrics near 0 for perfect draws.
+
+        Pre-fix: std_ratio_max_dev ≈ 1−1/√8 ≈ 0.646 (dimension-collapse artefact).
+        Post-fix: std_ratio_max_dev < 0.05.
+        """
+        from tuningfork.metrics.reference_compare import compute_sample_quality
+
+        d = 8
+        rng = np.random.default_rng(0)
+        draws = {"theta": rng.standard_normal((4, 4000, d))}
+        ref = {
+            "theta": {
+                "mean": [0.0] * d,
+                "std": [1.0] * d,
+                "q05": [-1.645] * d,
+                "q95": [1.645] * d,
+            }
+        }
+        sq = compute_sample_quality(draws, ref)
+        pre_fix_artifact = 1.0 - 1.0 / (d**0.5)  # ≈ 0.646
+        assert sq["std_ratio_max_dev"] < 0.05, (
+            f"8-D std_ratio_max_dev={sq['std_ratio_max_dev']:.4f} "
+            f"(pre-fix artefact would be ≈{pre_fix_artifact:.3f})"
+        )
+        assert sq["q05_error"] < 0.1, f"8-D q05_error={sq['q05_error']:.4f}"
+        assert sq["q95_error"] < 0.1, f"8-D q95_error={sq['q95_error']:.4f}"
+        assert sq["mae_vs_reference"] < 0.05, f"8-D mae={sq['mae_vs_reference']:.4f}"
+
+    def test_per_element_ref_used_not_grand_mean(self) -> None:
+        """Per-element ref stats must be used — not their grand mean.
+
+        If a 2-D param has ref std=[1, 2], the second element has 2× the
+        reference spread.  The per-element fix must detect draws scaled to
+        std=2 on dim-1 as a PASS (std_ratio ≈ 0) not a FAIL (std_ratio ≈ 0.5
+        under the grand-mean approach).
+        """
+        from tuningfork.metrics.reference_compare import compute_sample_quality
+
+        rng = np.random.default_rng(42)
+        # Draw dim-0 from N(0,1), dim-1 from N(0,2) — matching per-element ref
+        draws_2d = np.stack(
+            [rng.standard_normal((4 * 2000,)), 2.0 * rng.standard_normal((4 * 2000,))],
+            axis=1,
+        ).reshape(4, 2000, 2)
+        ref_dict = {
+            "x": {
+                "mean": [0.0, 0.0],
+                "std": [1.0, 2.0],
+                "q05": [-1.645, -3.29],
+                "q95": [1.645, 3.29],
+            }
+        }
+        draws_dict = {"x": draws_2d}
+        sq = compute_sample_quality(draws_dict, ref_dict)
+        assert (
+            sq["std_ratio_max_dev"] < 0.1
+        ), f"Per-element-std test failed: std_ratio_max_dev={sq['std_ratio_max_dev']:.4f}"
