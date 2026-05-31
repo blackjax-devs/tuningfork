@@ -54,7 +54,13 @@ import numpy as np
 import pytest
 
 _CATALOG_ROOT = Path(__file__).resolve().parents[1] / "tuningfork" / "catalog"
-_N_SAMPLES = 500  # TL-ratified: minimum for reliable z-scores at threshold=2.0
+_N_SAMPLES = (
+    1000  # matches recipe-cert n_samp=4000 (1000×4 chains) for z<2.0 calibration
+)
+# Note: 500 was the proposed minimum but smoke-testing revealed z > 2.0 for PASS
+# recipes at n_samp=2000 (500×4) due to MC noise over max-of-k parameters
+# (e.g. logistic_synthetic beta_3 → Pr(max|z|>2) ≈ 14% at n=2000).
+# n_samples=1000 → n_samp=4000 matches the cert run and makes threshold=2.0 calibrated.
 _Z_THRESHOLD = 2.0  # PASS gate (2026-05-28-max-abs-mean-z-threshold.md)
 _BENCHMARK_SEED = 20260531  # fixed seed for reproducible benchmark runs
 
@@ -252,8 +258,12 @@ _BENCH_CELLS: list[tuple[str, str, str, str]] = [
 def _compute_max_abs_mean_z(idata: Any, model_name: str) -> float | None:
     """Compute max |z| for all posterior parameters vs the GT reference.
 
-    Reuses the recipe-cert standard (2026-05-28-max-abs-mean-z-threshold.md):
-    z = (sample_mean - gt_mean) / sqrt(SE_sample^2 + SE_gt^2)
+    Delegates to the same ``auto_gate`` function used by recipe certification
+    (``tuningfork.calibration.statistician_gate``), so the formula is identical
+    to the recipe-cert standard (2026-05-28-max-abs-mean-z-threshold.md):
+
+    z_i = |sample_mean_i - gt_mean_i| / max(SE_sample_i, SE_gt_i)
+    where SE_sample_i = sample_std_i / sqrt(min_bulk_ESS)
 
     Returns None when reference/summary.json is unavailable (graceful skip).
     """
@@ -261,43 +271,36 @@ def _compute_max_abs_mean_z(idata: Any, model_name: str) -> float | None:
     if not summary_path.exists():
         return None
 
-    gt = json.loads(summary_path.read_text())
-    gt_means: dict[str, float] = {k: float(v) for k, v in gt.get("mean", {}).items()}
-    gt_stds: dict[str, float] = {k: float(v) for k, v in gt.get("std", {}).items()}
-    n_gt = int(gt.get("num_samples", 40000))
-
     if not hasattr(idata, "posterior"):
         return None
 
+    gt_summaries = json.loads(summary_path.read_text())
+    # auto_gate needs mc_samples: {param: (n_chains, n_draws, *event_shape)}
     posterior = idata.posterior
-    z_scores: list[float] = []
+    mc_samples: dict[str, Any] = {}
     for var in posterior.data_vars:
-        if var not in gt_means or var not in gt_stds:
-            continue
-        samples = np.asarray(posterior[var].values)
-        # Flatten chain × draw → single array; compute mean
-        flat = (
-            samples.reshape(-1, *samples.shape[2:])
-            if samples.ndim > 2
-            else samples.ravel()
-        )
-        n_samp = len(flat)
-        if n_samp == 0:
-            continue
-        sample_mean = float(np.mean(flat))
-        gt_mean = gt_means[var]
-        gt_std = gt_stds[var]
-        if gt_std <= 0:
-            continue
-        se_sample = gt_std / np.sqrt(n_samp)
-        se_gt = gt_std / np.sqrt(n_gt)
-        se_combined = float(np.sqrt(se_sample**2 + se_gt**2))
-        if se_combined <= 0:
-            continue
-        z = abs(sample_mean - gt_mean) / se_combined
-        z_scores.append(z)
+        mc_samples[var] = np.asarray(posterior[var].values)
 
-    return float(max(z_scores)) if z_scores else None
+    if not mc_samples:
+        return None
+
+    # auto_gate also needs infos — pass a minimal stub (no is_divergent needed
+    # for the z-score path; just needs a duck-typed object).
+    class _StubInfo:
+        pass
+
+    from tuningfork.calibration.statistician_gate import auto_gate
+    from tuningfork.model import MODELS
+
+    posterior_entry = MODELS.get(model_name)
+    verdict_result = auto_gate(
+        mc_samples,
+        _StubInfo(),
+        ground_truth_summaries=gt_summaries,
+        posterior=posterior_entry,
+        n_chunks=1,  # already in multi-chain format (not reshaped into chunks)
+    )
+    return verdict_result.max_abs_mean_z
 
 
 # ---------------------------------------------------------------------------
