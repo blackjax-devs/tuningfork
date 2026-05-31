@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Phase 8 v1 benchmark suite — cross-sampler correctness + performance.
+"""Recipe benchmark suite — cross-sampler correctness + performance.
 
 Runs via:
     make benchmark               # all tiers, e2e + calibrated, nightly
-    make benchmark-pr            # Tier 1 calibrated only (fast, ~60s, per-PR)
+    make benchmark-pr            # Tier 1 only (fast ~60s, for targeted local checks)
 
 Each benchmark:
   1. Runs a PASS recipe's sampler via ``run_recipe_to_idata`` (e2e or calibrated).
@@ -25,22 +25,20 @@ Each benchmark:
 This makes each benchmark a **correctness regression test**, not just timing — a
 regression in the sampler's GT-agreement shows up as a failing benchmark.
 
-Families covered (Phase 8 v1):
+Families covered (v1):
   nuts, hmc, dynamic_hmc, mhmc, dmhmc       — Tier 1 (standard candle) + Tier 2
   mclmc                                      — Tier 1+2, e2e only (skip_warmup raises)
   adjusted_mclmc, adjusted_mclmc_dynamic     — Tier 1, e2e + calibrated
   laplace_dhmc, laplace_dmhmc, laplace_hmc,
   laplace_mhmc                               — Tier 1, e2e only (phi-space mismatch)
 
-Gaps (Phase 8B):  SMC, VI, elliptical_slice, rmhmc — 0 good recipes; need coverage first.
+Coverage gaps (v1):  SMC, VI, elliptical_slice, rmhmc — 0 good recipes currently.
 
-n_samples=500: minimum for reliable z-scores at threshold 2.0
-  (SE ∝ 1/sqrt(ESS); at n=500, 4 chains → ESS≈200–1000 → SE manageable).
+n_samples=1000: matches recipe-cert n_samp=4000 so the z<2.0 threshold is calibrated.
 
-D5 budget cap (CONTRIBUTING.md): select < 180 s, exec ≤ 240 s per cell.
+Budget cap (CONTRIBUTING.md): select < 180 s, exec ≤ 240 s per cell.
 
 References:
-  - worklog/threads/phase8-benchmark-scope.md (statistician scope doc)
   - worklog/decisions/2026-05-28-max-abs-mean-z-threshold.md (z-threshold)
   - CONTRIBUTING.md § Benchmark suite
 """
@@ -202,7 +200,7 @@ _BENCH_CELLS: list[tuple[str, str, str, str]] = [
     # nuts × stoch_vol: high-d AR(1) (~45s)
     ("tier2", "stoch_vol", "low__nuts__window_adaptation_diag_imm.json", "e2e"),
     ("tier2", "stoch_vol", "low__nuts__window_adaptation_diag_imm.json", "calibrated"),
-    # banana × dynamic_hmc × policy_v1 → Phase 8B (unknown wall estimate; deferred)
+    # banana × dynamic_hmc × policy_v1 → deferred (unknown wall estimate)
     # nuts × ill_cond_50 × dense IMM: κ=1000 correlated geometry (~10-28s)
     # (substituted for hmc×ill_cond which has no PASS recipe; statistician correction)
     (

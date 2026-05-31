@@ -11,25 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Step-policy sweep runner for ``dynamic_hmc`` and ``dmhmc`` (Phase G).
+"""Step-policy sweep runner for ``dynamic_hmc`` and ``dmhmc``.
 
-Implements the §9 sweep-and-pick workflow from
-``worklog/threads/d-hmc-integration-steps-fn-matrix.md``:
-evaluates step_policy candidates in cheapest-first order, gates each on
-R̂ / ESS / divergence, and promotes the first passing candidate to a
-MEDIUM recipe.
+Evaluates integration-step-count policy candidates in cheapest-first order,
+gates each on R̂ / ESS / divergence, and promotes the first passing candidate
+to a MEDIUM recipe.
 
-The candidate ordering (§9, with V7 demoted per statistician finding #2):
+Candidate ordering (V7 demoted per statistician finding on miscalibration at
+large step_size):
     V1 → V4 → V6 → V7 → V2 → V5
 
 Gate cascade:
     PASS:  rhat < 1.01, min_bulk_ess ≥ 400, n_div_rate ≤ 5%
     First PASS wins. All attempted candidates are recorded.
-
-References
-----------
-- ``worklog/threads/d-hmc-integration-steps-fn-matrix.md`` §9
-- ``worklog/threads/step-policy-phase-c-g-plan.md`` §G
 """
 from __future__ import annotations
 
@@ -48,8 +42,7 @@ __all__ = [
 ]
 
 # ---------------------------------------------------------------------------
-# Gate thresholds (§9)
-# ---------------------------------------------------------------------------
+# Gate thresholds# ---------------------------------------------------------------------------
 
 GATE_RHAT_PASS: float = 1.01  # rhat must be strictly below this
 GATE_ESS_PASS: float = 400.0  # min bulk-ESS must be at least this
@@ -159,7 +152,7 @@ class SweepResult:
         return self.winner is not None
 
     def to_attempted_configurations(self) -> list[dict[str, Any]]:
-        """Format for ``Recipe.attempted_configurations`` (§9 recording spec).
+        """Format for ``Recipe.attempted_configurations`` (recording spec).
 
         Returns
         -------
@@ -194,7 +187,7 @@ def build_default_candidates(
     nis_median: int | None = None,
     chain_stats_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
-    """Build the default candidate list in §9 sweep order.
+    """Build the default candidate list in sweep order.
 
     Candidate ordering (V7 demoted per statistician finding #2):
     V1 → V4 → V6 → V7 → V2 → V5
@@ -272,7 +265,7 @@ def sweep_and_pick(
 ) -> SweepResult:
     """Run step_policy candidates in order and return the first (or best) PASS.
 
-    Implements the §9 gate cascade:
+    Implements the gate cascade:
 
     1. Evaluate each candidate in order via ``emit_low_recipe_for_cell``.
     2. Apply gate: rhat < 1.01, min_ESS ≥ 400, n_div_rate ≤ 5%.
@@ -291,7 +284,7 @@ def sweep_and_pick(
         Ordered list of step_policy spec dicts (cheapest-first).
         See ``build_default_candidates`` for the canonical ordering.
     n_warmup
-        Warmup steps per chain (default 2000 per Phase G spec).
+        Warmup steps per chain (default 2000).
     n_samples
         Post-warmup samples per chain (default 1000).
     num_chains

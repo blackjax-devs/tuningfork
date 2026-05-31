@@ -1,6 +1,6 @@
-name: Benchmark suite (Phase 8 v1)
+name: Recipe benchmark suite
 
-# Nightly: full Tier 1+2, e2e + calibrated, all 12 sampler families.
+# Nightly: full Tier 1+2, e2e + calibrated, 12 sampler families.
 # Manual:  workflow_dispatch for on-demand runs (tier-selectable: tier1/tier2/all).
 # No per-PR trigger: the suite grows to ~2h; nightly + on-demand is the right model.
 #
@@ -24,7 +24,7 @@ on:
 
 jobs:
   benchmark:
-    name: Recipe benchmark (${{ github.event_name }})
+    name: Benchmark (${{ github.event_name }})
     runs-on: ubuntu-latest
     timeout-minutes: 60   # hard cap: prevents hung CI slots
 
