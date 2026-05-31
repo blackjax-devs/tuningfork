@@ -111,21 +111,30 @@ def _aggregate_stan_draws(
 ) -> dict[str, np.ndarray]:
     """Aggregate posteriordb reference draws across chains.
 
-    Posteriordb ``reference_draws()`` returns a dict like::
+    Posteriordb ``reference_draws()`` returns one of two formats depending on
+    the client and database version:
 
-        {
-            "chain:1": {"mu": [v1, v2, ...], "theta": [[...], ...], ...},
-            "chain:2": {...},
-            ...
-        }
+    - ``PosteriorDatabaseGithub``: a dict keyed by ``"chain:1"``, ``"chain:2"``
+      etc., each value being a dict ``{param: [draw, ...]}``.
+    - ``PosteriorDatabase`` (local clone): a list of chain-dicts, each being
+      ``{param: [draw, ...]}``.
+
+    Both formats are supported.
 
     Returns
     -------
-    dict mapping param_name → 1-D numpy array of all values (all chains
-    concatenated), with multi-dim params flattened per draw.
+    dict mapping param_name → 1-D or 2-D numpy array (all chains
+    concatenated).
     """
+    # Normalise to an iterable of chain-value dicts
+    if isinstance(stan_draws, dict):
+        chain_iter = stan_draws.values()
+    else:
+        # list (local PosteriorDatabase format)
+        chain_iter = stan_draws
+
     all_params: dict[str, list[Any]] = {}
-    for chain_values in stan_draws.values():
+    for chain_values in chain_iter:
         for param, values in chain_values.items():
             if param not in all_params:
                 all_params[param] = []
