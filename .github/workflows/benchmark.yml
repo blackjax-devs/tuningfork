@@ -1,8 +1,12 @@
 name: Benchmark suite (Phase 8 v1)
 
 # Nightly: full Tier 1+2, e2e + calibrated, all 12 sampler families.
-# Per-PR:  Tier 1 calibrated only (~60s wall), catches sampling regressions fast.
-# Manual:  workflow_dispatch for on-demand runs.
+# Manual:  workflow_dispatch for on-demand runs (tier-selectable: tier1/tier2/all).
+# No per-PR trigger: the suite grows to ~2h; nightly + on-demand is the right model.
+#
+# Working-directory note: the checkout IS the tuningfork repo root, so all steps
+# run from the root (no working-directory override). benchmarks/ and pyproject.toml
+# are both at the repo root.
 
 on:
   schedule:
@@ -32,10 +36,13 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
+          # Pin to the project's minimum Python (requires-python = ">=3.13")
+          # to avoid drifting onto unsupported interpreters (e.g. Python 3.14).
+          python-version: "3.13"
 
       - name: Install bench-perf deps
+        # No working-directory: checkout IS the repo root; pyproject.toml is here.
         run: uv sync --group bench-perf
-        working-directory: tuningfork
 
       - name: Select benchmark filter
         id: filter
@@ -53,6 +60,7 @@ jobs:
           fi
 
       - name: Run benchmarks
+        # No working-directory: benchmarks/ is at the repo root.
         run: |
           JAX_PLATFORM_NAME=cpu uv run pytest benchmarks/ \
             -m benchmark \
@@ -64,14 +72,14 @@ jobs:
             --benchmark-min-rounds=1 \
             --benchmark-max-time=240 \
             -v
-        working-directory: tuningfork
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ github.sha }}-${{ steps.filter.outputs.group }}
-          path: tuningfork/benchmark_results.json
+          # benchmark_results.json is written to the repo root (no working-directory).
+          path: benchmark_results.json
           retention-days: 90
 
       # Trend tracking: compare against the most recent stored result on main.
@@ -82,7 +90,7 @@ jobs:
         with:
           name: "tuningfork recipe benchmarks"
           tool: "pytest"
-          output-file-path: tuningfork/benchmark_results.json
+          output-file-path: benchmark_results.json
           # Push results to gh-pages branch for the trend dashboard
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
