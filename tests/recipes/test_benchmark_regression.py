@@ -12,6 +12,10 @@ import pytest
 
 from benchmarks._benchmark_helpers import (
     _Z_THRESHOLD,
+    _check_jax_drift,
+    _check_within_seed_determinism,
+    _get_committed_metrics,
+    _mean_metrics,
     compute_max_abs_mean_z,
     get_nightly_seeds,
 )
@@ -612,3 +616,319 @@ def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
     assert {
         int(k) for k in mock_benchmark.extra_info["per_seed_metrics"].keys()
     } == expected_seeds
+
+
+# ---------------------------------------------------------------------------
+# 7-run cell helpers: _get_committed_metrics, _check_jax_drift,
+#                     _check_within_seed_determinism, _mean_metrics
+# ---------------------------------------------------------------------------
+
+
+class _FakeRecipe:
+    """Minimal stand-in for a Recipe object."""
+
+    def __init__(self, tuning_seed=None, gate_evidence=None):
+        self.tuning_seed = tuning_seed
+        self.gate_evidence = gate_evidence or {}
+
+
+def test_get_committed_metrics_extracts_fields() -> None:
+    """Correctly extracts tuning_seed, ESS, z from recipe.gate_evidence.auto."""
+    recipe = _FakeRecipe(
+        tuning_seed=682737,
+        gate_evidence={"auto": {"min_bulk_ess": 1983.0, "max_abs_mean_z": 0.75}},
+    )
+    seed, ess, z = _get_committed_metrics(recipe)
+    assert seed == 682737
+    assert ess == 1983.0
+    assert z == 0.75
+
+
+def test_get_committed_metrics_missing_gate_evidence() -> None:
+    """Returns (None, None, None) when gate_evidence.auto is absent."""
+    recipe = _FakeRecipe(tuning_seed=None, gate_evidence={})
+    seed, ess, z = _get_committed_metrics(recipe)
+    assert seed is None
+    assert ess is None
+    assert z is None
+
+
+def test_get_committed_metrics_no_auto_section() -> None:
+    """Returns Nones for ESS/z when gate_evidence has no 'auto' key."""
+    recipe = _FakeRecipe(
+        tuning_seed=12345,
+        gate_evidence={"override": {"decision": ""}},
+    )
+    seed, ess, z = _get_committed_metrics(recipe)
+    assert seed == 12345
+    assert ess is None
+    assert z is None
+
+
+def test_check_jax_drift_no_warning_below_threshold(capsys) -> None:
+    """No warning when ESS and z are within tolerance."""
+    metrics = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.5}
+    # committed_ess=2000, 1800 >= 2000*0.5=1000 → no ESS warning
+    # committed_z=0.3, 0.5 <= 0.3+2.0=2.3 → no z warning
+    _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "JAX_DRIFT" not in captured.out
+
+
+def test_check_jax_drift_ess_drop_emits_warning(capsys) -> None:
+    """ESS drop below 50% of committed fires a ::warning::JAX_DRIFT annotation."""
+    metrics = {"min_bulk_ess": 400.0, "max_abs_mean_z": 0.3}
+    # committed_ess=2000, 400 < 2000*0.5=1000 → ESS warning
+    _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "::warning::JAX_DRIFT" in captured.out
+    assert "ESS=" in captured.out
+
+
+def test_check_jax_drift_z_spike_emits_warning(capsys) -> None:
+    """z increase beyond committed_z + delta fires a ::warning::JAX_DRIFT annotation."""
+    metrics = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 3.5}
+    # committed_z=0.3, 3.5 > 0.3+2.0=2.3 → z warning
+    _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "::warning::JAX_DRIFT" in captured.out
+    assert "z=" in captured.out
+
+
+def test_check_jax_drift_no_committed_noop(capsys) -> None:
+    """No warning when committed metrics are None (bootstrap / no gate evidence)."""
+    metrics = {"min_bulk_ess": 100.0, "max_abs_mean_z": 5.0}
+    _check_jax_drift(metrics, None, None, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "JAX_DRIFT" not in captured.out
+
+
+def test_check_within_seed_determinism_ok(capsys) -> None:
+    """No warning when two same-seed runs produce identical results."""
+    m = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4}
+    _check_within_seed_determinism(m, m, 20260601, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "DETERMINISM_WARN" not in captured.out
+
+
+def test_check_within_seed_determinism_ess_disagree(capsys) -> None:
+    """ESS relative difference > 1% triggers a DETERMINISM_WARN annotation."""
+    m1 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4}
+    m2 = {"min_bulk_ess": 1600.0, "max_abs_mean_z": 0.4}
+    # rel diff = 200/1800 ≈ 11% > 1% threshold
+    _check_within_seed_determinism(m1, m2, 20260601, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "::warning::DETERMINISM_WARN" in captured.out
+    assert "ESS" in captured.out
+
+
+def test_check_within_seed_determinism_z_disagree(capsys) -> None:
+    """z absolute difference > 0.1 triggers a DETERMINISM_WARN annotation."""
+    m1 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4}
+    m2 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.55}
+    # abs z diff = 0.15 > 0.1 threshold
+    _check_within_seed_determinism(m1, m2, 20260601, "mvn_10", "low__nuts.json")
+    captured = capsys.readouterr()
+    assert "::warning::DETERMINISM_WARN" in captured.out
+    assert "z " in captured.out
+
+
+def test_mean_metrics_averages_numeric() -> None:
+    """Numeric fields are averaged; non-numeric taken from m1."""
+    m1 = {
+        "min_bulk_ess": 1800.0,
+        "max_abs_mean_z": 0.4,
+        "n_divergences": 2,
+        "correctness_passed": True,
+    }
+    m2 = {
+        "min_bulk_ess": 2000.0,
+        "max_abs_mean_z": 0.6,
+        "n_divergences": 0,
+        "correctness_passed": False,
+    }
+    result = _mean_metrics(m1, m2)
+    assert result["min_bulk_ess"] == 1900.0
+    assert result["max_abs_mean_z"] == pytest.approx(0.5)
+    assert result["n_divergences"] == 1.0
+    assert result["correctness_passed"] is True  # non-numeric → from m1
+
+
+def test_mean_metrics_sums_runtime_fields() -> None:
+    """Runtime fields are summed (total elapsed), not averaged."""
+    m1 = {"runtime_warmup_s": 1.5, "min_bulk_ess": 1800.0}
+    m2 = {"runtime_warmup_s": 2.0, "min_bulk_ess": 2000.0}
+    result = _mean_metrics(m1, m2)
+    assert result["runtime_warmup_s"] == pytest.approx(3.5)
+    assert result["min_bulk_ess"] == pytest.approx(1900.0)
+
+
+def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
+    """run_benchmark_cell makes exactly 7 run_recipe_to_idata calls per cell.
+
+    7 = 1 compile-warmup (recipe's tuning_seed) + 3 date-seeds * 2 warm runs.
+    """
+    from datetime import date
+    from unittest.mock import MagicMock, patch
+
+    import numpy as np
+
+    from benchmarks._benchmark_helpers import run_benchmark_cell
+
+    catalog = tmp_path / "catalog"
+    recipe_path = catalog / "mvn_10" / "recipes" / "low__nuts.json"
+    recipe_path.parent.mkdir(parents=True)
+    recipe_path.write_text(
+        '{"model_name":"mvn_10","base_method_name":"nuts","warmup_name":"window_adaptation_diag_imm",'
+        '"warmups":[{"name":"window_adaptation_diag_imm","params":{"n_warmup":100,"num_chains":4}}],'
+        '"base_method_params":{"step_size":0.3},'
+        '"calibration_budget":{"n_warmup":100,"n_samples":100,"num_chains":4},'
+        '"gate_evidence":{"auto":{"min_bulk_ess":1983.0,"max_abs_mean_z":0.75,"verdict":"PASS"}},'
+        '"effort":"LOW","tuning_seed":682737}'
+    )
+
+    mock_idata = MagicMock()
+    mock_idata.posterior.data_vars = []
+    mock_idata.sample_stats.ds = {"diverging": MagicMock(values=np.zeros((4, 100)))}
+
+    call_count = [0]
+
+    def mock_run_recipe(
+        recipe, *, skip_warmup, n_samples, force_resample_config, _suppress_print
+    ):
+        call_count[0] += 1
+        return mock_idata
+
+    mock_benchmark = MagicMock()
+
+    def call_fn(fn):
+        fn()
+
+    mock_benchmark.side_effect = call_fn
+    mock_benchmark.extra_info = {}
+
+    _dummy = {
+        "min_bulk_ess": 1800.0,
+        "max_abs_mean_z": 0.4,
+        "n_divergences": 0,
+        "runtime_warmup_s": 1.0,
+        "runtime_sample_s": 0.0,
+        "correctness_passed": True,
+    }
+    mock_recipe = _FakeRecipe(
+        tuning_seed=682737,
+        gate_evidence={"auto": {"min_bulk_ess": 1983.0, "max_abs_mean_z": 0.75}},
+    )
+
+    with (
+        patch("benchmarks._benchmark_helpers._CATALOG_ROOT", catalog),
+        patch("tuningfork.catalog.inspect.load_recipe", return_value=mock_recipe),
+        patch(
+            "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
+            side_effect=mock_run_recipe,
+        ),
+        patch(
+            "benchmarks._benchmark_helpers.extract_cell_metrics",
+            return_value=_dummy,
+        ),
+    ):
+        per_seed = run_benchmark_cell(
+            mock_benchmark,
+            "mvn_10",
+            "low__nuts.json",
+            "fresh",  # non-calibrated so force_resample_config is used for seeds
+            run_date=date(2026, 6, 1),
+        )
+
+    # 1 compile-warmup + 3 seeds * 2 = 7 total calls
+    assert call_count[0] == 7, f"Expected 7 run_recipe calls, got {call_count[0]}"
+    # 3 seed entries in output
+    assert len(per_seed) == 3
+
+
+def test_run_benchmark_cell_per_seed_mean_of_2(tmp_path) -> None:
+    """Per-seed metric is the mean of 2 warm runs (not a single run)."""
+    from datetime import date
+    from unittest.mock import MagicMock, patch
+
+    import numpy as np
+
+    from benchmarks._benchmark_helpers import run_benchmark_cell
+
+    catalog = tmp_path / "catalog"
+    recipe_path = catalog / "mvn_10" / "recipes" / "low__nuts.json"
+    recipe_path.parent.mkdir(parents=True)
+    recipe_path.write_text(
+        '{"model_name":"mvn_10","base_method_name":"nuts","warmup_name":"no_warmup",'
+        '"base_method_params":{"step_size":0.3},'
+        '"calibration_budget":{"n_warmup":0,"n_samples":100,"num_chains":4},'
+        '"gate_evidence":{"auto":{"min_bulk_ess":1500.0,"max_abs_mean_z":0.5,"verdict":"PASS"}},'
+        '"effort":"LOW","tuning_seed":111}'
+    )
+
+    mock_idata = MagicMock()
+    mock_idata.posterior.data_vars = []
+    mock_idata.sample_stats.ds = {"diverging": MagicMock(values=np.zeros((4, 100)))}
+
+    # Alternate between two different metric dicts to verify averaging
+    _metrics_a = {
+        "min_bulk_ess": 1600.0,
+        "max_abs_mean_z": 0.3,
+        "n_divergences": 0,
+        "runtime_warmup_s": 1.0,
+        "runtime_sample_s": 0.0,
+        "correctness_passed": True,
+    }
+    _metrics_b = {
+        "min_bulk_ess": 2000.0,
+        "max_abs_mean_z": 0.5,
+        "n_divergences": 2,
+        "runtime_warmup_s": 1.2,
+        "runtime_sample_s": 0.0,
+        "correctness_passed": True,
+    }
+    return_vals = [_metrics_a, _metrics_b] * 4  # enough for compile-warmup + 3x2
+
+    mock_benchmark = MagicMock()
+
+    def call_fn(fn):
+        fn()
+
+    mock_benchmark.side_effect = call_fn
+    mock_benchmark.extra_info = {}
+
+    mock_recipe = _FakeRecipe(
+        tuning_seed=111,
+        gate_evidence={"auto": {"min_bulk_ess": 1500.0, "max_abs_mean_z": 0.5}},
+    )
+
+    with (
+        patch("benchmarks._benchmark_helpers._CATALOG_ROOT", catalog),
+        patch("tuningfork.catalog.inspect.load_recipe", return_value=mock_recipe),
+        patch(
+            "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
+            return_value=mock_idata,
+        ),
+        patch(
+            "benchmarks._benchmark_helpers.extract_cell_metrics",
+            side_effect=return_vals,
+        ),
+    ):
+        per_seed = run_benchmark_cell(
+            mock_benchmark,
+            "mvn_10",
+            "low__nuts.json",
+            "fresh",
+            run_date=date(2026, 6, 1),
+        )
+
+    # Each seed's ESS should be mean(1600, 2000) = 1800
+    for s, m in per_seed.items():
+        assert m["min_bulk_ess"] == pytest.approx(
+            1800.0
+        ), f"seed {s}: expected mean ESS 1800.0, got {m['min_bulk_ess']}"
+    # runtime is summed: 1.0 + 1.2 = 2.2
+    for s, m in per_seed.items():
+        assert m["runtime_warmup_s"] == pytest.approx(
+            2.2
+        ), f"seed {s}: expected summed runtime 2.2, got {m['runtime_warmup_s']}"

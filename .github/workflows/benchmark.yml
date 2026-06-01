@@ -39,7 +39,7 @@ jobs:
   benchmark:
     name: Benchmark (${{ github.event_name }})
     runs-on: ubuntu-24.04   # pinned LTS — float tags break env fingerprinting
-    timeout-minutes: 90     # hard cap: prevents hung CI slots
+    timeout-minutes: 180    # hard cap: 7 runs/cell (1 compile-warmup + 3x2) ~2.3x prior
 
     steps:
       - name: Checkout
@@ -102,7 +102,7 @@ jobs:
             --benchmark-warmup=off \
             --benchmark-min-rounds=1 \
             --benchmark-max-time=0 \
-            --timeout=900 \
+            --timeout=1800 \
             -v \
             --tb=short \
             2>&1 | tee "${all_results_dir}/bench.log" || true

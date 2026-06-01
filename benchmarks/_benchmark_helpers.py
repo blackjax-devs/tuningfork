@@ -28,10 +28,18 @@ import pytest
 
 _CATALOG_ROOT = Path(__file__).resolve().parents[1] / "tuningfork" / "catalog"
 _N_SAMPLES = 1000  # matches recipe-cert n_samp=4000 (1000×4 chains) for z<2.0
-_Z_THRESHOLD = 4.0  # PASS gate: mock proved 2.0 false-positives hard geometries (z≤3.8)
+_Z_THRESHOLD = (
+    4.0  # PASS gate: mock proved 2.0 false-positives hard geometries (z<=3.8)
+)
 _BENCHMARK_SEED = (
     20260531  # fixed seed for reproducible runs (legacy; overridden by nightly)
 )
+
+# Per-cell JAX/blackjax-drift detection tolerances (provisional; statistician to refine)
+_JAX_DRIFT_ESS_FLOOR_FACTOR = 0.5  # warn if rerun ESS < 50% of committed recipe value
+_JAX_DRIFT_Z_DELTA = 2.0  # warn if rerun z > committed_z + 2.0
+_WITHIN_SEED_ESS_REL_TOL = 0.01  # warn if 2 warm same-seed runs differ >1% ESS
+_WITHIN_SEED_Z_ABS_TOL = 0.1  # warn if 2 warm same-seed runs differ >0.1 in z
 
 
 def bench_id(cell: tuple[str, str, str, str]) -> str:
@@ -189,6 +197,137 @@ def run_jit_warmup(seed: int = _BENCHMARK_SEED) -> None:
         pass  # best-effort; never break the benchmark run
 
 
+# ---------------------------------------------------------------------------
+# Per-cell compile-warmup and JAX-drift detection helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_committed_metrics(
+    recipe: Any,
+) -> tuple[int | None, float | None, float | None]:
+    """Extract (tuning_seed, committed_min_bulk_ess, committed_max_abs_mean_z).
+
+    Used to seed the compile-warmup run and compare the rerun against the
+    recipe's certified metrics for JAX/blackjax-drift detection.
+    """
+    tuning_seed: int | None = getattr(recipe, "tuning_seed", None)
+    gate_evidence: dict[str, Any] = getattr(recipe, "gate_evidence", None) or {}
+    gate_auto: dict[str, Any] = gate_evidence.get("auto", {}) or {}
+    committed_ess: float | None = gate_auto.get("min_bulk_ess")
+    committed_z: float | None = gate_auto.get("max_abs_mean_z")
+    return tuning_seed, committed_ess, committed_z
+
+
+def _check_jax_drift(
+    metrics: dict[str, Any],
+    committed_ess: float | None,
+    committed_z: float | None,
+    model_name: str,
+    recipe_file: str,
+) -> None:
+    """Compare rerun metrics vs committed recipe values; emit GHA warning on drift.
+
+    Drift criterion (provisional; statistician to refine):
+    - ESS drops below ``_JAX_DRIFT_ESS_FLOOR_FACTOR`` (50%) of committed value.
+    - z increases beyond ``committed_z + _JAX_DRIFT_Z_DELTA`` (2.0).
+
+    Emits ``::warning::JAX_DRIFT`` annotations (not a test failure) so CI surfaces
+    the signal without blocking the regression check.
+    """
+    cell_id = f"{model_name}/{recipe_file}"
+    ess = metrics.get("min_bulk_ess")
+    z = metrics.get("max_abs_mean_z")
+
+    drift_details: list[str] = []
+
+    if (
+        ess is not None
+        and committed_ess is not None
+        and committed_ess > 0
+        and ess < committed_ess * _JAX_DRIFT_ESS_FLOOR_FACTOR
+    ):
+        drift_details.append(
+            f"ESS={ess:.0f} vs committed={committed_ess:.0f}"
+            f" (< {_JAX_DRIFT_ESS_FLOOR_FACTOR:.0%})"
+        )
+
+    if z is not None and committed_z is not None:
+        if z > committed_z + _JAX_DRIFT_Z_DELTA:
+            drift_details.append(
+                f"z={z:.3f} vs committed={committed_z:.3f}"
+                f" (delta > {_JAX_DRIFT_Z_DELTA})"
+            )
+
+    if drift_details:
+        msg = f"JAX_DRIFT {cell_id}: " + "; ".join(drift_details)
+        print(f"::warning::{msg}")
+
+
+def _check_within_seed_determinism(
+    m1: dict[str, Any],
+    m2: dict[str, Any],
+    seed: int,
+    model_name: str,
+    recipe_file: str,
+) -> None:
+    """Log a warning when two warm same-seed runs disagree beyond tolerance.
+
+    Warm + fixed-seed runs should be fully deterministic.  Disagreement signals
+    non-determinism in JAX/XLA (e.g. parallelism, compiler changes).
+    """
+    cell_id = f"{model_name}/{recipe_file}"
+    ess1 = m1.get("min_bulk_ess")
+    ess2 = m2.get("min_bulk_ess")
+    z1 = m1.get("max_abs_mean_z")
+    z2 = m2.get("max_abs_mean_z")
+
+    if ess1 is not None and ess2 is not None:
+        ref = max(abs(ess1), abs(ess2), 1.0)
+        if abs(ess1 - ess2) / ref > _WITHIN_SEED_ESS_REL_TOL:
+            print(
+                f"::warning::DETERMINISM_WARN {cell_id} seed={seed}: "
+                f"ESS run1={ess1:.0f} run2={ess2:.0f}"
+                f" (rel diff > {_WITHIN_SEED_ESS_REL_TOL:.0%})"
+            )
+
+    if z1 is not None and z2 is not None:
+        if abs(z1 - z2) > _WITHIN_SEED_Z_ABS_TOL:
+            print(
+                f"::warning::DETERMINISM_WARN {cell_id} seed={seed}: "
+                f"z run1={z1:.3f} run2={z2:.3f}"
+                f" (abs diff > {_WITHIN_SEED_Z_ABS_TOL})"
+            )
+
+
+def _mean_metrics(m1: dict[str, Any], m2: dict[str, Any]) -> dict[str, Any]:
+    """Return the element-wise mean of two metric dicts.
+
+    Numeric values are averaged; non-numeric (None, bool, str) are taken from m1.
+    Runtime fields (``runtime_*``) are summed rather than averaged since they
+    represent total elapsed time across both runs.
+    """
+    result: dict[str, Any] = {}
+    for k in m1:
+        v1, v2 = m1.get(k), m2.get(k)
+        # Guard: bool subclasses int in Python — treat bools as non-numeric
+        is_numeric = (
+            isinstance(v1, (int, float))
+            and not isinstance(v1, bool)
+            and isinstance(v2, (int, float))
+            and not isinstance(v2, bool)
+        )
+        if is_numeric:
+            n1: float = float(v1)  # type: ignore[arg-type]
+            n2: float = float(v2)  # type: ignore[arg-type]
+            if k.startswith("runtime_"):
+                result[k] = n1 + n2  # total elapsed, not mean
+            else:
+                result[k] = (n1 + n2) / 2.0
+        else:
+            result[k] = v1
+    return result
+
+
 def run_benchmark_cell(
     benchmark: Any,
     model_name: str,
@@ -196,17 +335,27 @@ def run_benchmark_cell(
     mode: str,
     run_date: date | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Run a single benchmark cell across all 3 nightly seeds.
+    """Run a single benchmark cell with compile-warmup + 3 date-seeds x 2 warm runs.
 
-    Loops over the 3 date-derived seeds inside a single benchmark call so that:
-    - The 3 seed-runs serve as timing samples (distribution) and regression inputs.
-    - JIT is warmed once (session-scoped conftest fixture) before all seeds run warm.
-    - No shell seed-loop in CI — one ``pytest`` invocation covers all seeds.
+    Cell shape: **7 runs total** per cell.
 
-    Per-seed metrics are stored in ``benchmark.extra_info["per_seed_metrics"]``
-    keyed by seed int for downstream result persistence.
+    1. **Compile-warmup** (1 run, discarded from metrics):
+       Runs the cell with the recipe's committed ``tuning_seed`` to compile the
+       XLA executable so all date-seeds execute on a warm JIT cache.
+       The warmup-run metrics are compared to the recipe's committed
+       ``gate_evidence.auto`` values: a significant drop in ESS or spike in z
+       emits a ``::warning::JAX_DRIFT`` annotation (JAX/blackjax numeric drift).
 
-    Asserts GT-correctness (z < 4.0) for ALL seeds before returning.
+    2. **3 date-seeds x 2 warm runs** (6 runs, all warm):
+       Each seed is run twice.  Per-seed metric = mean of the 2 runs.
+       If the 2 runs of a seed disagree beyond tolerance a
+       ``::warning::DETERMINISM_WARN`` annotation is emitted (warm + fixed-seed
+       should be fully deterministic).
+
+    Per-seed means are stored in ``benchmark.extra_info["per_seed_metrics"]``
+    for downstream result persistence by ``run_nightly.py``.
+
+    GT-correctness (z < 4.0) is asserted on the per-seed mean before returning.
 
     Parameters
     ----------
@@ -231,40 +380,67 @@ def run_benchmark_cell(
     skip_warmup = mode == "calibrated"
     per_seed_metrics: dict[int, dict[str, Any]] = {}
 
-    def run_all_seeds() -> None:
-        """Inner function timed by benchmark — runs all 3 seeds sequentially."""
-        for s in seeds:
-            t0 = time.perf_counter()
-            idata = run_recipe_to_idata(
-                recipe,
-                skip_warmup=skip_warmup,
-                n_samples=_N_SAMPLES,
-                force_resample_config=(
-                    None if skip_warmup else {"seed": s, "n_samples": _N_SAMPLES}
-                ),
-                _suppress_print=True,
-            )
-            t_run = time.perf_counter() - t0
-            per_seed_metrics[s] = extract_cell_metrics(
-                idata,
-                model_name,
-                warmup_wall_s=t_run,
-            )
+    # ------------------------------------------------------------------
+    # Step 1: compile-warmup with recipe's committed tuning_seed.
+    # Outside the benchmark() call — not timed, result discarded.
+    # Best-effort: never break the benchmark run on warmup failure.
+    # ------------------------------------------------------------------
+    tuning_seed, committed_ess, committed_z = _get_committed_metrics(recipe)
+    compile_seed = tuning_seed if tuning_seed is not None else seeds[0]
+    try:
+        idata_warmup = run_recipe_to_idata(
+            recipe,
+            skip_warmup=skip_warmup,
+            n_samples=_N_SAMPLES,
+            force_resample_config={"seed": compile_seed, "n_samples": _N_SAMPLES},
+            _suppress_print=True,
+        )
+        warmup_metrics = extract_cell_metrics(idata_warmup, model_name)
+        _check_jax_drift(
+            warmup_metrics, committed_ess, committed_z, model_name, recipe_file
+        )
+    except Exception:  # noqa: BLE001
+        pass  # compile-warmup is best-effort; proceed to seed runs regardless
 
-    # Measure the 3-seed block as one timed unit.
-    # With --benchmark-min-rounds=1 --benchmark-max-time=0 this runs exactly once.
+    # ------------------------------------------------------------------
+    # Step 2: 3 date-seeds x 2 warm runs each.
+    # Timed by benchmark() as a single block.
+    # With --benchmark-min-rounds=1 --benchmark-max-time=0 runs exactly once.
+    # ------------------------------------------------------------------
+    def run_all_seeds() -> None:
+        """3 seeds x 2 warm runs; per-seed metric = mean of the pair."""
+        for s in seeds:
+            runs: list[dict[str, Any]] = []
+            for _ in range(2):
+                t0 = time.perf_counter()
+                idata = run_recipe_to_idata(
+                    recipe,
+                    skip_warmup=skip_warmup,
+                    n_samples=_N_SAMPLES,
+                    force_resample_config=(
+                        None if skip_warmup else {"seed": s, "n_samples": _N_SAMPLES}
+                    ),
+                    _suppress_print=True,
+                )
+                t_run = time.perf_counter() - t0
+                runs.append(
+                    extract_cell_metrics(idata, model_name, warmup_wall_s=t_run)
+                )
+            _check_within_seed_determinism(runs[0], runs[1], s, model_name, recipe_file)
+            per_seed_metrics[s] = _mean_metrics(runs[0], runs[1])
+
     benchmark(run_all_seeds)
 
-    # Assert correctness for all seeds
+    # Assert GT-correctness on per-seed means
     for s, metrics in per_seed_metrics.items():
         z = metrics.get("max_abs_mean_z")
         if z is not None:
             assert z < _Z_THRESHOLD, (
                 f"GT-correctness FAILED for {model_name}/{recipe_file} ({mode}) "
-                f"seed={s}: max_abs_mean_z={z:.3f} ≥ {_Z_THRESHOLD}"
+                f"seed={s}: max_abs_mean_z={z:.3f} >= {_Z_THRESHOLD}"
             )
 
-    # Store per-seed metrics in extra_info for workflow result persistence
+    # Store per-seed means in extra_info for workflow result persistence
     benchmark.extra_info["per_seed_metrics"] = {
         str(s): m for s, m in per_seed_metrics.items()
     }
