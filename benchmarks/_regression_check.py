@@ -1,22 +1,33 @@
 """Cross-date regression check for the nightly benchmark suite.
 
-Implements the locked criterion from worklog/threads/benchmark-regression-criterion.md:
+Implements the revised criterion from worklog/threads/benchmark-regression-criterion.md
+(§ MOCK VALIDATION RESULTS — mock superseded the pre-mock 0/1/2 exact-comparison scheme).
+
+**Revised criterion:**
 
 Primary signal (correctness):
-  ANY cell at ANY seed: max_abs_mean_z >= 4.0 → immediate REGRESSION FAIL
+  ANY cell at ANY seed: max_abs_mean_z >= 4.0 → REGRESSION or ENVIRONMENT_DRIFT
+  (Single seed is sufficient — correctness is binary; if the sampler targets the
+  wrong distribution, even one seed proves it.)
+
+  Environment triage:
+    - If z≥4.0 AND today's env fingerprint matches prior night → REGRESSION
+    - If z≥4.0 AND env changed (jax_version or runner_image) → ENVIRONMENT_DRIFT
 
 Secondary signal (ESS trend):
   min_bulk_ess < 50% of prior-3-night median for ≥ 2/3 seeds → REVIEW flag
 
-Environment disambiguation:
-  If env fingerprint changed (jax_version OR runner_image) between today and prior:
-  → label deviation as ENVIRONMENT_DRIFT, not REGRESSION
+**DROPPED from 1-to-1 comparison (mock proved unreliable):**
+  n_divergences, total_grad_evals, min_bulk_ess, max_abs_mean_z direct prev-vs-today
+  comparison — these drift 5-63% and ±1.0 abs between same-seed runs due to
+  JIT non-determinism + NUTS U-turn variance. Exact comparison produces a false
+  REGRESSION every night.
 
 Verdict:
-  0/2 overlap seeds deviate  → GREEN  (no action)
-  1/2 deviate                → REVIEW (GH Actions annotation ⚠️)
-  2/2 same-env deviate       → REGRESSION (GH step FAIL + auto-issue)
-  2/2 env-changed            → ENVIRONMENT_DRIFT (annotation only)
+  GREEN           — no signal (correctness passes, ESS stable)
+  REVIEW          — ESS-trend drop ≥2/3 seeds (secondary signal only)
+  REGRESSION      — z≥4.0 on any seed, same env as prior night
+  ENVIRONMENT_DRIFT — z≥4.0 on any seed, but env fingerprint changed
 """
 
 from __future__ import annotations
@@ -26,11 +37,10 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-# Tolerance thresholds (from criterion spec)
-_EXACT_TOL = 1e-4  # 0.01% relative tolerance for exact metrics
-_RUNTIME_TOL = 0.30  # 30% relative tolerance for soft runtime flag
-_ESS_TREND_THRESHOLD = 0.50  # <50% of 3-night median → ESS trend flag
-_Z_THRESHOLD = 4.0  # primary correctness gate (same as _benchmark_helpers)
+# Correctness gate (matches _benchmark_helpers._Z_THRESHOLD)
+_Z_THRESHOLD = 4.0
+# ESS-trend secondary signal
+_ESS_TREND_THRESHOLD = 0.50  # <50% of 3-night median → flag
 
 
 @dataclass
@@ -40,7 +50,6 @@ class RegressionResult:
     verdict: str  # "GREEN", "REVIEW", "REGRESSION", "ENVIRONMENT_DRIFT"
     details: list[str] = field(default_factory=list)
     correctness_fail: bool = False  # any z ≥ 4.0 (single-seed)
-    seeds_deviated: int = 0
     env_drifted: bool = False
 
 
@@ -52,78 +61,58 @@ def _env_changed(today_env: dict, prior_env: dict) -> bool:
     return False
 
 
-def _metric_deviated(today_val: Any, prior_val: Any, tol: float = _EXACT_TOL) -> bool:
-    """Return True if the metric deviated beyond tolerance."""
-    if today_val is None or prior_val is None:
-        return False
-    try:
-        denom = max(1.0, abs(float(prior_val)))
-        return abs(float(today_val) - float(prior_val)) / denom > tol
-    except (TypeError, ValueError):
-        return False
-
-
-def check_seed_pair(
-    today_result: dict[str, Any],
-    prior_result: dict[str, Any],
-) -> tuple[bool, bool, list[str]]:
-    """Check one overlapping seed for deviations.
-
-    Returns (seed_deviated, env_changed, details_lines).
-    """
-    details: list[str] = []
-    deviated = False
-
-    today_env = today_result.get("env", {})
-    prior_env = prior_result.get("env", {})
-    env_changed = _env_changed(today_env, prior_env)
-
-    today_cells = today_result.get("cells", {})
-    prior_cells = prior_result.get("cells", {})
-
-    for cell_id in today_cells:
-        if cell_id not in prior_cells:
-            continue
-        tc = today_cells[cell_id]
-        pc = prior_cells[cell_id]
-
-        # z-score: any deviation → flag (directional signal, not just threshold)
-        if _metric_deviated(tc.get("max_abs_mean_z"), pc.get("max_abs_mean_z")):
-            deviated = True
-            details.append(
-                f"  {cell_id}: max_abs_mean_z "
-                f"{pc.get('max_abs_mean_z')!r} → {tc.get('max_abs_mean_z')!r}"
-            )
-
-        # ESS: any meaningful drop
-        if _metric_deviated(tc.get("min_bulk_ess"), pc.get("min_bulk_ess")):
-            deviated = True
-            details.append(
-                f"  {cell_id}: min_bulk_ess "
-                f"{pc.get('min_bulk_ess')!r} → {tc.get('min_bulk_ess')!r}"
-            )
-
-    return deviated, env_changed, details
-
-
 def check_correctness(
     today_result: dict[str, Any],
-) -> tuple[bool, list[str]]:
-    """Primary signal: any cell with max_abs_mean_z >= 4.0 → immediate FAIL.
+    prior_result: dict[str, Any] | None = None,
+) -> tuple[bool, bool, list[str]]:
+    """Primary signal: any cell with max_abs_mean_z >= 4.0 → correctness fail.
 
-    Returns (correctness_failed, details).
+    Also performs ENVIRONMENT_DRIFT triage: if z≥4 fires AND env changed vs
+    prior night, it's environment drift — not a blackjax regression.
+
+    Parameters
+    ----------
+    today_result
+        Result dict for one seed run today.
+    prior_result
+        Prior-night result for the SAME seed (from benchmark-results branch).
+        If None (bootstrap night), env triage is skipped.
+
+    Returns
+    -------
+    (correctness_failed, env_drifted, details)
+        correctness_failed: True if any cell z ≥ 4.0
+        env_drifted: True if z≥4 BUT env fingerprint changed vs prior
+        details: list of human-readable strings
     """
     cells = today_result.get("cells", {})
-    failed = False
+    correctness_failed = False
+    env_drifted_on_fail = False
     details: list[str] = []
+
+    today_env = today_result.get("env", {})
+    prior_env = prior_result.get("env", {}) if prior_result is not None else None
+
     for cell_id, metrics in cells.items():
         z = metrics.get("max_abs_mean_z")
         if z is not None and z >= _Z_THRESHOLD:
-            failed = True
-            details.append(
-                f"  CORRECTNESS FAIL: {cell_id} max_abs_mean_z={z:.3f} ≥ {_Z_THRESHOLD}"
-            )
-    return failed, details
+            correctness_failed = True
+
+            # Env triage: classify REGRESSION vs ENVIRONMENT_DRIFT
+            if prior_env is not None and _env_changed(today_env, prior_env):
+                env_drifted_on_fail = True
+                details.append(
+                    f"  z≥{_Z_THRESHOLD} on {cell_id} (z={z:.3f}) BUT env changed "
+                    f"jax {prior_env.get('jax_version')!r}→{today_env.get('jax_version')!r} "
+                    f"runner {prior_env.get('runner_image')!r}→{today_env.get('runner_image')!r} "
+                    f"→ ENVIRONMENT_DRIFT"
+                )
+            else:
+                details.append(
+                    f"  CORRECTNESS FAIL: {cell_id} max_abs_mean_z={z:.3f} ≥ {_Z_THRESHOLD}"
+                )
+
+    return correctness_failed, env_drifted_on_fail, details
 
 
 def check_ess_trend(
@@ -159,7 +148,6 @@ def check_ess_trend(
     if not ess_medians:
         return False, []
 
-    # Check how many of today's seeds are below 50% threshold
     seeds_below = 0
     details: list[str] = []
     for result in today_results:
@@ -189,7 +177,12 @@ def run_regression_check(
     prior_results_by_seed: dict[int, dict[str, Any]],
     recent_results: list[dict[str, Any]] | None = None,
 ) -> RegressionResult:
-    """Full regression check: correctness + exact-metric comparison + ESS trend.
+    """Full regression check: correctness (primary) + ESS trend (secondary).
+
+    The pre-mock 0/2/1/2/2/2 exact-metric comparison (``check_seed_pair``) was
+    removed: ESS and z drift 5-63% between same-seed runs due to JIT
+    non-determinism and NUTS U-turn variance, producing false REGRESSIONs nightly.
+    Only the correctness gate (z≥4 per-seed) and ESS trend are reliable signals.
 
     Parameters
     ----------
@@ -197,6 +190,7 @@ def run_regression_check(
         List of result dicts for the 3 seeds run today.
     prior_results_by_seed
         Dict mapping seed → prior result dict (from the benchmark-results branch).
+        Used ONLY for env-fingerprint triage of correctness failures.
     recent_results
         Last 3 stored results for ESS-trend baseline.  If None, trend check skipped.
 
@@ -205,56 +199,35 @@ def run_regression_check(
     RegressionResult
     """
     result = RegressionResult(verdict="GREEN")
+    any_env_drifted = False
 
-    # Primary: correctness check (any z ≥ 4.0 on any seed → immediate FAIL)
+    # Primary: correctness check with env-drift triage per seed
     for tr in today_results:
-        failed, c_details = check_correctness(tr)
+        seed = tr.get("seed")
+        prior = prior_results_by_seed.get(int(seed)) if seed is not None else None
+        failed, env_drifted, c_details = check_correctness(tr, prior)
         if failed:
             result.correctness_fail = True
             result.details.extend(c_details)
-            result.verdict = "REGRESSION"
-
-    # Exact-metric cross-seed comparison
-    seeds_deviated = 0
-    any_env_changed = False
-    for tr in today_results:
-        seed = tr.get("seed")
-        if seed is None:
-            continue
-        pr = prior_results_by_seed.get(int(seed))
-        if pr is None:
-            continue  # no prior for this seed (bootstrap night)
-        deviated, env_chg, details = check_seed_pair(tr, pr)
-        if deviated:
-            seeds_deviated += 1
-            result.details.extend(details)
-        if env_chg:
-            any_env_changed = True
-
-    result.seeds_deviated = seeds_deviated
-    result.env_drifted = any_env_changed
-
-    # Set verdict (don't downgrade from REGRESSION)
-    if result.verdict != "REGRESSION":
-        if seeds_deviated >= 2:
-            if any_env_changed:
-                result.verdict = "ENVIRONMENT_DRIFT"
-                result.details.insert(
-                    0,
-                    "  2/2 seeds deviated but env changed → ENVIRONMENT_DRIFT (not REGRESSION)",
-                )
+            if env_drifted:
+                any_env_drifted = True
             else:
+                # At least one correctness fail with same env → REGRESSION
                 result.verdict = "REGRESSION"
-        elif seeds_deviated == 1:
-            result.verdict = "REVIEW"
 
-    # Secondary: ESS trend (additive flag — doesn't upgrade GREEN beyond REVIEW)
-    if recent_results is not None:
+    # If correctness fired but ALL failures were env-drifted → ENVIRONMENT_DRIFT
+    if result.correctness_fail and result.verdict != "REGRESSION":
+        result.verdict = "ENVIRONMENT_DRIFT"
+        result.env_drifted = True
+    elif result.env_drifted is False and any_env_drifted:
+        result.env_drifted = True
+
+    # Secondary: ESS trend (additive — only upgrades GREEN to REVIEW)
+    if recent_results is not None and result.verdict == "GREEN":
         ess_flagged, ess_details = check_ess_trend(today_results, recent_results)
         if ess_flagged:
             result.details.extend(ess_details)
-            if result.verdict == "GREEN":
-                result.verdict = "REVIEW"
+            result.verdict = "REVIEW"
 
     return result
 
@@ -286,14 +259,9 @@ def exit_with_verdict(result: RegressionResult) -> int:
     emit_gha_annotations(result)
     if result.verdict == "REGRESSION":
         print(
-            f"\nBENCHMARK REGRESSION DETECTED (seeds_deviated={result.seeds_deviated}, "
-            f"correctness_fail={result.correctness_fail})",
+            f"\nBENCHMARK REGRESSION DETECTED (correctness_fail={result.correctness_fail})",
             file=sys.stderr,
         )
         return 1
-    print(
-        f"\nBenchmark check: {result.verdict} "
-        f"(seeds_deviated={result.seeds_deviated})",
-        file=sys.stderr,
-    )
+    print(f"\nBenchmark check: {result.verdict}", file=sys.stderr)
     return 0

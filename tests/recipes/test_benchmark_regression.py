@@ -112,123 +112,137 @@ def test_get_nightly_seeds_year_boundary() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Regression check — correctness primary signal
+# Correctness primary signal with env-drift triage
 # ---------------------------------------------------------------------------
 
 
-def _make_result(seed: int, cells: dict) -> dict:
+def _result(seed: int, cells: dict, jax_ver: str = "0.10.1") -> dict:
     return {
         "seed": seed,
         "date": "2026-06-01",
-        "env": {"jax_version": "0.10.1", "runner_image": "ubuntu-24.04"},
+        "env": {"jax_version": jax_ver, "runner_image": "ubuntu-24.04"},
         "cells": cells,
     }
 
 
 def test_correctness_pass() -> None:
-    r = _make_result(20260601, {"cell1": {"max_abs_mean_z": 3.5}})
-    failed, _ = check_correctness(r)
+    r = _result(1, {"c1": {"max_abs_mean_z": 3.9}})
+    failed, env_drift, _ = check_correctness(r)
     assert not failed
 
 
-def test_correctness_fail_z_above_threshold() -> None:
-    r = _make_result(20260601, {"cell1": {"max_abs_mean_z": 4.1}})
-    failed, details = check_correctness(r)
+def test_correctness_fail_at_threshold() -> None:
+    """z >= 4.0 fires (inclusive)."""
+    r = _result(1, {"c1": {"max_abs_mean_z": 4.0}})
+    failed, _, details = check_correctness(r)
     assert failed
     assert "CORRECTNESS FAIL" in details[0]
 
 
-def test_correctness_exact_threshold() -> None:
-    """z >= 4.0 is a FAIL (criterion: max_abs_mean_z >= 4.0 → REGRESSION)."""
-    r_at = _make_result(1, {"c": {"max_abs_mean_z": 4.0}})  # exactly at threshold
-    r_above = _make_result(1, {"c": {"max_abs_mean_z": 4.001}})  # above threshold
-    r_below = _make_result(1, {"c": {"max_abs_mean_z": 3.999}})  # below threshold
-    assert check_correctness(r_at)[0], "z == 4.0 must trigger FAIL (>= threshold)"
-    assert check_correctness(r_above)[0], "z > 4.0 must trigger FAIL"
-    assert not check_correctness(r_below)[0], "z < 4.0 must NOT trigger FAIL"
+def test_correctness_fail_above_threshold() -> None:
+    r = _result(1, {"c1": {"max_abs_mean_z": 4.5}})
+    failed, _, _ = check_correctness(r)
+    assert failed
+
+
+def test_correctness_env_drift_triage() -> None:
+    """z≥4 but env changed → env_drifted=True, NOT a regression label."""
+    today = _result(1, {"c1": {"max_abs_mean_z": 4.2}}, jax_ver="0.10.2")
+    prior = _result(1, {"c1": {"max_abs_mean_z": 0.3}}, jax_ver="0.10.1")
+    failed, env_drifted, details = check_correctness(today, prior)
+    assert failed
+    assert env_drifted
+    assert "ENVIRONMENT_DRIFT" in details[0]
+
+
+def test_correctness_same_env_no_drift() -> None:
+    """z≥4 with same env → not env_drifted → caller emits REGRESSION."""
+    today = _result(1, {"c1": {"max_abs_mean_z": 4.2}}, jax_ver="0.10.1")
+    prior = _result(1, {"c1": {"max_abs_mean_z": 0.3}}, jax_ver="0.10.1")
+    failed, env_drifted, details = check_correctness(today, prior)
+    assert failed
+    assert not env_drifted
+    assert "CORRECTNESS FAIL" in details[0]
+
+
+def test_correctness_no_prior_same_env_assumed() -> None:
+    """Bootstrap night (no prior) → z≥4 → no env triage → REGRESSION."""
+    today = _result(1, {"c1": {"max_abs_mean_z": 4.2}})
+    failed, env_drifted, _ = check_correctness(today, None)
+    assert failed
+    assert not env_drifted  # no prior → no env comparison → treat as REGRESSION
 
 
 # ---------------------------------------------------------------------------
-# Regression check — 0/2 / 1/2 / 2/2 verdicts
+# run_regression_check — full verdicts
 # ---------------------------------------------------------------------------
 
-_STABLE_CELLS = {
-    "cell1": {"max_abs_mean_z": 0.5, "min_bulk_ess": 2000.0},
-}
-_DEVIATED_CELLS = {
-    "cell1": {"max_abs_mean_z": 1.5, "min_bulk_ess": 500.0},  # significant change
-}
+_PASS_CELLS = {"c1": {"max_abs_mean_z": 0.5, "min_bulk_ess": 2000.0}}
+_FAIL_CELLS = {"c1": {"max_abs_mean_z": 4.5, "min_bulk_ess": 2000.0}}
 
 
-def test_regression_check_green_0_of_2() -> None:
-    """0/2 seeds deviate → GREEN."""
-    today = [_make_result(s, _STABLE_CELLS) for s in [20260531, 20260601, 20260602]]
-    priors = {
-        20260531: _make_result(20260531, _STABLE_CELLS),
-        20260601: _make_result(20260601, _STABLE_CELLS),
-    }
-    result = run_regression_check(today, priors)
+def test_run_regression_check_green() -> None:
+    """All z < 4.0, no ESS trend → GREEN."""
+    today = [_result(s, _PASS_CELLS) for s in [20260531, 20260601, 20260602]]
+    result = run_regression_check(today, {})
     assert result.verdict == "GREEN"
-    assert result.seeds_deviated == 0
+    assert not result.correctness_fail
 
 
-def test_regression_check_review_1_of_2() -> None:
-    """1/2 overlapping seeds deviate → REVIEW."""
-    today_cells_1 = {"cell1": {"max_abs_mean_z": 1.5, "min_bulk_ess": 300.0}}
-    today = [
-        _make_result(20260531, today_cells_1),  # overlapping seed deviated
-        _make_result(20260601, _STABLE_CELLS),  # overlapping seed stable
-        _make_result(20260602, _STABLE_CELLS),
-    ]
-    priors = {
-        20260531: _make_result(20260531, _STABLE_CELLS),
-        20260601: _make_result(20260601, _STABLE_CELLS),
-    }
-    result = run_regression_check(today, priors)
-    assert result.verdict == "REVIEW"
-    assert result.seeds_deviated == 1
-
-
-def test_regression_check_regression_2_of_2_same_env() -> None:
-    """2/2 seeds deviate with same env → REGRESSION."""
-    today = [_make_result(s, _DEVIATED_CELLS) for s in [20260531, 20260601, 20260602]]
-    priors = {
-        20260531: _make_result(20260531, _STABLE_CELLS),
-        20260601: _make_result(20260601, _STABLE_CELLS),
-    }
-    result = run_regression_check(today, priors)
+def test_run_regression_check_regression_same_env() -> None:
+    """z≥4, same env as prior → REGRESSION."""
+    today = [_result(20260601, _FAIL_CELLS)]
+    prior = {20260601: _result(20260601, _PASS_CELLS)}
+    result = run_regression_check(today, prior)
     assert result.verdict == "REGRESSION"
-    assert result.seeds_deviated == 2
+    assert result.correctness_fail
     assert not result.env_drifted
 
 
-def test_regression_check_env_drift_not_regression() -> None:
-    """2/2 seeds deviate but env changed → ENVIRONMENT_DRIFT (not REGRESSION)."""
-
-    def make_env_result(seed, cells, jax_ver):
-        r = _make_result(seed, cells)
-        r["env"]["jax_version"] = jax_ver
-        return r
-
-    today = [
-        make_env_result(s, _DEVIATED_CELLS, "0.10.2")
-        for s in [20260531, 20260601, 20260602]
-    ]
-    priors = {
-        20260531: make_env_result(20260531, _STABLE_CELLS, "0.10.1"),
-        20260601: make_env_result(20260601, _STABLE_CELLS, "0.10.1"),
+def test_run_regression_check_environment_drift() -> None:
+    """z≥4 on ALL seeds, but env changed → ENVIRONMENT_DRIFT (not REGRESSION)."""
+    today = [_result(s, _FAIL_CELLS, jax_ver="0.10.2") for s in [20260601, 20260602]]
+    prior = {
+        20260601: _result(20260601, _PASS_CELLS, jax_ver="0.10.1"),
+        20260602: _result(20260602, _PASS_CELLS, jax_ver="0.10.1"),
     }
-    result = run_regression_check(today, priors)
+    result = run_regression_check(today, prior)
     assert result.verdict == "ENVIRONMENT_DRIFT"
+    assert result.correctness_fail
     assert result.env_drifted
 
 
-def test_regression_check_bootstrap_night_no_priors() -> None:
-    """Bootstrap night (no priors) → GREEN."""
-    today = [_make_result(s, _STABLE_CELLS) for s in [20260531, 20260601, 20260602]]
+def test_run_regression_check_mixed_env() -> None:
+    """z≥4 on one seed (same env) + z≥4 on another (env changed) → REGRESSION.
+
+    A single same-env correctness failure is sufficient for REGRESSION regardless
+    of other seeds' env status.
+    """
+    today = [
+        _result(20260531, _FAIL_CELLS, jax_ver="0.10.1"),  # same env → REGRESSION
+        _result(20260601, _FAIL_CELLS, jax_ver="0.10.2"),  # env changed
+    ]
+    prior = {
+        20260531: _result(20260531, _PASS_CELLS, jax_ver="0.10.1"),
+        20260601: _result(20260601, _PASS_CELLS, jax_ver="0.10.1"),
+    }
+    result = run_regression_check(today, prior)
+    assert result.verdict == "REGRESSION"
+
+
+def test_run_regression_check_bootstrap_no_priors() -> None:
+    """Bootstrap night (no priors, z passes) → GREEN."""
+    today = [_result(s, _PASS_CELLS) for s in [20260531, 20260601, 20260602]]
     result = run_regression_check(today, {})
     assert result.verdict == "GREEN"
-    assert result.seeds_deviated == 0
+
+
+def test_run_regression_check_bootstrap_z_fail_no_prior() -> None:
+    """Bootstrap night (no priors, z fails) → REGRESSION (no env to compare)."""
+    today = [_result(20260601, _FAIL_CELLS)]
+    result = run_regression_check(today, {})
+    assert result.verdict == "REGRESSION"
+    assert result.correctness_fail
 
 
 # ---------------------------------------------------------------------------
@@ -238,27 +252,36 @@ def test_regression_check_bootstrap_night_no_priors() -> None:
 
 def test_ess_trend_skips_with_few_prior_nights() -> None:
     """Fewer than 2 prior nights → trend check skipped."""
-    today = [_make_result(s, {"c": {"min_bulk_ess": 100.0}}) for s in range(3)]
-    flagged, details = check_ess_trend(today, [])  # empty recent
+    today = [_result(s, {"c": {"min_bulk_ess": 100.0}}) for s in range(3)]
+    flagged, details = check_ess_trend(today, [])
     assert not flagged
     assert any("too few" in d for d in details)
 
 
 def test_ess_trend_flags_large_drop() -> None:
     """ESS drops to <50% of 3-night median for 2+ seeds → flagged."""
-    high_ess_cells = {"c1": {"min_bulk_ess": 2000.0}}
-    low_ess_cells = {"c1": {"min_bulk_ess": 100.0}}  # ~5% of 2000
-
-    recent = [_make_result(s, high_ess_cells) for s in [20260528, 20260529, 20260530]]
-    today = [_make_result(s, low_ess_cells) for s in [20260531, 20260601, 20260602]]
-    flagged, details = check_ess_trend(today, recent)
+    high_ess = {"c1": {"min_bulk_ess": 2000.0}}
+    low_ess = {"c1": {"min_bulk_ess": 100.0}}
+    recent = [_result(s, high_ess) for s in [20260528, 20260529, 20260530]]
+    today = [_result(s, low_ess) for s in [20260531, 20260601, 20260602]]
+    flagged, _ = check_ess_trend(today, recent)
     assert flagged
 
 
 def test_ess_trend_stable_not_flagged() -> None:
-    """ESS stable at same level → not flagged."""
+    """ESS stable → not flagged."""
     cells = {"c1": {"min_bulk_ess": 2000.0}}
-    recent = [_make_result(s, cells) for s in [20260528, 20260529, 20260530]]
-    today = [_make_result(s, cells) for s in [20260531, 20260601, 20260602]]
+    recent = [_result(s, cells) for s in [20260528, 20260529, 20260530]]
+    today = [_result(s, cells) for s in [20260531, 20260601, 20260602]]
     flagged, _ = check_ess_trend(today, recent)
     assert not flagged
+
+
+def test_ess_trend_review_only_when_green() -> None:
+    """ESS trend adds REVIEW only when verdict would otherwise be GREEN."""
+    low_ess = {"c1": {"min_bulk_ess": 100.0}}
+    high_ess = {"c1": {"min_bulk_ess": 2000.0}}
+    recent = [_result(s, high_ess) for s in [20260528, 20260529, 20260530]]
+    today = [_result(s, low_ess) for s in [20260531, 20260601, 20260602]]
+    result = run_regression_check(today, {}, recent_results=recent)
+    assert result.verdict == "REVIEW"
