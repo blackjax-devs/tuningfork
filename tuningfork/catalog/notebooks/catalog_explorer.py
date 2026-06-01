@@ -69,7 +69,8 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md("""
+    mo.md(
+        """
     # Tuningfork Catalog Explorer
 
     Interactive notebook for browsing the 14-model BlackJAX/tuningfork catalog.
@@ -82,7 +83,8 @@ def _(mo):
     See [catalog README](../README.md) for the broader API + the
     [headline_params decision doc](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-18-headline-params-per-model.md)
     for what counts as "headline" per model.
-    """)
+    """
+    )
     return
 
 
