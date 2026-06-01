@@ -73,20 +73,8 @@ jobs:
 
       - name: Compute nightly seeds (informational)
         id: seeds
-        run: |
-          python3 -c "
-          from datetime import date, timedelta
-          import os
-          d = date.today()
-          seeds = [
-              int((d - timedelta(days=1)).strftime('%Y%m%d')),
-              int(d.strftime('%Y%m%d')),
-              int((d + timedelta(days=1)).strftime('%Y%m%d')),
-          ]
-          print(f'Nightly seeds (computed inside benchmark): {seeds}')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'seeds={\" \".join(str(s) for s in seeds)}\n')
-          "
+        # Seeds are derived inside run_nightly.py; this step is informational only.
+        run: JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -m benchmarks.run_nightly --print-seeds
 
       - name: Select benchmark suite
         id: suite
@@ -125,80 +113,9 @@ jobs:
         if: github.event_name == 'schedule'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BENCHMARK_SEEDS: ${{ steps.seeds.outputs.seeds }}
         run: |
-          JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -c "
-          import json
-          import os
-          import sys
-          from datetime import date
-          from pathlib import Path
-
-          sys.path.insert(0, '.')
-          from benchmarks._result_persistence import store_result, load_prior_result, load_recent_results, get_env_fingerprint
-          from benchmarks._regression_check import run_regression_check, exit_with_verdict
-          from benchmarks._benchmark_helpers import get_nightly_seeds
-
-          results_dir = Path('${{ steps.bench.outputs.all_results_dir }}')
-          run_date = date.today()
-          seeds = get_nightly_seeds(run_date)
-
-          # --- Parse per-seed results from extra_info['per_seed_metrics'] ---
-          # Each benchmark cell stores {seed: metrics} in extra_info.
-          # We reconstruct per-seed result dicts for store + regression check.
-          bench_file = results_dir / 'bench_results.json'
-          if not bench_file.exists():
-              print('ERROR: bench_results.json not found', file=sys.stderr)
-              sys.exit(1)
-
-          raw = json.loads(bench_file.read_text())
-          env = get_env_fingerprint()
-
-          # Aggregate: {seed: {cell_id: metrics}}
-          seed_cells: dict[int, dict] = {s: {} for s in seeds}
-          for bm in raw.get('benchmarks', []):
-              cell_id = bm.get('name', 'unknown')
-              per_seed = bm.get('extra_info', {}).get('per_seed_metrics', {})
-              for seed_str, metrics in per_seed.items():
-                  try:
-                      seed = int(seed_str)
-                  except ValueError:
-                      continue
-                  if seed in seed_cells:
-                      seed_cells[seed][cell_id] = metrics
-
-          today_results = []
-          for seed, cells in seed_cells.items():
-              if cells:
-                  today_results.append({
-                      'seed': seed,
-                      'date': run_date.isoformat(),
-                      'env': env,
-                      'cells': cells,
-                  })
-
-          # --- Load prior results for env-drift triage ---
-          prior_results = {}
-          for seed in list(seeds)[:2]:  # {date-1, date} overlap seeds
-              r = load_prior_result(seed)
-              if r is not None:
-                  prior_results[seed] = r
-
-          recent = load_recent_results(n=3)
-
-          # --- Store today's results ---
-          for result in today_results:
-              store_result(result['seed'], result['cells'], run_date)
-              print(f'Stored seed={result[\"seed\"]} ({len(result[\"cells\"])} cells)', flush=True)
-
-          # --- Run regression check ---
-          if not prior_results:
-              print('Bootstrap night — no priors; storing results only.', flush=True)
-              sys.exit(0)
-
-          reg_result = run_regression_check(today_results, prior_results, recent)
-          sys.exit(exit_with_verdict(reg_result))
-          "
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -m benchmarks.run_nightly \
+            --results-dir "${{ steps.bench.outputs.all_results_dir }}"
 
       - name: Upload benchmark results
         if: always()
