@@ -37,7 +37,9 @@
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
-    }
+    },
+    "warmup_grad_evals": 40000,
+    "warmup_grad_evals_is_estimate": true
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.7038652300834656, 'inverse_mass_matrix': [11.508731842041016, 1.1896836757659912]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0107.\nWall time to produce this recipe: ~28 s (machine-only).",

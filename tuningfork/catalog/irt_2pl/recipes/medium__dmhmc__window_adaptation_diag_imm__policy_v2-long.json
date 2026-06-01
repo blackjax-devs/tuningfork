@@ -24,7 +24,8 @@
     "sampling_wall_seconds": null,
     "sampling_seconds_per_draw": null,
     "split_source": null,
-    "machine_info": null
+    "machine_info": null,
+    "warmup_grad_evals": 364725
   },
   "difficulty": null,
   "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) \u2014 step_policy {'kind': 'uniform_int', 'low': 50, 'high': 200}.\nREVIEW gate approved by statistician (Bonferroni): z=2.849 < z*=3.87 for k=144 sites.",

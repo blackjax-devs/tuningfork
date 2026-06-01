@@ -79,7 +79,7 @@ def _runner(
     is_mass_matrix_diagonal: bool = True,
     num_chains: int = 4,
     **kwargs: Any,
-) -> tuple[Any, dict[str, Any]]:
+) -> tuple[Any, dict[str, Any], Any]:
     """Run blackjax.window_adaptation over ``num_chains`` chains via vmap.
 
     Parameters
@@ -170,18 +170,20 @@ def _runner(
     init_positions = _maybe_replicate(init_position, num_chains)
 
     # vmap the warmup.run over (key, init_position).
+    # Return adapt_info.info (per-step kernel info: NUTSInfo / HMCInfo) as a
+    # third value so callers can CUMSUM num_integration_steps for exact wge.
     @jax.vmap
-    def run_one(k: jax.Array, x0: Any) -> tuple[Any, Any]:
-        (state, params), _info = warmup.run(k, x0, n_warmup)
-        return state, params
+    def run_one(k: jax.Array, x0: Any) -> tuple[Any, Any, Any]:
+        (state, params), adapt_info = warmup.run(k, x0, n_warmup)
+        return state, params, adapt_info.info
 
-    states, adapted_params = run_one(chain_keys, init_positions)
-    return states, dict(adapted_params)
+    states, adapted_params, kernel_info = run_one(chain_keys, init_positions)
+    return states, dict(adapted_params), kernel_info
 
 
 ENTRY = Warmup(
     name="window_adaptation_diag_imm",
-    runner=_runner,
+    runner=_runner,  # type: ignore[arg-type]
     compatible_methods=(
         "hmc",
         "nuts",

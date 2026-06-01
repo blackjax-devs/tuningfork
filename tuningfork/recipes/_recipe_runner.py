@@ -233,6 +233,7 @@ class CellResult:
         gate_n_div: int | None = None,
         wall_seconds: float = 0.0,
         note: str = "",
+        warmup_grad_evals: int | None = None,
     ):
         self.model_name = model_name
         self.warmup_name = warmup_name
@@ -245,6 +246,9 @@ class CellResult:
         self.gate_n_div = gate_n_div
         self.wall_seconds = wall_seconds
         self.note = note
+        # Exact warmup gradient evaluations (gate-independent — populated whenever
+        # warmup completes successfully, regardless of subsequent sampling verdict).
+        self.warmup_grad_evals = warmup_grad_evals
 
     def __repr__(self) -> str:
         return (
@@ -549,12 +553,15 @@ def _compute_warmup_grad_evals(
        family): the mclmc-specific warmup runner returns this metadata key.
        It is the total number of integrator steps across all chains.
 
-    2. ``batched_warmup_info.num_integration_steps`` (inner-kernel warmup):
-       when ``warmup_inner_kernel`` is set, the warmup trace carries per-step
-       NIS.  Sum over all steps × chains.
+    2. ``batched_warmup_info.num_integration_steps`` — exact CUMSUM of per-step
+       NIS.  For standard window adaptation, the runner now returns ``adapt_info.info``
+       (NUTSInfo / HMCInfo with per-step counts) as the third element.  For
+       inner-kernel warmup (``warmup_inner_kernel`` set), the warmup trace carries
+       per-step NIS.  Shape is ``(num_chains, n_warmup)`` after vmap; sum gives exact
+       total across all chains × warmup steps.
 
-    3. ``None`` — standard HMC window adaptation without inner-kernel info:
-       gradient counts not available without re-running warmup.
+    3. ``None`` — warmup runner didn't return kernel info (e.g. non-window-adaptation
+       warmups that don't expose per-step NIS).
 
     Parameters
     ----------
@@ -590,8 +597,28 @@ def _compute_warmup_grad_evals(
             nis = getattr(batched_warmup_info, "num_integration_steps", None)
             if nis is not None:
                 arr = np.asarray(nis)
+                # Defensive self-check: arr.shape[-1] must equal n_warmup.
+                # adapt_info.info.num_integration_steps is shape (n_warmup,) per chain
+                # (vmapped → (num_chains, n_warmup)) — per-step, NOT a running CUMSUM.
+                # If blackjax ever changes to cumulative or partial-window NIS this
+                # assert will fire, catching the silent double-count.
+                assert arr.shape[-1] == n_warmup, (  # noqa: S101
+                    f"NIS array last-dim {arr.shape[-1]} != n_warmup {n_warmup}; "
+                    "blackjax may have changed from per-step to cumulative NIS — "
+                    "CUMSUM would be incorrect"
+                )
                 # batched_warmup_info shape: (num_chains, n_warmup) or (n_warmup,)
                 return int(np.sum(arr))
+        except AssertionError as exc:
+            # Shape guard fired: NIS array is not per-step length.
+            # Log visibly so we notice a blackjax regression rather than silently
+            # getting wge=null.
+            import warnings as _warnings
+
+            _warnings.warn(
+                f"warmup_grad_evals CUMSUM guard: {exc}  — returning None",
+                stacklevel=2,
+            )
         except Exception:  # noqa: BLE001
             pass
 
@@ -866,7 +893,9 @@ def emit_low_recipe_for_cell(
         + ")..."
     )
     t_warmup0 = time.perf_counter()
-    batched_warmup_info: Any = None  # captured only when warmup_inner_kernel is set
+    batched_warmup_info: Any = (
+        None  # set from inner_kernel path OR standard runner 3-tuple
+    )
     try:
         if warmup_inner_kernel is not None:
             # Schema extension: explicit inner kernel path — run window_adaptation with
@@ -884,7 +913,9 @@ def emit_low_recipe_for_cell(
             )
         else:
             # Legacy path: warmup.runner handles implicit substitute-family logic.
-            batched_state, batched_params = warmup.runner(
+            # window_adaptation runners return (states, params, kernel_info) as of
+            # the exact-wge instrumentation; unpack defensively for backward compat.
+            _warmup_result = warmup.runner(
                 warmup_key,
                 init_position,
                 n_warmup,
@@ -892,6 +923,13 @@ def emit_low_recipe_for_cell(
                 logdensity_fn=logdensity_fn,
                 num_chains=num_chains,
                 target_acceptance_rate=target_acceptance,
+            )
+            batched_state = _warmup_result[0]
+            batched_params = _warmup_result[1]
+            batched_warmup_info = (
+                _warmup_result[2]  # type: ignore[misc]
+                if len(_warmup_result) == 3
+                else None
             )
     except Exception as exc:
         note = f"FAIL warmup error: {type(exc).__name__}: {exc}"
@@ -943,6 +981,13 @@ def emit_low_recipe_for_cell(
                     wall_seconds=time.perf_counter() - t_start,
                     note=note,
                 )
+
+    # Compute warmup_grad_evals immediately after warmup succeeds.  Gate-independent:
+    # always stamp regardless of whether the subsequent sampling pass or auto-gate
+    # passes.  Fixed-HMC = CUMSUM(constant L); NUTS/dmhmc = CUMSUM(variable NIS).
+    _wge = _compute_warmup_grad_evals(
+        batched_params, batched_warmup_info, base_method, n_warmup, num_chains
+    )
 
     # --- Build shared kernel kwargs (per-chain (step_size, IMM) comes via vmap) ---
     default_params = default_params_for(base_method)
@@ -1192,6 +1237,7 @@ def emit_low_recipe_for_cell(
             verdict="FAIL",
             wall_seconds=time.perf_counter() - t_start,
             note=note,
+            warmup_grad_evals=_wge,
         )
     # SYNC: block until sampling compute completes before stamping the clock.
     # positions/infos are JAX futures; without sync t_sample measures dispatch only.
@@ -1214,6 +1260,7 @@ def emit_low_recipe_for_cell(
                 verdict="FAIL",
                 wall_seconds=t_total,
                 note=note,
+                warmup_grad_evals=_wge,
             )
 
     # --- Align GT keys for auto-gate and sample_quality ---
@@ -1279,6 +1326,7 @@ def emit_low_recipe_for_cell(
             gate_n_div=gate_verdict.n_divergences,
             wall_seconds=t_total,
             note=note,
+            warmup_grad_evals=_wge,
         )
     # REVIEW: fall through to headline computation + recipe building (same as PASS).
     if gate_verdict.verdict == "REVIEW":
@@ -1432,9 +1480,9 @@ def emit_low_recipe_for_cell(
             "machine_info": get_machine_info(),
             # warmup_grad_evals: total gradient evaluations during warmup (M2).
             # For mclmc-family: read from _total_tuning_steps in batched_params.
-            # For inner-kernel warmup: sum num_integration_steps over warmup trace.
-            # For standard HMC (window adaptation without inner kernel): None (unknown
-            # without re-running warmup; window_adaptation doesn't return per-step NIS).
+            # For window adaptation (diag/dense/low_rank): CUMSUM of per-step
+            # num_integration_steps from adapt_info.info (exact for both HMC and NUTS).
+            # For inner-kernel warmup: same CUMSUM path via warmup trace.
             "warmup_grad_evals": _compute_warmup_grad_evals(
                 batched_params, batched_warmup_info, base_method, n_warmup, num_chains
             ),
@@ -1508,6 +1556,7 @@ def emit_low_recipe_for_cell(
         gate_n_div=gate_verdict.n_divergences,
         wall_seconds=t_total,
         note=f"{_verdict} rhat={gate_verdict.rhat_max:.4f} ess={gate_verdict.min_bulk_ess:.1f} div={gate_verdict.n_divergences}",
+        warmup_grad_evals=_wge,
     )
 
 
@@ -2128,7 +2177,7 @@ def run_recipe_to_idata(
     else:
         # Single-phase standard warmup. Resolve W from warmup_num_chains[0].
         _single_W = _wnc_effective[0] if _wnc_effective is not None else num_chains
-        _raw_state_std, _raw_params_std = warmup.runner(
+        _std_result = warmup.runner(
             warmup_key,
             init_position,
             n_warmup,
@@ -2137,6 +2186,7 @@ def run_recipe_to_idata(
             num_chains=_single_W,
             target_acceptance_rate=target_acceptance,
         )
+        _raw_state_std, _raw_params_std = _std_result[0], _std_result[1]
         if _single_W != num_chains:
             batched_state, batched_params = _reduce_and_broadcast_warmup_output(
                 _raw_state_std, _raw_params_std, _single_W, num_chains

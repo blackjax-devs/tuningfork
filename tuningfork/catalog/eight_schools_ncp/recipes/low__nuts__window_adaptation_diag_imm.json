@@ -50,7 +50,8 @@
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
-    }
+    },
+    "warmup_grad_evals": 38180
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.5212168097496033, 'inverse_mass_matrix': [10.038236618041992, 1.0927536487579346, 1.0086311101913452, 0.8945338726043701, 0.9818433523178101, 0.9641295075416565, 0.9047241806983948, 0.7181888818740845, 0.974892795085907, 0.9022431969642639]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0575.\nWall time to produce this recipe: ~8 s (machine-only).",

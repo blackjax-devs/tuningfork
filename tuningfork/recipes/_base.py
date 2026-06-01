@@ -914,7 +914,7 @@ class Recipe:
         from tuningfork.warmup._base import squeeze_single_chain
 
         t0 = time.perf_counter()
-        batched_state, batched_params = warmup.runner(
+        _base_warmup_result = warmup.runner(
             warmup_key,
             init_position,
             n_warmup,
@@ -922,6 +922,7 @@ class Recipe:
             logdensity_fn=logdensity_fn,
             num_chains=1,
         )
+        batched_state, batched_params = _base_warmup_result[0], _base_warmup_result[1]
         # SYNC: block until warmup compute completes before stamping wall time.
         # Without this, elapsed measures dispatch latency only, not actual compute.
         jax.block_until_ready((batched_state, batched_params))
