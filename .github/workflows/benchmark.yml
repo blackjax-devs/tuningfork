@@ -14,9 +14,12 @@ name: Recipe benchmark suite
 
 on:
   schedule:
-    # Nightly at 02:00 UTC. NOTE: GH's schedule cache can go stale — if nightly
-    # stops firing, push a dummy commit or use workflow_dispatch to re-trigger.
-    - cron: '0 2 * * *'
+    # 22:00 UTC (not 02:00 UTC): GH delays scheduled runs 2.5-5h depending on
+    # queue congestion (characterized 2026-06-01: blackjax "JAX Nightly" shows
+    # consistent ~2.5-4h typical, ~5h on congested days).  22:00 UTC + 5h worst
+    # + 1h run = 04:00 UTC = 06:00 CEST — just under the 6AM bar on bad days.
+    # If nightly stops firing, push a dummy commit or use workflow_dispatch.
+    - cron: '0 22 * * *'
   workflow_dispatch:
     inputs:
       suite:
@@ -40,7 +43,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5  # v5 uses Node 22 (v4 deprecated June 2025)
         with:
           # Fetch benchmark-results branch so load_prior_result() can find it
           fetch-depth: 0
@@ -204,7 +207,7 @@ jobs:
 
       - name: Upload benchmark results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5  # v5 uses Node 22 (v4 deprecated June 2025)
         with:
           name: benchmark-results-${{ github.sha }}
           path: ${{ steps.bench.outputs.all_results_dir }}
