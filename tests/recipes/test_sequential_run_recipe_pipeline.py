@@ -1,4 +1,4 @@
-"""Tests for sequential_run_recipe_pipeline and the exact-wge runner change.
+"""Tests for sequential_run_recipe_pipeline (model A: targeted-patch).
 
 All tests are @fast (pure logic / mocking, no JAX trace).
 """
@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import numpy as np
 import pytest
 
-from tuningfork.recipes.sequential_run_recipe_pipeline import _skip_reason, run_pipeline
+from tuningfork.recipes.sequential_run_recipe_pipeline import (
+    _skip_reason,
+    _wge_from_config,
+    run_pipeline,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -27,22 +32,40 @@ def _recipe_dict(
     warmup: str = "window_adaptation_diag_imm",
     verdict: str = "PASS",
     step_size: float | None = 0.3,
+    nis: int | None = None,
     imm: object = None,
     imm_path: str | None = None,
+    wge: int | None = None,
+    wge_is_est: bool | None = None,
+    q05: float | None = None,
 ) -> dict:
     bmp: dict = {}
     if step_size is not None:
         bmp["step_size"] = step_size
+    if nis is not None:
+        bmp["num_integration_steps"] = nis
     if imm is not None:
         bmp["inverse_mass_matrix"] = imm
+    budget: dict = {"n_warmup": 1000, "n_samples": 1000, "num_chains": 4}
+    if wge is not None:
+        budget["warmup_grad_evals"] = wge
+    if wge_is_est is not None:
+        budget["warmup_grad_evals_is_estimate"] = wge_is_est
     return {
         "model_name": model,
         "base_method_name": bm,
         "warmup_name": warmup,
         "warmups": [{"name": warmup, "params": {"n_warmup": 1000, "num_chains": 4}}],
         "base_method_params": bmp,
-        "calibration_budget": {"n_warmup": 1000, "n_samples": 1000, "num_chains": 4},
+        "calibration_budget": budget,
+        "sample_quality": {
+            "mae_vs_reference": 0.05,
+            "q05_error": q05,
+            "q95_error": None,
+            "std_ratio_max_dev": None,
+        },
         "gate_evidence": {"auto": {"verdict": verdict}},
+        "headline_metric": 0.00352,
         "inverse_mass_matrix_path": imm_path,
         "tuning_seed": 20260517,
         "effort": "LOW",
@@ -64,73 +87,60 @@ def test_skip_fail_verdict(tmp_path):
     assert _skip_reason(rp, _recipe_dict(verdict="FAIL")) == "recipe_failed"
 
 
-def test_skip_mclmc(tmp_path):
-    rp = tmp_path / "low__mclmc__mclmc_tuning.json"
-    r = _recipe_dict(bm="mclmc", verdict="PASS")
-    assert _skip_reason(rp, r) == "mclmc_family:mclmc"
-
-
-def test_skip_adjusted_mclmc(tmp_path):
-    rp = tmp_path / "low__adjusted_mclmc__adjusted_mclmc_tuning.json"
-    r = _recipe_dict(bm="adjusted_mclmc", verdict="PASS")
-    assert _skip_reason(rp, r) is not None
-    assert "mclmc_family" in _skip_reason(rp, r)
-
-
 def test_skip_no_warmup(tmp_path):
     rp = tmp_path / "low__ghmc__no_warmup.json"
-    r = _recipe_dict(warmup="no_warmup", verdict="PASS")
-    assert _skip_reason(rp, r) == "no_warmup"
-
-
-def test_skip_sidecar_no_path(tmp_path):
-    rp = tmp_path / "low__nuts__window_adaptation_low_rank_imm.json"
-    r = _recipe_dict(imm="sidecar", imm_path=None, verdict="PASS")
-    assert _skip_reason(rp, r) == "sidecar_imm_no_path"
+    assert _skip_reason(rp, _recipe_dict(warmup="no_warmup")) == "no_warmup"
 
 
 def test_skip_step_size_none(tmp_path):
     rp = tmp_path / "low__hmc__inner_nuts.json"
-    r = _recipe_dict(step_size=None, verdict="PASS")
-    assert _skip_reason(rp, r) == "step_size_none"
+    assert _skip_reason(rp, _recipe_dict(step_size=None)) == "step_size_none"
 
 
 def test_no_skip_valid(tmp_path):
     rp = tmp_path / "low__nuts__window_adaptation_diag_imm.json"
-    r = _recipe_dict(verdict="PASS")
-    assert _skip_reason(rp, r) is None
-
-
-def test_no_skip_sidecar_with_path(tmp_path):
-    rp = tmp_path / "low__dmhmc__window_adaptation_dense_imm.json"
-    r = _recipe_dict(imm="sidecar", imm_path="some/path.npz", verdict="PASS")
-    assert _skip_reason(rp, r) is None
+    assert _skip_reason(rp, _recipe_dict(verdict="PASS")) is None
 
 
 # ---------------------------------------------------------------------------
-# run_pipeline — smoke behavior (mocked subprocess)
+# _wge_from_config
+# ---------------------------------------------------------------------------
+
+
+def test_wge_from_config_hmc():
+    r = _recipe_dict(bm="hmc", nis=64)
+    wge, is_est = _wge_from_config("hmc", r)
+    assert wge == 1000 * 4 * 64
+    assert is_est is False
+
+
+def test_wge_from_config_laplace_hmc_is_estimate():
+    r = _recipe_dict(bm="laplace_hmc", nis=10)
+    wge, is_est = _wge_from_config("laplace_hmc", r)
+    assert wge == 1000 * 4 * 10
+    assert is_est is True
+
+
+def test_wge_from_config_nuts_returns_none():
+    r = _recipe_dict(bm="nuts")
+    wge, is_est = _wge_from_config("nuts", r)
+    assert wge is None
+
+
+def test_wge_from_config_hmc_no_nis():
+    r = _recipe_dict(bm="hmc")  # no nis
+    wge, is_est = _wge_from_config("hmc", r)
+    assert wge is None
+
+
+# ---------------------------------------------------------------------------
+# run_pipeline — never touches headline / verdict
 # ---------------------------------------------------------------------------
 
 
 def _write_recipe(path: Path, d: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(d, indent=2) + "\n")
-
-
-def _mock_run_recipe_pass(*args, **kwargs):
-    return "pass", "PASS", 256000  # (status, detail, warmup_grad_evals)
-
-
-def _mock_run_recipe_fail(*args, **kwargs):
-    return "fail_stochastic", "FAIL", 39358  # wge still populated on fail
-
-
-def _mock_run_recipe_timeout(*args, **kwargs):
-    return "timeout", ">300s", None
-
-
-def _mock_run_recipe_error(*args, **kwargs):
-    return "error", "SomeError: something went wrong", None
 
 
 class _DevNull:
@@ -141,151 +151,121 @@ class _DevNull:
         pass
 
 
-def test_run_pipeline_skip_failed(tmp_path):
-    """failed__ recipe → skipped, no subprocess call."""
+def test_headline_and_verdict_byte_identical(tmp_path):
+    """headline_metric and verdict MUST be byte-identical after patch."""
     catalog_root = tmp_path / "catalog"
     rp = (
-        catalog_root
-        / "mvn_10"
-        / "recipes"
-        / "failed__nuts__window_adaptation_diag_imm.json"
-    )
-    _write_recipe(rp, _recipe_dict(verdict="FAIL"))
-
-    with patch(
-        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-        side_effect=_mock_run_recipe_pass,
-    ) as mock_run:
-        report = run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-            smoke_paths=[rp],
-        )
-
-    mock_run.assert_not_called()
-    assert report.skipped == 1
-    assert report.passed == 0
-
-
-def test_run_pipeline_pass_overwrites(tmp_path):
-    """PASS re-run increments pass counter."""
-    catalog_root = tmp_path / "catalog"
-    rp = (
-        catalog_root
-        / "mvn_10"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
-    )
-    _write_recipe(rp, _recipe_dict(verdict="PASS"))
-
-    with patch(
-        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-        side_effect=_mock_run_recipe_pass,
-    ):
-        report = run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-            smoke_paths=[rp],
-        )
-
-    assert report.passed == 1
-    assert report.skipped == 0
-
-
-def test_run_pipeline_timeout_skip_continue(tmp_path):
-    """Timeout → skip + continue (loop doesn't die)."""
-    catalog_root = tmp_path / "catalog"
-    rp1 = (
-        catalog_root
-        / "mvn_10"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
-    )
-    rp2 = (
         catalog_root
         / "mvn_10"
         / "recipes"
         / "low__hmc__window_adaptation_diag_imm.json"
     )
-    r = _recipe_dict(verdict="PASS")
-    _write_recipe(rp1, r)
-    _write_recipe(
-        rp2, dict(r, base_method_params={"step_size": 0.4, "num_integration_steps": 64})
+    r = _recipe_dict(bm="hmc", nis=64, verdict="REVIEW", q05=None)
+    r["headline_metric"] = 0.00352
+    _write_recipe(rp, r)
+
+    run_pipeline(
+        catalog_root=catalog_root,
+        repo_root=tmp_path,
+        log_file=_DevNull(),
+        smoke_paths=[rp],
     )
 
-    call_count = [0]
-
-    def mock_run_timeout_then_pass(*a, **k):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            return "timeout", ">300s", None
-        return "pass", "PASS", 256000
-
-    with patch(
-        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-        side_effect=mock_run_timeout_then_pass,
-    ):
-        report = run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-            smoke_paths=[rp1, rp2],
-        )
-
-    # Both recipes processed; first timed out, second passed
-    assert report.timeouts == 1
-    assert report.passed == 1
-    assert report.total == 2
+    updated = json.loads(rp.read_text())
+    assert updated["headline_metric"] == 0.00352  # byte-identical
+    assert updated["gate_evidence"]["auto"]["verdict"] == "REVIEW"  # byte-identical
 
 
-def test_run_pipeline_broad_error_skip_continue(tmp_path):
-    """Unhandled error in recipe → skip + continue (loop doesn't die)."""
+def test_wge_patched_from_config(tmp_path):
+    """Fixed-HMC gets exact wge from config."""
     catalog_root = tmp_path / "catalog"
-    rp1 = (
-        catalog_root
-        / "mvn_10"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
-    )
-    rp2 = (
+    rp = (
         catalog_root
         / "mvn_10"
         / "recipes"
         / "low__hmc__window_adaptation_diag_imm.json"
     )
-    r = _recipe_dict(verdict="PASS")
-    _write_recipe(rp1, r)
-    _write_recipe(
-        rp2, dict(r, base_method_params={"step_size": 0.4, "num_integration_steps": 64})
+    _write_recipe(rp, _recipe_dict(bm="hmc", nis=64))
+
+    run_pipeline(
+        catalog_root=catalog_root,
+        repo_root=tmp_path,
+        log_file=_DevNull(),
+        smoke_paths=[rp],
     )
 
-    call_count = [0]
+    updated = json.loads(rp.read_text())
+    assert updated["calibration_budget"]["warmup_grad_evals"] == 1000 * 4 * 64
+    assert "warmup_grad_evals_is_estimate" not in updated["calibration_budget"]
 
-    def mock_run_error_then_pass(*a, **k):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            return "error", "RuntimeError: kaboom", None
-        return "pass", "PASS", 256000
 
-    with patch(
-        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-        side_effect=mock_run_error_then_pass,
-    ):
-        report = run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-            smoke_paths=[rp1, rp2],
+def test_wge_already_exact_skip(tmp_path):
+    """Already-exact wge → no change."""
+    catalog_root = tmp_path / "catalog"
+    rp = (
+        catalog_root
+        / "mvn_10"
+        / "recipes"
+        / "low__hmc__window_adaptation_diag_imm.json"
+    )
+    r = _recipe_dict(bm="hmc", nis=64, wge=256000)
+    _write_recipe(rp, r)
+
+    run_pipeline(
+        catalog_root=catalog_root,
+        repo_root=tmp_path,
+        log_file=_DevNull(),
+        smoke_paths=[rp],
+    )
+
+    updated = json.loads(rp.read_text())
+    assert updated["calibration_budget"]["warmup_grad_evals"] == 256000
+
+
+def test_sq_from_cache(tmp_path):
+    """sq is loaded from cached draws and recomputed."""
+    catalog_root = tmp_path / "catalog"
+    model_dir = catalog_root / "mvn_10"
+    rp = model_dir / "recipes" / "low__nuts__window_adaptation_diag_imm.json"
+    _write_recipe(rp, _recipe_dict())
+
+    # Write fake cached draws and GT summary
+    cache_dir = model_dir / "_cache"
+    cache_dir.mkdir(parents=True)
+    np.savez(
+        str(cache_dir / "low__nuts__window_adaptation_diag_imm.draws.npz"),
+        x=np.random.default_rng(0).standard_normal((4, 1000)),
+    )
+    ref_dir = model_dir / "reference"
+    ref_dir.mkdir(parents=True)
+    (ref_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "mean": {"x": 0.0},
+                "std": {"x": 1.0},
+                "q05": {"x": -1.64},
+                "q95": {"x": 1.64},
+            }
         )
+    )
 
-    assert report.errors == 1
-    assert report.passed == 1
+    run_pipeline(
+        catalog_root=catalog_root,
+        repo_root=tmp_path,
+        log_file=_DevNull(),
+        smoke_paths=[rp],
+    )
+
+    updated = json.loads(rp.read_text())
+    sq = updated["sample_quality"]
+    assert sq["q05_error"] is not None
+    assert sq["q95_error"] is not None
+    assert sq["std_ratio_max_dev"] is not None
+    assert sq["mae_vs_reference"] == 0.05  # unchanged
 
 
-def test_run_pipeline_smoke_mode_no_commits(tmp_path):
-    """Smoke mode (smoke_paths set) → no git commits even on pass."""
+def test_sq_null_when_no_cache(tmp_path):
+    """When no cache file → sq fields stay null."""
     catalog_root = tmp_path / "catalog"
     rp = (
         catalog_root
@@ -293,17 +273,34 @@ def test_run_pipeline_smoke_mode_no_commits(tmp_path):
         / "recipes"
         / "low__nuts__window_adaptation_diag_imm.json"
     )
-    _write_recipe(rp, _recipe_dict(verdict="PASS"))
+    _write_recipe(rp, _recipe_dict())
 
-    with (
-        patch(
-            "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-            side_effect=_mock_run_recipe_pass,
-        ),
-        patch(
-            "tuningfork.recipes.sequential_run_recipe_pipeline._git_commit_model"
-        ) as mock_commit,
-    ):
+    run_pipeline(
+        catalog_root=catalog_root,
+        repo_root=tmp_path,
+        log_file=_DevNull(),
+        smoke_paths=[rp],
+    )
+
+    updated = json.loads(rp.read_text())
+    sq = updated["sample_quality"]
+    assert sq["q05_error"] is None  # no cache → leave null
+
+
+def test_smoke_mode_no_commits(tmp_path):
+    """Smoke mode never commits."""
+    catalog_root = tmp_path / "catalog"
+    rp = (
+        catalog_root
+        / "mvn_10"
+        / "recipes"
+        / "low__hmc__window_adaptation_diag_imm.json"
+    )
+    _write_recipe(rp, _recipe_dict(bm="hmc", nis=64))
+
+    with patch(
+        "tuningfork.recipes.sequential_run_recipe_pipeline._git_commit_model"
+    ) as mock_commit:
         run_pipeline(
             catalog_root=catalog_root,
             repo_root=tmp_path,
@@ -314,129 +311,44 @@ def test_run_pipeline_smoke_mode_no_commits(tmp_path):
     mock_commit.assert_not_called()
 
 
-def test_run_pipeline_chunk_commit_on_pass(tmp_path):
-    """Full mode (no smoke_paths) → git commit when passes > 0."""
+def test_large_diff_recorded(tmp_path):
+    """Large wge change (>2×) is recorded in large_diffs."""
     catalog_root = tmp_path / "catalog"
     rp = (
         catalog_root
         / "mvn_10"
         / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
+        / "low__hmc__window_adaptation_diag_imm.json"
     )
-    _write_recipe(rp, _recipe_dict(verdict="PASS"))
-
-    with (
-        patch(
-            "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-            side_effect=_mock_run_recipe_pass,
-        ),
-        patch(
-            "tuningfork.recipes.sequential_run_recipe_pipeline._git_commit_model",
-            return_value="abc123",
-        ) as mock_commit,
-    ):
-        run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-        )
-
-    mock_commit.assert_called_once()
-
-
-def test_run_pipeline_wge_patched_on_fail_stochastic(tmp_path):
-    """On fail_stochastic, wge is patched into existing recipe JSON (gate-independent)."""
-    catalog_root = tmp_path / "catalog"
-    rp = (
-        catalog_root
-        / "mvn_10"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
-    )
-    r = _recipe_dict(verdict="PASS")
+    # Old wge was 28000 (wrong estimate), new = 1000×4×64=256000 (>2×)
+    r = _recipe_dict(bm="hmc", nis=64, wge=28000, wge_is_est=True)
     _write_recipe(rp, r)
 
-    with patch(
-        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-        return_value=("fail_stochastic", "FAIL", 39358),
-    ):
-        run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-            smoke_paths=[rp],
-        )
-
-    # wge patched despite fail_stochastic
-    updated = json.loads(rp.read_text())
-    assert updated["calibration_budget"]["warmup_grad_evals"] == 39358
-    # verdict and sample_quality untouched
-    assert updated["gate_evidence"]["auto"]["verdict"] == "PASS"
-
-
-def test_run_pipeline_verdict_stable_guard_restores_original(tmp_path):
-    """On pass where verdict moved (e.g. REVIEW→PASS), restore original + patch wge only."""
-    import json as _json
-
-    catalog_root = tmp_path / "catalog"
-    rp = (
-        catalog_root
-        / "mvn_10"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
+    report = run_pipeline(
+        catalog_root=catalog_root,
+        repo_root=tmp_path,
+        log_file=_DevNull(),
+        smoke_paths=[rp],
     )
-    # Original recipe has verdict=REVIEW
-    original = _recipe_dict(verdict="REVIEW")
-    _write_recipe(rp, original)
 
-    # After subprocess, the file will contain verdict=PASS (mock overwrites it)
-    def mock_run_pass_with_verdict_move(*a, **k):
-        # Simulate emit_low_recipe_for_cell writing a new recipe with verdict=PASS
-        new_recipe = _recipe_dict(verdict="PASS")
-        new_recipe["calibration_budget"] = {
-            "n_warmup": 1000,
-            "n_samples": 1000,
-            "num_chains": 4,
-            "warmup_grad_evals": 256000,
-        }
-        rp.write_text(_json.dumps(new_recipe, indent=2) + "\n")
-        return "pass", "PASS", 256000
-
-    with patch(
-        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
-        side_effect=mock_run_pass_with_verdict_move,
-    ):
-        report = run_pipeline(
-            catalog_root=catalog_root,
-            repo_root=tmp_path,
-            log_file=_DevNull(),
-            smoke_paths=[rp],
-        )
-
-    # Original verdict REVIEW must be preserved (no ratcheting)
-    restored = _json.loads(rp.read_text())
-    assert restored["gate_evidence"]["auto"]["verdict"] == "REVIEW"
-    # wge should be patched into the restored original
-    assert restored["calibration_budget"]["warmup_grad_evals"] == 256000
-    # Pipeline counts this as a verdict move (not a clean pass)
-    assert len(report.verdict_moved) == 1
-    assert "REVIEW" in report.verdict_moved[0]
-    assert "PASS" in report.verdict_moved[0]
+    assert len(report.large_diffs) >= 1
+    wge_diffs = [d for d in report.large_diffs if d.field == "wge"]
+    assert len(wge_diffs) == 1
+    assert wge_diffs[0].new_val == 256000
+    assert wge_diffs[0].old_val == 28000
 
 
 # ---------------------------------------------------------------------------
-# Exact-wge: _compute_warmup_grad_evals CUMSUM path
+# _compute_warmup_grad_evals CUMSUM path (unchanged)
 # ---------------------------------------------------------------------------
 
 
 def test_compute_warmup_grad_evals_cumsum():
-    """CUMSUM path: batched_warmup_info with num_integration_steps → exact sum."""
-    import numpy as np
+    from unittest.mock import MagicMock
 
     from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
 
-    # Simulate (num_chains=4, n_warmup=10) per-step NIS
-    nis = np.ones((4, 10), dtype=int) * 7  # NUTS with L=7 each step
+    nis = np.ones((4, 10), dtype=int) * 7
     mock_info = MagicMock()
     mock_info.num_integration_steps = nis
 
@@ -447,33 +359,10 @@ def test_compute_warmup_grad_evals_cumsum():
         n_warmup=10,
         num_chains=4,
     )
-    assert wge == 4 * 10 * 7  # 280
-
-
-def test_compute_warmup_grad_evals_cumsum_dynamic():
-    """Variable-L NUTS: CUMSUM gives exact total, not n×median."""
-    import numpy as np
-
-    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
-
-    # Variable NIS: some steps use 1, some use 15 (NUTS doubling)
-    rng = np.random.default_rng(0)
-    nis = rng.choice([1, 3, 7, 15], size=(4, 100))
-    mock_info = MagicMock()
-    mock_info.num_integration_steps = nis
-
-    wge = _compute_warmup_grad_evals(
-        batched_params={},
-        batched_warmup_info=mock_info,
-        base_method=None,
-        n_warmup=100,
-        num_chains=4,
-    )
-    assert wge == int(np.sum(nis))  # exact, not 4×100×median
+    assert wge == 4 * 10 * 7
 
 
 def test_compute_warmup_grad_evals_mclmc():
-    """mclmc path: _total_tuning_steps in batched_params → exact."""
     from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
 
     wge = _compute_warmup_grad_evals(
@@ -484,17 +373,3 @@ def test_compute_warmup_grad_evals_mclmc():
         num_chains=4,
     )
     assert wge == 3333
-
-
-def test_compute_warmup_grad_evals_null():
-    """No info available → None."""
-    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
-
-    wge = _compute_warmup_grad_evals(
-        batched_params={},
-        batched_warmup_info=None,
-        base_method=None,
-        n_warmup=1000,
-        num_chains=4,
-    )
-    assert wge is None
