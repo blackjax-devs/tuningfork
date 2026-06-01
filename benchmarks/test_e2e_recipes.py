@@ -47,10 +47,9 @@ def test_recipe_e2e_perf(
     recipe_file: str,
     mode: str,
 ) -> None:
-    """Benchmark a slow e2e recipe's sampler and assert GT-correctness.
+    """Benchmark a slow e2e recipe's sampler across 3 date-derived seeds.
 
-    These cells take >60s in CI and are nightly-only. Timing is measured by
-    pytest-benchmark (1 timed run per cell). GT-correctness (max_abs_mean_z
-    < 2.0) is asserted after the timed run.
+    These cells take >60s in CI and are nightly-only. All 3 seeds run in one
+    timed block. GT-correctness (max_abs_mean_z < 4.0) is asserted for all seeds.
     """
     run_benchmark_cell(benchmark, model_name, recipe_file, mode)

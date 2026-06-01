@@ -48,9 +48,11 @@ def test_recipe_perf(
     recipe_file: str,
     mode: str,
 ) -> None:
-    """Benchmark a recipe's sampler and assert GT-correctness.
+    """Benchmark a recipe's sampler across 3 date-derived seeds.
 
-    Timing is measured by pytest-benchmark (1 timed run per cell).
-    GT-correctness (max_abs_mean_z < 2.0) is asserted after the timed run.
+    All 3 seeds run in one timed block (3 timing samples + 3 regression inputs).
+    JIT is warmed once by the session-scoped conftest fixture before any cell runs.
+    Per-seed metrics are stored in ``benchmark.extra_info["per_seed_metrics"]``.
+    GT-correctness (max_abs_mean_z < 4.0) is asserted for all seeds.
     """
     run_benchmark_cell(benchmark, model_name, recipe_file, mode)

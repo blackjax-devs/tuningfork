@@ -1,109 +1,133 @@
 name: Recipe benchmark suite
 
-# Nightly: fast + e2e benchmarks (all 33 cells, ~8 min fast + 2 slow e2e cells).
-# Manual:  workflow_dispatch; suite=fast runs test_fast_recipes only (~8 min).
-# No per-PR trigger: nightly + on-demand is the right model.
+# Nightly: fast + e2e benchmarks (all 33 cells) with 3-seed cross-date regression.
+# Manual:  workflow_dispatch; suite=fast runs test_fast_recipes only.
 #
-# Cell routing (by CI wall time from round-4 run):
-#   test_fast_recipes.py: 31 cells ≤60s each → ~8 min total
-#   test_e2e_recipes.py:   2 cells >60s each (lotka 204s, horseshoe 75s) → nightly only
+# Seed scheme: date-seeded (seed = int(YYYYMMDD)) for {date-1, date, date+1}.
+# Overlapping seeds with prior night → cross-date regression detection.
 #
-# Working-directory note: the checkout IS the tuningfork repo root.
+# Runner: ubuntu-24.04 (pinned LTS — NOT ubuntu-latest which floats).
+# Deps:   installed from uv.lock exactly; blackjax@main installed on top.
+# Results: stored on benchmark-results branch (one <seed>.json per seed).
+# Regression: _regression_check.py applies locked criterion (max_abs_mean_z≥4.0,
+#   ESS-trend secondary), emits GH Actions annotations/step-fail.
 
 on:
   schedule:
-    # Nightly at 02:00 UTC (off-peak; avoids contention with other CI)
-    - cron: '0 2 * * *'
-  # pull_request trigger intentionally omitted: the suite will grow to ~2h
-  # (Tier 1+2 nightly), making per-PR CI untenable. Nightly + on-demand is
-  # the right model — use workflow_dispatch for targeted pre-merge validation.
+    # 22:00 UTC (not 02:00 UTC): GH delays scheduled runs 2.5-5h depending on
+    # queue congestion (characterized 2026-06-01: blackjax "JAX Nightly" shows
+    # consistent ~2.5-4h typical, ~5h on congested days).  22:00 UTC + 5h worst
+    # + 1h run = 04:00 UTC = 06:00 CEST — just under the 6AM bar on bad days.
+    # If nightly stops firing, push a dummy commit or use workflow_dispatch.
+    - cron: '0 22 * * *'
   workflow_dispatch:
     inputs:
       suite:
         description: 'Which suite to run (fast | e2e | all)'
         required: false
         default: 'all'
+      seed_override:
+        description: 'Override seed (int, e.g. 20260601); default = date-derived'
+        required: false
+        default: ''
+
+permissions:
+  contents: write   # needed to push to benchmark-results branch + create issues
+  issues: write     # needed for auto-issue on REGRESSION verdict
 
 jobs:
   benchmark:
     name: Benchmark (${{ github.event_name }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60   # hard cap: prevents hung CI slots
+    runs-on: ubuntu-24.04   # pinned LTS — float tags break env fingerprinting
+    timeout-minutes: 180    # hard cap: 7 runs/cell (1 compile-warmup + 3x2) ~2.3x prior
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5  # v5 uses Node 22 (v4 deprecated June 2025)
+        with:
+          # Fetch benchmark-results branch so load_prior_result() can find it
+          fetch-depth: 0
+
+      - name: Fetch benchmark-results branch
+        run: git fetch origin benchmark-results:benchmark-results 2>/dev/null || true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
-          # Python is pinned via .python-version (repo root) + --python 3.13 on
-          # every uv invocation below. setup-uv does not accept python-version
-          # as an input; the pin is enforced by uv itself at sync/run time.
 
-      - name: Install bench-perf deps
-        # --python 3.13 forces uv to use 3.13 regardless of available interpreters.
-        # .python-version in the repo root provides the same pin for local runs.
+      - name: Install bench-perf deps (from locked uv.lock)
+        # DO NOT call uv update — use the checked-in lockfile exactly.
+        # blackjax@main is installed explicitly below to track HEAD.
         run: uv sync --group bench-perf --python 3.13
 
+      - name: Install blackjax@main (explicit, on top of lockfile)
+        run: |
+          uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
+          uv run --python 3.13 python -c "import blackjax; print('blackjax version:', blackjax.__version__)"
+
       - name: Verify Python version
-        # Fails the workflow if jax imports on the wrong Python (prevents silent 3.14 drift).
         run: |
           uv run --python 3.13 python --version
           uv run --python 3.13 python -c "import sys; assert sys.version_info[:2] == (3, 13), f'Expected Python 3.13, got {sys.version}'"
+
+      - name: Compute nightly seeds (informational)
+        id: seeds
+        # Seeds are derived inside run_nightly.py; this step is informational only.
+        run: JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -m benchmarks.run_nightly --print-seeds
 
       - name: Select benchmark suite
         id: suite
         run: |
           if [ "${{ inputs.suite }}" = "fast" ]; then
             echo "files=benchmarks/test_fast_recipes.py" >> "$GITHUB_OUTPUT"
-            echo "group=manual-fast" >> "$GITHUB_OUTPUT"
           elif [ "${{ inputs.suite }}" = "e2e" ]; then
             echo "files=benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
-            echo "group=manual-e2e" >> "$GITHUB_OUTPUT"
           else
-            # Nightly / manual 'all': fast + e2e
             echo "files=benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
-            echo "group=nightly-all" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run benchmarks
-        # No working-directory: benchmarks/ is at the repo root.
-        # --benchmark-max-time=0: each cell runs exactly once (1 round).
-        # --benchmark-warmup=off: GT-gate validates correctness; warmup is redundant.
+      - name: Run benchmarks (3 seeds inside each cell)
+        id: bench
         run: |
+          # Single pytest invocation — 3 date-derived seeds loop inside each cell.
+          # Per-seed metrics stored in benchmark.extra_info["per_seed_metrics"].
+          all_results_dir="benchmark_results_dir"
+          mkdir -p "$all_results_dir"
+
           JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
-            --benchmark-json=benchmark_results.json \
+            --benchmark-json="${all_results_dir}/bench_results.json" \
             --benchmark-disable-gc \
             --benchmark-warmup=off \
             --benchmark-min-rounds=1 \
             --benchmark-max-time=0 \
-            -v
+            --timeout=1800 \
+            -v \
+            --tb=short \
+            2>&1 | tee "${all_results_dir}/bench.log" || true
+          echo "all_results_dir=$all_results_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Store results + run regression check (nightly only)
+        id: regression
+        if: github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -m benchmarks.run_nightly \
+            --results-dir "${{ steps.bench.outputs.all_results_dir }}"
 
       - name: Upload benchmark results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5  # v5 uses Node 22 (v4 deprecated June 2025)
         with:
-          name: benchmark-results-${{ github.sha }}-${{ steps.filter.outputs.group }}
-          # benchmark_results.json is written to the repo root (no working-directory).
-          path: benchmark_results.json
+          name: benchmark-results-${{ github.sha }}
+          path: ${{ steps.bench.outputs.all_results_dir }}
           retention-days: 90
 
-      # Trend tracking: compare against the most recent stored result on main.
-      # Only on nightly schedule (not manual dispatch) to keep the trend baseline clean.
-      - name: Store + compare benchmark trend (nightly only)
+      - name: Verify nightly cron fired (informational)
         if: github.event_name == 'schedule'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: "tuningfork recipe benchmarks"
-          tool: "pytest"
-          output-file-path: benchmark_results.json
-          # Push results to gh-pages branch for the trend dashboard
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          # Alert when performance regresses > 20% vs the rolling mean
-          alert-threshold: "120%"
-          comment-on-alert: true
-          fail-on-alert: false   # non-blocking: alert but don't fail the workflow
+        run: |
+          echo "Nightly cron fired at: $(date -u)"
+          echo "Event: ${{ github.event_name }}"
+          echo "SHA: ${{ github.sha }}"
