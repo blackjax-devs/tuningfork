@@ -43,8 +43,8 @@ Usage::
     from tuningfork.warmup import WARMUPS, Warmup
 
     warmup = WARMUPS["window_adaptation_diag_imm"]
-    state, params = warmup.runner(rng_key, position, n_warmup, base_method,
-                                  logdensity_fn=logdensity_fn)
+    state, params, *_ = warmup.runner(rng_key, position, n_warmup, base_method,
+                                      logdensity_fn=logdensity_fn)
 """
 
 from tuningfork.warmup._base import Warmup

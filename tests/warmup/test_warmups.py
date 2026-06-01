@@ -234,26 +234,26 @@ class TestStanWindowSmoke:
         )
 
     def test_returns_state_and_adapted_params(self) -> None:
-        state, params = self._run(101, num_chains=1)
+        state, params, *_ = self._run(101, num_chains=1)
         assert state is not None
         assert isinstance(params, dict)
 
     def test_adapted_params_has_step_size(self) -> None:
-        _, params = self._run(102, num_chains=1)
+        _, params, *_ = self._run(102, num_chains=1)
         assert "step_size" in params, f"params keys: {list(params.keys())}"
 
     def test_adapted_params_has_inverse_mass_matrix(self) -> None:
-        _, params = self._run(103, num_chains=1)
+        _, params, *_ = self._run(103, num_chains=1)
         assert "inverse_mass_matrix" in params, f"params keys: {list(params.keys())}"
 
     def test_step_size_positive(self) -> None:
-        _, params = self._run(104, num_chains=1)
+        _, params, *_ = self._run(104, num_chains=1)
         step_sizes = jnp.asarray(params["step_size"])
         # shape (1,) — all positive
         assert bool(jnp.all(step_sizes > 0)), f"step_size={step_sizes} not all > 0"
 
     def test_inverse_mass_matrix_shape(self) -> None:
-        _, params = self._run(105, num_chains=1)
+        _, params, *_ = self._run(105, num_chains=1)
         imm = params["inverse_mass_matrix"]
         # num_chains=1 → shape (1, 10)
         assert imm.shape == (
@@ -263,7 +263,7 @@ class TestStanWindowSmoke:
 
     def test_dense_mass_matrix_shape(self) -> None:
         """is_mass_matrix_diagonal=False produces (num_chains, d, d) IMM."""
-        _, params = self._run(106, num_chains=1, is_mass_matrix_diagonal=False)
+        _, params, *_ = self._run(106, num_chains=1, is_mass_matrix_diagonal=False)
         imm = params["inverse_mass_matrix"]
         # num_chains=1 → shape (1, 10, 10)
         assert imm.shape == (
@@ -274,7 +274,7 @@ class TestStanWindowSmoke:
 
     def test_dense_mass_matrix_is_symmetric_positive_definite(self) -> None:
         """Sanity check: dense IMM should be symmetric and PD (per chain)."""
-        _, params = self._run(107, num_chains=1, is_mass_matrix_diagonal=False)
+        _, params, *_ = self._run(107, num_chains=1, is_mass_matrix_diagonal=False)
         imm = params["inverse_mass_matrix"]
         # imm has shape (1, 10, 10); check chain 0
         imm_chain0 = imm[0]
@@ -308,39 +308,39 @@ class TestMclmcTuningSmoke:
         )
 
     def test_returns_state_and_adapted_params(self) -> None:
-        state, params = self._run(201)
+        state, params, *_ = self._run(201)
         assert state is not None
         assert isinstance(params, dict)
 
     def test_adapted_params_has_L(self) -> None:
-        _, params = self._run(202)
+        _, params, *_ = self._run(202)
         assert "L" in params, f"params keys: {list(params.keys())}"
 
     def test_adapted_params_has_step_size(self) -> None:
-        _, params = self._run(203)
+        _, params, *_ = self._run(203)
         assert "step_size" in params, f"params keys: {list(params.keys())}"
 
     def test_adapted_params_has_inverse_mass_matrix(self) -> None:
-        _, params = self._run(204)
+        _, params, *_ = self._run(204)
         assert "inverse_mass_matrix" in params, f"params keys: {list(params.keys())}"
 
     def test_adapted_params_has_total_tuning_steps(self) -> None:
-        _, params = self._run(205)
+        _, params, *_ = self._run(205)
         assert "_total_tuning_steps" in params, f"params keys: {list(params.keys())}"
 
     def test_L_positive(self) -> None:
-        _, params = self._run(206)
+        _, params, *_ = self._run(206)
         # shape (1,) for num_chains=1
         assert bool(jnp.all(jnp.asarray(params["L"]) > 0)), f"L={params['L']} not > 0"
 
     def test_step_size_positive(self) -> None:
-        _, params = self._run(207)
+        _, params, *_ = self._run(207)
         assert bool(
             jnp.all(jnp.asarray(params["step_size"]) > 0)
         ), f"step_size={params['step_size']} not > 0"
 
     def test_inverse_mass_matrix_shape(self) -> None:
-        _, params = self._run(208)
+        _, params, *_ = self._run(208)
         imm = params["inverse_mass_matrix"]
         # num_chains=1 → shape (1, 10)
         assert imm.shape == (
@@ -349,7 +349,7 @@ class TestMclmcTuningSmoke:
         ), f"inverse_mass_matrix.shape={imm.shape}, expected (1, 10)"
 
     def test_total_tuning_steps_positive(self) -> None:
-        _, params = self._run(209)
+        _, params, *_ = self._run(209)
         steps = int(params["_total_tuning_steps"])
         assert steps > 0, f"_total_tuning_steps={steps} <= 0"
 
@@ -636,7 +636,7 @@ class TestStanWindowMultiChain:
         """No num_chains kwarg → default 4; position leading dim == 4."""
         key = jax.random.key(1001)
         init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = WARMUPS["window_adaptation_diag_imm"].runner(
+        states, params, *_ = WARMUPS["window_adaptation_diag_imm"].runner(
             jax.random.fold_in(key, 1),
             init_pos,
             200,
@@ -648,25 +648,25 @@ class TestStanWindowMultiChain:
 
     def test_explicit_num_chains_4_state_shape(self) -> None:
         """num_chains=4 → position shape is (4, 10)."""
-        states, params = self._run(1002, num_chains=4)
+        states, params, *_ = self._run(1002, num_chains=4)
         pos_shape = _position_shape(states)
         assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
 
     def test_explicit_num_chains_4_step_size_shape(self) -> None:
         """num_chains=4 → step_size has shape (4,)."""
-        _, params = self._run(1003, num_chains=4)
+        _, params, *_ = self._run(1003, num_chains=4)
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (4,), f"Expected (4,), got {ss.shape}"
 
     def test_explicit_num_chains_4_imm_shape(self) -> None:
         """num_chains=4 → inverse_mass_matrix has shape (4, 10)."""
-        _, params = self._run(1004, num_chains=4)
+        _, params, *_ = self._run(1004, num_chains=4)
         imm = params["inverse_mass_matrix"]
         assert imm.shape == (4, 10), f"Expected (4, 10), got {imm.shape}"
 
     def test_explicit_num_chains_8(self) -> None:
         """num_chains=8 → leading dim 8."""
-        states, params = self._run(1005, num_chains=8)
+        states, params, *_ = self._run(1005, num_chains=8)
         leading = _state_leading_dim(states)
         assert leading == 8, f"Expected leading dim 8, got {leading}"
         assert params["step_size"].shape == (
@@ -679,7 +679,7 @@ class TestStanWindowMultiChain:
 
     def test_num_chains_1_not_squeezed(self) -> None:
         """num_chains=1 → leading dim 1 (NOT squeezed)."""
-        states, params = self._run(1006, num_chains=1)
+        states, params, *_ = self._run(1006, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
         assert params["step_size"].shape == (
@@ -695,7 +695,7 @@ class TestStanWindowMultiChain:
         batched_pos = jax.tree.map(
             lambda x: jnp.broadcast_to(x, (num_chains,) + x.shape), init_pos
         )
-        states, params = WARMUPS["window_adaptation_diag_imm"].runner(
+        states, params, *_ = WARMUPS["window_adaptation_diag_imm"].runner(
             jax.random.fold_in(key, 1),
             batched_pos,
             200,
@@ -708,7 +708,9 @@ class TestStanWindowMultiChain:
 
     def test_dense_mm_multi_chain_shape(self) -> None:
         """num_chains=2, is_mass_matrix_diagonal=False → IMM shape (2, d, d)."""
-        states, params = self._run(1008, num_chains=2, is_mass_matrix_diagonal=False)
+        states, params, *_ = self._run(
+            1008, num_chains=2, is_mass_matrix_diagonal=False
+        )
         imm = params["inverse_mass_matrix"]
         assert imm.shape == (
             2,
@@ -720,7 +722,7 @@ class TestStanWindowMultiChain:
 
     def test_all_step_sizes_positive(self) -> None:
         """All per-chain step sizes must be positive."""
-        _, params = self._run(1009, num_chains=4)
+        _, params, *_ = self._run(1009, num_chains=4)
         ss = jnp.asarray(params["step_size"])
         assert bool(jnp.all(ss > 0)), f"Not all step sizes positive: {ss}"
 
@@ -757,37 +759,37 @@ class TestMclmcTuningMultiChain:
 
     def test_num_chains_4_state_shape(self) -> None:
         """num_chains=4 → position leading dim == 4."""
-        states, params = self._run(2002, num_chains=4)
+        states, params, *_ = self._run(2002, num_chains=4)
         leading = _state_leading_dim(states)
         assert leading == 4, f"Expected leading dim 4, got {leading}"
 
     def test_num_chains_4_L_shape(self) -> None:
         """num_chains=4 → L has shape (4,)."""
-        _, params = self._run(2003, num_chains=4)
+        _, params, *_ = self._run(2003, num_chains=4)
         L = jnp.asarray(params["L"])
         assert L.shape == (4,), f"Expected (4,), got {L.shape}"
 
     def test_num_chains_4_step_size_shape(self) -> None:
         """num_chains=4 → step_size has shape (4,)."""
-        _, params = self._run(2004, num_chains=4)
+        _, params, *_ = self._run(2004, num_chains=4)
         ss = jnp.asarray(params["step_size"])
         assert ss.shape == (4,), f"Expected (4,), got {ss.shape}"
 
     def test_num_chains_4_imm_shape(self) -> None:
         """num_chains=4 → inverse_mass_matrix has shape (4, 10)."""
-        _, params = self._run(2005, num_chains=4)
+        _, params, *_ = self._run(2005, num_chains=4)
         imm = params["inverse_mass_matrix"]
         assert imm.shape == (4, 10), f"Expected (4, 10), got {imm.shape}"
 
     def test_num_chains_1_not_squeezed(self) -> None:
         """num_chains=1 → leading dim 1 (NOT squeezed)."""
-        states, params = self._run(2006, num_chains=1)
+        states, params, *_ = self._run(2006, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
 
     def test_total_tuning_steps_is_int(self) -> None:
         """_total_tuning_steps is a Python int (not a JAX array)."""
-        _, params = self._run(2007, num_chains=4)
+        _, params, *_ = self._run(2007, num_chains=4)
         steps = params["_total_tuning_steps"]
         assert isinstance(
             steps, int
@@ -796,7 +798,7 @@ class TestMclmcTuningMultiChain:
 
     def test_all_L_positive(self) -> None:
         """All per-chain L values must be positive."""
-        _, params = self._run(2008, num_chains=4)
+        _, params, *_ = self._run(2008, num_chains=4)
         L = jnp.asarray(params["L"])
         assert bool(jnp.all(L > 0)), f"Not all L values positive: {L}"
 
@@ -832,28 +834,28 @@ class TestNoWarmupMultiChain:
 
     def test_num_chains_4_nuts_state_shape(self) -> None:
         """num_chains=4, NUTS → position leading dim == 4."""
-        states, params = self._run(3002, _NUTS, num_chains=4)
+        states, params, *_ = self._run(3002, _NUTS, num_chains=4)
         pos_shape = _position_shape(states)
         assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
         assert params == {}, f"no_warmup always returns empty dict, got {params}"
 
     def test_num_chains_4_rwm_state_shape(self) -> None:
         """num_chains=4, RWM → position leading dim == 4."""
-        states, params = self._run(3003, _RWM, num_chains=4)
+        states, params, *_ = self._run(3003, _RWM, num_chains=4)
         pos_shape = _position_shape(states)
         assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
         assert params == {}
 
     def test_num_chains_4_mclmc_state_shape(self) -> None:
         """num_chains=4, MCLMC → position leading dim == 4."""
-        states, params = self._run(3004, _MCLMC, num_chains=4)
+        states, params, *_ = self._run(3004, _MCLMC, num_chains=4)
         pos_shape = _position_shape(states)
         assert pos_shape == (4, 10), f"Expected (4, 10), got {pos_shape}"
         assert params == {}
 
     def test_num_chains_1_not_squeezed(self) -> None:
         """num_chains=1 → leading dim 1 (NOT squeezed)."""
-        states, params = self._run(3005, _NUTS, num_chains=1)
+        states, params, *_ = self._run(3005, _NUTS, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
         assert params == {}
@@ -861,7 +863,7 @@ class TestNoWarmupMultiChain:
     def test_adapted_params_always_empty(self) -> None:
         """no_warmup always returns {} regardless of num_chains."""
         for nc in (1, 2, 4, 8):
-            _, params = self._run(3010 + nc, _NUTS, num_chains=nc)
+            _, params, *_ = self._run(3010 + nc, _NUTS, num_chains=nc)
             assert params == {}, f"num_chains={nc}: expected empty dict, got {params}"
 
 
@@ -923,7 +925,7 @@ class TestPathfinderMultiChain:
 
     def test_explicit_num_chains_2(self) -> None:
         """num_chains=2: position (2, d), step_size (2,), dense IMM (2, d, d)."""
-        states, params = self._run(4002, num_chains=2)
+        states, params, *_ = self._run(4002, num_chains=2)
         pos_shape = _position_shape(states)
         assert pos_shape == (2, _D), f"Expected (2, {_D}), got {pos_shape}"
         ss = jnp.asarray(params["step_size"])
@@ -938,19 +940,19 @@ class TestPathfinderMultiChain:
 
     def test_step_size_and_imm_keys_present(self) -> None:
         """adapted_params must contain step_size and inverse_mass_matrix."""
-        _, params = self._run(4004, num_chains=2)
+        _, params, *_ = self._run(4004, num_chains=2)
         assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
         assert "inverse_mass_matrix" in params, f"Missing IMM; keys: {list(params)}"
 
     def test_step_size_positive(self) -> None:
         """Pathfinder now adapts step_size via DA; all values must be > 0."""
-        _, params = self._run(4006, num_chains=4)
+        _, params, *_ = self._run(4006, num_chains=4)
         ss = jnp.asarray(params["step_size"])
         assert bool(jnp.all(ss > 0)), f"All step_sizes should be > 0, got {ss}"
 
     def test_num_chains_1_not_squeezed(self) -> None:
         """num_chains=1 → leading dim 1 (NOT squeezed), dense IMM (1, d, d)."""
-        states, params = self._run(4007, num_chains=1)
+        states, params, *_ = self._run(4007, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
         ss = jnp.asarray(params["step_size"])
@@ -1039,7 +1041,7 @@ class TestMultiPathfinderMultiChain:
 
     def test_explicit_num_chains_2(self) -> None:
         """num_chains=2: position (2, d), step_size (2,), dense IMM (2, d, d)."""
-        states, params = self._run(5002, num_chains=2)
+        states, params, *_ = self._run(5002, num_chains=2)
         pos_shape = _position_shape(states)
         assert pos_shape == (2, _D), f"Expected (2, {_D}), got {pos_shape}"
         ss = jnp.asarray(params["step_size"])
@@ -1054,26 +1056,26 @@ class TestMultiPathfinderMultiChain:
 
     def test_step_size_and_imm_keys_present(self) -> None:
         """adapted_params must contain step_size and inverse_mass_matrix."""
-        _, params = self._run(5004, num_chains=2)
+        _, params, *_ = self._run(5004, num_chains=2)
         assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
         assert "inverse_mass_matrix" in params, f"Missing IMM; keys: {list(params)}"
 
     def test_psis_diagnostics_in_calibration_metadata(self) -> None:
         """_multipathfinder_psis_pareto_k sidecar must be present."""
-        _, params = self._run(5005, num_chains=2)
+        _, params, *_ = self._run(5005, num_chains=2)
         assert (
             "_multipathfinder_psis_pareto_k" in params
         ), f"Missing _multipathfinder_psis_pareto_k; keys: {list(params)}"
 
     def test_step_size_positive(self) -> None:
         """Multipathfinder now adapts step_size via DA; all values must be > 0."""
-        _, params = self._run(5006, num_chains=4)
+        _, params, *_ = self._run(5006, num_chains=4)
         ss = jnp.asarray(params["step_size"])
         assert bool(jnp.all(ss > 0)), f"All step_sizes should be > 0, got {ss}"
 
     def test_num_chains_1_not_squeezed(self) -> None:
         """num_chains=1 → leading dim 1 (NOT squeezed), dense IMM (1, d, d)."""
-        states, params = self._run(5007, num_chains=1)
+        states, params, *_ = self._run(5007, num_chains=1)
         leading = _state_leading_dim(states)
         assert leading == 1, f"num_chains=1 should give leading dim 1, got {leading}"
         ss = jnp.asarray(params["step_size"])
@@ -1087,7 +1089,7 @@ class TestMultiPathfinderMultiChain:
 
     def test_imm_values_are_identical_across_chains(self) -> None:
         """All chains share the same IMM (broadcast from shared (d, d) estimate)."""
-        _, params = self._run(5008, num_chains=4)
+        _, params, *_ = self._run(5008, num_chains=4)
         imm = params["inverse_mass_matrix"]
         # All (d, d) slices should be equal (same broadcast estimate).
         for i in range(1, 4):
@@ -1187,7 +1189,7 @@ class TestMeadsMultiChain:
 
     def test_explicit_num_chains_8_num_folds_4(self) -> None:
         """num_chains=8, num_folds=4 (chains > folds): shapes correct."""
-        states, params = self._run(6003, num_chains=8, num_folds=4)
+        states, params, *_ = self._run(6003, num_chains=8, num_folds=4)
         leading = _state_leading_dim(states)
         assert leading == 8, f"Expected leading dim 8, got {leading}"
         ss = jnp.asarray(params["step_size"])
@@ -1221,7 +1223,7 @@ class TestMeadsMultiChain:
 
     def test_step_size_alpha_delta_imm_keys_present(self) -> None:
         """adapted_params must contain step_size, momentum_inverse_scale, alpha, delta."""
-        _, params = self._run(6005, num_chains=4)
+        _, params, *_ = self._run(6005, num_chains=4)
         for key_name in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
             assert (
                 key_name in params
@@ -1229,7 +1231,7 @@ class TestMeadsMultiChain:
 
     def test_meads_num_folds_sidecar_present(self) -> None:
         """_meads_num_folds sidecar key must be present."""
-        _, params = self._run(6006, num_chains=4)
+        _, params, *_ = self._run(6006, num_chains=4)
         assert (
             "_meads_num_folds" in params
         ), f"Missing _meads_num_folds sidecar; got: {list(params)}"
@@ -1321,7 +1323,7 @@ class TestCheesMultiChain:
 
     def test_explicit_num_chains_8(self) -> None:
         """num_chains=8: position leading dim == 8."""
-        states, params = self._run(7002, num_chains=8)
+        states, params, *_ = self._run(7002, num_chains=8)
         leading = _state_leading_dim(states)
         assert leading == 8, f"Expected leading dim 8, got {leading}"
         ss = jnp.asarray(params["step_size"])
@@ -1355,7 +1357,7 @@ class TestCheesMultiChain:
 
     def test_step_size_and_imm_keys_present(self) -> None:
         """adapted_params must contain step_size and inverse_mass_matrix."""
-        _, params = self._run(7004, num_chains=4)
+        _, params, *_ = self._run(7004, num_chains=4)
         assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
         assert (
             "inverse_mass_matrix" in params
@@ -1363,7 +1365,7 @@ class TestCheesMultiChain:
 
     def test_callable_params_present(self) -> None:
         """CHEES adapted_params must contain next_random_arg_fn and integration_steps_fn."""
-        _, params = self._run(7005, num_chains=4)
+        _, params, *_ = self._run(7005, num_chains=4)
         assert (
             "next_random_arg_fn" in params
         ), f"Missing next_random_arg_fn; keys: {list(params)}"
@@ -1379,7 +1381,7 @@ class TestCheesMultiChain:
 
     def test_jitter_amount_default_in_sidecar(self) -> None:
         """Sidecar must contain _chees_target_acceptance_rate metadata."""
-        _, params = self._run(7006, num_chains=4)
+        _, params, *_ = self._run(7006, num_chains=4)
         assert (
             "_chees_target_acceptance_rate" in params
         ), f"Missing _chees_target_acceptance_rate sidecar; keys: {list(params)}"
@@ -1389,7 +1391,7 @@ class TestCheesMultiChain:
 
     def test_max_leapfrog_steps_sidecar_present(self) -> None:
         """Sidecar must contain _chees_max_leapfrog_steps metadata."""
-        _, params = self._run(7007, num_chains=4)
+        _, params, *_ = self._run(7007, num_chains=4)
         assert (
             "_chees_max_leapfrog_steps" in params
         ), f"Missing _chees_max_leapfrog_steps sidecar; keys: {list(params)}"
@@ -1399,13 +1401,13 @@ class TestCheesMultiChain:
 
     def test_step_size_positive(self) -> None:
         """Adapted step_size must be positive across all chains."""
-        _, params = self._run(7008, num_chains=4)
+        _, params, *_ = self._run(7008, num_chains=4)
         ss = jnp.asarray(params["step_size"])
         assert bool(jnp.all(ss > 0)), f"Not all step sizes positive: {ss}"
 
     def test_imm_shape_num_chains_4(self) -> None:
         """num_chains=4 → inverse_mass_matrix has shape (4, d)."""
-        _, params = self._run(7009, num_chains=4)
+        _, params, *_ = self._run(7009, num_chains=4)
         imm = params["inverse_mass_matrix"]
         assert imm.shape == (4, _D), f"Expected (4, {_D}), got {imm.shape}"
 

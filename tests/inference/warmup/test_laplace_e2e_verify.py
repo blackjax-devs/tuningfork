@@ -72,7 +72,7 @@ def test_laplace_hmc_e2e_warmup_and_sampling():
     laplace_hmc_method = BASE_METHODS["laplace_hmc"]
     num_chains = 2
 
-    states, adapted_params = warmup.runner(
+    states, adapted_params, *_ = warmup.runner(
         jax.random.key(0),
         phi_init,
         500,
