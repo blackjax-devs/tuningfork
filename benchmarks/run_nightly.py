@@ -170,7 +170,23 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------ #
     bench_file = args.results_dir / "bench_results.json"
     if not bench_file.exists():
-        print(f"ERROR: {bench_file} not found", file=sys.stderr)
+        print(
+            f"ERROR: {bench_file} not found — did the benchmark step run at all?",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Guard: zero benchmark entries → pytest ran but collected no cells.
+    # This is as bad as a missing file — the nightly produced no signal.
+    import json as _json  # noqa: PLC0415
+
+    _raw = _json.loads(bench_file.read_text())
+    if not _raw.get("benchmarks"):
+        print(
+            "ERROR: bench_results.json has 0 benchmark entries — no cells ran "
+            "(check pytest collection, -m benchmark filter, and suite selection).",
+            file=sys.stderr,
+        )
         return 1
 
     seed_cells = parse_benchmark_json(bench_file, seeds)
@@ -189,7 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     today_results = build_today_results(seed_cells, run_date, env)
 
     if not today_results:
-        print("WARNING: no per-seed metrics found in benchmark JSON", file=sys.stderr)
+        print(
+            "ERROR: no per-seed metrics extracted from benchmark JSON "
+            "(cells ran but extra_info['per_seed_metrics'] is absent or empty).",
+            file=sys.stderr,
+        )
         return 1
 
     # Load-before-store: compare against prior THEN overwrite

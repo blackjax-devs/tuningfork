@@ -90,11 +90,17 @@ jobs:
       - name: Run benchmarks (3 seeds inside each cell)
         id: bench
         run: |
-          # Single pytest invocation — 3 date-derived seeds loop inside each cell.
-          # Per-seed metrics stored in benchmark.extra_info["per_seed_metrics"].
+          # set -o pipefail: propagate pytest's exit code through "| tee" so a
+          # pytest crash (bad arg, import error, zero cells) fails THIS step, not
+          # silently green-washes the job.
+          set -o pipefail
           all_results_dir="benchmark_results_dir"
           mkdir -p "$all_results_dir"
+          # Set output BEFORE pytest so it's available even if pytest fails.
+          echo "all_results_dir=$all_results_dir" >> "$GITHUB_OUTPUT"
 
+          # Note: --timeout requires pytest-timeout (not in bench-perf deps).
+          # Job-level timeout-minutes: 180 covers runaway cells.
           JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
             --benchmark-json="${all_results_dir}/bench_results.json" \
@@ -102,11 +108,9 @@ jobs:
             --benchmark-warmup=off \
             --benchmark-min-rounds=1 \
             --benchmark-max-time=0 \
-            --timeout=1800 \
             -v \
             --tb=short \
-            2>&1 | tee "${all_results_dir}/bench.log" || true
-          echo "all_results_dir=$all_results_dir" >> "$GITHUB_OUTPUT"
+            2>&1 | tee "${all_results_dir}/bench.log"
 
       - name: Store results + run regression check (nightly only)
         id: regression
