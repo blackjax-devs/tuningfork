@@ -717,7 +717,7 @@ def test_check_within_seed_determinism_ess_disagree(capsys) -> None:
     """ESS relative difference > 1% triggers a DETERMINISM_WARN annotation."""
     m1 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4}
     m2 = {"min_bulk_ess": 1600.0, "max_abs_mean_z": 0.4}
-    # rel diff = 200/1800 ≈ 11% > 1% threshold
+    # rel diff = 200/1800 ≈ 11% > 5% threshold
     _check_within_seed_determinism(m1, m2, 20260601, "mvn_10", "low__nuts.json")
     captured = capsys.readouterr()
     assert "::warning::DETERMINISM_WARN" in captured.out
@@ -725,10 +725,10 @@ def test_check_within_seed_determinism_ess_disagree(capsys) -> None:
 
 
 def test_check_within_seed_determinism_z_disagree(capsys) -> None:
-    """z absolute difference > 0.1 triggers a DETERMINISM_WARN annotation."""
+    """z absolute difference > 0.2 triggers a DETERMINISM_WARN annotation."""
     m1 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4}
-    m2 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.55}
-    # abs z diff = 0.15 > 0.1 threshold
+    m2 = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.65}
+    # abs z diff = 0.25 > 0.2 threshold
     _check_within_seed_determinism(m1, m2, 20260601, "mvn_10", "low__nuts.json")
     captured = capsys.readouterr()
     assert "::warning::DETERMINISM_WARN" in captured.out

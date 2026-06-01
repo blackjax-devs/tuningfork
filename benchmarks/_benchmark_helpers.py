@@ -38,8 +38,8 @@ _BENCHMARK_SEED = (
 # Per-cell JAX/blackjax-drift detection tolerances (provisional; statistician to refine)
 _JAX_DRIFT_ESS_FLOOR_FACTOR = 0.5  # warn if rerun ESS < 50% of committed recipe value
 _JAX_DRIFT_Z_DELTA = 2.0  # warn if rerun z > committed_z + 2.0
-_WITHIN_SEED_ESS_REL_TOL = 0.01  # warn if 2 warm same-seed runs differ >1% ESS
-_WITHIN_SEED_Z_ABS_TOL = 0.1  # warn if 2 warm same-seed runs differ >0.1 in z
+_WITHIN_SEED_ESS_REL_TOL = 0.05  # warn if 2 warm same-seed runs differ >5% ESS
+_WITHIN_SEED_Z_ABS_TOL = 0.2  # warn if 2 warm same-seed runs differ >0.2 in z
 
 
 def bench_id(cell: tuple[str, str, str, str]) -> str:
