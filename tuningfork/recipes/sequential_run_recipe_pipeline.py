@@ -55,8 +55,8 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-_CATALOG_ROOT = Path(__file__).resolve().parents[2] / "catalog"
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CATALOG_ROOT = Path(__file__).resolve().parents[1] / "catalog"  # tuningfork/catalog
+_REPO_ROOT = Path(__file__).resolve().parents[2]  # git repo root
 _LOG_PATH = Path("/tmp/sequential_run_recipe_pipeline.log")
 _PER_RECIPE_TIMEOUT_S = 300  # 5 min per recipe; long-running NUTS models need it
 
