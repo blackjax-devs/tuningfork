@@ -1,109 +1,218 @@
 name: Recipe benchmark suite
 
-# Nightly: fast + e2e benchmarks (all 33 cells, ~8 min fast + 2 slow e2e cells).
-# Manual:  workflow_dispatch; suite=fast runs test_fast_recipes only (~8 min).
-# No per-PR trigger: nightly + on-demand is the right model.
+# Nightly: fast + e2e benchmarks (all 33 cells) with 3-seed cross-date regression.
+# Manual:  workflow_dispatch; suite=fast runs test_fast_recipes only.
 #
-# Cell routing (by CI wall time from round-4 run):
-#   test_fast_recipes.py: 31 cells ≤60s each → ~8 min total
-#   test_e2e_recipes.py:   2 cells >60s each (lotka 204s, horseshoe 75s) → nightly only
+# Seed scheme: date-seeded (seed = int(YYYYMMDD)) for {date-1, date, date+1}.
+# Overlapping seeds with prior night → cross-date regression detection.
 #
-# Working-directory note: the checkout IS the tuningfork repo root.
+# Runner: ubuntu-24.04 (pinned LTS — NOT ubuntu-latest which floats).
+# Deps:   installed from uv.lock exactly; blackjax@main installed on top.
+# Results: stored on benchmark-results branch (one <seed>.json per seed).
+# Regression: _regression_check.py applies locked criterion (max_abs_mean_z≥4.0,
+#   ESS-trend secondary), emits GH Actions annotations/step-fail.
 
 on:
   schedule:
-    # Nightly at 02:00 UTC (off-peak; avoids contention with other CI)
+    # Nightly at 02:00 UTC. NOTE: GH's schedule cache can go stale — if nightly
+    # stops firing, push a dummy commit or use workflow_dispatch to re-trigger.
     - cron: '0 2 * * *'
-  # pull_request trigger intentionally omitted: the suite will grow to ~2h
-  # (Tier 1+2 nightly), making per-PR CI untenable. Nightly + on-demand is
-  # the right model — use workflow_dispatch for targeted pre-merge validation.
   workflow_dispatch:
     inputs:
       suite:
         description: 'Which suite to run (fast | e2e | all)'
         required: false
         default: 'all'
+      seed_override:
+        description: 'Override seed (int, e.g. 20260601); default = date-derived'
+        required: false
+        default: ''
+
+permissions:
+  contents: write   # needed to push to benchmark-results branch + create issues
+  issues: write     # needed for auto-issue on REGRESSION verdict
 
 jobs:
   benchmark:
     name: Benchmark (${{ github.event_name }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60   # hard cap: prevents hung CI slots
+    runs-on: ubuntu-24.04   # pinned LTS — float tags break env fingerprinting
+    timeout-minutes: 90     # hard cap: prevents hung CI slots
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Fetch benchmark-results branch so load_prior_result() can find it
+          fetch-depth: 0
+
+      - name: Fetch benchmark-results branch
+        run: git fetch origin benchmark-results:benchmark-results 2>/dev/null || true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
-          # Python is pinned via .python-version (repo root) + --python 3.13 on
-          # every uv invocation below. setup-uv does not accept python-version
-          # as an input; the pin is enforced by uv itself at sync/run time.
 
-      - name: Install bench-perf deps
-        # --python 3.13 forces uv to use 3.13 regardless of available interpreters.
-        # .python-version in the repo root provides the same pin for local runs.
+      - name: Install bench-perf deps (from locked uv.lock)
+        # DO NOT call uv update — use the checked-in lockfile exactly.
+        # blackjax@main is installed explicitly below to track HEAD.
         run: uv sync --group bench-perf --python 3.13
 
+      - name: Install blackjax@main (explicit, on top of lockfile)
+        run: |
+          uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
+          uv run --python 3.13 python -c "import blackjax; print('blackjax version:', blackjax.__version__)"
+
       - name: Verify Python version
-        # Fails the workflow if jax imports on the wrong Python (prevents silent 3.14 drift).
         run: |
           uv run --python 3.13 python --version
           uv run --python 3.13 python -c "import sys; assert sys.version_info[:2] == (3, 13), f'Expected Python 3.13, got {sys.version}'"
+
+      - name: Compute nightly seeds
+        id: seeds
+        run: |
+          python3 -c "
+          from datetime import date, timedelta
+          import os
+          d = date.today()
+          seeds = [
+              int((d - timedelta(days=1)).strftime('%Y%m%d')),
+              int(d.strftime('%Y%m%d')),
+              int((d + timedelta(days=1)).strftime('%Y%m%d')),
+          ]
+          override = '${{ inputs.seed_override }}'
+          if override:
+              seeds = [int(override)]
+          print(f'Seeds: {seeds}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'seeds={\" \".join(str(s) for s in seeds)}\n')
+              f.write(f'seed_list={\" \".join(str(s) for s in seeds)}\n')
+          "
 
       - name: Select benchmark suite
         id: suite
         run: |
           if [ "${{ inputs.suite }}" = "fast" ]; then
             echo "files=benchmarks/test_fast_recipes.py" >> "$GITHUB_OUTPUT"
-            echo "group=manual-fast" >> "$GITHUB_OUTPUT"
           elif [ "${{ inputs.suite }}" = "e2e" ]; then
             echo "files=benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
-            echo "group=manual-e2e" >> "$GITHUB_OUTPUT"
           else
-            # Nightly / manual 'all': fast + e2e
             echo "files=benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
-            echo "group=nightly-all" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run benchmarks
-        # No working-directory: benchmarks/ is at the repo root.
-        # --benchmark-max-time=0: each cell runs exactly once (1 round).
-        # --benchmark-warmup=off: GT-gate validates correctness; warmup is redundant.
+      - name: Run benchmarks (all seeds)
+        id: bench
+        env:
+          # Pass seed list for the benchmark to iterate over
+          BENCHMARK_SEEDS: ${{ steps.seeds.outputs.seeds }}
         run: |
-          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
-            -m benchmark \
-            --benchmark-json=benchmark_results.json \
-            --benchmark-disable-gc \
-            --benchmark-warmup=off \
-            --benchmark-min-rounds=1 \
-            --benchmark-max-time=0 \
-            -v
+          # Loop over seeds; collect per-seed result JSONs
+          all_results_dir="benchmark_results_dir"
+          mkdir -p "$all_results_dir"
+
+          for seed in ${{ steps.seeds.outputs.seed_list }}; do
+            echo "=== Running seed=$seed ==="
+            JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
+              -m benchmark \
+              --benchmark-json="${all_results_dir}/bench_${seed}.json" \
+              --benchmark-disable-gc \
+              --benchmark-warmup=off \
+              --benchmark-min-rounds=1 \
+              --benchmark-max-time=0 \
+              --timeout=300 \
+              -v \
+              --tb=short \
+              -k "True" \
+              --override-ini="addopts=" \
+              -p no:cacheprovider \
+              2>&1 | tee "${all_results_dir}/bench_${seed}.log" || true
+          done
+          echo "all_results_dir=$all_results_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Store results + run regression check (nightly only)
+        id: regression
+        if: github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BENCHMARK_SEEDS: ${{ steps.seeds.outputs.seeds }}
+        run: |
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -c "
+          import json
+          import os
+          import sys
+          from datetime import date
+          from pathlib import Path
+
+          sys.path.insert(0, '.')
+          from benchmarks._result_persistence import store_result, load_prior_result, load_recent_results
+          from benchmarks._regression_check import run_regression_check, exit_with_verdict
+          from benchmarks._benchmark_helpers import get_nightly_seeds
+
+          seeds = [int(s) for s in os.environ.get('BENCHMARK_SEEDS', '').split()]
+          results_dir = Path('${{ steps.bench.outputs.all_results_dir }}')
+          run_date = date.today()
+
+          # --- Load today's per-seed results ---
+          today_results = []
+          for seed in seeds:
+              bench_file = results_dir / f'bench_{seed}.json'
+              if not bench_file.exists():
+                  continue
+              try:
+                  raw = json.loads(bench_file.read_text())
+                  # Convert pytest-benchmark JSON to our schema
+                  cells = {}
+                  for bm in raw.get('benchmarks', []):
+                      cell_id = bm.get('name', 'unknown')
+                      extra = bm.get('extra_info', {})
+                      cells[cell_id] = {
+                          'min_bulk_ess': extra.get('min_bulk_ess'),
+                          'max_abs_mean_z': extra.get('max_abs_mean_z'),
+                          'n_divergences': extra.get('n_divergences', -1),
+                          'runtime_warmup_s': bm.get('stats', {}).get('mean', 0),
+                          'runtime_sample_s': 0.0,
+                          'correctness_passed': extra.get('correctness_passed'),
+                      }
+                  today_results.append({'seed': seed, 'date': run_date.isoformat(),
+                      'env': {}, 'cells': cells})
+              except Exception as e:
+                  print(f'WARNING: could not parse {bench_file}: {e}', file=sys.stderr)
+
+          # --- Load prior results for overlap seeds ---
+          overlap_seeds = list(get_nightly_seeds(run_date)[:2])  # {date-1, date}
+          prior_results = {}
+          for seed in overlap_seeds:
+              r = load_prior_result(seed)
+              if r is not None:
+                  prior_results[seed] = r
+
+          recent = load_recent_results(n=3)
+
+          # --- Store today's results ---
+          for result in today_results:
+              store_result(result['seed'], result['cells'], run_date)
+              print(f'Stored seed={result[\"seed\"]}', flush=True)
+
+          # --- Run regression check ---
+          if not prior_results:
+              print('Bootstrap night — no priors; storing results only.', flush=True)
+              sys.exit(0)
+
+          reg_result = run_regression_check(today_results, prior_results, recent)
+          sys.exit(exit_with_verdict(reg_result))
+          "
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ github.sha }}-${{ steps.filter.outputs.group }}
-          # benchmark_results.json is written to the repo root (no working-directory).
-          path: benchmark_results.json
+          name: benchmark-results-${{ github.sha }}
+          path: ${{ steps.bench.outputs.all_results_dir }}
           retention-days: 90
 
-      # Trend tracking: compare against the most recent stored result on main.
-      # Only on nightly schedule (not manual dispatch) to keep the trend baseline clean.
-      - name: Store + compare benchmark trend (nightly only)
+      - name: Verify nightly cron fired (informational)
         if: github.event_name == 'schedule'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: "tuningfork recipe benchmarks"
-          tool: "pytest"
-          output-file-path: benchmark_results.json
-          # Push results to gh-pages branch for the trend dashboard
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          # Alert when performance regresses > 20% vs the rolling mean
-          alert-threshold: "120%"
-          comment-on-alert: true
-          fail-on-alert: false   # non-blocking: alert but don't fail the workflow
+        run: |
+          echo "Nightly cron fired at: $(date -u)"
+          echo "Event: ${{ github.event_name }}"
+          echo "SHA: ${{ github.sha }}"

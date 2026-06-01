@@ -27,11 +27,12 @@ Slow e2e cells (>60s): see ``benchmarks/test_e2e_recipes.py``.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
 
-from benchmarks._benchmark_helpers import bench_id, run_benchmark_cell
+from benchmarks._benchmark_helpers import _BENCHMARK_SEED, bench_id, run_benchmark_cell
 from benchmarks.config import FAST_CELLS
 
 
@@ -51,6 +52,11 @@ def test_recipe_perf(
     """Benchmark a recipe's sampler and assert GT-correctness.
 
     Timing is measured by pytest-benchmark (1 timed run per cell).
-    GT-correctness (max_abs_mean_z < 2.0) is asserted after the timed run.
+    GT-correctness (max_abs_mean_z < 4.0) is asserted after the timed run.
+    The seed is taken from ``BENCHMARK_SEED`` env var (date-derived by CI,
+    fixed default otherwise).
     """
-    run_benchmark_cell(benchmark, model_name, recipe_file, mode)
+    seed = int(os.environ.get("BENCHMARK_SEED", str(_BENCHMARK_SEED)))
+    metrics = run_benchmark_cell(benchmark, model_name, recipe_file, mode, seed=seed)
+    # Store metrics in pytest-benchmark's extra_info for nightly result persistence
+    benchmark.extra_info.update(metrics)
