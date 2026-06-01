@@ -609,6 +609,16 @@ def _compute_warmup_grad_evals(
                 )
                 # batched_warmup_info shape: (num_chains, n_warmup) or (n_warmup,)
                 return int(np.sum(arr))
+        except AssertionError as exc:
+            # Shape guard fired: NIS array is not per-step length.
+            # Log visibly so we notice a blackjax regression rather than silently
+            # getting wge=null.
+            import warnings as _warnings
+
+            _warnings.warn(
+                f"warmup_grad_evals CUMSUM guard: {exc}  — returning None",
+                stacklevel=2,
+            )
         except Exception:  # noqa: BLE001
             pass
 
