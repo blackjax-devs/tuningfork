@@ -62,6 +62,34 @@ def parse_benchmark_json(
     return seed_cells
 
 
+def parse_cell_drift_flags(
+    bench_file: Path,
+) -> tuple[bool, list[str]]:
+    """Read per-cell JAX-drift flags from benchmark JSON and aggregate.
+
+    Each benchmark entry may carry ``extra_info["jax_drift"]["flag"]`` and
+    ``extra_info["jax_drift"]["details"]`` written by ``run_benchmark_cell``.
+    This function returns ``(any_drifted, all_details)`` across all cells.
+
+    Returns
+    -------
+    (any_drifted, drift_details)
+        any_drifted: True if ≥1 cell reported a JAX-drift signal.
+        drift_details: flat list of human-readable detail strings.
+    """
+    raw = json.loads(bench_file.read_text())
+    any_drifted = False
+    all_details: list[str] = []
+
+    for bm in raw.get("benchmarks", []):
+        jax_drift = bm.get("extra_info", {}).get("jax_drift", {})
+        if jax_drift.get("flag"):
+            any_drifted = True
+            all_details.extend(jax_drift.get("details", []))
+
+    return any_drifted, all_details
+
+
 def build_today_results(
     seed_cells: dict[int, dict[str, Any]],
     run_date: date,
@@ -197,6 +225,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     reg_result = run_regression_check(today_results, prior_results, recent)
+
+    # Augment with JAX-drift signal (additive, non-blocking — verdict unchanged)
+    jax_drift_flag, jax_drift_details = parse_cell_drift_flags(bench_file)
+    reg_result.jax_drift_flag = jax_drift_flag
+    reg_result.jax_drift_details = jax_drift_details
+
     return exit_with_verdict(reg_result)
 
 

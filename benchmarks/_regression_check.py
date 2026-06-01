@@ -51,6 +51,10 @@ class RegressionResult:
     details: list[str] = field(default_factory=list)
     correctness_fail: bool = False  # any z ≥ 4.0 (single-seed)
     env_drifted: bool = False
+    # JAX-drift signal: additive, non-blocking — never changes the verdict.
+    # Populated by run_nightly.py from per-cell extra_info["jax_drift"].
+    jax_drift_flag: bool = False
+    jax_drift_details: list[str] = field(default_factory=list)
 
 
 def _env_changed(today_env: dict, prior_env: dict) -> bool:
@@ -233,25 +237,35 @@ def run_regression_check(
 
 
 def emit_gha_annotations(result: RegressionResult) -> None:
-    """Write GitHub Actions annotations to stdout based on verdict."""
-    if result.verdict == "GREEN":
-        return
-
-    detail_text = "\n".join(result.details[:20]) if result.details else "(no details)"
-
-    if result.verdict == "REGRESSION":
-        print(f"::error title=Benchmark Regression::{detail_text}", flush=True)
-        if result.correctness_fail:
+    """Write GitHub Actions annotations to stdout based on verdict + drift flag."""
+    # Correctness / regression annotations
+    if result.verdict != "GREEN":
+        detail_text = (
+            "\n".join(result.details[:20]) if result.details else "(no details)"
+        )
+        if result.verdict == "REGRESSION":
+            print(f"::error title=Benchmark Regression::{detail_text}", flush=True)
+            if result.correctness_fail:
+                print(
+                    "::error title=Correctness Gate FAILED::"
+                    f"max_abs_mean_z >= {_Z_THRESHOLD} — sampler correctness compromised",
+                    flush=True,
+                )
+        elif result.verdict in ("REVIEW", "ENVIRONMENT_DRIFT"):
             print(
-                "::error title=Correctness Gate FAILED::"
-                f"max_abs_mean_z ≥ {_Z_THRESHOLD} — sampler correctness compromised",
+                f"::warning title=Benchmark {result.verdict}::{detail_text}",
                 flush=True,
             )
-    elif result.verdict in ("REVIEW", "ENVIRONMENT_DRIFT"):
-        print(
-            f"::warning title=Benchmark {result.verdict}::{detail_text}",
-            flush=True,
+
+    # JAX-drift annotation: additive, non-blocking, always emitted when present.
+    # Surfaces "which blackjax change moved the numerics" context for engineers.
+    if result.jax_drift_flag:
+        drift_text = (
+            "\n".join(result.jax_drift_details[:20])
+            if result.jax_drift_details
+            else "(no details)"
         )
+        print(f"::warning title=JAX Numeric Drift::{drift_text}", flush=True)
 
 
 def exit_with_verdict(result: RegressionResult) -> int:

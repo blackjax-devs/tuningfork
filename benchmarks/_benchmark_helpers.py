@@ -224,21 +224,23 @@ def _check_jax_drift(
     committed_z: float | None,
     model_name: str,
     recipe_file: str,
-) -> None:
-    """Compare rerun metrics vs committed recipe values; emit GHA warning on drift.
+) -> tuple[bool, list[str]]:
+    """Return (drift_flag, drift_details) comparing rerun vs committed recipe metrics.
 
-    Drift criterion (provisional; statistician to refine):
-    - ESS drops below ``_JAX_DRIFT_ESS_FLOOR_FACTOR`` (50%) of committed value.
-    - z increases beyond ``committed_z + _JAX_DRIFT_Z_DELTA`` (2.0).
+    Criterion (statistician-ratified 2026-06-01):
+    - ESS < committed_ess × 50%          → flag
+    - z   > committed_z  + 2.0 (abs)     → flag
+    - n_divergences excluded (too noisy)
 
-    Emits ``::warning::JAX_DRIFT`` annotations (not a test failure) so CI surfaces
-    the signal without blocking the regression check.
+    Does NOT print or emit GHA annotations — caller (``run_nightly.py`` via
+    ``emit_gha_annotations``) decides when to emit ``::warning::JAX_DRIFT``.
+    Additive and non-blocking: never changes GREEN/REVIEW/REGRESSION verdict.
     """
     cell_id = f"{model_name}/{recipe_file}"
     ess = metrics.get("min_bulk_ess")
     z = metrics.get("max_abs_mean_z")
 
-    drift_details: list[str] = []
+    raw_details: list[str] = []
 
     if (
         ess is not None
@@ -246,21 +248,23 @@ def _check_jax_drift(
         and committed_ess > 0
         and ess < committed_ess * _JAX_DRIFT_ESS_FLOOR_FACTOR
     ):
-        drift_details.append(
+        raw_details.append(
             f"ESS={ess:.0f} vs committed={committed_ess:.0f}"
             f" (< {_JAX_DRIFT_ESS_FLOOR_FACTOR:.0%})"
         )
 
     if z is not None and committed_z is not None:
         if z > committed_z + _JAX_DRIFT_Z_DELTA:
-            drift_details.append(
+            raw_details.append(
                 f"z={z:.3f} vs committed={committed_z:.3f}"
                 f" (delta > {_JAX_DRIFT_Z_DELTA})"
             )
 
-    if drift_details:
-        msg = f"JAX_DRIFT {cell_id}: " + "; ".join(drift_details)
-        print(f"::warning::{msg}")
+    drift_flag = bool(raw_details)
+    drift_details: list[str] = (
+        [f"JAX_DRIFT {cell_id}: " + "; ".join(raw_details)] if drift_flag else []
+    )
+    return drift_flag, drift_details
 
 
 def _check_within_seed_determinism(
@@ -384,9 +388,12 @@ def run_benchmark_cell(
     # Step 1: compile-warmup with recipe's committed tuning_seed.
     # Outside the benchmark() call — not timed, result discarded.
     # Best-effort: never break the benchmark run on warmup failure.
+    # JAX-drift flag + details stored in extra_info for run_nightly.py.
     # ------------------------------------------------------------------
     tuning_seed, committed_ess, committed_z = _get_committed_metrics(recipe)
     compile_seed = tuning_seed if tuning_seed is not None else seeds[0]
+    jax_drift_flag: bool = False
+    jax_drift_details: list[str] = []
     try:
         idata_warmup = run_recipe_to_idata(
             recipe,
@@ -396,7 +403,7 @@ def run_benchmark_cell(
             _suppress_print=True,
         )
         warmup_metrics = extract_cell_metrics(idata_warmup, model_name)
-        _check_jax_drift(
+        jax_drift_flag, jax_drift_details = _check_jax_drift(
             warmup_metrics, committed_ess, committed_z, model_name, recipe_file
         )
     except Exception:  # noqa: BLE001
@@ -440,9 +447,13 @@ def run_benchmark_cell(
                 f"seed={s}: max_abs_mean_z={z:.3f} >= {_Z_THRESHOLD}"
             )
 
-    # Store per-seed means in extra_info for workflow result persistence
+    # Store per-seed means and JAX-drift flag in extra_info for run_nightly.py
     benchmark.extra_info["per_seed_metrics"] = {
         str(s): m for s, m in per_seed_metrics.items()
+    }
+    benchmark.extra_info["jax_drift"] = {
+        "flag": jax_drift_flag,
+        "details": jax_drift_details,
     }
 
     return per_seed_metrics

@@ -665,42 +665,44 @@ def test_get_committed_metrics_no_auto_section() -> None:
     assert z is None
 
 
-def test_check_jax_drift_no_warning_below_threshold(capsys) -> None:
-    """No warning when ESS and z are within tolerance."""
+def test_check_jax_drift_no_flag_below_threshold() -> None:
+    """Returns (False, []) when ESS and z are within tolerance."""
     metrics = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.5}
-    # committed_ess=2000, 1800 >= 2000*0.5=1000 → no ESS warning
-    # committed_z=0.3, 0.5 <= 0.3+2.0=2.3 → no z warning
-    _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
-    captured = capsys.readouterr()
-    assert "JAX_DRIFT" not in captured.out
+    # committed_ess=2000, 1800 >= 2000*0.5=1000 → no ESS drift
+    # committed_z=0.3, 0.5 <= 0.3+2.0=2.3 → no z drift
+    flag, details = _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
+    assert not flag
+    assert details == []
 
 
-def test_check_jax_drift_ess_drop_emits_warning(capsys) -> None:
-    """ESS drop below 50% of committed fires a ::warning::JAX_DRIFT annotation."""
+def test_check_jax_drift_ess_drop_returns_flag() -> None:
+    """ESS drop below 50% of committed returns (True, details-with-ESS)."""
     metrics = {"min_bulk_ess": 400.0, "max_abs_mean_z": 0.3}
-    # committed_ess=2000, 400 < 2000*0.5=1000 → ESS warning
-    _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
-    captured = capsys.readouterr()
-    assert "::warning::JAX_DRIFT" in captured.out
-    assert "ESS=" in captured.out
+    # committed_ess=2000, 400 < 2000*0.5=1000 → ESS drift
+    flag, details = _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
+    assert flag
+    assert details
+    assert "JAX_DRIFT" in details[0]
+    assert "ESS=" in details[0]
 
 
-def test_check_jax_drift_z_spike_emits_warning(capsys) -> None:
-    """z increase beyond committed_z + delta fires a ::warning::JAX_DRIFT annotation."""
+def test_check_jax_drift_z_spike_returns_flag() -> None:
+    """z increase beyond committed_z + delta returns (True, details-with-z)."""
     metrics = {"min_bulk_ess": 1800.0, "max_abs_mean_z": 3.5}
-    # committed_z=0.3, 3.5 > 0.3+2.0=2.3 → z warning
-    _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
-    captured = capsys.readouterr()
-    assert "::warning::JAX_DRIFT" in captured.out
-    assert "z=" in captured.out
+    # committed_z=0.3, 3.5 > 0.3+2.0=2.3 → z drift
+    flag, details = _check_jax_drift(metrics, 2000.0, 0.3, "mvn_10", "low__nuts.json")
+    assert flag
+    assert details
+    assert "JAX_DRIFT" in details[0]
+    assert "z=" in details[0]
 
 
-def test_check_jax_drift_no_committed_noop(capsys) -> None:
-    """No warning when committed metrics are None (bootstrap / no gate evidence)."""
+def test_check_jax_drift_no_committed_returns_no_flag() -> None:
+    """Returns (False, []) when committed metrics are None (bootstrap / no evidence)."""
     metrics = {"min_bulk_ess": 100.0, "max_abs_mean_z": 5.0}
-    _check_jax_drift(metrics, None, None, "mvn_10", "low__nuts.json")
-    captured = capsys.readouterr()
-    assert "JAX_DRIFT" not in captured.out
+    flag, details = _check_jax_drift(metrics, None, None, "mvn_10", "low__nuts.json")
+    assert not flag
+    assert details == []
 
 
 def test_check_within_seed_determinism_ok(capsys) -> None:
@@ -844,6 +846,10 @@ def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
     assert call_count[0] == 7, f"Expected 7 run_recipe calls, got {call_count[0]}"
     # 3 seed entries in output
     assert len(per_seed) == 3
+    # jax_drift must be stored in extra_info (run_nightly.py reads it from the JSON)
+    assert "jax_drift" in mock_benchmark.extra_info
+    assert isinstance(mock_benchmark.extra_info["jax_drift"]["flag"], bool)
+    assert isinstance(mock_benchmark.extra_info["jax_drift"]["details"], list)
 
 
 def test_run_benchmark_cell_per_seed_mean_of_2(tmp_path) -> None:
@@ -932,3 +938,128 @@ def test_run_benchmark_cell_per_seed_mean_of_2(tmp_path) -> None:
         assert m["runtime_warmup_s"] == pytest.approx(
             2.2
         ), f"seed {s}: expected summed runtime 2.2, got {m['runtime_warmup_s']}"
+
+
+# ---------------------------------------------------------------------------
+# parse_cell_drift_flags + RegressionResult.jax_drift_flag wiring
+# ---------------------------------------------------------------------------
+
+
+def test_parse_cell_drift_flags_no_drift(tmp_path) -> None:
+    """Returns (False, []) when no cell has jax_drift.flag=True."""
+    import json
+
+    from benchmarks.run_nightly import parse_cell_drift_flags
+
+    bench_data = {
+        "benchmarks": [
+            {
+                "name": "cell1",
+                "extra_info": {
+                    "per_seed_metrics": {"20260601": {"min_bulk_ess": 1800.0}},
+                    "jax_drift": {"flag": False, "details": []},
+                },
+            }
+        ]
+    }
+    bench_file = tmp_path / "bench.json"
+    bench_file.write_text(json.dumps(bench_data))
+    flag, details = parse_cell_drift_flags(bench_file)
+    assert not flag
+    assert details == []
+
+
+def test_parse_cell_drift_flags_one_cell_drifted(tmp_path) -> None:
+    """Returns (True, [detail]) when at least one cell has jax_drift.flag=True."""
+    import json
+
+    from benchmarks.run_nightly import parse_cell_drift_flags
+
+    bench_data = {
+        "benchmarks": [
+            {
+                "name": "cell1",
+                "extra_info": {"jax_drift": {"flag": False, "details": []}},
+            },
+            {
+                "name": "cell2",
+                "extra_info": {
+                    "jax_drift": {
+                        "flag": True,
+                        "details": [
+                            "JAX_DRIFT mvn_10/low__nuts.json: ESS=300 vs committed=1983"
+                        ],
+                    }
+                },
+            },
+        ]
+    }
+    bench_file = tmp_path / "bench.json"
+    bench_file.write_text(json.dumps(bench_data))
+    flag, details = parse_cell_drift_flags(bench_file)
+    assert flag
+    assert len(details) == 1
+    assert "JAX_DRIFT" in details[0]
+
+
+def test_parse_cell_drift_flags_missing_extra_info(tmp_path) -> None:
+    """Cells without extra_info.jax_drift are silently skipped."""
+    import json
+
+    from benchmarks.run_nightly import parse_cell_drift_flags
+
+    bench_data = {
+        "benchmarks": [
+            {
+                "name": "old_style_cell",
+                "extra_info": {"per_seed_metrics": {"20260601": {}}},
+                # no "jax_drift" key
+            }
+        ]
+    }
+    bench_file = tmp_path / "bench.json"
+    bench_file.write_text(json.dumps(bench_data))
+    flag, details = parse_cell_drift_flags(bench_file)
+    assert not flag
+    assert details == []
+
+
+def test_regression_result_jax_drift_fields_default() -> None:
+    """RegressionResult has jax_drift_flag=False and empty details by default."""
+    from benchmarks._regression_check import RegressionResult
+
+    r = RegressionResult(verdict="GREEN")
+    assert not r.jax_drift_flag
+    assert r.jax_drift_details == []
+
+
+def test_regression_result_jax_drift_non_blocking(capsys) -> None:
+    """jax_drift_flag=True emits ::warning::JAX Numeric Drift but does NOT change verdict."""
+    from benchmarks._regression_check import RegressionResult, emit_gha_annotations
+
+    r = RegressionResult(
+        verdict="GREEN",
+        jax_drift_flag=True,
+        jax_drift_details=["JAX_DRIFT mvn_10/cell1: ESS=300 vs committed=1983"],
+    )
+    emit_gha_annotations(r)
+    captured = capsys.readouterr()
+    assert "JAX Numeric Drift" in captured.out
+    assert r.verdict == "GREEN"  # verdict unchanged
+
+
+def test_regression_result_jax_drift_with_regression(capsys) -> None:
+    """jax_drift_flag=True alongside REGRESSION emits both error and drift warning."""
+    from benchmarks._regression_check import RegressionResult, emit_gha_annotations
+
+    r = RegressionResult(
+        verdict="REGRESSION",
+        correctness_fail=True,
+        details=["CORRECTNESS FAIL: cell1 max_abs_mean_z=4.5"],
+        jax_drift_flag=True,
+        jax_drift_details=["JAX_DRIFT mvn_10/cell1: ESS=300 vs committed=1983"],
+    )
+    emit_gha_annotations(r)
+    captured = capsys.readouterr()
+    assert "Benchmark Regression" in captured.out
+    assert "JAX Numeric Drift" in captured.out
