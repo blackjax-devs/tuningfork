@@ -373,6 +373,34 @@ def test_parse_benchmark_json_unknown_seeds_ignored(tmp_path) -> None:
     assert 20260601 in result
 
 
+def test_run_nightly_main_missing_bench_file(tmp_path) -> None:
+    """main() returns 1 when bench_results.json does not exist (pytest never ran)."""
+    from benchmarks.run_nightly import main
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    # No bench_results.json written
+    exit_code = main(["--results-dir", str(results_dir)])
+    assert exit_code == 1
+
+
+def test_run_nightly_main_zero_benchmarks(tmp_path) -> None:
+    """main() returns 1 when bench_results.json exists but has 0 benchmark entries.
+
+    This is the 'masked fake-green' scenario: pytest ran but collected no cells
+    (e.g. bad -m filter, wrong suite arg) and wrote an empty JSON.
+    """
+    import json
+
+    from benchmarks.run_nightly import main
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    (results_dir / "bench_results.json").write_text(json.dumps({"benchmarks": []}))
+    exit_code = main(["--results-dir", str(results_dir)])
+    assert exit_code == 1
+
+
 def test_run_nightly_main_green(tmp_path) -> None:
     """main() returns 0 (GREEN) when all z < 4.0 and no ESS trend."""
     import json
