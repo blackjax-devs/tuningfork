@@ -549,12 +549,15 @@ def _compute_warmup_grad_evals(
        family): the mclmc-specific warmup runner returns this metadata key.
        It is the total number of integrator steps across all chains.
 
-    2. ``batched_warmup_info.num_integration_steps`` (inner-kernel warmup):
-       when ``warmup_inner_kernel`` is set, the warmup trace carries per-step
-       NIS.  Sum over all steps × chains.
+    2. ``batched_warmup_info.num_integration_steps`` — exact CUMSUM of per-step
+       NIS.  For standard window adaptation, the runner now returns ``adapt_info.info``
+       (NUTSInfo / HMCInfo with per-step counts) as the third element.  For
+       inner-kernel warmup (``warmup_inner_kernel`` set), the warmup trace carries
+       per-step NIS.  Shape is ``(num_chains, n_warmup)`` after vmap; sum gives exact
+       total across all chains × warmup steps.
 
-    3. ``None`` — standard HMC window adaptation without inner-kernel info:
-       gradient counts not available without re-running warmup.
+    3. ``None`` — warmup runner didn't return kernel info (e.g. non-window-adaptation
+       warmups that don't expose per-step NIS).
 
     Parameters
     ----------
@@ -866,7 +869,9 @@ def emit_low_recipe_for_cell(
         + ")..."
     )
     t_warmup0 = time.perf_counter()
-    batched_warmup_info: Any = None  # captured only when warmup_inner_kernel is set
+    batched_warmup_info: Any = (
+        None  # set from inner_kernel path OR standard runner 3-tuple
+    )
     try:
         if warmup_inner_kernel is not None:
             # Schema extension: explicit inner kernel path — run window_adaptation with
@@ -884,7 +889,9 @@ def emit_low_recipe_for_cell(
             )
         else:
             # Legacy path: warmup.runner handles implicit substitute-family logic.
-            batched_state, batched_params = warmup.runner(
+            # window_adaptation runners return (states, params, kernel_info) as of
+            # the exact-wge instrumentation; unpack defensively for backward compat.
+            _warmup_result = warmup.runner(
                 warmup_key,
                 init_position,
                 n_warmup,
@@ -892,6 +899,13 @@ def emit_low_recipe_for_cell(
                 logdensity_fn=logdensity_fn,
                 num_chains=num_chains,
                 target_acceptance_rate=target_acceptance,
+            )
+            batched_state = _warmup_result[0]
+            batched_params = _warmup_result[1]
+            batched_warmup_info = (
+                _warmup_result[2]  # type: ignore[misc]
+                if len(_warmup_result) == 3
+                else None
             )
     except Exception as exc:
         note = f"FAIL warmup error: {type(exc).__name__}: {exc}"
@@ -2128,7 +2142,7 @@ def run_recipe_to_idata(
     else:
         # Single-phase standard warmup. Resolve W from warmup_num_chains[0].
         _single_W = _wnc_effective[0] if _wnc_effective is not None else num_chains
-        _raw_state_std, _raw_params_std = warmup.runner(
+        _std_result = warmup.runner(
             warmup_key,
             init_position,
             n_warmup,
@@ -2137,6 +2151,7 @@ def run_recipe_to_idata(
             num_chains=_single_W,
             target_acceptance_rate=target_acceptance,
         )
+        _raw_state_std, _raw_params_std = _std_result[0], _std_result[1]
         if _single_W != num_chains:
             batched_state, batched_params = _reduce_and_broadcast_warmup_output(
                 _raw_state_std, _raw_params_std, _single_W, num_chains

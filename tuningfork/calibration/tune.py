@@ -415,7 +415,7 @@ def _run_warmup(
     # run_inference_algorithm expects.
     from tuningfork.warmup._base import squeeze_single_chain
 
-    batched_state, batched_params = warmup.runner(
+    _tune_warmup_result = warmup.runner(
         rng_key,
         init_position,
         n_warmup,
@@ -423,6 +423,7 @@ def _run_warmup(
         logdensity_fn=logdensity_fn,
         num_chains=1,
     )
+    batched_state, batched_params = _tune_warmup_result[0], _tune_warmup_result[1]
     return squeeze_single_chain(batched_state, batched_params)
 
 
