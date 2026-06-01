@@ -597,6 +597,16 @@ def _compute_warmup_grad_evals(
             nis = getattr(batched_warmup_info, "num_integration_steps", None)
             if nis is not None:
                 arr = np.asarray(nis)
+                # Defensive self-check: arr.shape[-1] must equal n_warmup.
+                # adapt_info.info.num_integration_steps is shape (n_warmup,) per chain
+                # (vmapped → (num_chains, n_warmup)) — per-step, NOT a running CUMSUM.
+                # If blackjax ever changes to cumulative or partial-window NIS this
+                # assert will fire, catching the silent double-count.
+                assert arr.shape[-1] == n_warmup, (  # noqa: S101
+                    f"NIS array last-dim {arr.shape[-1]} != n_warmup {n_warmup}; "
+                    "blackjax may have changed from per-step to cumulative NIS — "
+                    "CUMSUM would be incorrect"
+                )
                 # batched_warmup_info shape: (num_chains, n_warmup) or (n_warmup,)
                 return int(np.sum(arr))
         except Exception:  # noqa: BLE001
