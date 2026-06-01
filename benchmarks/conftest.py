@@ -58,3 +58,35 @@ def pytest_collection_modifyitems(items: list, config: pytest.Config) -> None:
 def jit_warmup_pass():
     """Warm the XLA JIT cache once per session before any benchmark cell runs."""
     run_jit_warmup()  # uses today's date-seed implicitly
+
+
+@pytest.fixture(autouse=True)
+def clear_xla_caches_between_cells():
+    """Free XLA compiled executables + Python objects after each benchmark cell.
+
+    Root cause identified from live run 26761857186 (2026-06-01):
+    JAX does not free XLA compiled executables between cells.  The benchmark
+    process accumulates them across all 31 cells × 7 runs = ~217 compilations.
+    By ~cell 18 the runner exhausts memory, the next XLA compile fails with
+    ``JaxRuntimeError: INTERNAL: Failed to materialize symbols / Cannot allocate
+    memory``, and *every subsequent cell* fails fast (cascade).  The
+    ``laplace_hmc`` SIGABRT (#137) is the same root cause — the process crosses
+    the OOM threshold with a harder abort rather than a clean exception.
+
+    ``jax.clear_caches()`` frees the XLA compilation cache between cells.
+    ``gc.collect()`` releases Python objects holding JAX array references.
+
+    This keeps per-cell memory bounded.  Each cell's own compile-warmup step
+    (1st of 7 runs) recompiles the XLA executable from scratch before the 6
+    timed seed-runs, so all timed runs remain warm.
+    """
+    yield  # run the benchmark cell
+    import gc  # noqa: PLC0415
+
+    try:
+        import jax  # noqa: PLC0415
+
+        jax.clear_caches()
+    except Exception:  # noqa: BLE001
+        pass
+    gc.collect()
