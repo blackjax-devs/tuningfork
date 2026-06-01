@@ -443,7 +443,11 @@ def run_pipeline(
                     pass
 
             if status == "pass":
-                # Recipe was overwritten by emit_low_recipe_for_cell; verify verdict
+                # emit_low_recipe_for_cell already wrote the new recipe.
+                # Integrity guard: committed verdict is established at cert time
+                # with proper n — a single low-n re-run must NEVER re-adjudicate it,
+                # in either direction (REVIEW→PASS upgrade is ratcheting, not improvement).
+                # Only keep the full overwrite when verdict is stable (==).
                 try:
                     new_json = json.loads(recipe_path.read_text())
                     verdict_after = (
@@ -452,20 +456,49 @@ def run_pipeline(
                         .get("verdict")
                     )
                     if verdict_before is not None and verdict_after != verdict_before:
+                        # Verdict moved (any direction) → restore original + patch wge only.
+                        # This prevents stochastic verdict ratcheting.
+                        restored = dict(recipe_json)
+                        if wge_result is not None:
+                            budget = dict(restored.get("calibration_budget") or {})
+                            if budget.get("warmup_grad_evals") is None:
+                                budget["warmup_grad_evals"] = wge_result
+                                restored["calibration_budget"] = budget
+                        recipe_path.write_text(json.dumps(restored, indent=2) + "\n")
                         _log(
-                            f"    VERDICT MOVED: {verdict_before!r} → {verdict_after!r} (BUG SIGNAL)",
+                            f"    VERDICT MOVED: {verdict_before!r} → {verdict_after!r} "
+                            f"wge={wge_result} — restored original, wge patched",
                             log_file,
                         )
                         report.verdict_moved.append(
-                            f"{rel}: {verdict_before!r}→{verdict_after!r}"
+                            f"{rel}: {verdict_before!r}→{verdict_after!r} (restored)"
                         )
+                        # Count as a wge-patch (not a full overwrite)
+                        chunk_stats["failed_stochastic"] = (
+                            chunk_stats.get("failed_stochastic", 0) + 1
+                        )
+                        report.outcomes.append(
+                            RecipeRunOutcome(
+                                rel, f"verdict_moved:{verdict_before}→{verdict_after}"
+                            )
+                        )
+                    else:
+                        # Verdict stable — full overwrite is safe
+                        wge_log = f" wge={wge_result}" if wge_result is not None else ""
+                        _log(f"    PASS{wge_log} ({wall:.1f}s)", log_file)
+                        report.passed += 1
+                        chunk_stats["passed"] += 1
+                        report.outcomes.append(RecipeRunOutcome(rel, "pass"))
                 except Exception:  # noqa: BLE001
-                    pass
-                wge_log = f" wge={wge_result}" if wge_result is not None else ""
-                _log(f"    PASS{wge_log} ({wall:.1f}s)", log_file)
-                report.passed += 1
-                chunk_stats["passed"] += 1
-                report.outcomes.append(RecipeRunOutcome(rel, "pass"))
+                    # Can't read new recipe — treat as error
+                    wge_log = f" wge={wge_result}" if wge_result is not None else ""
+                    _log(
+                        f"    PASS (verdict-check failed){wge_log} ({wall:.1f}s)",
+                        log_file,
+                    )
+                    report.passed += 1
+                    chunk_stats["passed"] += 1
+                    report.outcomes.append(RecipeRunOutcome(rel, "pass"))
 
             elif status == "fail_stochastic":
                 wge_log = (

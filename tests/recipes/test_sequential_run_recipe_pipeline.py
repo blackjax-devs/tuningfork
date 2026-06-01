@@ -374,6 +374,56 @@ def test_run_pipeline_wge_patched_on_fail_stochastic(tmp_path):
     assert updated["gate_evidence"]["auto"]["verdict"] == "PASS"
 
 
+def test_run_pipeline_verdict_stable_guard_restores_original(tmp_path):
+    """On pass where verdict moved (e.g. REVIEW→PASS), restore original + patch wge only."""
+    import json as _json
+
+    catalog_root = tmp_path / "catalog"
+    rp = (
+        catalog_root
+        / "mvn_10"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    # Original recipe has verdict=REVIEW
+    original = _recipe_dict(verdict="REVIEW")
+    _write_recipe(rp, original)
+
+    # After subprocess, the file will contain verdict=PASS (mock overwrites it)
+    def mock_run_pass_with_verdict_move(*a, **k):
+        # Simulate emit_low_recipe_for_cell writing a new recipe with verdict=PASS
+        new_recipe = _recipe_dict(verdict="PASS")
+        new_recipe["calibration_budget"] = {
+            "n_warmup": 1000,
+            "n_samples": 1000,
+            "num_chains": 4,
+            "warmup_grad_evals": 256000,
+        }
+        rp.write_text(_json.dumps(new_recipe, indent=2) + "\n")
+        return "pass", "PASS", 256000
+
+    with patch(
+        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
+        side_effect=mock_run_pass_with_verdict_move,
+    ):
+        report = run_pipeline(
+            catalog_root=catalog_root,
+            repo_root=tmp_path,
+            log_file=_DevNull(),
+            smoke_paths=[rp],
+        )
+
+    # Original verdict REVIEW must be preserved (no ratcheting)
+    restored = _json.loads(rp.read_text())
+    assert restored["gate_evidence"]["auto"]["verdict"] == "REVIEW"
+    # wge should be patched into the restored original
+    assert restored["calibration_budget"]["warmup_grad_evals"] == 256000
+    # Pipeline counts this as a verdict move (not a clean pass)
+    assert len(report.verdict_moved) == 1
+    assert "REVIEW" in report.verdict_moved[0]
+    assert "PASS" in report.verdict_moved[0]
+
+
 # ---------------------------------------------------------------------------
 # Exact-wge: _compute_warmup_grad_evals CUMSUM path
 # ---------------------------------------------------------------------------
