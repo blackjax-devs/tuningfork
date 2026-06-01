@@ -264,17 +264,9 @@ def run_benchmark_cell(
                 f"seed={s}: max_abs_mean_z={z:.3f} ≥ {_Z_THRESHOLD}"
             )
 
-    # Store per-seed metrics in extra_info (kept for JSON artifact)
+    # Store per-seed metrics in extra_info for workflow result persistence
     benchmark.extra_info["per_seed_metrics"] = {
         str(s): m for s, m in per_seed_metrics.items()
     }
-
-    # Also accumulate into the session-level state for test_nightly_results.py
-    # No JSON round-trip: metrics stay in-process until the final regression test.
-    from benchmarks._nightly_state import PER_SEED_METRICS  # noqa: PLC0415
-
-    cell_id = f"{model_name}/{recipe_file}/{mode}"
-    for s, metrics in per_seed_metrics.items():
-        PER_SEED_METRICS.setdefault(s, {})[cell_id] = metrics
 
     return per_seed_metrics

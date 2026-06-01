@@ -71,33 +71,33 @@ jobs:
           uv run --python 3.13 python --version
           uv run --python 3.13 python -c "import sys; assert sys.version_info[:2] == (3, 13), f'Expected Python 3.13, got {sys.version}'"
 
-      - name: Fetch benchmark-results branch (for prior-night comparison)
-        # Seeds are derived inside pytest (get_nightly_seeds); no separate step needed.
-        run: git fetch origin benchmark-results:benchmark-results 2>/dev/null || echo "No benchmark-results branch yet (bootstrap)"
+      - name: Compute nightly seeds (informational)
+        id: seeds
+        # Seeds are derived inside run_nightly.py; this step is informational only.
+        run: JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -m benchmarks.run_nightly --print-seeds
 
       - name: Select benchmark suite
         id: suite
         run: |
           if [ "${{ inputs.suite }}" = "fast" ]; then
-            echo "files=benchmarks/test_fast_recipes.py benchmarks/test_nightly_results.py" >> "$GITHUB_OUTPUT"
+            echo "files=benchmarks/test_fast_recipes.py" >> "$GITHUB_OUTPUT"
           elif [ "${{ inputs.suite }}" = "e2e" ]; then
-            echo "files=benchmarks/test_e2e_recipes.py benchmarks/test_nightly_results.py" >> "$GITHUB_OUTPUT"
+            echo "files=benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
           else
-            # Nightly / manual 'all': fast + e2e + nightly regression check (test_nightly_results)
-            echo "files=benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py benchmarks/test_nightly_results.py" >> "$GITHUB_OUTPUT"
+            echo "files=benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run benchmarks + nightly regression check
+      - name: Run benchmarks (3 seeds inside each cell)
         id: bench
         run: |
-          # One pytest invocation:
-          #   test_e2e_recipes.py + test_fast_recipes.py: 3 date-derived seeds per cell
-          #   test_nightly_results.py: final test — regression check vs prior, writes result file
-          mkdir -p benchmark_results_dir
+          # Single pytest invocation — 3 date-derived seeds loop inside each cell.
+          # Per-seed metrics stored in benchmark.extra_info["per_seed_metrics"].
+          all_results_dir="benchmark_results_dir"
+          mkdir -p "$all_results_dir"
 
           JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
-            --benchmark-json="benchmark_results_dir/bench_results.json" \
+            --benchmark-json="${all_results_dir}/bench_results.json" \
             --benchmark-disable-gc \
             --benchmark-warmup=off \
             --benchmark-min-rounds=1 \
@@ -105,32 +105,24 @@ jobs:
             --timeout=900 \
             -v \
             --tb=short \
-            2>&1 | tee benchmark_results_dir/bench.log
+            2>&1 | tee "${all_results_dir}/bench.log" || true
+          echo "all_results_dir=$all_results_dir" >> "$GITHUB_OUTPUT"
 
-      - name: Push nightly results to benchmark-results branch (nightly only)
+      - name: Store results + run regression check (nightly only)
+        id: regression
         if: github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # The pytest step wrote benchmark_results_dir/nightly_result.json.
-          # Commit it to the benchmark-results branch for next-night comparison.
-          JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -c "
-          import json, sys
-          from pathlib import Path
-          sys.path.insert(0, '.')
-          from benchmarks._result_persistence import store_result
-          f = Path('benchmark_results_dir/nightly_result.json')
-          if not f.exists():
-              print('No nightly_result.json — skipping push'); sys.exit(0)
-          data = json.loads(f.read_text())
-          for seed_str, cells in data.get('per_seed', {}).items():
-              store_result(int(seed_str), cells)
-          "
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 python -m benchmarks.run_nightly \
+            --results-dir "${{ steps.bench.outputs.all_results_dir }}"
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v5  # v5 uses Node 22 (v4 deprecated June 2025)
         with:
           name: benchmark-results-${{ github.sha }}
-          path: benchmark_results_dir/
+          path: ${{ steps.bench.outputs.all_results_dir }}
           retention-days: 90
 
       - name: Verify nightly cron fired (informational)
