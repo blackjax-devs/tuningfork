@@ -1446,9 +1446,9 @@ def emit_low_recipe_for_cell(
             "machine_info": get_machine_info(),
             # warmup_grad_evals: total gradient evaluations during warmup (M2).
             # For mclmc-family: read from _total_tuning_steps in batched_params.
-            # For inner-kernel warmup: sum num_integration_steps over warmup trace.
-            # For standard HMC (window adaptation without inner kernel): None (unknown
-            # without re-running warmup; window_adaptation doesn't return per-step NIS).
+            # For window adaptation (diag/dense/low_rank): CUMSUM of per-step
+            # num_integration_steps from adapt_info.info (exact for both HMC and NUTS).
+            # For inner-kernel warmup: same CUMSUM path via warmup trace.
             "warmup_grad_evals": _compute_warmup_grad_evals(
                 batched_params, batched_warmup_info, base_method, n_warmup, num_chains
             ),
