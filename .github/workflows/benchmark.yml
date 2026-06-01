@@ -95,6 +95,8 @@ jobs:
           all_results_dir="benchmark_results_dir"
           mkdir -p "$all_results_dir"
 
+          # Note: --timeout requires pytest-timeout which is not in bench-perf deps.
+          # Per-cell timeout is covered by the job-level timeout-minutes: 180.
           JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
             --benchmark-json="${all_results_dir}/bench_results.json" \
@@ -102,7 +104,6 @@ jobs:
             --benchmark-warmup=off \
             --benchmark-min-rounds=1 \
             --benchmark-max-time=0 \
-            --timeout=1800 \
             -v \
             --tb=short \
             2>&1 | tee "${all_results_dir}/bench.log" || true
