@@ -38,7 +38,7 @@ def test_window_adaptation_dense_imm_returns_correct_imm_shape():
     # Run warmup with num_chains=2
     num_chains = 2
     n_warmup = 200
-    states, adapted_params = warmup.runner(
+    states, adapted_params, *_ = warmup.runner(
         jax.random.key(0),
         init_position,
         n_warmup,

@@ -47,7 +47,7 @@ def test_window_adaptation_low_rank_imm_returns_metric():
     n_warmup = 200
     d = 50  # ill_cond_50 dimension
     max_rank = 8
-    states, adapted_params = warmup.runner(
+    states, adapted_params, *_ = warmup.runner(
         jax.random.key(0),
         init_position,
         n_warmup,

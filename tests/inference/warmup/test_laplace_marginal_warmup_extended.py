@@ -124,7 +124,7 @@ def test_laplace_marginal_warmup_composition(warmup_name, laplace_name):
     n_warmup = 200
     num_chains = 2
 
-    _states, adapted_params = warmup.runner(
+    _states, adapted_params, *_ = warmup.runner(
         jax.random.key(0),
         phi_init,
         n_warmup,

@@ -90,7 +90,7 @@ def test_laplace_hmc_marginal_warmup_smoke():
     n_warmup = 500
     num_chains = 2
 
-    states, adapted_params = warmup.runner(
+    states, adapted_params, *_ = warmup.runner(
         jax.random.key(0),
         phi_init,
         n_warmup,
