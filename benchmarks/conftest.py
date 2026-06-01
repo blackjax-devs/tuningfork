@@ -23,10 +23,10 @@ from benchmarks._benchmark_helpers import run_jit_warmup
 _KNOWN_CRASHERS: dict[str, str] = {
     # Confirmed SIGABRT (exit 134) in run 26759837294 (2026-06-01).
     # Likely JAX/XLA internal assert triggered by 7-run repeated execution.
-    # Tracking issue: blackjax-devs/tuningfork#136
+    # Tracking issue: blackjax-devs/tuningfork#137
     "tier1-eight_schools_ncp-low__laplace_hmc__window_adaptation_diag_imm-e2e": (
         "SIGABRT in 7-run mode (exit 134, run 26759837294); "
-        "tracking: blackjax-devs/tuningfork#136"
+        "tracking: blackjax-devs/tuningfork#137"
     ),
 }
 
