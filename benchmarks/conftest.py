@@ -21,23 +21,11 @@ from benchmarks._benchmark_helpers import run_jit_warmup
 # Map: bench_id → skip reason
 # ---------------------------------------------------------------------------
 _KNOWN_CRASHERS: dict[str, str] = {
-    # Confirmed SIGABRT (exit 134) in run 26759837294 (2026-06-01).
-    # Likely JAX/XLA internal assert triggered by 7-run repeated execution.
-    # Tracking issue: blackjax-devs/tuningfork#137
-    "tier1-eight_schools_ncp-low__laplace_hmc__window_adaptation_diag_imm-e2e": (
-        "SIGABRT in 7-run mode (exit 134, run 26759837294); "
-        "tracking: blackjax-devs/tuningfork#137"
-    ),
-    # Confirmed JaxRuntimeError 'Failed to materialize symbols' in run 26761857186
-    # (2026-06-01) — scoping dispatch.  The XLA JIT state corruption from this cell
-    # cascades to all subsequent cells (11 secondary failures).  Skip at collection
-    # so XLA state stays clean for the remaining suite.
-    # Tracking issue: blackjax-devs/tuningfork#137 (same root-cause family)
-    "tier1-eight_schools_ncp-low__laplace_mhmc__window_adaptation_dense_imm-e2e": (
-        "JaxRuntimeError 'Failed to materialize symbols' corrupts XLA JIT state "
-        "for subsequent cells (run 26761857186); "
-        "tracking: blackjax-devs/tuningfork#137"
-    ),
+    # Empty: laplace_hmc and laplace_mhmc were OOM victims, not genuine crashers.
+    # jax.clear_caches() (clear_xla_caches_between_cells fixture below) fixes the
+    # root cause (XLA compile-cache accumulation → memory exhaustion by ~cell 18).
+    # With clear_caches() active both cells run clean — verified 2026-06-01.
+    # Issue #137 closed: the SIGABRT was the OOM hitting a harder abort threshold.
 }
 
 
