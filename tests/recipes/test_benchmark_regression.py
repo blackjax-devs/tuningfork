@@ -301,221 +301,82 @@ def test_get_nightly_seeds_returns_3() -> None:
 
 
 # ---------------------------------------------------------------------------
-# run_nightly.py entry-point: parse → persist → check
+# _nightly_state + test_nightly_results integration
 # ---------------------------------------------------------------------------
 
 
-def test_parse_benchmark_json_extracts_per_seed_metrics(tmp_path) -> None:
-    """parse_benchmark_json reads extra_info.per_seed_metrics into {seed: cells}."""
-    import json
+def test_nightly_state_accumulates_per_seed() -> None:
+    """PER_SEED_METRICS accumulates {seed: {cell_id: metrics}} across cells."""
+    import benchmarks._nightly_state as state
 
-    from benchmarks.run_nightly import parse_benchmark_json
-
-    seeds = (20260531, 20260601, 20260602)
-    bench_data = {
-        "benchmarks": [
-            {
-                "name": "tier1-mvn_10-low__nuts__window_adaptation_diag_imm-calibrated",
-                "extra_info": {
-                    "per_seed_metrics": {
-                        "20260531": {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4},
-                        "20260601": {"min_bulk_ess": 1850.0, "max_abs_mean_z": 0.3},
-                        "20260602": {"min_bulk_ess": 1700.0, "max_abs_mean_z": 0.5},
-                    }
-                },
-            }
-        ]
-    }
-    bench_file = tmp_path / "bench_results.json"
-    bench_file.write_text(json.dumps(bench_data))
-
-    result = parse_benchmark_json(bench_file, seeds)
-
-    assert set(result.keys()) == set(seeds)
-    assert (
-        result[20260601][
-            "tier1-mvn_10-low__nuts__window_adaptation_diag_imm-calibrated"
-        ]["min_bulk_ess"]
-        == 1850.0
-    )
+    original = dict(state.PER_SEED_METRICS)
+    try:
+        state.PER_SEED_METRICS.clear()
+        state.PER_SEED_METRICS.setdefault(20260601, {})["cell1"] = {
+            "min_bulk_ess": 2000.0
+        }
+        state.PER_SEED_METRICS.setdefault(20260602, {})["cell1"] = {
+            "min_bulk_ess": 1900.0
+        }
+        assert 20260601 in state.PER_SEED_METRICS
+        assert state.PER_SEED_METRICS[20260601]["cell1"]["min_bulk_ess"] == 2000.0
+    finally:
+        state.PER_SEED_METRICS.clear()
+        state.PER_SEED_METRICS.update(original)
 
 
-def test_parse_benchmark_json_unknown_seeds_ignored(tmp_path) -> None:
-    """Seeds not in the seed tuple are silently ignored."""
-    import json
+def test_nightly_state_is_dict() -> None:
+    """_nightly_state.PER_SEED_METRICS is a mutable dict."""
+    from benchmarks._nightly_state import PER_SEED_METRICS
 
-    from benchmarks.run_nightly import parse_benchmark_json
-
-    seeds = (20260531, 20260601, 20260602)
-    bench_data = {
-        "benchmarks": [
-            {
-                "name": "cell1",
-                "extra_info": {
-                    "per_seed_metrics": {
-                        "20260601": {"min_bulk_ess": 1800.0, "max_abs_mean_z": 0.4},
-                        "99999999": {"min_bulk_ess": 1000.0},  # unknown seed
-                    }
-                },
-            }
-        ]
-    }
-    bench_file = tmp_path / "bench_results.json"
-    bench_file.write_text(json.dumps(bench_data))
-
-    result = parse_benchmark_json(bench_file, seeds)
-    # Only known seeds in output
-    assert 99999999 not in result
-    assert 20260601 in result
+    assert isinstance(PER_SEED_METRICS, dict)
 
 
-def test_run_nightly_main_green(tmp_path) -> None:
-    """main() returns 0 (GREEN) when all z < 4.0 and no ESS trend."""
-    import json
-    from unittest.mock import patch
+def test_no_regression_test_fails_on_regression(tmp_path) -> None:
+    """test_no_regression_vs_prior raises AssertionError when z≥4 same env."""
+    import benchmarks._nightly_state as state
 
-    from benchmarks.run_nightly import main
-
-    seeds = (20260531, 20260601, 20260602)
-    bench_data = {
-        "benchmarks": [
-            {
-                "name": "cell1",
-                "extra_info": {
-                    "per_seed_metrics": {
-                        str(s): {"min_bulk_ess": 2000.0, "max_abs_mean_z": 0.3}
-                        for s in seeds
-                    }
-                },
-            }
-        ]
-    }
-    results_dir = tmp_path / "results"
-    results_dir.mkdir()
-    (results_dir / "bench_results.json").write_text(json.dumps(bench_data))
-
-    with (
-        patch("benchmarks._benchmark_helpers.get_nightly_seeds", return_value=seeds),
-        patch(
-            "benchmarks._result_persistence.get_env_fingerprint",
-            return_value={"jax_version": "0.10.1", "runner_image": "ubuntu-24.04"},
-        ),
-        patch("benchmarks._result_persistence.load_prior_result", return_value=None),
-        patch("benchmarks._result_persistence.load_recent_results", return_value=[]),
-        patch("benchmarks._result_persistence.store_result", return_value=True),
-    ):
-        exit_code = main(["--results-dir", str(results_dir), "--dry-run"])
-
-    assert exit_code == 0  # GREEN
-
-
-def test_run_nightly_main_regression(tmp_path) -> None:
-    """main() returns 1 (REGRESSION) when z >= 4.0 with same env as prior."""
-    import json
-    from unittest.mock import patch
-
-    from benchmarks.run_nightly import main
-
-    seeds = (20260531, 20260601, 20260602)
-    bench_data = {
-        "benchmarks": [
-            {
-                "name": "cell1",
-                "extra_info": {
-                    "per_seed_metrics": {
-                        str(s): {"min_bulk_ess": 1800.0, "max_abs_mean_z": 4.5}
-                        for s in seeds
-                    }
-                },
-            }
-        ]
-    }
-    results_dir = tmp_path / "results"
-    results_dir.mkdir()
-    (results_dir / "bench_results.json").write_text(json.dumps(bench_data))
-
-    same_env = {"jax_version": "0.10.1", "runner_image": "ubuntu-24.04"}
-    prior = {
-        "seed": 20260531,
-        "date": "2026-05-31",
-        "env": same_env,
-        "cells": {"cell1": {"max_abs_mean_z": 0.3}},
-    }
-
-    with (
-        patch("benchmarks._benchmark_helpers.get_nightly_seeds", return_value=seeds),
-        patch(
-            "benchmarks._result_persistence.get_env_fingerprint", return_value=same_env
-        ),
-        patch("benchmarks._result_persistence.load_prior_result", return_value=prior),
-        patch("benchmarks._result_persistence.load_recent_results", return_value=[]),
-        patch("benchmarks._result_persistence.store_result", return_value=True),
-    ):
-        exit_code = main(["--results-dir", str(results_dir), "--dry-run"])
-
-    assert exit_code == 1  # REGRESSION
-
-
-def test_run_nightly_main_env_drift_overlap_seeds_only(tmp_path) -> None:
-    """Overlap seeds with z≥4.0 + env changed → ENVIRONMENT_DRIFT (not REGRESSION).
-
-    The 3rd seed (date+1) has no prior; only overlap seeds {date-1, date} are
-    checked for env drift.  When ALL overlap-seed z≥4 fires have env changed,
-    and the 3rd seed either passes OR fires z≥4 without a prior, the verdict
-    is ENVIRONMENT_DRIFT only if no same-env z≥4 fires.  This test uses only
-    2 seeds (both overlap) so z≥4 on both → ENVIRONMENT_DRIFT.
-    """
-    import json
-    from unittest.mock import patch
-
-    from benchmarks.run_nightly import main
-
-    # Use only 2 seeds — simulates a 2-seed run (both overlap) to avoid the
-    # "no prior for 3rd seed → REGRESSION" edge case
-    seeds = (20260531, 20260601)
-    bench_data = {
-        "benchmarks": [
-            {
-                "name": "cell1",
-                "extra_info": {
-                    "per_seed_metrics": {
-                        str(s): {"min_bulk_ess": 1800.0, "max_abs_mean_z": 4.5}
-                        for s in seeds
-                    }
-                },
-            }
-        ]
-    }
-    results_dir = tmp_path / "results"
-    results_dir.mkdir()
-    (results_dir / "bench_results.json").write_text(json.dumps(bench_data))
-
-    today_env = {"jax_version": "0.10.2", "runner_image": "ubuntu-24.04"}
-    prior_env = {"jax_version": "0.10.1", "runner_image": "ubuntu-24.04"}
-
-    def make_prior(seed):
-        return {
-            "seed": seed,
+    original = dict(state.PER_SEED_METRICS)
+    try:
+        state.PER_SEED_METRICS.clear()
+        state.PER_SEED_METRICS[20260601] = {
+            "cell1": {"max_abs_mean_z": 4.5, "min_bulk_ess": 2000.0}
+        }
+        same_env = {"jax_version": "0.10.1", "runner_image": "ubuntu-24.04"}
+        seeds = (20260531, 20260601, 20260602)
+        prior = {
+            "seed": 20260601,
             "date": "2026-05-31",
-            "env": prior_env,
+            "env": same_env,
             "cells": {"cell1": {"max_abs_mean_z": 0.3}},
         }
+        with (
+            patch(
+                "benchmarks._benchmark_helpers.get_nightly_seeds", return_value=seeds
+            ),
+            patch(
+                "benchmarks._result_persistence.get_env_fingerprint",
+                return_value=same_env,
+            ),
+            patch(
+                "benchmarks._result_persistence.load_prior_result", return_value=prior
+            ),
+            patch(
+                "benchmarks._result_persistence.load_recent_results", return_value=[]
+            ),
+            patch("benchmarks.test_nightly_results._RESULTS_DIR", tmp_path),
+            patch(
+                "benchmarks.test_nightly_results._RESULT_FILE",
+                tmp_path / "nightly_result.json",
+            ),
+        ):
+            import benchmarks.test_nightly_results as tnr
 
-    with (
-        patch("benchmarks._benchmark_helpers.get_nightly_seeds", return_value=seeds),
-        patch(
-            "benchmarks._result_persistence.get_env_fingerprint", return_value=today_env
-        ),
-        patch(
-            "benchmarks._result_persistence.load_prior_result",
-            side_effect=[make_prior(20260531), make_prior(20260601)],
-        ),
-        patch("benchmarks._result_persistence.load_recent_results", return_value=[]),
-        patch("benchmarks._result_persistence.store_result", return_value=True),
-    ):
-        exit_code = main(["--results-dir", str(results_dir), "--dry-run"])
-
-    assert exit_code == 0  # ENVIRONMENT_DRIFT (not REGRESSION — env changed)
+            with pytest.raises(AssertionError, match="REGRESSION"):
+                tnr.test_no_regression_vs_prior()
+    finally:
+        state.PER_SEED_METRICS.clear()
+        state.PER_SEED_METRICS.update(original)
 
 
 def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
