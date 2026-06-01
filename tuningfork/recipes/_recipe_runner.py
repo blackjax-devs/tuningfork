@@ -233,6 +233,7 @@ class CellResult:
         gate_n_div: int | None = None,
         wall_seconds: float = 0.0,
         note: str = "",
+        warmup_grad_evals: int | None = None,
     ):
         self.model_name = model_name
         self.warmup_name = warmup_name
@@ -245,6 +246,9 @@ class CellResult:
         self.gate_n_div = gate_n_div
         self.wall_seconds = wall_seconds
         self.note = note
+        # Exact warmup gradient evaluations (gate-independent — populated whenever
+        # warmup completes successfully, regardless of subsequent sampling verdict).
+        self.warmup_grad_evals = warmup_grad_evals
 
     def __repr__(self) -> str:
         return (
@@ -958,6 +962,13 @@ def emit_low_recipe_for_cell(
                     note=note,
                 )
 
+    # Compute warmup_grad_evals immediately after warmup succeeds.  Gate-independent:
+    # always stamp regardless of whether the subsequent sampling pass or auto-gate
+    # passes.  Fixed-HMC = CUMSUM(constant L); NUTS/dmhmc = CUMSUM(variable NIS).
+    _wge = _compute_warmup_grad_evals(
+        batched_params, batched_warmup_info, base_method, n_warmup, num_chains
+    )
+
     # --- Build shared kernel kwargs (per-chain (step_size, IMM) comes via vmap) ---
     default_params = default_params_for(base_method)
     # Defaults minus the per-chain-adapted keys
@@ -1206,6 +1217,7 @@ def emit_low_recipe_for_cell(
             verdict="FAIL",
             wall_seconds=time.perf_counter() - t_start,
             note=note,
+            warmup_grad_evals=_wge,
         )
     # SYNC: block until sampling compute completes before stamping the clock.
     # positions/infos are JAX futures; without sync t_sample measures dispatch only.
@@ -1228,6 +1240,7 @@ def emit_low_recipe_for_cell(
                 verdict="FAIL",
                 wall_seconds=t_total,
                 note=note,
+                warmup_grad_evals=_wge,
             )
 
     # --- Align GT keys for auto-gate and sample_quality ---
@@ -1293,6 +1306,7 @@ def emit_low_recipe_for_cell(
             gate_n_div=gate_verdict.n_divergences,
             wall_seconds=t_total,
             note=note,
+            warmup_grad_evals=_wge,
         )
     # REVIEW: fall through to headline computation + recipe building (same as PASS).
     if gate_verdict.verdict == "REVIEW":
@@ -1522,6 +1536,7 @@ def emit_low_recipe_for_cell(
         gate_n_div=gate_verdict.n_divergences,
         wall_seconds=t_total,
         note=f"{_verdict} rhat={gate_verdict.rhat_max:.4f} ess={gate_verdict.min_bulk_ess:.1f} div={gate_verdict.n_divergences}",
+        warmup_grad_evals=_wge,
     )
 
 

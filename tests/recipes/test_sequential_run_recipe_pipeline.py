@@ -118,19 +118,19 @@ def _write_recipe(path: Path, d: dict) -> None:
 
 
 def _mock_run_recipe_pass(*args, **kwargs):
-    return "pass", "PASS"
+    return "pass", "PASS", 256000  # (status, detail, warmup_grad_evals)
 
 
 def _mock_run_recipe_fail(*args, **kwargs):
-    return "fail_stochastic", "FAIL"
+    return "fail_stochastic", "FAIL", 39358  # wge still populated on fail
 
 
 def _mock_run_recipe_timeout(*args, **kwargs):
-    return "timeout", ">300s"
+    return "timeout", ">300s", None
 
 
 def _mock_run_recipe_error(*args, **kwargs):
-    return "error", "SomeError: something went wrong"
+    return "error", "SomeError: something went wrong", None
 
 
 class _DevNull:
@@ -220,8 +220,8 @@ def test_run_pipeline_timeout_skip_continue(tmp_path):
     def mock_run_timeout_then_pass(*a, **k):
         call_count[0] += 1
         if call_count[0] == 1:
-            return "timeout", ">300s"
-        return "pass", "PASS"
+            return "timeout", ">300s", None
+        return "pass", "PASS", 256000
 
     with patch(
         "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
@@ -266,8 +266,8 @@ def test_run_pipeline_broad_error_skip_continue(tmp_path):
     def mock_run_error_then_pass(*a, **k):
         call_count[0] += 1
         if call_count[0] == 1:
-            return "error", "RuntimeError: kaboom"
-        return "pass", "PASS"
+            return "error", "RuntimeError: kaboom", None
+        return "pass", "PASS", 256000
 
     with patch(
         "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
@@ -342,6 +342,36 @@ def test_run_pipeline_chunk_commit_on_pass(tmp_path):
         )
 
     mock_commit.assert_called_once()
+
+
+def test_run_pipeline_wge_patched_on_fail_stochastic(tmp_path):
+    """On fail_stochastic, wge is patched into existing recipe JSON (gate-independent)."""
+    catalog_root = tmp_path / "catalog"
+    rp = (
+        catalog_root
+        / "mvn_10"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    r = _recipe_dict(verdict="PASS")
+    _write_recipe(rp, r)
+
+    with patch(
+        "tuningfork.recipes.sequential_run_recipe_pipeline._run_recipe_with_timeout",
+        return_value=("fail_stochastic", "FAIL", 39358),
+    ):
+        run_pipeline(
+            catalog_root=catalog_root,
+            repo_root=tmp_path,
+            log_file=_DevNull(),
+            smoke_paths=[rp],
+        )
+
+    # wge patched despite fail_stochastic
+    updated = json.loads(rp.read_text())
+    assert updated["calibration_budget"]["warmup_grad_evals"] == 39358
+    # verdict and sample_quality untouched
+    assert updated["gate_evidence"]["auto"]["verdict"] == "PASS"
 
 
 # ---------------------------------------------------------------------------

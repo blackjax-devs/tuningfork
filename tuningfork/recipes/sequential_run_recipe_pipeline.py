@@ -212,19 +212,22 @@ def _recipe_run_worker(
             init_strategy=init_strategy,
             step_policy=step_policy,
         )
-        result_q.put(("ok", result.verdict))
+        # Return (verdict, warmup_grad_evals) — wge is gate-independent and
+        # always stamped regardless of whether the sampling pass re-passes.
+        result_q.put(("ok", result.verdict, result.warmup_grad_evals))
     except Exception as exc:  # noqa: BLE001
-        result_q.put(("error", f"{type(exc).__name__}: {exc}"))
+        result_q.put(("error", f"{type(exc).__name__}: {exc}", None))
 
 
 def _run_recipe_with_timeout(
     recipe_json: dict[str, Any],
     catalog_root: Path,
     timeout_s: int,
-) -> tuple[str, str]:
-    """Run one recipe in a subprocess; return (status, detail).
+) -> tuple[str, str, int | None]:
+    """Run one recipe in a subprocess; return (status, detail, warmup_grad_evals).
 
     status is one of: "pass", "fail_stochastic", "error", "timeout"
+    warmup_grad_evals is always populated when warmup succeeded (gate-independent).
     """
     result_q: multiprocessing.Queue = multiprocessing.Queue()  # type: ignore[type-arg]
     proc = multiprocessing.Process(
@@ -241,17 +244,17 @@ def _run_recipe_with_timeout(
         if proc.is_alive():
             proc.kill()
             proc.join(10)  # bounded — D-state processes move on after 10 s
-        return "timeout", f">{timeout_s}s"
+        return "timeout", f">{timeout_s}s", None
 
     try:
-        status, detail = result_q.get_nowait()
+        status, detail, wge = result_q.get_nowait()
         if status == "error":
-            return "error", detail
-        if detail == "PASS":
-            return "pass", "PASS"
-        return "fail_stochastic", detail
+            return "error", detail, None
+        if detail in ("PASS", "REVIEW"):
+            return "pass", detail, wge
+        return "fail_stochastic", detail, wge
     except _queue.Empty:
-        return "error", "empty_queue"
+        return "error", "empty_queue", None
 
 
 # ---------------------------------------------------------------------------
@@ -408,14 +411,36 @@ def run_pipeline(
             )
 
             try:
-                status, detail = _run_recipe_with_timeout(
+                status, detail, wge_result = _run_recipe_with_timeout(
                     recipe_json, catalog_root, per_recipe_timeout_s
                 )
             except Exception as exc:  # noqa: BLE001
                 status = "error"
                 detail = f"{type(exc).__name__}: {exc}"
+                wge_result = None
 
             wall = time.perf_counter() - t0
+
+            # --- Stamp warmup_grad_evals unconditionally (gate-independent) ---
+            # wge is deterministic: fixed-HMC = config arithmetic; dynamic = CUMSUM
+            # of warmup NIS.  Stamp it regardless of whether sampling re-passes,
+            # so even FAIL-stochastic recipes get their wge backfilled.
+            # PASS case: recipe was already overwritten with wge by emit_low_recipe_for_cell.
+            # FAIL/error/timeout case: patch wge into existing recipe JSON in-place.
+            if wge_result is not None and status in ("fail_stochastic",):
+                try:
+                    existing = json.loads(recipe_path.read_text())
+                    budget = existing.get("calibration_budget") or {}
+                    if budget.get("warmup_grad_evals") is None:
+                        budget["warmup_grad_evals"] = wge_result
+                        existing["calibration_budget"] = budget
+                        recipe_path.write_text(json.dumps(existing, indent=2) + "\n")
+                        _log(
+                            f"    wge patched: {wge_result} (warmup exact; verdict kept)",
+                            log_file,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
 
             if status == "pass":
                 # Recipe was overwritten by emit_low_recipe_for_cell; verify verdict
@@ -436,14 +461,18 @@ def run_pipeline(
                         )
                 except Exception:  # noqa: BLE001
                     pass
-                _log(f"    PASS ({wall:.1f}s)", log_file)
+                wge_log = f" wge={wge_result}" if wge_result is not None else ""
+                _log(f"    PASS{wge_log} ({wall:.1f}s)", log_file)
                 report.passed += 1
                 chunk_stats["passed"] += 1
                 report.outcomes.append(RecipeRunOutcome(rel, "pass"))
 
             elif status == "fail_stochastic":
+                wge_log = (
+                    f" wge={wge_result}" if wge_result is not None else " wge=null"
+                )
                 _log(
-                    f"    FAIL stochastic (verdict={detail}, {wall:.1f}s) — kept original",
+                    f"    FAIL stochastic (verdict={detail},{wge_log} {wall:.1f}s) — kept original",
                     log_file,
                 )
                 report.failed_stochastic += 1
@@ -475,7 +504,11 @@ def run_pipeline(
             log_file,
         )
 
-        if not smoke_mode and not dry_run and chunk_stats["passed"] > 0:
+        # Commit if anything was written (full pass OR wge-only patch on fail_stochastic)
+        _chunk_has_writes = (
+            chunk_stats["passed"] + chunk_stats.get("failed_stochastic", 0) > 0
+        )
+        if not smoke_mode and not dry_run and _chunk_has_writes:
             _git_commit_model(
                 model_name, chunk_stats, catalog_root, repo_root, log_file
             )
