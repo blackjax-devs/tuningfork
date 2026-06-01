@@ -285,3 +285,112 @@ def test_ess_trend_review_only_when_green() -> None:
     today = [_result(s, low_ess) for s in [20260531, 20260601, 20260602]]
     result = run_regression_check(today, {}, recent_results=recent)
     assert result.verdict == "REVIEW"
+
+
+# ---------------------------------------------------------------------------
+# 3-seed internal loop (single invocation)
+# ---------------------------------------------------------------------------
+
+
+def test_get_nightly_seeds_returns_3() -> None:
+    """get_nightly_seeds returns exactly 3 distinct integer seeds."""
+    seeds = get_nightly_seeds(date(2026, 6, 1))
+    assert len(seeds) == 3
+    assert len(set(seeds)) == 3  # all distinct
+    assert all(isinstance(s, int) for s in seeds)
+
+
+def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
+    """run_benchmark_cell must capture metrics for all 3 date-derived seeds.
+
+    We mock the JAX-level run so this stays @fast while confirming the loop
+    over seeds is wired correctly.
+    """
+    from datetime import date
+    from unittest.mock import MagicMock, patch
+
+    import numpy as np
+
+    from benchmarks._benchmark_helpers import get_nightly_seeds, run_benchmark_cell
+
+    # Build a minimal catalog with a fake recipe
+    catalog = tmp_path / "catalog"
+    model_dir = catalog / "mvn_10"
+    recipe_path = model_dir / "recipes" / "low__nuts__window_adaptation_diag_imm.json"
+    recipe_path.parent.mkdir(parents=True)
+    recipe_path.write_text(
+        '{"model_name":"mvn_10","base_method_name":"nuts","warmup_name":"window_adaptation_diag_imm",'
+        '"warmups":[{"name":"window_adaptation_diag_imm","params":{"n_warmup":100,"num_chains":4}}],'
+        '"base_method_params":{"step_size":0.3},'
+        '"calibration_budget":{"n_warmup":100,"n_samples":100,"num_chains":4},'
+        '"gate_evidence":{"auto":{"verdict":"PASS"}},'
+        '"effort":"LOW","tuning_seed":20260601}'
+    )
+
+    # Mock idata returned by run_recipe_to_idata
+    mock_idata = MagicMock()
+    mock_idata.posterior.data_vars = []
+    mock_idata.sample_stats.ds = {"diverging": MagicMock(values=np.zeros((4, 100)))}
+
+    captured_seeds: list[int] = []
+
+    def mock_run_recipe(
+        recipe, *, skip_warmup, n_samples, force_resample_config, _suppress_print
+    ):
+        if force_resample_config:
+            captured_seeds.append(force_resample_config.get("seed", -1))
+        return mock_idata
+
+    mock_benchmark = MagicMock()
+
+    # Make benchmark() call the function it receives
+    def call_fn(fn):
+        fn()
+        return None
+
+    mock_benchmark.side_effect = call_fn
+    mock_benchmark.extra_info = {}
+
+    run_date = date(2026, 6, 1)
+    expected_seeds = set(get_nightly_seeds(run_date))
+
+    mock_recipe = MagicMock()
+    _dummy_metrics = {
+        "min_bulk_ess": 1800.0,
+        "max_abs_mean_z": 0.4,
+        "n_divergences": 0,
+        "runtime_warmup_s": 1.0,
+        "runtime_sample_s": 0.0,
+        "correctness_passed": True,
+    }
+    with (
+        patch("benchmarks._benchmark_helpers._CATALOG_ROOT", catalog),
+        patch("tuningfork.catalog.inspect.load_recipe", return_value=mock_recipe),
+        patch(
+            "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
+            side_effect=mock_run_recipe,
+        ),
+        patch(
+            "benchmarks._benchmark_helpers.extract_cell_metrics",
+            return_value=_dummy_metrics,
+        ),
+        patch("benchmarks._benchmark_helpers.compute_max_abs_mean_z", return_value=0.5),
+    ):
+        per_seed = run_benchmark_cell(
+            mock_benchmark,
+            "mvn_10",
+            "low__nuts__window_adaptation_diag_imm.json",
+            "calibrated",
+            run_date=run_date,
+        )
+
+    # All 3 seeds must be present in the returned dict
+    assert (
+        set(per_seed.keys()) == expected_seeds
+    ), f"Expected seeds {expected_seeds}, got {set(per_seed.keys())}"
+
+    # per_seed_metrics must be stored in extra_info
+    assert "per_seed_metrics" in mock_benchmark.extra_info
+    assert {
+        int(k) for k in mock_benchmark.extra_info["per_seed_metrics"].keys()
+    } == expected_seeds

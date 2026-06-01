@@ -26,12 +26,11 @@ time makes them unsuitable for quick local checks.
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pytest
 
-from benchmarks._benchmark_helpers import _BENCHMARK_SEED, bench_id, run_benchmark_cell
+from benchmarks._benchmark_helpers import bench_id, run_benchmark_cell
 from benchmarks.config import SLOW_CELLS
 
 
@@ -48,12 +47,9 @@ def test_recipe_e2e_perf(
     recipe_file: str,
     mode: str,
 ) -> None:
-    """Benchmark a slow e2e recipe's sampler and assert GT-correctness.
+    """Benchmark a slow e2e recipe's sampler across 3 date-derived seeds.
 
-    These cells take >60s in CI and are nightly-only. Timing is measured by
-    pytest-benchmark (1 timed run per cell). GT-correctness (max_abs_mean_z
-    < 4.0) is asserted after the timed run.
+    These cells take >60s in CI and are nightly-only. All 3 seeds run in one
+    timed block. GT-correctness (max_abs_mean_z < 4.0) is asserted for all seeds.
     """
-    seed = int(os.environ.get("BENCHMARK_SEED", str(_BENCHMARK_SEED)))
-    metrics = run_benchmark_cell(benchmark, model_name, recipe_file, mode, seed=seed)
-    benchmark.extra_info.update(metrics)
+    run_benchmark_cell(benchmark, model_name, recipe_file, mode)

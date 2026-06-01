@@ -194,12 +194,19 @@ def run_benchmark_cell(
     model_name: str,
     recipe_file: str,
     mode: str,
-    seed: int = _BENCHMARK_SEED,
-) -> dict[str, Any]:
-    """Run a single benchmark cell: time it + assert GT-correctness.
+    run_date: date | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Run a single benchmark cell across all 3 nightly seeds.
 
-    Returns a metrics dict (extract_cell_metrics output) for result persistence.
-    Shared implementation used by both test_fast_recipes and test_e2e_recipes.
+    Loops over the 3 date-derived seeds inside a single benchmark call so that:
+    - The 3 seed-runs serve as timing samples (distribution) and regression inputs.
+    - JIT is warmed once (session-scoped conftest fixture) before all seeds run warm.
+    - No shell seed-loop in CI — one ``pytest`` invocation covers all seeds.
+
+    Per-seed metrics are stored in ``benchmark.extra_info["per_seed_metrics"]``
+    keyed by seed int for downstream result persistence.
+
+    Asserts GT-correctness (z < 4.0) for ALL seeds before returning.
 
     Parameters
     ----------
@@ -207,9 +214,8 @@ def run_benchmark_cell(
         pytest-benchmark fixture.
     model_name, recipe_file, mode
         Cell identity.
-    seed
-        RNG seed for the sampling run.  Defaults to ``_BENCHMARK_SEED``; nightly
-        CI passes the date-derived seed so results are cross-night comparable.
+    run_date
+        Date to derive seeds from (defaults to today).
     """
     import time
 
@@ -221,34 +227,46 @@ def run_benchmark_cell(
         pytest.skip(f"Recipe not found on disk: {recipe_path}")
     recipe = load_recipe(recipe_path)
 
+    seeds = get_nightly_seeds(run_date)
     skip_warmup = mode == "calibrated"
-    t_warmup_start = time.perf_counter()
+    per_seed_metrics: dict[int, dict[str, Any]] = {}
 
-    def run() -> Any:
-        return run_recipe_to_idata(
-            recipe,
-            skip_warmup=skip_warmup,
-            n_samples=_N_SAMPLES,
-            force_resample_config=(
-                None if skip_warmup else {"seed": seed, "n_samples": _N_SAMPLES}
-            ),
-            _suppress_print=True,
-        )
+    def run_all_seeds() -> None:
+        """Inner function timed by benchmark — runs all 3 seeds sequentially."""
+        for s in seeds:
+            t0 = time.perf_counter()
+            idata = run_recipe_to_idata(
+                recipe,
+                skip_warmup=skip_warmup,
+                n_samples=_N_SAMPLES,
+                force_resample_config=(
+                    None if skip_warmup else {"seed": s, "n_samples": _N_SAMPLES}
+                ),
+                _suppress_print=True,
+            )
+            t_run = time.perf_counter() - t0
+            per_seed_metrics[s] = extract_cell_metrics(
+                idata,
+                model_name,
+                warmup_wall_s=t_run,
+            )
 
-    idata = benchmark(run)
-    t_total = time.perf_counter() - t_warmup_start
+    # Measure the 3-seed block as one timed unit.
+    # With --benchmark-min-rounds=1 --benchmark-max-time=0 this runs exactly once.
+    benchmark(run_all_seeds)
 
-    z = compute_max_abs_mean_z(idata, model_name)
-    if z is not None:
-        assert z < _Z_THRESHOLD, (
-            f"GT-correctness FAILED for {model_name}/{recipe_file} ({mode}): "
-            f"max_abs_mean_z={z:.3f} ≥ {_Z_THRESHOLD}"
-        )
+    # Assert correctness for all seeds
+    for s, metrics in per_seed_metrics.items():
+        z = metrics.get("max_abs_mean_z")
+        if z is not None:
+            assert z < _Z_THRESHOLD, (
+                f"GT-correctness FAILED for {model_name}/{recipe_file} ({mode}) "
+                f"seed={s}: max_abs_mean_z={z:.3f} ≥ {_Z_THRESHOLD}"
+            )
 
-    # Extract and return metrics for nightly result persistence
-    return extract_cell_metrics(
-        idata,
-        model_name,
-        warmup_wall_s=t_total,  # approximate (benchmark times the full run)
-        sample_wall_s=0.0,
-    )
+    # Store per-seed metrics in extra_info for workflow result persistence
+    benchmark.extra_info["per_seed_metrics"] = {
+        str(s): m for s, m in per_seed_metrics.items()
+    }
+
+    return per_seed_metrics

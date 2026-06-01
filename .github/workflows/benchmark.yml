@@ -71,7 +71,7 @@ jobs:
           uv run --python 3.13 python --version
           uv run --python 3.13 python -c "import sys; assert sys.version_info[:2] == (3, 13), f'Expected Python 3.13, got {sys.version}'"
 
-      - name: Compute nightly seeds
+      - name: Compute nightly seeds (informational)
         id: seeds
         run: |
           python3 -c "
@@ -83,13 +83,9 @@ jobs:
               int(d.strftime('%Y%m%d')),
               int((d + timedelta(days=1)).strftime('%Y%m%d')),
           ]
-          override = '${{ inputs.seed_override }}'
-          if override:
-              seeds = [int(override)]
-          print(f'Seeds: {seeds}')
+          print(f'Nightly seeds (computed inside benchmark): {seeds}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'seeds={\" \".join(str(s) for s in seeds)}\n')
-              f.write(f'seed_list={\" \".join(str(s) for s in seeds)}\n')
           "
 
       - name: Select benchmark suite
@@ -103,33 +99,25 @@ jobs:
             echo "files=benchmarks/test_fast_recipes.py benchmarks/test_e2e_recipes.py" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run benchmarks (all seeds)
+      - name: Run benchmarks (3 seeds inside each cell)
         id: bench
-        env:
-          # Pass seed list for the benchmark to iterate over
-          BENCHMARK_SEEDS: ${{ steps.seeds.outputs.seeds }}
         run: |
-          # Loop over seeds; collect per-seed result JSONs
+          # Single pytest invocation — 3 date-derived seeds loop inside each cell.
+          # Per-seed metrics stored in benchmark.extra_info["per_seed_metrics"].
           all_results_dir="benchmark_results_dir"
           mkdir -p "$all_results_dir"
 
-          for seed in ${{ steps.seeds.outputs.seed_list }}; do
-            echo "=== Running seed=$seed ==="
-            JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
-              -m benchmark \
-              --benchmark-json="${all_results_dir}/bench_${seed}.json" \
-              --benchmark-disable-gc \
-              --benchmark-warmup=off \
-              --benchmark-min-rounds=1 \
-              --benchmark-max-time=0 \
-              --timeout=300 \
-              -v \
-              --tb=short \
-              -k "True" \
-              --override-ini="addopts=" \
-              -p no:cacheprovider \
-              2>&1 | tee "${all_results_dir}/bench_${seed}.log" || true
-          done
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
+            -m benchmark \
+            --benchmark-json="${all_results_dir}/bench_results.json" \
+            --benchmark-disable-gc \
+            --benchmark-warmup=off \
+            --benchmark-min-rounds=1 \
+            --benchmark-max-time=0 \
+            --timeout=900 \
+            -v \
+            --tb=short \
+            2>&1 | tee "${all_results_dir}/bench.log" || true
           echo "all_results_dir=$all_results_dir" >> "$GITHUB_OUTPUT"
 
       - name: Store results + run regression check (nightly only)
@@ -147,44 +135,51 @@ jobs:
           from pathlib import Path
 
           sys.path.insert(0, '.')
-          from benchmarks._result_persistence import store_result, load_prior_result, load_recent_results
+          from benchmarks._result_persistence import store_result, load_prior_result, load_recent_results, get_env_fingerprint
           from benchmarks._regression_check import run_regression_check, exit_with_verdict
           from benchmarks._benchmark_helpers import get_nightly_seeds
 
-          seeds = [int(s) for s in os.environ.get('BENCHMARK_SEEDS', '').split()]
           results_dir = Path('${{ steps.bench.outputs.all_results_dir }}')
           run_date = date.today()
+          seeds = get_nightly_seeds(run_date)
 
-          # --- Load today's per-seed results ---
+          # --- Parse per-seed results from extra_info['per_seed_metrics'] ---
+          # Each benchmark cell stores {seed: metrics} in extra_info.
+          # We reconstruct per-seed result dicts for store + regression check.
+          bench_file = results_dir / 'bench_results.json'
+          if not bench_file.exists():
+              print('ERROR: bench_results.json not found', file=sys.stderr)
+              sys.exit(1)
+
+          raw = json.loads(bench_file.read_text())
+          env = get_env_fingerprint()
+
+          # Aggregate: {seed: {cell_id: metrics}}
+          seed_cells: dict[int, dict] = {s: {} for s in seeds}
+          for bm in raw.get('benchmarks', []):
+              cell_id = bm.get('name', 'unknown')
+              per_seed = bm.get('extra_info', {}).get('per_seed_metrics', {})
+              for seed_str, metrics in per_seed.items():
+                  try:
+                      seed = int(seed_str)
+                  except ValueError:
+                      continue
+                  if seed in seed_cells:
+                      seed_cells[seed][cell_id] = metrics
+
           today_results = []
-          for seed in seeds:
-              bench_file = results_dir / f'bench_{seed}.json'
-              if not bench_file.exists():
-                  continue
-              try:
-                  raw = json.loads(bench_file.read_text())
-                  # Convert pytest-benchmark JSON to our schema
-                  cells = {}
-                  for bm in raw.get('benchmarks', []):
-                      cell_id = bm.get('name', 'unknown')
-                      extra = bm.get('extra_info', {})
-                      cells[cell_id] = {
-                          'min_bulk_ess': extra.get('min_bulk_ess'),
-                          'max_abs_mean_z': extra.get('max_abs_mean_z'),
-                          'n_divergences': extra.get('n_divergences', -1),
-                          'runtime_warmup_s': bm.get('stats', {}).get('mean', 0),
-                          'runtime_sample_s': 0.0,
-                          'correctness_passed': extra.get('correctness_passed'),
-                      }
-                  today_results.append({'seed': seed, 'date': run_date.isoformat(),
-                      'env': {}, 'cells': cells})
-              except Exception as e:
-                  print(f'WARNING: could not parse {bench_file}: {e}', file=sys.stderr)
+          for seed, cells in seed_cells.items():
+              if cells:
+                  today_results.append({
+                      'seed': seed,
+                      'date': run_date.isoformat(),
+                      'env': env,
+                      'cells': cells,
+                  })
 
-          # --- Load prior results for overlap seeds ---
-          overlap_seeds = list(get_nightly_seeds(run_date)[:2])  # {date-1, date}
+          # --- Load prior results for env-drift triage ---
           prior_results = {}
-          for seed in overlap_seeds:
+          for seed in list(seeds)[:2]:  # {date-1, date} overlap seeds
               r = load_prior_result(seed)
               if r is not None:
                   prior_results[seed] = r
@@ -194,7 +189,7 @@ jobs:
           # --- Store today's results ---
           for result in today_results:
               store_result(result['seed'], result['cells'], run_date)
-              print(f'Stored seed={result[\"seed\"]}', flush=True)
+              print(f'Stored seed={result[\"seed\"]} ({len(result[\"cells\"])} cells)', flush=True)
 
           # --- Run regression check ---
           if not prior_results:
