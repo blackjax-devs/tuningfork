@@ -1,35 +1,36 @@
 name: Speed-lite benchmark
 
-# Per-PR + per-push to main: wall-clock regression detection.
-# Complements the nightly seed-CI (correctness) — this catches slowdowns.
+# Nightly 23:00 UTC, staggered 1h from seed-CI (correctness) at 22:00 UTC.
+# Measures per-sampler-family wall-clock regression via rolling trend.
 #
 # Design:
 #   SPEED_LITE_CELLS × 5 warm rounds (warmup_rounds=1 absorbs JIT compile).
 #   Cell count owned by config.py (_SPEED_LITE_BENCH_IDS); this file is count-agnostic.
-#   Fixed seed → cross-run trend comparison valid.
+#   Fixed/pinned seed per dynamic cell (see PINNED_SEEDS in config.py) →
+#   cross-run trend comparison valid without seed-induced trajectory variance.
 #   Trend persisted in actions/cache (not gh-pages — sidesteps the gh-pages
 #   permission issue that blocked our first attempt).
-#   Alert threshold: 200% (comment-only at rollout; flip fail-on-alert once
-#   200% is proven noise-robust on our shared CI runners).
+#   Alert threshold: 200% — fail-on-alert: true (nightly red = regression signal).
 #
-# Runtime: measured ~4.5 min on CI (9 cells × 5 warm rounds; warm rounds cheap post-JIT).
-# Timeout: 60 min (generous headroom for slow CI runners).
+# Runtime: ~42 min estimated on CI (15 cells × 5 warm rounds; warm rounds cheap post-JIT).
+# Timeout: 90 min (generous headroom for slow CI runners).
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  schedule:
+    # 23:00 UTC nightly; staggered 1h from seed-CI cron at 22:00 UTC to avoid
+    # queue burst.  GH scheduled runs typically fire 2.5-5h late on congested
+    # days — 23:00 + 5h + 1.5h run = 05:30 UTC worst case (fine).
+    - cron: '0 23 * * *'
+  workflow_dispatch:   # manual trigger for tuning / verification (no inputs needed)
 
 permissions:
   contents: read
-  pull-requests: write   # required for comment-on-alert on PRs
 
 jobs:
   speed-lite:
     name: Speed-lite benchmark
     runs-on: ubuntu-24.04   # pinned LTS — env-consistent baselines
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -43,7 +44,7 @@ jobs:
           path: ./cache
           # Unique key ensures save always writes (avoids cache-hit no-op).
           # restore-keys picks up the most recent run on this OS.
-          key: speed-benchmark-${{ runner.os }}-${{ github.sha }}
+          key: speed-benchmark-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             speed-benchmark-${{ runner.os }}-
 
@@ -56,7 +57,7 @@ jobs:
         run: uv sync --group bench-perf --python 3.13
 
       - name: Install blackjax@main (explicit, on top of lockfile)
-        # Track HEAD so speed regressions from blackjax changes surface on PRs.
+        # Track HEAD so speed regressions from blackjax changes surface nightly.
         run: |
           uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax:', blackjax.__version__)"
@@ -85,11 +86,25 @@ jobs:
           external-data-json-path: ./cache/benchmark-data.json
           save-data-file: true
           alert-threshold: '200%'
-          # comment-only at rollout — flip fail-on-alert: true once 200% is
-          # proven noise-robust on our shared CI runners (a few weeks of data).
-          fail-on-alert: false
-          comment-on-alert: true
+          # fail-on-alert: true — nightly red job is the only reliable regression
+          # signal (no PR to comment on under schedule).  200% threshold is
+          # provisional; occasional false-positive red nights are expected and
+          # acceptable until a few weeks of data establish the noise floor.
+          fail-on-alert: true
+          comment-on-alert: false
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Emit speed-lite summary
+        # Always emit a step summary so the "why did this go red?" answer is
+        # self-contained without clicking into logs.
+        if: always()
+        run: |
+          echo "## Speed-lite benchmark" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**SHA:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Alert threshold:** 200% — \`fail-on-alert: true\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "See the *Store and compare benchmark trend* step output and the \`speed-benchmark-*\` artifact for per-cell timings and trend data." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save benchmark trend cache
         # Always save, even if the benchmark or alert step fails, so the next
@@ -98,7 +113,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ./cache
-          key: speed-benchmark-${{ runner.os }}-${{ github.sha }}
+          key: speed-benchmark-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload benchmark results artifact
         if: always()
