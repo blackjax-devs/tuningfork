@@ -16,6 +16,8 @@ name: Speed-lite benchmark
 # Timeout: 60 min (generous headroom for slow CI runners).
 
 on:
+  schedule:
+    - cron: '0 21 * * *'   # 21:00 UTC nightly; 1h before seed-CI (22:00)
   push:
     branches: [main]
   pull_request:
@@ -43,7 +45,7 @@ jobs:
           path: ./cache
           # Unique key ensures save always writes (avoids cache-hit no-op).
           # restore-keys picks up the most recent run on this OS.
-          key: speed-benchmark-${{ runner.os }}-${{ github.sha }}
+          key: speed-benchmark-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             speed-benchmark-${{ runner.os }}-
 
@@ -98,7 +100,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ./cache
-          key: speed-benchmark-${{ runner.os }}-${{ github.sha }}
+          key: speed-benchmark-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload benchmark results artifact
         if: always()
