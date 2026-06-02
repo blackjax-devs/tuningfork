@@ -4,14 +4,15 @@ name: Speed-lite benchmark
 # Complements the nightly seed-CI (correctness) — this catches slowdowns.
 #
 # Design:
-#   6 cells × 5 warm rounds (warmup_rounds=1 absorbs JIT compile).
+#   SPEED_LITE_CELLS × 5 warm rounds (warmup_rounds=1 absorbs JIT compile).
+#   Cell count owned by config.py (_SPEED_LITE_BENCH_IDS); this file is count-agnostic.
 #   Fixed seed → cross-run trend comparison valid.
 #   Trend persisted in actions/cache (not gh-pages — sidesteps the gh-pages
 #   permission issue that blocked our first attempt).
 #   Alert threshold: 200% (comment-only at rollout; flip fail-on-alert once
 #   200% is proven noise-robust on our shared CI runners).
 #
-# Runtime estimate: ~3-10 min (6 cells × 5 rounds × ~5-20s per round).
+# Runtime: measured ~4.5 min on CI (9 cells × 5 warm rounds; warm rounds cheap post-JIT).
 # Timeout: 60 min (generous headroom for slow CI runners).
 
 on:
@@ -60,7 +61,7 @@ jobs:
           uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax:', blackjax.__version__)"
 
-      - name: Run speed-lite benchmarks (6 cells, 5 warm rounds each)
+      - name: Run speed-lite benchmarks (5 warm rounds each)
         # pedantic(warmup_rounds=1, rounds=5): warmup round discards JIT compile;
         # 5 measured rounds give stable Mean/StdDev for trend comparison.
         # clear_xla_caches_between_cells fixture frees XLA cache after each cell.
