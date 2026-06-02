@@ -23,12 +23,16 @@
       warmup_rounds=1 → first run absorbs XLA JIT cold-start (discarded)
       rounds=5        → 5 warm measurements → stable Mean / StdDev
 
-  Fixed seed ``SPEED_SEED`` — timing is seed-invariant, so cross-run trend
-  comparison is valid.
+  Date-derived seed ``SPEED_SEED = int(YYYYMMDD)`` — today's date, reusing
+  the seed-CI derivation convention.  Fixed-L cells (``hmc``) are fully
+  timing-invariant across seeds.  Dynamic cells (``nuts``, ``dynamic_hmc``,
+  ``mclmc``, ``adjusted_mclmc*``) see seed-dependent trajectory lengths →
+  some day-to-day wall-clock variance beyond runner noise.  The 200% threshold
+  + comment-only guard absorb this; watch the variance band over the first
+  weeks and pin per-cell if needed (statistician call).
 
-  ``clear_xla_caches_between_cells`` (conftest) fires after each cell, so
-  per-cell XLA compile-cache is freed between cells (bounded memory), while
-  the 5 measured rounds within a cell all run warm (cache intact).
+  ``clear_xla_caches_between_cells`` (conftest) fires after each cell (bounded
+  memory); the 5 measured rounds within a cell all run warm (cache intact).
 
 **Workflow:**
   Triggered per-PR and per-push to main by ``speed_benchmark.yml``.
@@ -70,8 +74,9 @@ def test_speed_lite(
     """Measure steady-state wall-clock for one sampler family (5 warm rounds).
 
     ``warmup_rounds=1`` discards the JIT compile; the 5 measured rounds run
-    warm.  Fixed seed ``SPEED_SEED`` keeps the cross-PR trend comparable.
-    Separate from the seed-CI: no seed-variation, no correctness assertion.
+    warm.  Date-derived ``SPEED_SEED`` (today's YYYYMMDD) is consistent with
+    seed-CI convention and representative of real-world trajectory lengths.
+    Separate from the seed-CI: no seed variation, no correctness assertion.
     """
     from tuningfork.catalog.inspect import load_recipe  # noqa: PLC0415
     from tuningfork.recipes._recipe_runner import run_recipe_to_idata  # noqa: PLC0415

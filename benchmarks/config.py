@@ -250,11 +250,24 @@ SPEED_LITE_CELLS: list[tuple[str, str, str, str]] = [
     ),
 ]
 
+
 # ---------------------------------------------------------------------------
-# SPEED_SEED: fixed seed used by speed-lite (timing is seed-invariant,
-# so a single fixed seed keeps the trend comparison valid cross-run).
+# SPEED_SEED: today's date as YYYYMMDD int, consistent with seed-CI derivation.
+# Varies daily so each run samples a representative trajectory length.
+# Fixed-L cells (hmc) are fully timing-invariant across seeds.
+# Dynamic cells (nuts, dynamic_hmc, mclmc, adjusted_mclmc*) carry seed-induced
+# trajectory-length variance on top of runner noise — watch the variance band
+# for the first few weeks and pin per-cell if any dynamic cell's seed-variance
+# approaches the 200% alert threshold (statistician call).
 # ---------------------------------------------------------------------------
-SPEED_SEED: int = 20260601
+def _today_seed() -> int:
+    """Return today's YYYYMMDD as an int (date-derived, not a fixed constant)."""
+    from datetime import date  # noqa: PLC0415
+
+    return int(date.today().strftime("%Y%m%d"))
+
+
+SPEED_SEED: int = _today_seed()
 
 # All cells (for nightly full run)
 ALL_CELLS: list[tuple[str, str, str, str]] = FAST_CELLS + SLOW_CELLS
