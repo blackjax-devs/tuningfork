@@ -46,23 +46,17 @@ from typing import Any
 
 import pytest
 
-from benchmarks.config import SPEED_LITE_CELLS, SPEED_SEED
+from benchmarks.config import SPEED_LITE_CELLS, SPEED_SEED, _bench_id
 
 _CATALOG_ROOT = Path(__file__).resolve().parents[1] / "tuningfork" / "catalog"
 _N_SAMPLES = 1000  # same as seed-CI for a comparable workload per round
-
-
-def _speed_bench_id(cell: tuple[str, str, str, str]) -> str:
-    tier, model, recipe_file, mode = cell
-    stem = recipe_file.replace(".json", "")
-    return f"{tier}-{model}-{stem}-{mode}"
 
 
 @pytest.mark.benchmark(group="speed-lite")
 @pytest.mark.parametrize(
     "tier,model_name,recipe_file,mode",
     SPEED_LITE_CELLS,
-    ids=[_speed_bench_id(c) for c in SPEED_LITE_CELLS],
+    ids=[_bench_id(c) for c in SPEED_LITE_CELLS],
 )
 def test_speed_lite(
     benchmark: Any,

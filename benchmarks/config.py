@@ -208,46 +208,45 @@ SLOW_CELLS: list[tuple[str, str, str, str]] = [
 
 # ---------------------------------------------------------------------------
 # SPEED-LITE cells — test_speed_lite.py (per-PR wall-clock regression)
+#
+# Two-axis design for the fast benchmark cells:
+#   Horizontal (seed axis):   FAST_CELLS × 3 dated seeds  → seed-CI correctness
+#   Vertical (timing axis):   SPEED_LITE_CELLS × today's seed × 5 runs → speed-lite timing
+#
+# SPEED_LITE_CELLS is *derived from FAST_CELLS* (one source of truth for cell
+# definitions).  The filter selects one e2e cell per major sampler family:
+# NUTS, HMC, dynamic-HMC, MCLMC, adj-MCLMC, adj-MCLMC-dynamic.
+# Excluded: mhmc/dmhmc (subsumed by HMC/dynamic-HMC families), laplace (not
+# timing-stable across 5 warm runs at current scale), tier2/slow cells.
+#
+# To add a cell to speed-lite: add its bench_id to _SPEED_LITE_BENCH_IDS.
+# The cell must already exist in FAST_CELLS — add it there first.
 # ---------------------------------------------------------------------------
-# One cell per major sampler family on fast models.
-# benchmark.pedantic(rounds=5, warmup_rounds=1): warmup absorbs JIT compile,
-# 5 warm rounds give stable Mean/StdDev for cross-run trend comparison.
-# Fixed seed (SPEED_SEED) — timing is seed-invariant.
-# Excludes: mhmc/dmhmc (covered by HMC), laplace/lotka/horseshoe (slow or OOM-prone).
 
+
+def _bench_id(cell: tuple[str, str, str, str]) -> str:
+    """Stable benchmark ID for a cell tuple (mirrors bench_id in _benchmark_helpers)."""
+    tier, model, recipe_file, mode = cell
+    return f"{tier}-{model}-{recipe_file.replace('.json', '')}-{mode}"
+
+
+# Speed-lite filter: bench_ids of FAST_CELLS to include in the vertical timing axis.
+# One cell per major sampler family, e2e mode on the fastest representative model.
+_SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
+    {
+        "tier1-logistic_synthetic-low__nuts__window_adaptation_diag_imm-e2e",
+        "tier1-logistic_synthetic-low__hmc__window_adaptation_diag_imm-e2e",
+        "tier1-logistic_synthetic-low__dynamic_hmc__window_adaptation_diag_imm-e2e",
+        "tier1-logistic_synthetic-low__mclmc__mclmc_tuning-e2e",
+        "tier1-mvn_10-low__adjusted_mclmc__adjusted_mclmc_tuning-e2e",
+        "tier1-logistic_synthetic-low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning-e2e",
+    }
+)
+
+# Derived from FAST_CELLS — not a hand-curated duplicate list.
+# Preserves the ordering of FAST_CELLS; updates automatically if a cell is renamed.
 SPEED_LITE_CELLS: list[tuple[str, str, str, str]] = [
-    # NUTS — standard candle HMC-family
-    (
-        "tier1",
-        "logistic_synthetic",
-        "low__nuts__window_adaptation_diag_imm.json",
-        "e2e",
-    ),
-    # HMC — fixed-step
-    (
-        "tier1",
-        "logistic_synthetic",
-        "low__hmc__window_adaptation_diag_imm.json",
-        "e2e",
-    ),
-    # dynamic_hmc — adaptive step
-    (
-        "tier1",
-        "logistic_synthetic",
-        "low__dynamic_hmc__window_adaptation_diag_imm.json",
-        "e2e",
-    ),
-    # MCLMC
-    ("tier1", "logistic_synthetic", "low__mclmc__mclmc_tuning.json", "e2e"),
-    # adjusted_mclmc (on mvn_10 — the canonical adjusted_mclmc model)
-    ("tier1", "mvn_10", "low__adjusted_mclmc__adjusted_mclmc_tuning.json", "e2e"),
-    # adjusted_mclmc_dynamic
-    (
-        "tier1",
-        "logistic_synthetic",
-        "low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json",
-        "e2e",
-    ),
+    c for c in FAST_CELLS if _bench_id(c) in _SPEED_LITE_BENCH_IDS
 ]
 
 
