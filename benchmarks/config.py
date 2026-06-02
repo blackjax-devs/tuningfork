@@ -231,15 +231,36 @@ def _bench_id(cell: tuple[str, str, str, str]) -> str:
 
 
 # Speed-lite filter: bench_ids of FAST_CELLS to include in the vertical timing axis.
-# One cell per major sampler family, e2e mode on the fastest representative model.
+#
+# 9 cells: all 8 MCMC sampler families × 3 model topologies, e2e mode.
+# Budget: shown single-run sum ≈ 190s; CI effective ceiling ≈ 190 × 6 (pedantic
+# rounds) × ~2.5 (runner slowdown) ≈ 47 min — comfortably under the 60-min cap.
+# If CI exceeds ~45 min, drop logistic_mclmc (29.8s) then eight_schools_nuts (31.2s).
+#
+# logistic_synthetic (cheap GLM, 7 families):
+#   hmc (13.2s), mhmc (13.7s), dynamic_hmc (16.4s), dmhmc (17.7s), nuts (14.1s),
+#   mclmc (29.8s), adjusted_mclmc_dynamic (20.8s) — sum ≈ 126s
+# mvn_10 (Gaussian topology):
+#   adjusted_mclmc (23.8s) — static adjusted_mclmc family
+# eight_schools_ncp (hierarchical NCP topology):
+#   nuts (31.2s) — hierarchy funnel geometry diversity
+#
+# Excluded from per-PR: laplace_* (115-127s), horseshoe (335s), lotka_volterra
+# (127s), stoch_vol (44-107s), *_dense_imm variants, calibrated-mode duplicates.
 _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
     {
+        # logistic_synthetic — cheap GLM, covers 7 sampler families
         "tier1-logistic_synthetic-low__nuts__window_adaptation_diag_imm-e2e",
         "tier1-logistic_synthetic-low__hmc__window_adaptation_diag_imm-e2e",
+        "tier1-logistic_synthetic-low__mhmc__window_adaptation_diag_imm-e2e",
         "tier1-logistic_synthetic-low__dynamic_hmc__window_adaptation_diag_imm-e2e",
+        "tier1-logistic_synthetic-low__dmhmc__window_adaptation_diag_imm-e2e",
         "tier1-logistic_synthetic-low__mclmc__mclmc_tuning-e2e",
-        "tier1-mvn_10-low__adjusted_mclmc__adjusted_mclmc_tuning-e2e",
         "tier1-logistic_synthetic-low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning-e2e",
+        # mvn_10 — Gaussian topology, static adjusted_mclmc family
+        "tier1-mvn_10-low__adjusted_mclmc__adjusted_mclmc_tuning-e2e",
+        # eight_schools_ncp — hierarchical NCP topology diversity
+        "tier2-eight_schools_ncp-low__nuts__window_adaptation_diag_imm-e2e",
     }
 )
 
