@@ -1,0 +1,108 @@
+name: Speed-lite benchmark
+
+# Per-PR + per-push to main: wall-clock regression detection.
+# Complements the nightly seed-CI (correctness) — this catches slowdowns.
+#
+# Design:
+#   6 cells × 5 warm rounds (warmup_rounds=1 absorbs JIT compile).
+#   Fixed seed → cross-run trend comparison valid.
+#   Trend persisted in actions/cache (not gh-pages — sidesteps the gh-pages
+#   permission issue that blocked our first attempt).
+#   Alert threshold: 200% (comment-only at rollout; flip fail-on-alert once
+#   200% is proven noise-robust on our shared CI runners).
+#
+# Runtime estimate: ~3-10 min (6 cells × 5 rounds × ~5-20s per round).
+# Timeout: 60 min (generous headroom for slow CI runners).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write   # required for comment-on-alert on PRs
+
+jobs:
+  speed-lite:
+    name: Speed-lite benchmark
+    runs-on: ubuntu-24.04   # pinned LTS — env-consistent baselines
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5  # Node 22
+
+      - name: Restore benchmark trend cache
+        # Restores the most recent benchmark-data.json so the action can
+        # compare today's run against the rolling trend.
+        uses: actions/cache/restore@v4
+        with:
+          path: ./cache
+          # Unique key ensures save always writes (avoids cache-hit no-op).
+          # restore-keys picks up the most recent run on this OS.
+          key: speed-benchmark-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            speed-benchmark-${{ runner.os }}-
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install bench-perf deps (from locked uv.lock)
+        run: uv sync --group bench-perf --python 3.13
+
+      - name: Install blackjax@main (explicit, on top of lockfile)
+        # Track HEAD so speed regressions from blackjax changes surface on PRs.
+        run: |
+          uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
+          uv run --python 3.13 python -c "import blackjax; print('blackjax:', blackjax.__version__)"
+
+      - name: Run speed-lite benchmarks (6 cells, 5 warm rounds each)
+        # pedantic(warmup_rounds=1, rounds=5): warmup round discards JIT compile;
+        # 5 measured rounds give stable Mean/StdDev for trend comparison.
+        # clear_xla_caches_between_cells fixture frees XLA cache after each cell.
+        run: |
+          mkdir -p benchmark_results_dir
+          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest benchmarks/test_speed_lite.py \
+            -m benchmark \
+            --benchmark-only \
+            --benchmark-json=benchmark_results_dir/speed_output.json \
+            --benchmark-disable-gc \
+            -v \
+            --tb=short
+
+      - name: Store and compare benchmark trend
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: pytest
+          output-file-path: benchmark_results_dir/speed_output.json
+          # external-data-json-path + save-data-file: rolling trend via cache.
+          # The action reads the file, appends the new run, and writes it back.
+          external-data-json-path: ./cache/benchmark-data.json
+          save-data-file: true
+          alert-threshold: '200%'
+          # comment-only at rollout — flip fail-on-alert: true once 200% is
+          # proven noise-robust on our shared CI runners (a few weeks of data).
+          fail-on-alert: false
+          comment-on-alert: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save benchmark trend cache
+        # Always save, even if the benchmark or alert step fails, so the next
+        # run has a baseline to compare against.
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ./cache
+          key: speed-benchmark-${{ runner.os }}-${{ github.sha }}
+
+      - name: Upload benchmark results artifact
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: speed-benchmark-${{ github.sha }}
+          path: benchmark_results_dir/
+          retention-days: 30

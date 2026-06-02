@@ -206,5 +206,55 @@ SLOW_CELLS: list[tuple[str, str, str, str]] = [
     ("tier2", "horseshoe", "low__dmhmc__window_adaptation_dense_imm.json", "e2e"),
 ]
 
+# ---------------------------------------------------------------------------
+# SPEED-LITE cells — test_speed_lite.py (per-PR wall-clock regression)
+# ---------------------------------------------------------------------------
+# One cell per major sampler family on fast models.
+# benchmark.pedantic(rounds=5, warmup_rounds=1): warmup absorbs JIT compile,
+# 5 warm rounds give stable Mean/StdDev for cross-run trend comparison.
+# Fixed seed (SPEED_SEED) — timing is seed-invariant.
+# Excludes: mhmc/dmhmc (covered by HMC), laplace/lotka/horseshoe (slow or OOM-prone).
+
+SPEED_LITE_CELLS: list[tuple[str, str, str, str]] = [
+    # NUTS — standard candle HMC-family
+    (
+        "tier1",
+        "logistic_synthetic",
+        "low__nuts__window_adaptation_diag_imm.json",
+        "e2e",
+    ),
+    # HMC — fixed-step
+    (
+        "tier1",
+        "logistic_synthetic",
+        "low__hmc__window_adaptation_diag_imm.json",
+        "e2e",
+    ),
+    # dynamic_hmc — adaptive step
+    (
+        "tier1",
+        "logistic_synthetic",
+        "low__dynamic_hmc__window_adaptation_diag_imm.json",
+        "e2e",
+    ),
+    # MCLMC
+    ("tier1", "logistic_synthetic", "low__mclmc__mclmc_tuning.json", "e2e"),
+    # adjusted_mclmc (on mvn_10 — the canonical adjusted_mclmc model)
+    ("tier1", "mvn_10", "low__adjusted_mclmc__adjusted_mclmc_tuning.json", "e2e"),
+    # adjusted_mclmc_dynamic
+    (
+        "tier1",
+        "logistic_synthetic",
+        "low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json",
+        "e2e",
+    ),
+]
+
+# ---------------------------------------------------------------------------
+# SPEED_SEED: fixed seed used by speed-lite (timing is seed-invariant,
+# so a single fixed seed keeps the trend comparison valid cross-run).
+# ---------------------------------------------------------------------------
+SPEED_SEED: int = 20260601
+
 # All cells (for nightly full run)
 ALL_CELLS: list[tuple[str, str, str, str]] = FAST_CELLS + SLOW_CELLS
