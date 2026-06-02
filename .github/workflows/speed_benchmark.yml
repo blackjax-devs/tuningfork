@@ -14,12 +14,19 @@ name: Speed-lite benchmark
 #
 # Runtime: measured ~4.5 min on CI (9 cells × 5 warm rounds; warm rounds cheap post-JIT).
 # Timeout: 60 min (generous headroom for slow CI runners).
+#
+# Nightly schedule (0 23 * * * UTC): runs on HEAD of main even with no PR, keeping the
+# rolling trend fresh. Staggered one hour after the seed-CI cron (0 22) to avoid
+# simultaneous runner contention. comment-on-alert is a no-op on schedule runs (no PR);
+# fail-on-alert is already false, so the job always exits green.
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 23 * * *'
 
 permissions:
   contents: read
