@@ -1118,8 +1118,26 @@ def emit_low_recipe_for_cell(
         # they're present as extra kwargs for the factory call below.
         pass
 
-    batched_step_size = batched_params["step_size"]
-    batched_imm = batched_params["inverse_mass_matrix"]
+    # Gradient-free / no-adapted-params samplers (elliptical_slice, rwm in no_warmup)
+    # return empty batched_params from no_warmup — they have no step_size or IMM.
+    # Inject prior_cov / prior_mean into shared_kwargs from posterior for
+    # elliptical_slice (needed to rebuild the kernel at each step).
+    batched_step_size = batched_params.get("step_size")
+    batched_imm = batched_params.get("inverse_mass_matrix")
+    is_no_adapted_params = batched_step_size is None and batched_imm is None
+
+    if is_elliptical_slice:
+        # B3 (Phase 8B.3): prior kwargs go into shared_kwargs so the factory
+        # can build the kernel with the correct Gaussian prior at each step.
+        from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+        _mean_pytree = {k: jnp.array(v) for k, v in posterior.prior_mean.items()}  # type: ignore[union-attr]
+        _cov_pytree = {k: jnp.array(v) for k, v in posterior.prior_cov_diag.items()}  # type: ignore[union-attr]
+        _mean_flat, _ = _ravel_pytree(_mean_pytree)
+        _cov_flat, _ = _ravel_pytree(_cov_pytree)
+        shared_kwargs["prior_mean"] = _mean_flat
+        shared_kwargs["prior_cov"] = _cov_flat
+
     needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
 
     # mclmc-family: warmup returns adapted L in batched_params["L"].  Extract it
@@ -1244,6 +1262,20 @@ def emit_low_recipe_for_cell(
             )
 
         _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_mclmc)
+    elif is_no_adapted_params:
+        # Gradient-free / no-adapted-params path (e.g. elliptical_slice).
+        # No per-chain step_size or IMM; kernel built entirely from shared_kwargs
+        # (which for elliptical_slice contains prior_mean + prior_cov injected above).
+
+        def _step_one_chain_gf(state: Any, key: Any) -> Any:
+            kernel_step = base_method.factory(logdensity_fn, **shared_kwargs).step
+            return kernel_step(key, state)
+
+        def _vmapped_step_gf(rng_key: Any, states: Any) -> Any:
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain_gf)(states, keys)
+
+        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
     else:
 
         def _step_one_chain(state, key, step_size, imm):
@@ -1330,7 +1362,12 @@ def emit_low_recipe_for_cell(
     # --- Auto-gate ---
     # Pass step_size + num_integration_steps for the resonance check (fixed-L
     # HMC only; dynamic kernels have no fixed L, so NIS is absent from shared_kwargs).
-    _gate_chain0_ss = float(np.asarray(batched_step_size).ravel()[0])
+    # Gradient-free samplers have no step_size; pass 0.0 (no resonance check applies).
+    _gate_chain0_ss = (
+        float(np.asarray(batched_step_size).ravel()[0])
+        if batched_step_size is not None
+        else 0.0
+    )
     _gate_nis: int | None = shared_kwargs.get("num_integration_steps")
     _log("  Running auto-gate...")
     gate_verdict = auto_gate(
@@ -1460,13 +1497,18 @@ def emit_low_recipe_for_cell(
     # specification, so we pin chain 0's adapted params.  Other chains' values
     # are functionally equivalent given the deterministic seed + per-chain key.
     _log(f"  Building {effort.value.upper()} recipe...")
-    chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
     # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
     # pinned params — it is reconstructed at recipe-run time via step_policy spec.
+    # Also exclude prior_cov / prior_mean: they are stored on the Posterior entry
+    # and do not need to be pinned per-recipe (they are read at run time).
+    _NON_SERIALISABLE_KEYS = {"integration_steps_fn", "prior_cov", "prior_mean"}
     pinned_params: dict[str, Any] = {
-        k: v for k, v in shared_kwargs.items() if k != "integration_steps_fn"
+        k: v for k, v in shared_kwargs.items() if k not in _NON_SERIALISABLE_KEYS
     }
-    pinned_params["step_size"] = chain0_step_size
+    if not is_no_adapted_params:
+        # Gradient-adapted samplers: pin chain 0's adapted step_size.
+        chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
+        pinned_params["step_size"] = chain0_step_size
     # mclmc-family: save the warmup-adapted L (chain 0) to the recipe so that
     # recipe re-runs (recertification) use the correct trajectory length rather
     # than the default_params_for fallback.  L was removed from shared_kwargs
