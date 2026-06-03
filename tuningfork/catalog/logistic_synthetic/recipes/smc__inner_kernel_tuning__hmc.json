@@ -27,7 +27,7 @@
   "parameter_update_strategy_kwargs": {
     "target_acceptance": 0.65
   },
-  "headline_metric": 8.660156605086775e-05,
+  "headline_metric": 0.0005542500227255536,
   "gate_evidence": {
     "auto": {
       "verdict": "PASS",
@@ -50,12 +50,12 @@
     "n_smc_steps": 7,
     "num_mcmc_steps": 25,
     "lambda_final": 1.0,
-    "wall_seconds_total": 5.817,
-    "wall_seconds_run": 1.835
+    "wall_seconds_total": 6.282,
+    "wall_seconds_run": 1.926
   },
   "notes": "",
   "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-06-03T14:40:07Z"
+  "timestamp_utc": "2026-06-03T14:49:14Z"
 }
