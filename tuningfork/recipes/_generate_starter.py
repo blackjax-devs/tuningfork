@@ -389,7 +389,9 @@ def main() -> None:
     import argparse
 
     valid_warmups = {"no_warmup", "window_adaptation_diag_imm"}
-    valid_samplers = set(ALL_METHOD_NAMES)
+    # MEDIUM_METHOD_NAMES (rmhmc) are not in ALL_METHOD_NAMES but must be
+    # reachable via --sampler so emit_medium_recipes can be targeted directly.
+    valid_samplers = set(ALL_METHOD_NAMES) | set(MEDIUM_METHOD_NAMES)
 
     parser = argparse.ArgumentParser(
         description=(

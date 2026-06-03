@@ -70,6 +70,7 @@ import blackjax
 
 __all__ = [
     "LAPLACE_METHOD_NAMES",
+    "RMHMC_API_METHOD_NAMES",
     "WARMUP_SUBSTITUTE_METHOD_NAMES",
     "resolve_warmup_algorithm",
 ]
@@ -78,6 +79,18 @@ __all__ = [
 LAPLACE_METHOD_NAMES: frozenset[str] = frozenset(
     ("laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc")
 )
+
+# Methods whose `base_method.factory` is NOT a blackjax GenerateSamplingAPI
+# object but where the direct blackjax API object must be used for
+# `window_adaptation`.  For rmhmc: `base_method.factory` is a wrapper function
+# that performs the IMM→mass_matrix conversion.  However,
+# `blackjax.window_adaptation` calls `algorithm.build_kernel(integrator)` and
+# `algorithm.init(position, logdensity_fn)` — it requires a GenerateSamplingAPI,
+# not a plain Python function.  Since `blackjax.rmhmc.build_kernel =
+# blackjax.hmc.build_kernel`, the raw kernel takes `inverse_mass_matrix` as a
+# positional arg (same as hmc), so window_adaptation passes adapted IMM
+# correctly despite rmhmc's user-facing `as_top_level_api` taking `mass_matrix`.
+RMHMC_API_METHOD_NAMES: frozenset[str] = frozenset(("rmhmc",))
 
 # Methods whose `.init` / `.build_kernel` signature requires extra kwargs that
 # the `blackjax.window_adaptation` driver does not supply (laplace_* need
@@ -135,6 +148,16 @@ def resolve_warmup_algorithm(
         ``dict(extra_kwargs)`` (standard path) or ``{}`` (substitute path —
         NUTS needs no extra kernel kwargs).
     """
+    if base_method.name in RMHMC_API_METHOD_NAMES:
+        # rmhmc path: base_method.factory is a wrapper function (not a
+        # GenerateSamplingAPI).  window_adaptation needs an API object with
+        # .build_kernel(integrator) and .init(position, logdensity_fn).
+        # blackjax.rmhmc.build_kernel = blackjax.hmc.build_kernel so the raw
+        # kernel accepts inverse_mass_matrix positionally — window_adaptation
+        # passes adapted IMM correctly.  Preserve extra_kwargs (carries
+        # num_integration_steps for the warmup kernel).
+        return blackjax.rmhmc, dict(extra_kwargs)
+
     if base_method.name not in WARMUP_SUBSTITUTE_METHOD_NAMES:
         # Standard path (hmc, nuts, mhmc, barker, mala): return unchanged — no
         # regression possible.
