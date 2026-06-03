@@ -168,12 +168,18 @@ class TestInnerKernelTuningSMCEntry:
     def test_default_inner_in_compatible(self) -> None:
         assert ENTRY.default_inner_method in ENTRY.compatible_inner_methods
 
-    def test_hp_space_has_one_entry(self) -> None:
-        assert len(ENTRY.default_hp_space) == 1
+    def test_hp_space_has_two_entries(self) -> None:
+        # Phase 8B.1: added target_ess alongside num_mcmc_steps so it is
+        # stored in smc_params and auditable in every emitted recipe.
+        assert len(ENTRY.default_hp_space) == 2
 
     def test_hp_space_name_is_num_mcmc_steps(self) -> None:
         names = {hp.name for hp in ENTRY.default_hp_space}
         assert "num_mcmc_steps" in names
+
+    def test_hp_space_has_target_ess(self) -> None:
+        names = {hp.name for hp in ENTRY.default_hp_space}
+        assert "target_ess" in names
 
     def test_is_smc_method_instance(self) -> None:
         """Commit-1 smoke: ENTRY is a valid SMCMethod without registry."""

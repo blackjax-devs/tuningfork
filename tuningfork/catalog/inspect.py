@@ -26,8 +26,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pandas as pd
 
-    from tuningfork.recipes._base import Recipe
-
 __all__ = ["load_recipe", "summarize_recipe", "list_recipes"]
 
 
@@ -159,18 +157,89 @@ def load_recipe(path: str | Path):  # type: ignore[return]
     )
 
 
-def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
-    """Return a summary DataFrame for a Recipe.
+def _summarize_smc_recipe(recipe) -> pd.DataFrame:  # type: ignore[return]
+    """Return a summary DataFrame for an SMCRecipe (SMC-specific fields)."""
+    import pandas as pd
+
+    auto_gate = recipe.gate_evidence.get("auto", {})
+    override = recipe.gate_evidence.get("override", {})
+    verdict = auto_gate.get("verdict", "NOT_RUN")
+    override_decision = override.get("decision", "")
+    b = recipe.calibration_budget
+    sp = recipe.smc_params
+
+    rows = [
+        ("model", recipe.model_name),
+        ("type", "SMC"),
+        ("smc_method", recipe.smc_method_name),
+        ("inner_kernel", recipe.inner_method_name),
+        ("num_particles", str(recipe.num_particles)),
+        ("target_ess", str(sp.get("target_ess", "N/A"))),
+        ("num_mcmc_steps", str(sp.get("num_mcmc_steps", "N/A"))),
+        ("num_integration_steps", str(sp.get("num_integration_steps", "N/A"))),
+        ("parameter_update_strategy", recipe.parameter_update_strategy),
+        ("n_smc_steps", str(b.get("n_smc_steps", "N/A"))),
+        ("lambda_final", str(b.get("lambda_final", "N/A"))),
+        ("stored gate verdict (auto)", verdict),
+        ("override decision", override_decision if override_decision else "none"),
+        (
+            "particle_ess",
+            (
+                f"{auto_gate['particle_ess']:.1f}"
+                if auto_gate.get("particle_ess") is not None
+                else "N/A"
+            ),
+        ),
+        (
+            "max_abs_mean_z",
+            (
+                f"{auto_gate['max_abs_mean_z']:.3f}"
+                if auto_gate.get("max_abs_mean_z") is not None
+                else "N/A"
+            ),
+        ),
+        (
+            "mode_coverage_fraction",
+            (
+                f"{auto_gate['mode_coverage_fraction']:.3f}"
+                if auto_gate.get("mode_coverage_fraction") is not None
+                else "N/A"
+            ),
+        ),
+        (
+            "headline_metric",
+            (
+                f"{recipe.headline_metric:.5f}"
+                if recipe.headline_metric is not None
+                else "N/A"
+            ),
+        ),
+        ("seed", str(recipe.seed)),
+        ("tuningfork_version", recipe.tuningfork_version),
+        ("blackjax_version", recipe.blackjax_version),
+        ("jax_version", recipe.jax_version),
+        ("timestamp_utc", recipe.timestamp_utc),
+    ]
+    return pd.DataFrame(rows, columns=["Property", "Value"])
+
+
+def summarize_recipe(recipe) -> pd.DataFrame:  # type: ignore[return]
+    """Return a summary DataFrame for a Recipe or SMCRecipe.
 
     Returns a 2-column ``(Property, Value)`` DataFrame suitable for
     inline Jupyter rendering. The ``inverse_mass_matrix`` field is
     excluded (too verbose). Rows cover the most decision-relevant fields
     a statistician needs when verifying a recipe.
 
+    Accepts both MCMC ``Recipe`` and ``SMCRecipe`` objects — the returned
+    DataFrame adapts its columns accordingly (SMC recipes show SMC-specific
+    fields such as ``particle_ess``, ``n_smc_steps``, ``target_ess``
+    instead of the MCMC warmup / chain budget fields).
+
     Parameters
     ----------
     recipe
-        A loaded Recipe object.
+        A loaded Recipe or SMCRecipe object.
 
     Returns
     -------
@@ -180,7 +249,7 @@ def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
 
     Notes
     -----
-    Fields included:
+    For MCMC Recipes, fields included:
 
     - model, effort, sampler, warmup
     - num_chains, n_warmup, n_samples (sample-budget fields; see below)
@@ -196,6 +265,10 @@ def summarize_recipe(recipe: Recipe) -> pd.DataFrame:
     ``warmup_params``.  All three show ``"N/A"`` when the field is absent
     (e.g., legacy groundtruth recipes that pre-date the protocol).
     """
+    # Dispatch to SMC-specific summary if this is an SMCRecipe.
+    if hasattr(recipe, "smc_method_name"):
+        return _summarize_smc_recipe(recipe)
+
     import pandas as pd
 
     auto_gate = recipe.gate_evidence.get("auto", {})
