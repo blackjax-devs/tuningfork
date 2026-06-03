@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Adapter: route laplace_* base methods through standard HMC for warmup.
+"""Adapter: route laplace_* and rmhmc base methods through appropriate warmup kernels.
 
 Background
 ----------
@@ -45,11 +45,28 @@ drives dual-averaging step-size + mass-matrix adaptation.  The resulting
 (which also needs ``log_joint_fn`` and ``theta_init``, but those come from the
 recipe/model, not from the warmup).
 
+Warmup strategy for rmhmc
+--------------------------
+``blackjax.rmhmc`` uses the ``implicit_midpoint`` integrator by default at
+sampling time.  ``blackjax.window_adaptation`` defaults to ``velocity_verlet``,
+so naively passing ``blackjax.rmhmc`` to it adapts step_size under
+``velocity_verlet`` while sampling runs under ``implicit_midpoint``.  Because
+``implicit_midpoint`` is more accurate per step (same 2nd-order convergence,
+symmetric form), the energy error for a given step_size is lower → higher
+acceptance rate → too-conservative steps → low ESS (observed: ESS~70 vs
+target ~500 for eight_schools_ncp).
+
+Fix: ``_RMHMCImplicitMidpointAlgorithm`` wraps ``blackjax.rmhmc`` and overrides
+``build_kernel`` to always use ``implicit_midpoint``, so window_adaptation
+calibrates step_size under the same integrator used at sampling time.
+
 This module provides ``resolve_warmup_algorithm``, a single function that the
 three window-adaptation runners call to get the right ``(algorithm, extra_kwargs)``
 pair to pass to ``blackjax.window_adaptation``:
 
 - For laplace_* base methods: returns ``(blackjax.hmc, extra_kwargs_for_hmc)``
+- For rmhmc: returns ``(_RMHMCImplicitMidpointAlgorithm(), extra_kwargs)``
+  so warmup step_size is calibrated under ``implicit_midpoint``.
 - For all other base methods: returns ``(base_method.factory, extra_kwargs)``
   unchanged (the existing path — no regression possible).
 
@@ -67,13 +84,50 @@ The test in ``tests/warmup/test_laplace_marginal_warmup_smoke.py`` asserts
 from typing import Any
 
 import blackjax
+import blackjax.mcmc.integrators as _integrators
 
 __all__ = [
     "LAPLACE_METHOD_NAMES",
     "RMHMC_API_METHOD_NAMES",
     "WARMUP_SUBSTITUTE_METHOD_NAMES",
+    "_RMHMCImplicitMidpointAlgorithm",
     "resolve_warmup_algorithm",
 ]
+
+
+class _RMHMCImplicitMidpointAlgorithm:
+    """Warmup-only wrapper around blackjax.rmhmc with implicit_midpoint integrator.
+
+    ``blackjax.window_adaptation`` calls ``algorithm.build_kernel(integrator)``
+    with its own ``integrator`` default (``velocity_verlet``).  For rmhmc we
+    must override this so the warmup calibrates step_size under the same
+    ``implicit_midpoint`` integrator used at sampling time.  Without this fix
+    the adapted step_size is too conservative for ``implicit_midpoint`` (which
+    has lower energy error per step → higher acceptance → slow exploration →
+    ESS ≈ 70 observed on eight_schools_ncp vs target 500–700).
+
+    This class exposes the ``build_kernel`` / ``init`` interface expected by
+    ``window_adaptation``, delegating to ``blackjax.rmhmc`` but always building
+    the kernel with ``implicit_midpoint`` regardless of the integrator argument
+    passed by the caller.  ``init`` delegates to ``blackjax.rmhmc.init``
+    (= ``blackjax.hmc.init``).
+
+    The ``build_kernel`` method accepts an ``integrator`` positional argument so
+    that ``window_adaptation``'s ``inspect.signature`` check finds at least one
+    parameter and calls ``build_kernel(velocity_verlet)`` rather than
+    ``build_kernel()`` — the passed value is intentionally ignored.
+    """
+
+    def build_kernel(
+        self, integrator: Any = None
+    ) -> Any:  # integrator arg intentionally ignored
+        """Build HMC kernel with implicit_midpoint (ignores caller-supplied integrator)."""
+        return blackjax.rmhmc.build_kernel(_integrators.implicit_midpoint)
+
+    def init(self, position: Any, logdensity_fn: Any) -> Any:
+        """Delegate to blackjax.rmhmc.init (= blackjax.hmc.init)."""
+        return blackjax.rmhmc.init(position, logdensity_fn)
+
 
 # The four laplace_* base method names registered in the tuningfork registry.
 LAPLACE_METHOD_NAMES: frozenset[str] = frozenset(
@@ -152,11 +206,13 @@ def resolve_warmup_algorithm(
         # rmhmc path: base_method.factory is a wrapper function (not a
         # GenerateSamplingAPI).  window_adaptation needs an API object with
         # .build_kernel(integrator) and .init(position, logdensity_fn).
-        # blackjax.rmhmc.build_kernel = blackjax.hmc.build_kernel so the raw
-        # kernel accepts inverse_mass_matrix positionally — window_adaptation
-        # passes adapted IMM correctly.  Preserve extra_kwargs (carries
-        # num_integration_steps for the warmup kernel).
-        return blackjax.rmhmc, dict(extra_kwargs)
+        # We return _RMHMCImplicitMidpointAlgorithm (not blackjax.rmhmc directly)
+        # so the warmup uses implicit_midpoint to calibrate step_size under the
+        # same integrator used at sampling time.  Without this, window_adaptation
+        # uses velocity_verlet for warmup → step_size too small for implicit_midpoint
+        # sampling → acceptance rate 0.98 → ESS ~70 (vs target 500–700).
+        # Preserve extra_kwargs (carries num_integration_steps for the warmup kernel).
+        return _RMHMCImplicitMidpointAlgorithm(), dict(extra_kwargs)
 
     if base_method.name not in WARMUP_SUBSTITUTE_METHOD_NAMES:
         # Standard path (hmc, nuts, mhmc, barker, mala): return unchanged — no
