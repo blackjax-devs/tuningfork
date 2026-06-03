@@ -47,9 +47,35 @@ Registered strategies
 
 ``"step_size_and_imm_from_particles"``
     Combined: step_size from acceptance rate + diagonal IMM from particle
-    variance.  The statistically recommended default for HMC inner kernel
-    (Phase 8B.1, statistician verdict).  Extra kwarg: ``target_acceptance``
-    (float, default 0.65 for HMC).
+    variance.  Extra kwarg: ``target_acceptance`` (float, default 0.65 for HMC).
+
+Per-cell classification guide (statistician-confirmed, Phase 8B.1)
+-------------------------------------------------------------------
+The choice of update strategy depends on the posterior geometry of each SMC
+cell.  Use this table when wiring new cells:
+
+**step_size_from_acceptance_rate (step_size-only)**
+    - Appropriate for: near-Gaussian or smoothly-sharpening posteriors (GLMs,
+      logistic regression, well-conditioned likelihoods).
+    - Rationale: the particle-cloud covariance is well-behaved throughout
+      tempering; IMM-from-particles adds lag (computed from the *current*
+      particle cloud which lags the target) and can overshoot in the final
+      temperature jump.  Step-size adaptation is sufficient.
+    - Examples: logistic_synthetic, gmm_25 (moot — 1 temp step), any GLM.
+
+**step_size_and_imm_from_particles (step_size + IMM)**
+    - Appropriate for: strongly non-Gaussian or scale-varying posteriors
+      (funnels, heavy tails, hierarchical models with scale uncertainty).
+    - Rationale: the diagonal IMM tracks per-dimension curvature changes
+      across temperatures; beneficial when the posterior geometry shifts
+      substantially from prior to posterior (funnel compression, tail shrinkage).
+    - Examples: neals_funnel (certified PASS z=1.579 with this strategy).
+    - Warning: do NOT use for near-Gaussian cells where IMM lag causes overshoot.
+
+**none**
+    - Appropriate for: plain adaptive_tempered_smc (no inner_kernel_tuning),
+      or cells where all kernel params are pre-bound via functools.partial.
+    - Examples: adaptive_tempered_smc + RWM baseline cells.
 """
 
 from typing import Any
