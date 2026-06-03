@@ -58,7 +58,9 @@ _OUTCOMES_FILE: Path = _CATALOG_ROOT / "_smc_outcomes.md"
 
 # Default SMC configuration
 _DEFAULT_NUM_PARTICLES: int = 1000
-_DEFAULT_MAX_STEPS: int = 200
+_DEFAULT_MAX_STEPS: int = (
+    500  # bumped 200→500 (Phase 8B.1 TL-approved: insurance that λ=1 is reached)
+)
 
 # Default initial inner-kernel params for HMC inner kernel.
 # These are updated by the parameter_update_fn during the tempering ladder.
@@ -458,7 +460,17 @@ def emit_smc_recipe_for_cell(
         )
     t_run = time.perf_counter() - t_run0
     n_smc_steps = int(len(history["lmbda"])) if len(history["lmbda"]) > 0 else max_steps
-    _log(f"  SMC done in {t_run:.1f}s ({n_smc_steps} tempering steps).", verbose)
+    # Record final tempering parameter λ so callers can verify λ=1 was reached.
+    # A z-PASS at λ<1 is a FALSE PASS (particles from a tempered density, not the posterior).
+    try:
+        _lambda_arr = history["lmbda"]
+        lambda_final = float(_lambda_arr[-1]) if len(_lambda_arr) > 0 else 0.0
+    except (IndexError, KeyError):
+        lambda_final = 0.0
+    _log(
+        f"  SMC done in {t_run:.1f}s ({n_smc_steps} tempering steps, λ_final={lambda_final:.4f}).",
+        verbose,
+    )
 
     # --- Extract particles + weights from final state ---
     # inner_kernel_tuning: particles at state.sampler_state.particles
@@ -593,6 +605,11 @@ def emit_smc_recipe_for_cell(
             "n_particles": num_particles,
             "n_smc_steps": n_smc_steps,
             "num_mcmc_steps": num_mcmc_steps,
+            # lambda_final: final tempering parameter after the run.
+            # MUST be ≥ ~0.99 for the cert to be valid (particles from the
+            # full posterior, not a tempered density).  A z-PASS at λ<1 is
+            # a false pass.  Lambda=0 indicates history was unavailable.
+            "lambda_final": round(lambda_final, 6),
             "wall_seconds_total": round(t_total, 3),
             "wall_seconds_run": round(t_run, 3),
         },
