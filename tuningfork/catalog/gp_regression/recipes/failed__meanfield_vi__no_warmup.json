@@ -1,0 +1,40 @@
+{
+  "model_name": "gp_regression",
+  "base_method_name": "meanfield_vi",
+  "warmup_name": "no_warmup",
+  "effort": "failed",
+  "failure_diagnosis": "out_of_scope",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Mean-field VI exhibits anti-convergence on gp_regression: ELBO decreases monotonically over 10k Adam steps rather than increasing toward the true posterior. The d=203 latent space (3 hyperparameters + 200 inducing-point latents) and the Cholesky-factored GP likelihood create a posterior with strong inter-dimensional correlations that a diagonal Gaussian cannot approximate. The mean-field independence assumption is structurally incompatible with the GP posterior geometry.",
+  "notes": "",
+  "workflow": "Phase 8B.2 probe (2026-06-03, @statistician). Probe: standalone Python at num_optimization_steps=10_000, optax.adam(1e-2). ELBO trajectory shows anti-convergence (decreasing) — the mean-field approximation diverges from the posterior rather than converging. Root cause: GP regression posterior is dominated by the dense Cholesky Gram matrix, creating non-separable correlations across all 203 dimensions. A diagonal Gaussian (mean-field) assigns independent uncertainty to correlated latents, causing the optimizer to chase contradictory gradient signals. Full-rank VI (d=203 >> 30 Cat 8 threshold) is also excluded by Cat 8. Classification: out_of_scope (structural incompatibility, not a tuning failure).",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-06-04T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

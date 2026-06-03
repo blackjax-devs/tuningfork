@@ -1,0 +1,40 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "fullrank_vi",
+  "warmup_name": "no_warmup",
+  "effort": "failed",
+  "failure_diagnosis": "out_of_scope",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Full-rank VI fails at the initialisation stage for lotka_volterra: the same NaN-at-init pathology as meanfield_vi (ODE boundary sensitivity in the likelihood gradient). Dense Cholesky parameterisation cannot resolve NaN gradients at init.",
+  "notes": "",
+  "workflow": "Phase 8B.2 probe (2026-06-03, @statistician). Same root cause as failed__meanfield_vi__no_warmup.json for this model: ODE boundary sensitivity in lotka_volterra's probdiffeq likelihood produces NaN ELBO gradients at the default unconstrained init_position. Cat 8 (d=8, fullrank eligible) does not apply — NaN-at-init occurs regardless of approximation family. Classification: out_of_scope.",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-06-04T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}

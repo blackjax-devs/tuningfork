@@ -1,0 +1,40 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "meanfield_vi",
+  "warmup_name": "no_warmup",
+  "effort": "failed",
+  "failure_diagnosis": "out_of_scope",
+  "base_method_params": {},
+  "warmup_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0,
+    "statistician_wall_hours": 0.0
+  },
+  "difficulty": null,
+  "instructions": "Mean-field VI fails at the initialisation stage for lotka_volterra: jax.lax.scan over the VI optimisation steps produces NaN gradients at the default init_position. The ODE solver in the likelihood introduces sharp curvature near the boundary of the positive-rate region that a diagonal Gaussian cannot bridge from a generic init.",
+  "notes": "",
+  "workflow": "Phase 8B.2 probe (2026-06-03, @statistician).\n\nProbe: standalone Python, blackjax.vi.meanfield_vi on lotka_volterra at mvn_10-scale budget (num_optimization_steps=10_000, optax.adam(1e-2)).\n\nResult: NaN at init. The ODE-based likelihood for lotka_volterra (probdiffeq PDE solver) introduces gradient discontinuities at parameter values near zero; the default unconstrained init_position from build_logdensity_fn lands in a region where the ELBO gradient is immediately NaN. Full-rank VI shares the same pathology (dense Cholesky cannot help with NaN gradients at init).\n\nClassification: out_of_scope (NaN-at-init, not a geometry mismatch addressable by better VI approximation; root cause is the model's ODE boundary sensitivity, not VI's approximating family).",
+  "attempted_configurations": [],
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-06-04T00:00:00Z",
+  "inverse_mass_matrix_path": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null
+    },
+    "override": {
+      "decision": "",
+      "rationale": ""
+    }
+  }
+}
