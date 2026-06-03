@@ -395,14 +395,8 @@ def emit_smc_recipe_for_cell(
         # mcmc_parameters will be EMPTY (sigma is fixed/shared, not per-particle).
         import blackjax.mcmc.random_walk as _rw  # noqa: PLC0415
 
-        _default_sigma = float(inner_params_init.get("sigma", jnp.full(1, 0.1)[0]))
-        if isinstance(_default_sigma, float):
-            pass
-        else:
-            # Per-particle sigma array: use mean as shared value.
-            _default_sigma = float(
-                jnp.asarray(inner_params_init.get("sigma", 0.1)).mean()
-            )
+        # sigma may be a per-particle array (N,) or a scalar; extract mean.
+        _default_sigma = float(jnp.asarray(inner_params_init.get("sigma", 0.1)).mean())
 
         def _rwm_proposal_generator(rng_key: Any, position: Any) -> Any:
             from jax.flatten_util import ravel_pytree  # noqa: PLC0415
