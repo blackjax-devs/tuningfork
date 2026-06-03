@@ -155,17 +155,16 @@ def _compute_max_abs_mean_z_smc(
     Returns
     -------
     float
-        max |sample_mean - gt_mean| / max(SE_sample, SE_gt)
-        where SE_sample = std(particles)/√particle_ess.
+        max |sample_mean - gt_mean| / SE  where SE = std(particles)/√particle_ess.
     """
     sample_means, sample_stds = _particle_mean_and_std(particles_flat)
 
-    # SE for sample mean using particle_ess (not N) as the effective n.
-    se_sample = sample_stds / max(np.sqrt(particle_ess), 1.0)
-    # SE for ground-truth mean (same formula; gt_n treated as large → 0).
-    # Use a conservative gt_se floor to avoid division by near-zero.
-    se_gt = gt_stds / max(np.sqrt(particle_ess), 1.0)
-    se = np.maximum(se_sample, se_gt)
+    # SE = part_std / √particle_ess  (statistician spec, Phase 8B.1).
+    # Use only the PARTICLE std — NOT GT std — as the SE denominator.
+    # Rationale: the z-score tests whether the weighted particle mean is
+    # consistent with the GT mean; the noise in the particle mean scales
+    # with the particle distribution width, not the GT width.
+    se = sample_stds / max(np.sqrt(particle_ess), 1.0)
     se = np.maximum(se, 1e-8)  # numerical floor
 
     z_scores = np.abs(sample_means - gt_means) / se
