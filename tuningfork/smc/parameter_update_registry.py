@@ -55,7 +55,6 @@ Registered strategies
 from typing import Any
 
 from blackjax.smc.tuning.from_kernel_info import update_scale_from_acceptance_rate
-from blackjax.smc.tuning.from_particles import inverse_mass_matrix_from_particles
 
 __all__ = ["PARAMETER_UPDATE_STRATEGIES", "build_parameter_update_fn"]
 
@@ -136,17 +135,40 @@ def _make_imm_from_particles_fn(
 
     Must return ALL keys from ``initial_parameter_value`` (inner_kernel_tuning
     replaces the full parameter_override dict; missing keys cause scan errors).
-    Uses ``initial_parameter_value`` as the fallback structure.
+
+    The IMM is returned as a diagonal 1D array broadcast to match the shape of
+    ``initial_parameter_value["inverse_mass_matrix"]``.  For example, if the
+    initial IMM has shape ``(N, d)`` (per-particle), the update returns
+    ``(N, d)`` with the same diagonal variance vector tiled N times.
+    This keeps the JAX scan pytree shape constraint satisfied.
     """
     _ip = dict(initial_parameter_value) if initial_parameter_value else {}
+    _init_imm = _ip.get("inverse_mass_matrix", None)
 
     def _update(rng_key: Any, smc_state: Any, smc_info: Any) -> dict:
         result = dict(_ip)  # start with full initial dict
+        if _init_imm is None:
+            return result
         try:
-            particles = _get_particles(smc_state)
-            result["inverse_mass_matrix"] = inverse_mass_matrix_from_particles(
-                particles
+            import jax.numpy as _jnp  # noqa: PLC0415
+            from blackjax.smc.tuning.from_particles import (  # noqa: PLC0415
+                particles_as_rows,
             )
+
+            particles = _get_particles(smc_state)
+            # Compute per-dim variance across all particles → diagonal IMM.
+            particles_flat = particles_as_rows(particles)  # (N, d)
+            var = _jnp.var(particles_flat, axis=0)  # (d,) diagonal
+            # Clip to prevent degenerate near-zero variances.
+            var = _jnp.maximum(var, 1e-6)
+            # Broadcast to match initial IMM shape (e.g. (N, d) or (1, d)).
+            target_shape = _jnp.asarray(_init_imm).shape
+            if len(target_shape) == 1:
+                new_imm = var  # (d,)
+            else:
+                n_particles = target_shape[0]
+                new_imm = _jnp.tile(var[None, :], (n_particles, 1))  # (N, d)
+            result["inverse_mass_matrix"] = new_imm
         except Exception:  # noqa: BLE001
             pass  # leave IMM as initial value
         return result
@@ -183,14 +205,27 @@ def _make_step_size_and_imm_fn(
                 )
             except Exception:  # noqa: BLE001
                 pass  # leave result["step_size"] as initial value
-        # Update IMM from particle cloud variance.
-        try:
-            particles = _get_particles(smc_state)
-            result["inverse_mass_matrix"] = inverse_mass_matrix_from_particles(
-                particles
-            )
-        except Exception:  # noqa: BLE001
-            pass  # leave IMM as initial value
+        # Update IMM from particle cloud variance (shape must match initial IMM).
+        if _ip.get("inverse_mass_matrix") is not None:
+            try:
+                import jax.numpy as _jnp  # noqa: PLC0415
+                from blackjax.smc.tuning.from_particles import (  # noqa: PLC0415
+                    particles_as_rows,
+                )
+
+                particles = _get_particles(smc_state)
+                particles_flat = particles_as_rows(particles)  # (N, d)
+                var = _jnp.var(particles_flat, axis=0)  # (d,) diagonal variances
+                var = _jnp.maximum(var, 1e-6)  # clip near-zero variances
+                # Broadcast to match initial IMM shape: (N, d) or (1, d) or (d,).
+                target_shape = _jnp.asarray(_ip["inverse_mass_matrix"]).shape
+                if len(target_shape) == 1:
+                    result["inverse_mass_matrix"] = var  # (d,)
+                else:
+                    n_p = target_shape[0]
+                    result["inverse_mass_matrix"] = _jnp.tile(var[None, :], (n_p, 1))
+            except Exception:  # noqa: BLE001
+                pass  # leave IMM as initial value
         return result
 
     return _update
