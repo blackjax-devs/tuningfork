@@ -331,15 +331,21 @@ def test_emit_low_recipes_sampler_filter(tmp_path: Path, monkeypatch) -> None:
 def test_emit_low_recipes_no_filter_emits_all_methods(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """emit_low_recipes() with no sampler filter emits all 6 algos for the model."""
+    """emit_low_recipes() with no sampler filter emits one recipe per method in ALL_METHOD_NAMES."""
     from tuningfork.recipes import _generate_starter
+    from tuningfork.recipes._generate_starter import ALL_METHOD_NAMES
 
     monkeypatch.setattr(_generate_starter, "_CATALOG_ROOT", tmp_path)
     paths = _generate_starter.emit_low_recipes(model_names=["mvn_10"])
-    # 6 algorithms: hmc, nuts, mala, barker, rwm, mclmc
-    assert len(paths) == 6
-    method_names = sorted(p.name.split("__")[1] for p in paths)
-    assert method_names == sorted(["hmc", "nuts", "mala", "barker", "rwm", "mclmc"])
+    # Count derived from ALL_METHOD_NAMES so the test self-updates when methods are added.
+    assert len(paths) == len(ALL_METHOD_NAMES), (
+        f"Expected {len(ALL_METHOD_NAMES)} recipes (one per method in ALL_METHOD_NAMES), "
+        f"got {len(paths)}: {[p.name for p in paths]}"
+    )
+    emitted_methods = sorted(p.name.split("__")[1] for p in paths)
+    assert emitted_methods == sorted(
+        ALL_METHOD_NAMES
+    ), f"Emitted methods {emitted_methods} != ALL_METHOD_NAMES {sorted(ALL_METHOD_NAMES)}"
 
 
 @pytest.mark.fast

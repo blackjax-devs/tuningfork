@@ -997,10 +997,14 @@ def emit_low_recipe_for_cell(
                 logdensity_fn=logdensity_fn,
                 num_chains=num_chains,
                 target_acceptance_rate=target_acceptance,
-                # B2: pass posterior_entry so no_warmup can read prior_mean/cov
-                # for gradient-free latent-Gaussian samplers (elliptical_slice).
-                # Other warmup runners accept **kwargs and ignore this.
-                posterior_entry=posterior,
+                # B2: pass posterior_entry ONLY for no_warmup so it can read
+                # prior_mean/cov for elliptical_slice (extra_required_kwargs).
+                # Gradient-adapted warmup runners (window_adaptation_*) forward
+                # **kwargs → extra_kwargs → **warmup_kwargs → blackjax kernel,
+                # which rejects unknown kwargs; posterior_entry must not leak there.
+                **(
+                    {} if warmup_name != "no_warmup" else {"posterior_entry": posterior}
+                ),
             )
             batched_state = _warmup_result[0]
             batched_params = _warmup_result[1]
