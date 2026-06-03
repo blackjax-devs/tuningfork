@@ -1,0 +1,59 @@
+{
+  "model_name": "logistic_synthetic",
+  "smc_method_name": "inner_kernel_tuning",
+  "inner_method_name": "hmc",
+  "num_particles": 1000,
+  "max_steps": 200,
+  "smc_params": {
+    "num_mcmc_steps": 25
+  },
+  "inner_params_init": {
+    "step_size": 0.10000000149011612,
+    "inverse_mass_matrix": [
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "inner_params_final": {
+    "inverse_mass_matrix": [
+      0.7753355503082275,
+      0.929592490196228,
+      1.5227291584014893
+    ],
+    "step_size": 0.10000000149011612
+  },
+  "parameter_update_strategy": "step_size_and_imm_from_particles",
+  "parameter_update_strategy_kwargs": {
+    "target_acceptance": 0.65
+  },
+  "headline_metric": 3.1249999999999993e-06,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "PASS",
+      "max_abs_mean_z": 0.9649688629704144,
+      "particle_ess": 999.9999999999998,
+      "particle_ess_fraction": 0.9999999999999998,
+      "mode_coverage_fraction": null,
+      "rhat_max": null,
+      "n_divergences": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "calibration_budget": {
+    "n_particles": 1000,
+    "n_smc_steps": 200,
+    "num_mcmc_steps": 25,
+    "wall_seconds_total": 144.72,
+    "wall_seconds_run": 140.598
+  },
+  "notes": "",
+  "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-06-03T14:11:23Z"
+}
