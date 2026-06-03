@@ -168,7 +168,26 @@ def run_smc(
     >>> history["lmbda"].shape
     (num_steps_run,)
     """
-    is_adaptive_tempered = hasattr(smc_init_state, "tempering_param")
+
+    # Detect whether the state carries a tempering parameter to drive convergence.
+    # For plain adaptive_tempered_smc: state IS a TemperedSMCState with
+    #   .tempering_param → while_loop until tempering_param >= lambda_target.
+    # For inner_kernel_tuning: state IS a StateWithParameterOverride with
+    #   .sampler_state.tempering_param → must unwrap one level.
+    # Both paths use the while_loop; scan (fixed-step budget with no convergence
+    # check) is reserved for non-tempering variants (partial_posteriors, etc.).
+    def _get_tempering_param(state):
+        """Extract tempering_param regardless of state wrapper."""
+        if hasattr(state, "tempering_param"):
+            return state.tempering_param  # plain TemperedSMCState
+        if hasattr(state, "sampler_state") and hasattr(
+            state.sampler_state, "tempering_param"
+        ):
+            return state.sampler_state.tempering_param  # StateWithParameterOverride
+        return None
+
+    tp = _get_tempering_param(smc_init_state)
+    is_adaptive_tempered = tp is not None
 
     if is_adaptive_tempered:
         return _run_smc_while_loop(
@@ -177,6 +196,7 @@ def run_smc(
             smc_step_fn=smc_step_fn,
             max_steps=max_steps,
             lambda_target=lambda_target,
+            _get_tempering_param=_get_tempering_param,
         )
     else:
         return _run_smc_scan(
@@ -199,13 +219,24 @@ def _run_smc_while_loop(
     smc_step_fn: Callable,
     max_steps: int,
     lambda_target: float,
+    _get_tempering_param: Callable | None = None,
 ) -> tuple[Any, dict]:
     """while_loop implementation for adaptive_tempered_smc.
+
+    Supports both plain ``TemperedSMCState`` (``state.tempering_param``) and
+    ``StateWithParameterOverride`` from inner_kernel_tuning (``_get_tempering_param``
+    extracts ``state.sampler_state.tempering_param``).
 
     Loop-carried state: (step, rng_key, smc_state, lmbda_buf, loglik_buf)
     where ``lmbda_buf`` and ``loglik_buf`` are pre-allocated float32 buffers
     of length ``max_steps``.
     """
+    # Use the provided extractor or default to direct field access.
+    if _get_tempering_param is None:
+        _get_tp = lambda s: s.tempering_param  # noqa: E731
+    else:
+        _get_tp = _get_tempering_param
+
     lmbda_buf = jnp.zeros(max_steps, dtype=jnp.float32)
     loglik_buf = jnp.zeros(max_steps, dtype=jnp.float32)
 
@@ -219,7 +250,7 @@ def _run_smc_while_loop(
 
     def _cond(carry):
         step, _key, state, _lb, _llb = carry
-        not_done_lmbda = state.tempering_param < jnp.float32(lambda_target)
+        not_done_lmbda = _get_tp(state) < jnp.float32(lambda_target)
         not_done_steps = step < jnp.int32(max_steps)
         return not_done_lmbda & not_done_steps
 
@@ -227,8 +258,17 @@ def _run_smc_while_loop(
         step, key, state, lb, llb = carry
         key, subkey = jax.random.split(key)
         new_state, info = smc_step_fn(subkey, state)
-        lb = lb.at[step].set(jnp.float32(new_state.tempering_param))
-        llb = llb.at[step].set(jnp.float32(info.log_likelihood_increment))
+        lb = lb.at[step].set(jnp.float32(_get_tp(new_state)))
+        # log_likelihood_increment: may live at info or info.smc_info depending on
+        # whether state is wrapped (inner_kernel_tuning) or plain.
+        try:
+            lli = info.log_likelihood_increment
+        except AttributeError:
+            try:
+                lli = info.smc_info.log_likelihood_increment
+            except AttributeError:
+                lli = jnp.float32(0.0)
+        llb = llb.at[step].set(jnp.float32(lli))
         return (step + jnp.int32(1), key, new_state, lb, llb)
 
     final_step, _, final_state, lmbda_buf, loglik_buf = jax.lax.while_loop(

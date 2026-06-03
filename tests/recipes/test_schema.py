@@ -1397,16 +1397,22 @@ def test_old_recipe_without_timing_fields_loads_with_none_defaults(
 
 @pytest.mark.fast
 def test_every_catalog_recipe_round_trips_through_load() -> None:
-    """Every committed catalog recipe JSON must round-trip through Recipe.load.
+    """Every committed catalog recipe JSON must round-trip through load_recipe().
 
     Tripwire that catches schema gaps before they reach the user: any recipe that
-    fails Recipe.load crashes the catalog_explorer and blocks MCMC re-runs.
+    fails load_recipe() crashes the catalog_explorer and blocks re-runs.
+
+    Uses load_recipe() (not Recipe.load() directly) so that SMC recipes
+    (smc__*.json, which use SMCRecipe not Recipe) are dispatched correctly.
+    Recipe.load() does not accept SMC recipes (no 'effort' key) by design.
 
     Regression for the calibration_budget/difficulty/instructions missing-field bug
     (PRs #86-triage recipes, user-reported catalog_explorer crash 2026-05-30) and
     the free-text failure_diagnosis + non-standard AttemptedConfig fields.
     """
     import glob
+
+    from tuningfork.catalog.inspect import load_recipe
 
     CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
     recipe_paths = sorted(glob.glob(str(CATALOG_ROOT) + "/*/recipes/*.json"))
@@ -1418,13 +1424,13 @@ def test_every_catalog_recipe_round_trips_through_load() -> None:
     failures = []
     for p in recipe_paths:
         try:
-            Recipe.load(Path(p))
+            load_recipe(Path(p))
         except Exception as exc:
             failures.append((Path(p).name, type(exc).__name__, str(exc)[:120]))
 
     assert (
         not failures
-    ), f"{len(failures)} catalog recipes fail Recipe.load round-trip:\n" + "\n".join(
+    ), f"{len(failures)} catalog recipes fail load_recipe() round-trip:\n" + "\n".join(
         f"  {name}: {etype}: {emsg}" for name, etype, emsg in failures
     )
 
@@ -1445,6 +1451,11 @@ def test_every_catalog_recipe_has_required_fields_on_disk() -> None:
 
     missing = []
     for p in recipe_paths:
+        # SMC recipes (smc__*.json) use a different schema (SMCRecipe) that
+        # intentionally omits the MCMC-specific 'difficulty' and 'instructions'
+        # keys. They are tested for their own required fields separately.
+        if Path(p).name.startswith("smc__"):
+            continue
         d = json.loads(Path(p).read_text())
         absent = [
             k
@@ -1476,6 +1487,11 @@ def test_every_recipe_with_headline_has_headline_basis() -> None:
 
     failures = []
     for p in recipe_paths:
+        # SMC recipes (smc__*.json) use SMCRecipe schema which does not carry
+        # headline_basis (SMC headline accounting differs from MCMC: particle_ess
+        # / total_grad_evals is self-describing from the recipe params). Skip them.
+        if Path(p).name.startswith("smc__"):
+            continue
         d = json.loads(Path(p).read_text())
         if d.get("headline_metric") is None:
             continue

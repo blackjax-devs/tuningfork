@@ -1,0 +1,49 @@
+{
+  "model_name": "gmm_25",
+  "smc_method_name": "adaptive_tempered_smc",
+  "inner_method_name": "rwm",
+  "num_particles": 1000,
+  "max_steps": 500,
+  "seed": 20260519,
+  "smc_params": {
+    "target_ess": 0.8,
+    "num_mcmc_steps": 25
+  },
+  "inner_params_init": {},
+  "inner_params_final": null,
+  "parameter_update_strategy": "step_size_and_imm_from_particles",
+  "parameter_update_strategy_kwargs": {
+    "target_acceptance": 0.65
+  },
+  "headline_metric": 0.039999999999999994,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "PASS",
+      "max_abs_mean_z": 0.9126377092193928,
+      "particle_ess": 999.9999999999998,
+      "particle_ess_fraction": 0.9999999999999998,
+      "mode_coverage_fraction": 1.0,
+      "lambda_final": 1.0,
+      "rhat_max": null,
+      "n_divergences": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "calibration_budget": {
+    "n_particles": 1000,
+    "n_smc_steps": 1,
+    "num_mcmc_steps": 25,
+    "lambda_final": 1.0,
+    "wall_seconds_total": 1.0,
+    "wall_seconds_run": 0.966
+  },
+  "notes": "",
+  "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-06-03T19:30:02Z"
+}

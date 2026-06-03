@@ -1,0 +1,47 @@
+{
+  "model_name": "logistic_synthetic",
+  "smc_method_name": "adaptive_tempered_smc",
+  "inner_method_name": "rwm",
+  "num_particles": 2000,
+  "max_steps": 500,
+  "seed": 20260517,
+  "smc_params": {
+    "num_mcmc_steps": 25,
+    "target_ess": 0.95
+  },
+  "inner_params_init": null,
+  "inner_params_final": null,
+  "parameter_update_strategy": "none",
+  "parameter_update_strategy_kwargs": {},
+  "headline_metric": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "max_abs_mean_z": 2.608,
+      "particle_ess": 1970.8,
+      "particle_ess_fraction": 0.985,
+      "mode_coverage_fraction": null,
+      "lambda_final": 1.0,
+      "rhat_max": null,
+      "n_divergences": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "calibration_budget": {
+    "n_particles": 2000,
+    "n_smc_steps": 25,
+    "num_mcmc_steps": 25,
+    "lambda_final": 1.0,
+    "wall_seconds_total": 0.0,
+    "wall_seconds_run": 1.8
+  },
+  "notes": "HONEST-NULL CELL (Phase 8B.1). Committed for documented diagnostic value \u2014 not a passing cert. | FINDING: bias is kernel-independent. HMC (epsilon in {0.1,0.5,0.7,1.0} x L in {3,5,10} x mcmc in {25,100}) and RWM (N in {1000,2000} x target_ess in {0.8,0.95}) all fail z<2.0. Swapping the inner kernel does not fix the bias. | ROOT CAUSE: particle degeneracy under SMC tempering. Concentrated resampling produces duplicate particles; fixed mcmc_steps=25 cannot decorrelate duplicates fast enough before the next temperature step, leaving a residual mutation bias in the large-signal dimension (beta_2, GT_mean=3.58). | dim-2 z-score progression (all at seed=20260517, no adaptation, target_ess=0.5 except where noted): HMC eps=0.1 L=10 mcmc=25 (baseline, target_ess=0.5): z=4.882; HMC eps=0.5 L=10 mcmc=25: z=3.242 (best HMC); HMC eps=0.7 L=5 mcmc=25: z=2.268 (best overall, but dim-0 also fails at z=-2.389, max_z=2.389); RWM N=1000 target_ess=0.8 seed=20260517: z=4.853; RWM N=1000 target_ess=0.8 seed=20260518: z=2.320; RWM N=1000 target_ess=0.8 seed=20260519: z=4.847 (0/3 seeds pass); RWM N=2000 target_ess=0.95 mcmc=25 (S4-COV): z=2.608 ESS=1971 n_steps=25 \u2014 coverage lever reduces bias but does not close it. | COVERAGE LEVER EFFECT: target_ess=0.95 + N=2000 moved ESS 879->1971 and max_z 4.85->2.61, confirming degeneracy is the lever. Still above gate=2.0 in 25 steps. | V2 FIX: (1) NUTS inner kernel (dynamic trajectory, adapts to posterior scale, avoids fixed-L overshoot); or (2) Delta-lambda-max cap in the tempering schedule (forces more, smaller temperature steps, reducing per-step ESS loss and mutation budget deficit). Both out of v1 scope. | Committed per honest-null policy (precedent c6bdd44 elliptical_slice).",
+  "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
+  "blackjax_version": "unknown",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-03T19:32:35Z"
+}
