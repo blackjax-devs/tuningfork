@@ -388,8 +388,36 @@ def emit_smc_recipe_for_cell(
         else:
             _bound_step = _raw_kernel
         inner_kernel = _SA(init=_bj_inner.init, step=_bound_step)
+    elif inner_method_name == "rwm":
+        # RWM special path: sigma is embedded in a proposal_generator closure and
+        # must be bound via functools.partial — it is NOT a per-particle JAX array.
+        # Use blackjax.mcmc.random_walk.build_kernel() + bind proposal_generator.
+        # mcmc_parameters will be EMPTY (sigma is fixed/shared, not per-particle).
+        import blackjax.mcmc.random_walk as _rw  # noqa: PLC0415
+
+        _default_sigma = float(inner_params_init.get("sigma", jnp.full(1, 0.1)[0]))
+        if isinstance(_default_sigma, float):
+            pass
+        else:
+            # Per-particle sigma array: use mean as shared value.
+            _default_sigma = float(
+                jnp.asarray(inner_params_init.get("sigma", 0.1)).mean()
+            )
+
+        def _rwm_proposal_generator(rng_key: Any, position: Any) -> Any:
+            from jax.flatten_util import ravel_pytree  # noqa: PLC0415
+
+            flat, unravel = ravel_pytree(position)
+            noise = jax.random.normal(rng_key, flat.shape) * _default_sigma
+            return unravel(flat + noise)
+
+        _raw_rwm = _rw.build_kernel()
+        _bound_rwm = functools.partial(_raw_rwm, random_step=_rwm_proposal_generator)
+        inner_kernel = _SA(init=_rw.init, step=_bound_rwm)
+        # Override inner_params_init to be empty — sigma is bound in the closure.
+        inner_params_init = {}
     else:
-        # Fallback: use the factory-built SamplingAlgorithm (non-HMC kernels).
+        # Fallback: use the factory-built SamplingAlgorithm (non-HMC/non-RWM kernels).
         _imm_default = jnp.ones(model_dim)
         factory_kwargs: dict[str, Any] = dict(inner_defaults)
         if inner_entry.needs_mass_matrix:
@@ -400,6 +428,7 @@ def emit_smc_recipe_for_cell(
     # step_size + inverse_mass_matrix are per-particle; num_integration_steps
     # is bound via partial (shared scalar) and must NOT be in mcmc_parameters
     # (blackjax SMC calls .shape on every value → callables/ints rejected).
+    # For RWM: inner_params_init was reset to {} above; mcmc_parameters is empty.
     mcmc_parameters = dict(inner_params_init)  # step_size + inverse_mass_matrix
     # Remove num_integration_steps if it leaked in (it's bound via partial).
     mcmc_parameters.pop("num_integration_steps", None)
