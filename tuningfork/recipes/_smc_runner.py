@@ -527,7 +527,7 @@ def emit_smc_recipe_for_cell(
                 "std": raw["std"][site],
             }
 
-    # --- W4: smc_gate ---
+    # --- W4: smc_gate (with λ_final validity gate) ---
     _log("  Running smc_gate...", verbose)
     gate = smc_gate(
         particles_np,
@@ -535,6 +535,7 @@ def emit_smc_recipe_for_cell(
         _gt_summary,
         model_name=model_name,
         num_particles=num_particles,
+        lambda_final=lambda_final,
     )
     _log(
         (

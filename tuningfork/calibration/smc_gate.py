@@ -70,13 +70,19 @@ class SMCGateVerdict:
     """Output of ``smc_gate(...)``.
 
     Maps into ``SMCRecipe.gate_evidence['auto']`` via ``to_dict()``.
+
+    λ_final validity gate (short-circuits z/mode-coverage):
+      ≥ 0.99 → PASS-eligible (z gate applied)
+      [0.95, 0.99) → REVIEW
+      < 0.95 → FAIL (particles from tempered density, not posterior)
     """
 
-    verdict: str  # "PASS" | "FAIL"
+    verdict: str  # "PASS" | "REVIEW" | "FAIL"
     max_abs_mean_z: float | None
     particle_ess: float | None  # diagnostic; 1/Σwᵢ² pre-final-resample
     particle_ess_fraction: float | None  # diagnostic; particle_ess / N
     mode_coverage_fraction: float | None  # gmm_25 only; None otherwise
+    lambda_final: float | None = None  # tempering param at end of run
 
     def to_dict(self) -> dict[str, Any]:
         """Render in the shape SMCRecipe.gate_evidence['auto'] expects."""
@@ -86,6 +92,7 @@ class SMCGateVerdict:
             "particle_ess": self.particle_ess,
             "particle_ess_fraction": self.particle_ess_fraction,
             "mode_coverage_fraction": self.mode_coverage_fraction,
+            "lambda_final": self.lambda_final,
             # rhat and n_divergences are n/a for SMC.
             "rhat_max": None,
             "n_divergences": None,
@@ -219,12 +226,17 @@ def smc_gate(
     *,
     model_name: str = "",
     num_particles: int | None = None,
+    lambda_final: float | None = None,
 ) -> SMCGateVerdict:
     """Compute SMC gate metrics from final particle cloud.
 
-    The verdict is PASS if all active gates pass, FAIL otherwise.  Active
-    gates: ``max_abs_mean_z < 2.0``; ``mode_coverage_fraction ≥ 0.01 per mode``
-    (gmm_25 only).
+    The verdict is determined by applying gates in order:
+    1. **λ_final validity gate (short-circuits all other gates):**
+       λ_final ≥ 0.99 → PASS-eligible; [0.95, 0.99) → REVIEW;
+       < 0.95 → FAIL (particles from a tempered density, not the posterior).
+       When ``lambda_final`` is None, the λ gate is skipped (backward compat).
+    2. ``max_abs_mean_z < 2.0`` (SE = std/√particle_ess).
+    3. ``mode_coverage_fraction ≥ 0.01 per mode`` (gmm_25 only).
 
     Parameters
     ----------
@@ -311,15 +323,29 @@ def smc_gate(
         except (ImportError, AttributeError):
             pass  # gmm_25 centers not accessible; skip
 
-    # --- Verdict ---
+    # --- λ_final validity gate (short-circuits z/mode-coverage if failed) ---
+    # Statistician ruling (Phase 8B.1, 2026-06-03):
+    #   ≥ 0.99 → PASS-eligible; [0.95, 0.99) → REVIEW; < 0.95 → FAIL
     verdict = "PASS"
+    lambda_gate_fired = False
+    if lambda_final is not None:
+        if lambda_final >= 0.99:
+            pass  # PASS-eligible; continue to z/mode gates
+        elif lambda_final >= 0.95:
+            verdict = "REVIEW"
+            lambda_gate_fired = True
+        else:
+            verdict = "FAIL"
+            lambda_gate_fired = True
 
-    if max_z is not None and max_z >= 2.0:
-        verdict = "FAIL"
+    # --- z-gate and mode-coverage gate (skipped if λ gate already FAILed) ---
+    if not lambda_gate_fired:
+        if max_z is not None and max_z >= 2.0:
+            verdict = "FAIL"
 
-    if mode_cov is not None and mode_cov < 1.0:
-        # At least one mode not covered.
-        verdict = "FAIL"
+        if mode_cov is not None and mode_cov < 1.0:
+            # At least one mode not covered.
+            verdict = "FAIL"
 
     return SMCGateVerdict(
         verdict=verdict,
@@ -327,4 +353,5 @@ def smc_gate(
         particle_ess=ess,
         particle_ess_fraction=ess_fraction,
         mode_coverage_fraction=mode_cov,
+        lambda_final=lambda_final,
     )
