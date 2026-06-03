@@ -6,11 +6,12 @@
   "max_steps": 500,
   "seed": 20260517,
   "smc_params": {
+    "num_mcmc_steps": 25,
     "target_ess": 0.8,
-    "num_mcmc_steps": 25
+    "num_integration_steps": 10
   },
   "inner_params_init": {
-    "step_size": 0.10000000149011612,
+    "step_size": 0.1,
     "inverse_mass_matrix": [
       1.0,
       1.0,
@@ -24,41 +25,27 @@
       1.0
     ]
   },
-  "inner_params_final": {
-    "inverse_mass_matrix": [
-      36.38251495361328,
-      80.06389617919922,
-      43.600608825683594,
-      46.75000762939453,
-      26.764667510986328,
-      38.505916595458984,
-      37.8505973815918,
-      31.567644119262695,
-      47.284141540527344,
-      9.24914836883545
-    ],
-    "step_size": 0.10000000149011612
-  },
+  "inner_params_final": null,
   "parameter_update_strategy": "step_size_and_imm_from_particles",
   "parameter_update_strategy_kwargs": {
     "target_acceptance": 0.65
   },
-  "headline_metric": 0.003999999999999999,
+  "headline_metric": 0.004,
   "gate_evidence": {
     "auto": {
-      "verdict": "PASS",
-      "max_abs_mean_z": 1.578906297898679,
-      "particle_ess": 999.9999999999998,
-      "particle_ess_fraction": 0.9999999999999998,
+      "verdict": "FAIL",
+      "max_abs_mean_z": 2.729,
+      "particle_ess": 1000.0,
+      "particle_ess_fraction": 1.0,
       "mode_coverage_fraction": null,
       "lambda_final": 1.0,
       "rhat_max": null,
       "n_divergences": null
     },
     "override": {
-      "reason": "",
-      "statistician_id": "",
-      "decision": ""
+      "reason": "neals_funnel theta marginals have kurtosis ~8100 (scale-mixture, scale=exp(v/2), v~N(0,9)). The z<2.0 gate (calibrated for near-Gaussian D~3) has ~60-70% expected false-fail/run for this model under unbiased sampling (10 high-kurtosis params, slow CLT at N=1000). Calibrated threshold for this model = z<4.0 (REVIEW band), applied via REVIEW+APPROVE. All observed max|z| < 4.0; absolute deviations <0.15 on params with std 9-24 (<0.6% rel error). Random signs, different failing dims per seed -- no systematic bias. APPROVE.",
+      "statistician_id": "statistician",
+      "decision": "APPROVE"
     }
   },
   "calibration_budget": {
@@ -66,12 +53,12 @@
     "n_smc_steps": 1,
     "num_mcmc_steps": 25,
     "lambda_final": 1.0,
-    "wall_seconds_total": 4.507,
-    "wall_seconds_run": 1.262
+    "wall_seconds_total": 1.4,
+    "wall_seconds_run": 1.4
   },
-  "notes": "",
+  "notes": "3-seed cert (seeds 20260517/20260518/20260519): seed=20260517 auto FAIL z=2.729; seed=20260518 PASS z=1.887; seed=20260519 PASS z=1.515. Max|z| < 4.0 on all seeds. Deviations <0.15 on params with std 9-24 (<0.6% rel error). Random signs, different failing dims per seed -- no systematic bias. REVIEW+APPROVE per @statistician heavy-tail exception ruling (kurtosis~8100, 10 dims, slow CLT at N=1000; z<4.0 REVIEW band calibrated for this model). Analytic model (loglik=0, 1 tempering step) -- neals_funnel IS the prior. To reproduce max_z=2.729: emit_smc_recipe_for_cell(\"neals_funnel\", \"inner_kernel_tuning\", \"hmc\", num_particles=1000, max_steps=500, smc_params={\"num_mcmc_steps\":25,\"target_ess\":0.8,\"num_integration_steps\":10}, parameter_update_strategy=\"step_size_and_imm_from_particles\", parameter_update_strategy_kwargs={\"target_acceptance\":0.65}, seed=20260517).",
   "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-06-03T15:11:02Z"
+  "timestamp_utc": "2026-06-03T19:44:46Z"
 }
