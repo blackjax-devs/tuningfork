@@ -58,6 +58,67 @@ from tuningfork.warmup._base import Warmup, _maybe_replicate
 __all__ = ["ENTRY"]
 
 
+def _build_prior_kwargs_from_posterior(
+    base_method: Any,
+    init_position: Any,
+    posterior_entry: Any,
+) -> dict[str, Any]:
+    """Extract Gaussian prior arrays from ``posterior_entry`` for gradient-free samplers.
+
+    Called by ``_runner`` when ``base_method.extra_required_kwargs`` is non-empty
+    and ``posterior_entry`` is provided.  Currently supports
+    ``extra_required_kwargs=("prior_cov", "prior_mean")`` (elliptical_slice).
+
+    The prior is stored per site in ``posterior_entry.prior_mean`` /
+    ``posterior_entry.prior_cov_diag`` as ``dict[str, list[float]]``.
+    Both dicts are converted to JAX arrays and flattened via
+    ``jax.flatten_util.ravel_pytree`` so their element order matches the
+    flattened ``init_position`` pytree that ``blackjax.elliptical_slice``
+    operates on.
+
+    Parameters
+    ----------
+    base_method
+        ``BaseMethod`` entry whose ``extra_required_kwargs`` lists the needed keys.
+    init_position
+        Single-chain position pytree (used only for structure/ordering).
+    posterior_entry
+        A ``Posterior`` with ``prior_mean`` and ``prior_cov_diag`` fields.
+
+    Returns
+    -------
+    dict
+        ``{"prior_mean": Array(d,), "prior_cov": Array(d,)}`` ready to merge
+        into the factory kwargs.
+
+    Raises
+    ------
+    ValueError
+        If ``posterior_entry`` is missing or its prior fields are None.
+    """
+    from jax.flatten_util import ravel_pytree
+
+    missing = []
+    for k in ("prior_mean", "prior_cov_diag"):
+        if getattr(posterior_entry, k, None) is None:
+            missing.append(k)
+    if missing:
+        raise ValueError(
+            f"no_warmup: {base_method.name!r} requires prior kwargs but "
+            f"posterior_entry.{missing[0]} is None — set prior_mean and "
+            f"prior_cov_diag on the Posterior entry."
+        )
+
+    # Build pytrees matching init_position structure, then flatten.
+    prior_mean_pytree = {k: jnp.array(v) for k, v in posterior_entry.prior_mean.items()}
+    prior_cov_pytree = {
+        k: jnp.array(v) for k, v in posterior_entry.prior_cov_diag.items()
+    }
+    mean_flat, _ = ravel_pytree(prior_mean_pytree)
+    cov_flat, _ = ravel_pytree(prior_cov_pytree)
+    return {"prior_mean": mean_flat, "prior_cov": cov_flat}
+
+
 def _runner(
     rng_key: jax.Array,
     init_position: Any,
@@ -66,6 +127,7 @@ def _runner(
     *,
     logdensity_fn: Any,
     num_chains: int = 4,
+    posterior_entry: Any = None,
     **kwargs: Any,  # noqa: ARG001 — accepted for interface uniformity; not used
 ) -> tuple[Any, dict[str, Any]]:
     """Initialise kernel states using default hyperparameters; no adaptation.
@@ -85,11 +147,19 @@ def _runner(
     base_method
         ``BaseMethod`` entry (carries ``factory`` and ``default_hp_space``).
     logdensity_fn
-        BlackJAX-compatible log-density function.
+        BlackJAX-compatible log-density function.  For ``elliptical_slice``
+        this must be the **likelihood-only** function (joint minus prior);
+        the recipe runner is responsible for the subtraction before calling
+        this runner (see B3 wiring in ``_recipe_runner.py``).
     num_chains
         Number of independent chains.  Default ``4``, matching Stan/NumPyro
         convention.  The returned ``states`` has leading dim ``num_chains``
         (never squeezed, even for ``num_chains=1``).
+    posterior_entry
+        Optional ``Posterior`` instance.  Required when
+        ``base_method.extra_required_kwargs`` is non-empty (e.g.
+        ``elliptical_slice`` needs ``prior_mean``/``prior_cov`` from
+        ``posterior_entry.prior_mean``/``prior_cov_diag``).
     **kwargs
         Accepted for interface uniformity; ignored.
 
@@ -104,14 +174,21 @@ def _runner(
     from tuningfork.calibration.tune import default_params_for
 
     if base_method.extra_required_kwargs:
-        raise NotImplementedError(
-            f"no_warmup runner cannot construct base_method "
-            f"{base_method.name!r}: factory requires extra kwargs "
-            f"{base_method.extra_required_kwargs!r} that must be supplied "
-            f"by a specialised invocation path (recipe-runner integration)."
+        if posterior_entry is None:
+            raise NotImplementedError(
+                f"no_warmup runner cannot construct base_method "
+                f"{base_method.name!r}: factory requires extra kwargs "
+                f"{base_method.extra_required_kwargs!r}. Pass "
+                f"posterior_entry=<Posterior> so the runner can extract "
+                f"the prior from posterior_entry.prior_mean/prior_cov_diag."
+            )
+        prior_kwargs = _build_prior_kwargs_from_posterior(
+            base_method, init_position, posterior_entry
         )
+    else:
+        prior_kwargs = {}
 
-    defaults = default_params_for(base_method)
+    defaults = {**default_params_for(base_method), **prior_kwargs}
 
     # For kernels that require an inverse_mass_matrix (e.g. HMC, NUTS, Barker)
     # but don't list it in their BO HP space (since it normally comes from

@@ -141,6 +141,29 @@ class Posterior:
     # specific numerical issue in the model file's docstring.
     requires_x64: bool = False
 
+    # ---- elliptical-slice wiring (prior for gradient-free latent-Gaussian samplers) ----
+    # Both fields must be set together for ``elliptical_slice`` wiring.
+    # Values are per numpyro.sample site; each entry is a flat list of floats
+    # whose length equals the site's unconstrained dimensionality.
+    #
+    # ``prior_mean``: prior mean µ for each site.
+    #   E.g. {"log_noise_scale": [-2.0], "f_raw": [0.0, ..., 0.0]}
+    # ``prior_cov_diag``: diagonal of the prior covariance Σ for each site.
+    #   E.g. {"log_noise_scale": [1.0], "f_raw": [1.0, ..., 1.0]}
+    #
+    # The ``no_warmup`` runner uses these to call ``blackjax.elliptical_slice``
+    # with the correct Gaussian prior structure.  The recipe runner builds the
+    # likelihood-only logdensity by subtracting the Gaussian prior from the
+    # joint log-posterior:
+    #   loglik(x) = logposterior(x) − logprior_gaussian(x, µ, diag(Σ))
+    #   logprior_gaussian = −0.5 · Σ_site Σ_dim (x − µ)² / σ²
+    #
+    # Only ``latent_gaussian`` class models need these fields.  Leaving them
+    # ``None`` for other models is correct; the no_warmup runner raises a clear
+    # error if ``elliptical_slice`` is attempted without them.
+    prior_mean: dict[str, list[float]] | None = None
+    prior_cov_diag: dict[str, list[float]] | None = None
+
     # ---- derived ----
     @property
     def reference_method(self) -> ReferenceMethod:

@@ -870,6 +870,57 @@ def emit_low_recipe_for_cell(
         # init_position is now phi_init (phi-space only); logdensity_fn is the
         # marginal logdensity over phi — this is what warmup.runner will use.
 
+    # --- elliptical_slice special path (B3) ---
+    # blackjax.elliptical_slice expects a LIKELIHOOD-ONLY logdensity, not the
+    # joint log-posterior.  We subtract the Gaussian prior analytically:
+    #   loglik(x) = logposterior(x) − logprior_gaussian(x, µ, diag(Σ))
+    #   logprior_gaussian = -0.5 · Σ_site Σ_dim (x_site - µ_site)² / σ²_site
+    # This requires posterior.prior_mean and posterior.prior_cov_diag to be set
+    # (both are per-site dicts; gp_regression has them for Phase 8B.3).
+    # JAX_ENABLE_X64 is handled by the requires_x64 flag above (line ~800).
+    is_elliptical_slice = sampler_name == "elliptical_slice"
+    if is_elliptical_slice:
+        if posterior.prior_mean is None or posterior.prior_cov_diag is None:
+            note = (
+                f"ERROR: elliptical_slice requested on {model_name!r} but "
+                "posterior.prior_mean / prior_cov_diag are None. "
+                "Set both fields on the Posterior entry."
+            )
+            _log(f"  {note}")
+            _append_outcome(model_name, warmup_name, sampler_name, note)
+            return CellResult(
+                model_name=model_name,
+                warmup_name=warmup_name,
+                sampler_name=sampler_name,
+                verdict="ERROR",
+                note=note,
+            )
+        # Build per-site prior pytrees for the logprior computation.
+        import jax.numpy as _jnp
+
+        _prior_mean_pytree = {k: _jnp.array(v) for k, v in posterior.prior_mean.items()}
+        _prior_cov_pytree = {
+            k: _jnp.array(v) for k, v in posterior.prior_cov_diag.items()
+        }
+        _joint_logdensity_fn = logdensity_fn
+
+        def loglik_fn(x: Any) -> Any:
+            """Likelihood-only: logposterior(x) minus the diagonal Gaussian prior."""
+            logprior = sum(
+                -0.5
+                * _jnp.sum(
+                    (x[site] - _prior_mean_pytree[site]) ** 2 / _prior_cov_pytree[site]
+                )
+                for site in _prior_mean_pytree
+            )
+            return _joint_logdensity_fn(x) - logprior
+
+        logdensity_fn = loglik_fn
+        _log(
+            "  elliptical_slice: built likelihood-only logdensity "
+            f"(subtracted diagonal Gaussian prior over {len(_prior_mean_pytree)} sites)"
+        )
+
     # --- Apply init_strategy (optional override of initial position) ---
     # Applied after the laplace phi-space transformation so the override acts
     # on the same position space that the warmup kernel will operate on.
@@ -923,6 +974,10 @@ def emit_low_recipe_for_cell(
                 logdensity_fn=logdensity_fn,
                 num_chains=num_chains,
                 target_acceptance_rate=target_acceptance,
+                # B2: pass posterior_entry so no_warmup can read prior_mean/cov
+                # for gradient-free latent-Gaussian samplers (elliptical_slice).
+                # Other warmup runners accept **kwargs and ignore this.
+                posterior_entry=posterior,
             )
             batched_state = _warmup_result[0]
             batched_params = _warmup_result[1]
@@ -1354,6 +1409,22 @@ def emit_low_recipe_for_cell(
             # source of truth), not a truncated slice of the general notes.
             "grad_count_convention": base_method.grad_count_convention or sampler_name,
             "is_lower_bound": _is_laplace,
+        }
+    elif grad_evals == 0 and gate_verdict.min_bulk_ess is not None:
+        # Gradient-free sampler (e.g. elliptical_slice, rwm).
+        # Headline = min_bulk_ess / n_total_samples (efficiency per draw, not per grad).
+        # Phase 8B.3 ratified convention: don't leave headline null/inf for gradient-free.
+        _n_total = n_samples * num_chains
+        _min_ess: float = gate_verdict.min_bulk_ess  # narrowed: not None above
+        headline = _min_ess / _n_total
+        _grad_free_convention = (
+            "0 (gradient-free; headline = min_bulk_ess/n_total_samples)"
+        )
+        _headline_basis = {
+            "total_grad_evals": 0,
+            "min_bulk_ess": _min_ess,
+            "grad_count_convention": _grad_free_convention,
+            "is_lower_bound": False,
         }
 
     # --- Compute sample_quality (GT-agreement; compare draws to reference) ---
