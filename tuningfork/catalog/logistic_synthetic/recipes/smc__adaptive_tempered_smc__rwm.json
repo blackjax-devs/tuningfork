@@ -1,0 +1,47 @@
+{
+  "model_name": "logistic_synthetic",
+  "smc_method_name": "adaptive_tempered_smc",
+  "inner_method_name": "rwm",
+  "num_particles": 2000,
+  "max_steps": 500,
+  "seed": 20260517,
+  "smc_params": {
+    "num_mcmc_steps": 25,
+    "target_ess": 0.95
+  },
+  "inner_params_init": null,
+  "inner_params_final": null,
+  "parameter_update_strategy": "none",
+  "parameter_update_strategy_kwargs": {},
+  "headline_metric": null,
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "max_abs_mean_z": 2.608,
+      "particle_ess": 1970.8,
+      "particle_ess_fraction": 0.985,
+      "mode_coverage_fraction": null,
+      "lambda_final": 1.0,
+      "rhat_max": null,
+      "n_divergences": null
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "calibration_budget": {
+    "n_particles": 2000,
+    "n_smc_steps": 25,
+    "num_mcmc_steps": 25,
+    "lambda_final": 1.0,
+    "wall_seconds_total": 0.0,
+    "wall_seconds_run": 1.8
+  },
+  "notes": "Honest-null cell (Phase 8B.1). logistic_synthetic fails SMC z<2.0 across all tested kernels (HMC \u03b5\u2208{0.1,0.5,0.7,1.0} \u00d7 L\u2208{3,5,10} \u00d7 mcmc\u2208{25,100}; RWM N\u2208{1000,2000} \u00d7 target_ess\u2208{0.8,0.95}). Best result: \u03b5=0.7/L=5 gives max_z=2.389; N=2000/target_ess=0.95 gives max_z=2.608. Root cause: tempering-level bias (kernel-independent \u2014 confirmed by RWM 0/3 seeds, S4-COV z=2.608). Upstream \u0394\u03bb-cap fix deferred to v2. Committed per honest-null policy (precedent c6bdd44).",
+  "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
+  "blackjax_version": "unknown",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-03T19:32:35Z"
+}
