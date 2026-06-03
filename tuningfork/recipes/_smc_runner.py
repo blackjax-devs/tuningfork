@@ -342,8 +342,15 @@ def emit_smc_recipe_for_cell(
     # raw_step_fn has signature: (rng_key, state, logdensity_fn, step_size, imm, ...)
     # Non-array params (num_integration_steps, etc.) are bound via partial.
     _bj_inner = getattr(_bj, inner_method_name)  # e.g. blackjax.hmc
+    # num_integration_steps: use smc_params override if provided, then fall
+    # back to _DEFAULT_HMC_NUM_STEPS (10), NOT inner_defaults midpoint (64).
+    # For SMC inner kernels, short trajectories (L=10) are preferred over the
+    # full HMC BO-space midpoint (L=64) to keep per-mutation cost manageable.
     _num_int_steps = int(
-        inner_defaults.get("num_integration_steps", _DEFAULT_HMC_NUM_STEPS)
+        resolved_smc_params.get(
+            "num_integration_steps",
+            _DEFAULT_HMC_NUM_STEPS,  # default 10, not inner_defaults midpoint
+        )
     )
 
     if hasattr(_bj_inner, "build_kernel"):
