@@ -74,45 +74,64 @@ def _make_none_update_fn() -> Any:
     return _update
 
 
+def _get_particles(smc_state: Any) -> Any:
+    """Extract particles from an SMC state (handles inner_kernel_tuning wrapping)."""
+    try:
+        return smc_state.sampler_state.particles  # inner_kernel_tuning
+    except AttributeError:
+        return smc_state.particles  # plain adaptive_tempered_smc
+
+
+def _get_parameter_override(smc_state: Any) -> dict:
+    """Extract the current parameter_override dict from an SMC state."""
+    try:
+        return dict(smc_state.parameter_override)  # StateWithParameterOverride
+    except AttributeError:
+        return {}
+
+
 def _make_step_size_from_acceptance_fn(target_acceptance: float = 0.65) -> Any:
-    """Step-size adaptation from per-particle acceptance rates."""
+    """Step-size adaptation from per-particle acceptance rates.
+
+    CRITICAL: must return a dict with the SAME keys as the current
+    parameter_override (blackjax inner_kernel_tuning replaces the full
+    parameter_override dict on each step — partial returns cause pytree
+    structure mismatches in jax.lax.scan).
+    """
 
     def _update(rng_key: Any, smc_state: Any, smc_info: Any) -> dict:
+        current_params = _get_parameter_override(smc_state)
         # smc_info.update_info carries MCMC step info (HMCInfo / RWMInfo).
-        # acceptance_rate field: (num_particles,) array.
         try:
             acceptance_rates = smc_info.update_info.acceptance_rate
-        except AttributeError:
-            # Fallback for kernels that don't have acceptance_rate.
-            return {}
-        # Current step_size from parameter_override (if tuning layer) or state.
-        try:
-            current_ss = smc_state.parameter_override["step_size"]
+            current_ss = current_params["step_size"]
+            new_ss = update_scale_from_acceptance_rate(
+                current_ss, acceptance_rates, target_acceptance_rate=target_acceptance
+            )
+            return {**current_params, "step_size": new_ss}
         except (AttributeError, KeyError):
-            return {}
-        new_ss = update_scale_from_acceptance_rate(
-            current_ss, acceptance_rates, target_acceptance_rate=target_acceptance
-        )
-        return {"step_size": new_ss}
+            # Kernel doesn't expose acceptance_rate or step_size not in params.
+            # Return current params unchanged to preserve pytree structure.
+            return current_params
 
     return _update
 
 
 def _make_imm_from_particles_fn() -> Any:
-    """Diagonal IMM from particle cloud variance."""
+    """Diagonal IMM from particle cloud variance.
+
+    CRITICAL: must return all current parameter keys (not just imm) to preserve
+    the pytree structure expected by blackjax inner_kernel_tuning.
+    """
 
     def _update(rng_key: Any, smc_state: Any, smc_info: Any) -> dict:
-        # Particles live at state.sampler_state.particles (inner_kernel_tuning)
-        # or state.particles (plain adaptive_tempered_smc).
+        current_params = _get_parameter_override(smc_state)
         try:
-            particles = smc_state.sampler_state.particles
+            particles = _get_particles(smc_state)
+            new_imm = inverse_mass_matrix_from_particles(particles)
+            return {**current_params, "inverse_mass_matrix": new_imm}
         except AttributeError:
-            try:
-                particles = smc_state.particles
-            except AttributeError:
-                return {}
-        new_imm = inverse_mass_matrix_from_particles(particles)
-        return {"inverse_mass_matrix": new_imm}
+            return current_params
 
     return _update
 
@@ -120,15 +139,34 @@ def _make_imm_from_particles_fn() -> Any:
 def _make_step_size_and_imm_fn(target_acceptance: float = 0.65) -> Any:
     """Combined: step_size from acceptance + diagonal IMM from particles.
 
-    Recommended default for HMC inner kernel (Phase 8B.1).
+    Recommended default for HMC inner kernel (Phase 8B.1). Always returns
+    a dict with all current parameter keys to preserve the pytree structure
+    required by blackjax inner_kernel_tuning's scan loop.
     """
-    _ss_fn = _make_step_size_from_acceptance_fn(target_acceptance)
-    _imm_fn = _make_imm_from_particles_fn()
 
     def _update(rng_key: Any, smc_state: Any, smc_info: Any) -> dict:
-        ss_update = _ss_fn(rng_key, smc_state, smc_info)
-        imm_update = _imm_fn(rng_key, smc_state, smc_info)
-        return {**ss_update, **imm_update}
+        current_params = _get_parameter_override(smc_state)
+        result = dict(current_params)
+        # Update step_size if acceptance_rate is available.
+        try:
+            acceptance_rates = smc_info.update_info.acceptance_rate
+            if "step_size" in result:
+                result["step_size"] = update_scale_from_acceptance_rate(
+                    result["step_size"],
+                    acceptance_rates,
+                    target_acceptance_rate=target_acceptance,
+                )
+        except (AttributeError, KeyError):
+            pass
+        # Update IMM from particle cloud variance.
+        try:
+            particles = _get_particles(smc_state)
+            result["inverse_mass_matrix"] = inverse_mass_matrix_from_particles(
+                particles
+            )
+        except AttributeError:
+            pass
+        return result
 
     return _update
 
