@@ -130,6 +130,7 @@ class SMCRecipe:
     # ---- SMC configuration ----
     num_particles: int
     max_steps: int
+    seed: int = 20260517
     smc_params: dict[str, Any] = field(default_factory=dict)
 
     # ---- inner-kernel tuning (W6) ----
@@ -208,9 +209,15 @@ class SMCRecipe:
 
     @classmethod
     def load(cls, path: Path) -> "SMCRecipe":
-        """Load an SMCRecipe from a JSON file written by ``save``."""
+        """Load an SMCRecipe from a JSON file written by ``save``.
+
+        Tolerates older recipes missing the ``seed`` field (added 2026-06-03).
+        """
+        import dataclasses
+
         raw = json.loads(Path(path).read_text())
-        return cls(**raw)
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in raw.items() if k in known})
 
     @classmethod
     def from_default_config(
@@ -221,6 +228,7 @@ class SMCRecipe:
         *,
         num_particles: int = 1000,
         max_steps: int = 100,
+        seed: int = 20260517,
         smc_params: dict[str, Any] | None = None,
         inner_params_init: dict[str, Any] | None = None,
         parameter_update_strategy: str = "none",
@@ -275,6 +283,7 @@ class SMCRecipe:
             inner_method_name=inner_method_name,
             num_particles=num_particles,
             max_steps=max_steps,
+            seed=seed,
             smc_params=default_smc_params,
             inner_params_init=inner_params_init,
             parameter_update_strategy=parameter_update_strategy,

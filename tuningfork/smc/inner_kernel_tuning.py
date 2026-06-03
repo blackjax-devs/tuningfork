@@ -182,7 +182,10 @@ ENTRY = SMCMethod(
     compatible_inner_methods=_COMPATIBLE_INNER,
     default_inner_method="rwm",
     num_particles_default=1000,
-    default_hp_space=(HyperparamSpace("num_mcmc_steps", "int", low=1, high=50),),
+    default_hp_space=(
+        HyperparamSpace("target_ess", "uniform", low=0.3, high=0.95),
+        HyperparamSpace("num_mcmc_steps", "int", low=1, high=50),
+    ),
     step_kwargs_schema=(),  # standard step(key, state) signature
     notes=(
         "Inner Kernel Tuning SMC (meta-SMC that adapts inner-kernel parameters). "

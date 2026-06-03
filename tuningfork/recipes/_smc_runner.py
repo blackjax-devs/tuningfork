@@ -649,6 +649,7 @@ def emit_smc_recipe_for_cell(
         inner_method_name=inner_method_name,
         num_particles=num_particles,
         max_steps=max_steps,
+        seed=seed,
         smc_params=resolved_smc_params,
         inner_params_init={
             k: (v[0].tolist() if hasattr(v[0], "tolist") else float(v[0]))
