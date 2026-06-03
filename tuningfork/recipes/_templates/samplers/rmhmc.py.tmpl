@@ -1,0 +1,57 @@
+# === SAMPLER: rmhmc (Riemannian Manifold HMC; step_size + IMM from warmup; num_integration_steps from recipe) ===
+# Upstream: blackjax.rmhmc takes mass_matrix (NOT inverse_mass_matrix).
+# The IMM→mass_matrix conversion is performed inline here so the emitted
+# script is self-contained (no tuningfork factory wrapper at runtime).
+#   - Diagonal IMM (ndim=1): mass_matrix = 1.0 / inverse_mass_matrix
+#   - Dense IMM (ndim=2):    mass_matrix = jnp.linalg.inv(inverse_mass_matrix)
+# Ref: tuningfork/base_method/rmhmc.py ENTRY + factory docstring.
+from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+_flat_init, _ = _ravel_pytree(init_position)
+_n_params = int(_flat_init.shape[0])
+
+_default_step_size = $bm_step_size
+_default_imm = jnp.ones(_n_params)
+# num_integration_steps is a recipe-pinned HP (NOT adapted by warmup). Use the
+# value from the recipe directly.  (Earlier templates pulled from
+# `_adapted_params.get("num_integration_steps", ...)` with a fallback — that
+# only worked when the warmup didn't pass num_integration_steps to
+# `blackjax.window_adaptation`. With the 2026-05-20 fix to faithfully reproduce
+# the runner's warmup_kwargs, num_integration_steps appears in adapted_params
+# as a (num_chains,)-batched array, breaking the `int()` cast.)
+_num_steps = $bm_num_integration_steps
+
+
+def _imm_to_mass_matrix(inverse_mass_matrix):
+    """Convert inverse_mass_matrix to mass_matrix for blackjax.rmhmc."""
+    if inverse_mass_matrix.ndim == 1:
+        return 1.0 / inverse_mass_matrix
+    return jnp.linalg.inv(inverse_mass_matrix)
+
+
+def _build_kernel(step_size, inverse_mass_matrix):
+    return blackjax.rmhmc(
+        logdensity_fn,
+        step_size=step_size,
+        mass_matrix=_imm_to_mass_matrix(inverse_mass_matrix),
+        num_integration_steps=_num_steps,
+    ).step
+
+
+# kernel_builder is the protocol expected by inference_loop.py.tmpl when
+# _adapted_params is multi-chain: each chain builds its own kernel from its
+# own adapted step_size and inverse_mass_matrix.
+kernel_builder = _build_kernel
+
+# Bind _state_post_warmup: warmup template sets it when adaptation runs (e.g.
+# window_adaptation_diag_imm, pathfinder).  For no_warmup, initialise from init_position.
+try:
+    _state_post_warmup
+except NameError:
+    _warmup_init_is_single_chain = True
+    _state_post_warmup = blackjax.rmhmc(
+        logdensity_fn,
+        step_size=_default_step_size,
+        mass_matrix=_imm_to_mass_matrix(_default_imm),
+        num_integration_steps=_num_steps,
+    ).init(init_position)
