@@ -405,8 +405,11 @@ def emit_smc_recipe_for_cell(
             noise = jax.random.normal(rng_key, flat.shape) * _default_sigma
             return unravel(flat + noise)
 
-        _raw_rwm = _rw.build_kernel()
-        _bound_rwm = functools.partial(_raw_rwm, random_step=_rwm_proposal_generator)
+        # build_rmh() returns kernel(rng_key, state, logdensity_fn, transition_generator)
+        _raw_rwm = _rw.build_rmh()
+        _bound_rwm = functools.partial(
+            _raw_rwm, transition_generator=_rwm_proposal_generator
+        )
         inner_kernel = _SA(init=_rw.init, step=_bound_rwm)
         # Override inner_params_init to be empty — sigma is bound in the closure.
         inner_params_init = {}
