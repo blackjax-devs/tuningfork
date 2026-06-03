@@ -99,9 +99,9 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "VI-sampler REVIEW: max_abs_mean_z >= 4.0, which exceeds the z<4.0 REVIEW gate threshold for iid-VI-sampler recipes. z >= 4.0 indicates genuine VI bias beyond the pivotal sampling-noise floor (E[max|N(0,1)|_d] for this model's dimension). Gate choice: z is pivotal for iid draws (numerator and denominator both scale as 1/sqrt(n), so z does not shrink with more samples). The z<4.0 gate has <0.5% false-flag rate for d<=50 under EXACT VI; z>=4.0 identifies genuine posterior-mean bias in the variational approximation. See worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "reason": "Honest FAIL: MFVI stochastic-optimizer failure \u2014 \u03ba=1000 condition number makes ELBO-gradient noise dominate signal in ill-conditioned eigendirections; ELBO converges (10k/50k/100k Adam steps) but the variational mean does not reach the posterior mean (z=4.4-6.8, no downward trend with budget). The analytical MFVI optimum is exact for a Gaussian, so this is an optimizer limitation (would need >=100 MC samples/step), NOT a VI-family bias \u2014 conceptually distinct from the logistic/hierarchical intrinsic-bias FAILs. See statistician probe results and worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
       "statistician_id": "",
-      "decision": "REVIEW"
+      "decision": "FAIL"
     }
   },
   "tuning_seed": 682737,
