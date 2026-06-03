@@ -1663,9 +1663,10 @@ def _make_vi_warmup_recipe(warmup_name: str):  # type: ignore[return]
         effort=Effort.LOW,
         base_method_params={"step_size": 0.5, "max_num_doublings": 5},
         warmup_params={
-            "n_warmup": 0,
+            "n_warmup": 0,  # 0 step_size adapt steps for fast smoke (lax.scan over 0)
             "num_optimization_steps": 200,
             "num_chains": 1,
+            "target_acceptance_rate": 0.8,
         },
         headline_metric=None,
         sample_quality=None,
@@ -1878,3 +1879,29 @@ def test_emit_script_vi_warmup_executes(warmup_name: str, tmp_path: Path) -> Non
     assert (
         "n_divergences=" in result.stdout
     ), f"Expected 'n_divergences=' in stdout.\nstdout:\n{result.stdout}"
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
+def test_emit_script_vi_warmup_contains_dual_averaging(warmup_name: str) -> None:
+    """VI warmup (Track B) emitted script uses dual_averaging_adaptation for step_size.
+
+    Phase 8B.2 frozen-IMM gate: the warmup template must import and use
+    ``dual_averaging_adaptation`` from blackjax.adaptation.step_size so that
+    step_size is adapted via Nesterov dual averaging with the VI IMM frozen
+    (not re-estimated by Welford as in window_adaptation).
+    """
+    recipe = _make_vi_warmup_recipe(warmup_name)
+    script = emit_script(recipe, num_samples=10)
+    assert "dual_averaging_adaptation" in script, (
+        f"VI warmup {warmup_name!r} emitted script must import "
+        "`dual_averaging_adaptation` from blackjax.adaptation.step_size "
+        "(frozen-IMM step_size adaptation). "
+        f"Script does not contain it (first 1200 chars):\n{script[:1200]}"
+    )
+    # Confirm the VI IMM is NOT re-estimated (no window_adaptation calls).
+    assert "window_adaptation" not in script, (
+        f"VI warmup {warmup_name!r} emitted script must NOT call "
+        "`window_adaptation` — the VI IMM must stay frozen throughout "
+        "(step_size-only dual-averaging, not full window adaptation)."
+    )
