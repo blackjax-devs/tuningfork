@@ -601,10 +601,10 @@ def emit_smc_recipe_for_cell(
     # total_grad_evals for HMC: N_particles × n_smc_steps × num_mcmc_steps × num_int_steps
     # total_likelihood_evals for RWM: N_particles × n_smc_steps × num_mcmc_steps
     headline: float | None = None
+    # Use the ACTUAL num_integration_steps bound to the kernel (_num_int_steps),
+    # NOT the HMC default-space midpoint from inner_defaults (which would give L=64).
     _num_integration_steps = (
-        int(inner_defaults.get("num_integration_steps", 1))
-        if "num_integration_steps" in inner_defaults
-        else 1
+        _num_int_steps if "num_integration_steps" in inner_defaults else 1
     )
     is_gradient_free = inner_entry.grad_count_per_step is not None and (
         inner_entry.grad_count_convention.startswith("0")
