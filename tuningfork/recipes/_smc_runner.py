@@ -251,11 +251,31 @@ def emit_smc_recipe_for_cell(
 
     # --- Inner-kernel params init ---
     if inner_params_init is None:
-        # Default: identity IMM, small step size.
-        inner_params_init = {
-            "step_size": jnp.full(num_particles, _DEFAULT_HMC_STEP_SIZE),
-            "inverse_mass_matrix": jnp.ones((num_particles, model_dim)),
-        }
+        # Default init depends on whether the inner kernel needs a mass matrix.
+        # HMC/mhmc: step_size + inverse_mass_matrix (per-particle).
+        # RWM/gradient-free: sigma (proposal scale) per-particle — NO IMM.
+        if inner_entry.needs_mass_matrix:
+            inner_params_init = {
+                "step_size": jnp.full(num_particles, _DEFAULT_HMC_STEP_SIZE),
+                "inverse_mass_matrix": jnp.ones((num_particles, model_dim)),
+            }
+        else:
+            # RWM and other gradient-free kernels: sigma only.
+            from tuningfork.calibration.tune import (  # noqa: PLC0415
+                default_value_for_space,
+            )
+
+            _default_sigma = next(
+                (
+                    default_value_for_space(s)
+                    for s in inner_entry.default_hp_space
+                    if s.name == "sigma"
+                ),
+                _DEFAULT_HMC_STEP_SIZE,
+            )
+            inner_params_init = {
+                "sigma": jnp.full(num_particles, float(_default_sigma)),
+            }
     else:
         # Broadcast scalar/global params to per-particle shape if needed.
         if "step_size" in inner_params_init:
@@ -341,7 +361,11 @@ def emit_smc_recipe_for_cell(
     # Get the raw step kernel + init for the inner method.
     # raw_step_fn has signature: (rng_key, state, logdensity_fn, step_size, imm, ...)
     # Non-array params (num_integration_steps, etc.) are bound via partial.
-    _bj_inner = getattr(_bj, inner_method_name)  # e.g. blackjax.hmc
+    # Use getattr with None fallback: some methods (rwm) are not top-level blackjax
+    # attributes (e.g. blackjax.rwm doesn't exist; they use custom factories only).
+    _bj_inner = getattr(
+        _bj, inner_method_name, None
+    )  # e.g. blackjax.hmc (None for rwm)
     # num_integration_steps: use smc_params override if provided, then fall
     # back to _DEFAULT_HMC_NUM_STEPS (10), NOT inner_defaults midpoint (64).
     # For SMC inner kernels, short trajectories (L=10) are preferred over the
@@ -353,7 +377,7 @@ def emit_smc_recipe_for_cell(
         )
     )
 
-    if hasattr(_bj_inner, "build_kernel"):
+    if _bj_inner is not None and hasattr(_bj_inner, "build_kernel"):
         # HMC-family: bind num_integration_steps (scalar, shared) via partial.
         # step_size + inverse_mass_matrix remain as per-particle mcmc_parameters.
         _raw_kernel = _bj_inner.build_kernel()
