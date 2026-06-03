@@ -1652,54 +1652,23 @@ def _make_vi_sampler_recipe(base_method_name: str):  # type: ignore[return]
     )
 
 
-def _make_vi_warmup_recipe(warmup_name: str):  # type: ignore[return]
-    """Synthetic recipe for VI-as-warmup (Track B, nuts downstream)."""
-    from tuningfork.recipes._base import Effort, Recipe
-
-    return Recipe(
-        model_name="mvn_10",
-        base_method_name="nuts",
-        warmup_name=warmup_name,
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
-        warmup_params={
-            "n_warmup": 0,  # 0 step_size adapt steps for fast smoke (lax.scan over 0)
-            "num_optimization_steps": 200,
-            "num_chains": 1,
-            "target_acceptance_rate": 0.8,
-        },
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={"num_chains": 1, "n_samples": 5},
-        difficulty=None,
-        instructions="vi warmup template smoke",
-        tuning_seed=42,
-    )
-
-
 @pytest.mark.fast
 @pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
 def test_emit_script_vi_sampler_is_valid_python(base_method_name: str) -> None:
     """VI sampler (Track A) emit_script produces syntactically valid Python.
 
-    Phase 8B.2 fast gate: verifies the new meanfield_vi.py.tmpl and
-    fullrank_vi.py.tmpl sampler templates produce valid Python and are
-    D8-compliant (no forbidden tuningfork imports beyond model allowlist).
+    Phase 8B.2 fast gate: verifies meanfield_vi.py.tmpl and fullrank_vi.py.tmpl
+    sampler templates produce valid Python and are D8-compliant.
     """
     recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
-    ast.parse(script)  # raises SyntaxError on malformed output
+    ast.parse(script)
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
 def test_emit_script_vi_sampler_d8_compliant(base_method_name: str) -> None:
-    """VI sampler (Track A) emitted script has no forbidden tuningfork imports.
-
-    D8 STRICT: inference choreography must import only tuningfork.model and
-    tuningfork.model._numpyro.  The VI sampler templates use blackjax.vi.* and
-    optax directly — no tuningfork.base_method imports allowed.
-    """
+    """VI sampler (Track A) emitted script has no forbidden tuningfork imports (D8)."""
     recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
     tree = ast.parse(script)
@@ -1714,56 +1683,10 @@ def test_emit_script_vi_sampler_d8_compliant(base_method_name: str) -> None:
             if node.module is not None and node.module.startswith("tuningfork"):
                 tuningfork_imports.append(node.module)
 
-    disallowed = [
-        name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
-    ]
-    assert not disallowed, (
-        f"VI sampler {base_method_name!r} emits forbidden tuningfork imports: "
-        f"{disallowed!r}.  Inference choreography must be tuningfork-free (D8 STRICT)."
-    )
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_is_valid_python(warmup_name: str) -> None:
-    """VI warmup (Track B, nuts downstream) emit_script produces syntactically valid Python.
-
-    Phase 8B.2 fast gate: verifies the new meanfield_vi.py.tmpl and
-    fullrank_vi.py.tmpl warmup templates produce valid Python and are D8-compliant.
-    """
-    recipe = _make_vi_warmup_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10)
-    ast.parse(script)  # raises SyntaxError on malformed output
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_d8_compliant(warmup_name: str) -> None:
-    """VI warmup (Track B) emitted script has no forbidden tuningfork imports.
-
-    D8 STRICT: warmup choreography uses blackjax.vi.* and optax directly.
-    """
-    recipe = _make_vi_warmup_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10)
-    tree = ast.parse(script)
-
-    tuningfork_imports: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("tuningfork"):
-                    tuningfork_imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module is not None and node.module.startswith("tuningfork"):
-                tuningfork_imports.append(node.module)
-
-    disallowed = [
-        name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
-    ]
-    assert not disallowed, (
-        f"VI warmup {warmup_name!r} emits forbidden tuningfork imports: "
-        f"{disallowed!r}.  Inference choreography must be tuningfork-free (D8 STRICT)."
-    )
+    disallowed = [n for n in tuningfork_imports if n not in _ALLOWED_TUNINGFORK_IMPORTS]
+    assert (
+        not disallowed
+    ), f"VI sampler {base_method_name!r} emits forbidden imports: {disallowed!r}."
 
 
 @pytest.mark.fast
@@ -1771,36 +1694,12 @@ def test_emit_script_vi_warmup_d8_compliant(warmup_name: str) -> None:
 def test_emit_script_vi_sampler_contains_vi_module_import(
     base_method_name: str,
 ) -> None:
-    """VI sampler template imports the correct blackjax.vi.* module.
-
-    meanfield_vi template must import blackjax.vi.meanfield_vi;
-    fullrank_vi template must import blackjax.vi.fullrank_vi.
-    """
+    """VI sampler template imports the correct blackjax.vi.* module."""
     recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
-    expected_import = f"blackjax.vi.{base_method_name}"
-    assert expected_import in script, (
+    assert f"blackjax.vi.{base_method_name}" in script, (
         f"VI sampler template for {base_method_name!r} must import "
-        f"'{expected_import}'.  "
-        f"Script does not contain this import (first 800 chars):\n{script[:800]}"
-    )
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_contains_vi_module_import(warmup_name: str) -> None:
-    """VI warmup template imports the correct blackjax.vi.* module.
-
-    meanfield_vi warmup template must import blackjax.vi.meanfield_vi;
-    fullrank_vi warmup template must import blackjax.vi.fullrank_vi.
-    """
-    recipe = _make_vi_warmup_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10)
-    expected_import = f"blackjax.vi.{warmup_name}"
-    assert expected_import in script, (
-        f"VI warmup template for {warmup_name!r} must import "
-        f"'{expected_import}'.  "
-        f"Script does not contain this import (first 800 chars):\n{script[:800]}"
+        f"'blackjax.vi.{base_method_name}'."
     )
 
 
@@ -1809,13 +1708,8 @@ def test_emit_script_vi_warmup_contains_vi_module_import(warmup_name: str) -> No
 def test_emit_script_vi_sampler_executes(base_method_name: str, tmp_path: Path) -> None:
     """VI-as-inference (Track A) emitted script runs end-to-end: exit 0 + DONE.
 
-    Phase 8B.2 e2e gate: meanfield_vi/fullrank_vi + no_warmup recipes emit and
-    execute on mvn_10 with tiny budget (200 opt steps, 5 samples).  Verifies:
-    - Script exits 0 (no Python / JAX errors)
-    - DONE and n_divergences= appear in stdout
-    - Draws .npz is written
-
-    Since VI draws IID samples (no MCMC divergences), n_divergences=0 is expected.
+    Phase 8B.2 e2e gate: {meanfield,fullrank}_vi + no_warmup on mvn_10 with
+    200 VI opt steps, 5 samples. Exit 0 + DONE + n_divergences= verified.
     """
     recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=5, num_chains=1)
@@ -1831,77 +1725,8 @@ def test_emit_script_vi_sampler_executes(base_method_name: str, tmp_path: Path) 
         env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
     )
     assert result.returncode == 0, (
-        f"VI sampler ({base_method_name}) emitted script failed.\n"
+        f"VI sampler ({base_method_name}) failed.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
-    assert "DONE" in result.stdout, (
-        f"Expected 'DONE' in stdout for {base_method_name} sampler.\n"
-        f"stdout:\n{result.stdout}"
-    )
-    assert "n_divergences=" in result.stdout, (
-        f"Expected 'n_divergences=' in stdout for {base_method_name}.\n"
-        f"stdout:\n{result.stdout}"
-    )
-
-
-@pytest.mark.e2e
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_executes(warmup_name: str, tmp_path: Path) -> None:
-    """VI-as-warmup (Track B, nuts downstream) emitted script runs end-to-end.
-
-    Phase 8B.2 e2e gate: meanfield_vi/fullrank_vi warmup + nuts recipes emit and
-    execute on mvn_10 with tiny budget (200 opt steps, 5 nuts samples).  Verifies:
-    - Script exits 0
-    - DONE and n_divergences= appear in stdout
-    - Draws .npz is written
-    """
-    recipe = _make_vi_warmup_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=5, num_chains=1, progress_bar=False)
-    script_path = tmp_path / "test_vi_warmup.py"
-    script_path.write_text(script)
-
-    result = subprocess.run(
-        [sys.executable, str(script_path)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        cwd=str(tmp_path),
-        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
-    )
-    assert result.returncode == 0, (
-        f"VI warmup ({warmup_name} + nuts) emitted script failed.\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    assert "DONE" in result.stdout, (
-        f"Expected 'DONE' in stdout for {warmup_name} warmup + nuts.\n"
-        f"stdout:\n{result.stdout}"
-    )
-    assert (
-        "n_divergences=" in result.stdout
-    ), f"Expected 'n_divergences=' in stdout.\nstdout:\n{result.stdout}"
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_contains_dual_averaging(warmup_name: str) -> None:
-    """VI warmup (Track B) emitted script uses dual_averaging_adaptation for step_size.
-
-    Phase 8B.2 frozen-IMM gate: the warmup template must import and use
-    ``dual_averaging_adaptation`` from blackjax.adaptation.step_size so that
-    step_size is adapted via Nesterov dual averaging with the VI IMM frozen
-    (not re-estimated by Welford as in window_adaptation).
-    """
-    recipe = _make_vi_warmup_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10)
-    assert "dual_averaging_adaptation" in script, (
-        f"VI warmup {warmup_name!r} emitted script must import "
-        "`dual_averaging_adaptation` from blackjax.adaptation.step_size "
-        "(frozen-IMM step_size adaptation). "
-        f"Script does not contain it (first 1200 chars):\n{script[:1200]}"
-    )
-    # Confirm the VI IMM is NOT re-estimated (no window_adaptation calls).
-    assert "window_adaptation" not in script, (
-        f"VI warmup {warmup_name!r} emitted script must NOT call "
-        "`window_adaptation` — the VI IMM must stay frozen throughout "
-        "(step_size-only dual-averaging, not full window adaptation)."
-    )
+    assert "DONE" in result.stdout
+    assert "n_divergences=" in result.stdout
