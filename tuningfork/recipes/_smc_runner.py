@@ -317,32 +317,56 @@ def emit_smc_recipe_for_cell(
     num_mcmc_steps = int(resolved_smc_params.get("num_mcmc_steps", 10))
     target_ess = float(resolved_smc_params.get("target_ess", 0.5))
 
-    # --- Build inner kernel (HMC/RWM/…) ---
-    # The inner kernel is used by the SMC method to mutate particles.
-    # For inner_kernel_tuning, it also extracts .step and .init.
-    # We build a representative kernel (with identity IMM, default step_size)
-    # for the factory; the actual per-particle params come from inner_params_init.
+    # --- Build inner kernel (raw kernel for SMC, NOT the wrapped SamplingAlgorithm) ---
+    # The blackjax SMC layer calls mcmc_step_fn(rng_key, state, logdensity_fn,
+    # **mcmc_parameters) where mcmc_parameters contains per-particle JAX arrays.
+    # The WRAPPED SamplingAlgorithm.step has signature (rng_key, state) — it
+    # does NOT accept per-particle params as kwargs → wrong for SMC.
+    # Solution: use the RAW build_kernel() function with non-array params bound
+    # via functools.partial, and blackjax.<method>.init as init_fn.
+    import functools  # noqa: PLC0415
+
+    import blackjax as _bj  # noqa: PLC0415
+    from blackjax.base import SamplingAlgorithm as _SA  # noqa: PLC0415
+
     from tuningfork.calibration.tune import default_params_for  # noqa: PLC0415
 
     inner_defaults = default_params_for(inner_entry)
-    _imm_default = jnp.ones(model_dim)
 
-    # For HMC/mhmc/rmhmc: needs step_size + inverse_mass_matrix + num_integration_steps.
-    factory_kwargs: dict[str, Any] = dict(inner_defaults)
-    if inner_entry.needs_mass_matrix:
-        factory_kwargs["inverse_mass_matrix"] = _imm_default
-    inner_kernel = inner_entry.factory(logprior_fn, **factory_kwargs)
-    # Note: for SMC the logdensity_fn passed to the inner kernel at EACH step
-    # is the tempered log density built by the SMC layer (not logprior_fn).
-    # We build with logprior_fn here just to get the right .step / .init types.
+    # Get the raw step kernel + init for the inner method.
+    # raw_step_fn has signature: (rng_key, state, logdensity_fn, step_size, imm, ...)
+    # Non-array params (num_integration_steps, etc.) are bound via partial.
+    _bj_inner = getattr(_bj, inner_method_name)  # e.g. blackjax.hmc
+    _num_int_steps = int(
+        inner_defaults.get("num_integration_steps", _DEFAULT_HMC_NUM_STEPS)
+    )
 
-    # --- Build mcmc_parameters dict (per-particle params, JAX arrays only) ---
+    if hasattr(_bj_inner, "build_kernel"):
+        # HMC-family: bind num_integration_steps (scalar, shared) via partial.
+        # step_size + inverse_mass_matrix remain as per-particle mcmc_parameters.
+        _raw_kernel = _bj_inner.build_kernel()
+        if "num_integration_steps" in inner_defaults:
+            _bound_step = functools.partial(
+                _raw_kernel, num_integration_steps=_num_int_steps
+            )
+        else:
+            _bound_step = _raw_kernel
+        inner_kernel = _SA(init=_bj_inner.init, step=_bound_step)
+    else:
+        # Fallback: use the factory-built SamplingAlgorithm (non-HMC kernels).
+        _imm_default = jnp.ones(model_dim)
+        factory_kwargs: dict[str, Any] = dict(inner_defaults)
+        if inner_entry.needs_mass_matrix:
+            factory_kwargs["inverse_mass_matrix"] = _imm_default
+        inner_kernel = inner_entry.factory(logprior_fn, **factory_kwargs)
+
+    # --- Build mcmc_parameters dict (per-particle JAX arrays only) ---
+    # step_size + inverse_mass_matrix are per-particle; num_integration_steps
+    # is bound via partial (shared scalar) and must NOT be in mcmc_parameters
+    # (blackjax SMC calls .shape on every value → callables/ints rejected).
     mcmc_parameters = dict(inner_params_init)  # step_size + inverse_mass_matrix
-
-    # Add num_integration_steps for HMC-family inner kernels.
-    if "num_integration_steps" in inner_defaults:
-        nis = inner_defaults.get("num_integration_steps", _DEFAULT_HMC_NUM_STEPS)
-        mcmc_parameters["num_integration_steps"] = jnp.full(num_particles, int(nis))
+    # Remove num_integration_steps if it leaked in (it's bound via partial).
+    mcmc_parameters.pop("num_integration_steps", None)
 
     # --- Build SMC algorithm ---
     _log(
