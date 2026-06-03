@@ -146,9 +146,12 @@ def _make_step_size_and_imm_fn(target_acceptance: float = 0.65) -> Any:
 
     def _update(rng_key: Any, smc_state: Any, smc_info: Any) -> dict:
         current_params = _get_parameter_override(smc_state)
+        # MUST start from current_params and preserve ALL keys — inner_kernel_tuning
+        # REPLACES parameter_override with the returned dict; any missing key
+        # causes a jax.lax.scan pytree structure mismatch.
         result = dict(current_params)
         # Update step_size if acceptance_rate is available.
-        try:
+        try:  # noqa: SIM105
             acceptance_rates = smc_info.update_info.acceptance_rate
             if "step_size" in result:
                 result["step_size"] = update_scale_from_acceptance_rate(
@@ -156,16 +159,16 @@ def _make_step_size_and_imm_fn(target_acceptance: float = 0.65) -> Any:
                     acceptance_rates,
                     target_acceptance_rate=target_acceptance,
                 )
-        except (AttributeError, KeyError):
-            pass
+        except Exception:  # noqa: BLE001 — catch any JAX/Python exception
+            pass  # preserve current step_size unchanged
         # Update IMM from particle cloud variance.
-        try:
+        try:  # noqa: SIM105
             particles = _get_particles(smc_state)
             result["inverse_mass_matrix"] = inverse_mass_matrix_from_particles(
                 particles
             )
-        except AttributeError:
-            pass
+        except Exception:  # noqa: BLE001
+            pass  # preserve current IMM unchanged
         return result
 
     return _update
