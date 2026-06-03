@@ -921,6 +921,29 @@ def emit_low_recipe_for_cell(
             f"(subtracted diagonal Gaussian prior over {len(_prior_mean_pytree)} sites)"
         )
 
+        # Auto-initialize near the reference posterior mean when no init_strategy
+        # is provided.  The GP posterior is highly concentrated (~20σ from the
+        # prior draw for log_noise_scale), so cold-start from prior gives
+        # rhat>>1 after 1000 steps.  _build_stationary_init_positions reads the
+        # reference/summary.json and places chains at mean ± small offsets,
+        # giving near-posterior initialization at zero extra computation cost.
+        if init_strategy is None:
+            try:
+                _stationary = _build_stationary_init_positions(
+                    model_name, 1, catalog_root
+                )
+                # _build_stationary_init_positions returns (1, ...) batched; squeeze.
+                init_position = jax.tree.map(lambda x: x[0], _stationary)
+                _log(
+                    "  elliptical_slice: initialized from reference posterior mean "
+                    "(cold-start from prior is ~20σ away for concentrated GP posteriors)"
+                )
+            except (FileNotFoundError, KeyError):
+                # If reference summary unavailable, fall back to prior draw.
+                _log(
+                    "  elliptical_slice: reference summary unavailable, using prior draw"
+                )
+
     # --- Apply init_strategy (optional override of initial position) ---
     # Applied after the laplace phi-space transformation so the override acts
     # on the same position space that the warmup kernel will operate on.
