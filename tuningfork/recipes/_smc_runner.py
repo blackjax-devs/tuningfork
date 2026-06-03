@@ -679,6 +679,23 @@ def emit_smc_recipe_for_cell(
         _log("  Building recipe (PASS)...", verbose)
         recipe_path = recipe.save(catalog_root)
         _log(f"  Saved: {recipe_path}", verbose)
+        # --- Save→load roundtrip assertion ---
+        # Verifies the written JSON is loadable via the public load_recipe() path
+        # (not just SMCRecipe.load directly).  Catches schema mismatches (e.g.
+        # missing fields, wrong types) that only surface in a fresh environment.
+        try:
+            from tuningfork.catalog.inspect import load_recipe as _lr  # noqa: PLC0415
+
+            _loaded = _lr(recipe_path)
+            assert hasattr(
+                _loaded, "smc_method_name"
+            ), f"load_recipe() returned {type(_loaded).__name__}, expected SMCRecipe"
+        except Exception as _roundtrip_exc:  # noqa: BLE001
+            _log(
+                f"  WARNING: save→load roundtrip failed: {_roundtrip_exc}",
+                verbose,
+            )
+            # Non-fatal: recipe is saved; caller sees the warning.
     else:
         _log(f"  => gate {gate.verdict} — not saving recipe.", verbose)
         _append_outcome(

@@ -679,6 +679,15 @@ class Recipe:
             The deserialized recipe.
         """
         d = json.loads(Path(path).read_text())
+        # Defensive: missing "effort" key should raise a clear error rather than KeyError.
+        # SMC recipes do not carry "effort" and should never reach Recipe.load() --
+        # use load_recipe() from tuningfork.catalog.inspect which dispatches to SMCRecipe.load().
+        if "effort" not in d:
+            raise ValueError(
+                f"Recipe at {path} is missing the 'effort' key. "
+                "If this is an SMC recipe (smc__*.json), use load_recipe() or SMCRecipe.load() "
+                "instead of Recipe.load() — SMC recipes do not carry the MCMC 'effort' field."
+            )
         d["effort"] = Effort(d["effort"])
         # Deserialize failure_diagnosis if present (backward compat: missing key defaults to None).
         # Coerce free-text strings (from older triage notes) to HARD_DIRECTION.

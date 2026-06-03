@@ -80,14 +80,40 @@ def list_recipes(model_name: str) -> list[Path]:
     return paths
 
 
-def load_recipe(path: str | Path) -> Recipe:
-    """Load a Recipe from a path.
+def _is_smc_recipe(p: Path) -> bool:
+    """Return True if the JSON at ``p`` is an SMCRecipe (has 'smc_method_name' key)."""
+    import json as _json
+
+    try:
+        d = _json.loads(p.read_text())
+        return "smc_method_name" in d
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _load_recipe_from_path(p: Path):  # type: ignore[return]
+    """Dispatch to SMCRecipe.load or Recipe.load based on JSON content."""
+    if _is_smc_recipe(p):
+        from tuningfork.recipes._base_smc import SMCRecipe
+
+        return SMCRecipe.load(p)
+    from tuningfork.recipes._base import Recipe
+
+    return Recipe.load(p)
+
+
+def load_recipe(path: str | Path):  # type: ignore[return]
+    """Load a Recipe or SMCRecipe from a path.
 
     Resolves relative paths against the tuningfork repo root so that a
     notebook running in any working directory can load a recipe with a
     path like::
 
         recipe = load_recipe("tuningfork/catalog/eight_schools_ncp/groundtruth.json")
+        smc_recipe = load_recipe("tuningfork/catalog/gmm_25/recipes/smc__adaptive_tempered_smc__rwm.json")
+
+    SMC recipes (files with a ``smc_method_name`` key) are automatically
+    dispatched to ``SMCRecipe.load``; MCMC recipes go to ``Recipe.load``.
 
     Parameters
     ----------
@@ -98,8 +124,8 @@ def load_recipe(path: str | Path) -> Recipe:
 
     Returns
     -------
-    Recipe
-        The loaded Recipe dataclass.
+    Recipe | SMCRecipe
+        The loaded recipe dataclass (type depends on file content).
 
     Raises
     ------
@@ -107,8 +133,6 @@ def load_recipe(path: str | Path) -> Recipe:
         If the recipe file cannot be found after trying absolute and
         repo-root-relative resolution.
     """
-    from tuningfork.recipes._base import Recipe
-
     recipe_path = Path(path)
     if recipe_path.is_absolute():
         if not recipe_path.exists():
@@ -116,21 +140,22 @@ def load_recipe(path: str | Path) -> Recipe:
                 f"Recipe file not found at {recipe_path}. "
                 "Check the path and ensure the file exists."
             )
-        return Recipe.load(recipe_path)
+        return _load_recipe_from_path(recipe_path)
 
     # Relative path: try as-is first, then against repo root
     if recipe_path.exists():
-        return Recipe.load(recipe_path)
+        return _load_recipe_from_path(recipe_path)
 
     candidate = _repo_root() / recipe_path
     if candidate.exists():
-        return Recipe.load(candidate)
+        return _load_recipe_from_path(candidate)
 
     raise FileNotFoundError(
         f"Recipe file not found: tried {recipe_path!r} (relative to cwd) "
         f"and {candidate!r} (relative to repo root). "
         "Recipes live under "
-        "tuningfork/catalog/<model>/{groundtruth.json, recipes/<effort>__<sampler>__<warmup>.json}"
+        "tuningfork/catalog/<model>/recipes/<effort>__<sampler>__<warmup>.json "
+        "or smc__<smc_method>__<inner>.json for SMC recipes."
     )
 
 
