@@ -293,10 +293,10 @@ Both are latent-Gaussian specialists. Applicable ONLY to models with explicit Ga
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| no_warmup + **elliptical_slice** | R | R | R | R | R | R | R | R | R | R | R | R | G | R (future: blocked ESS) |
+| no_warmup + **elliptical_slice** | R | R | R | R | R | R | R | R | R | R | R | R | R (cert FAIL: ESS 4.4) | R (future: blocked ESS) |
 | no_warmup + **mgrad_gaussian** | R | R | R | R | R | R | R | R | R | R | R | R | G | G |
 
-**Rationale**: Elliptical slice requires exact Gaussian prior structure. Only gp_regression qualifies in the 14-model suite. gp_regression is G: the sampler is exact for the Gaussian marginal (NCP Cholesky prior = N(0,I₂₀₀) × N(0,1)³); gradient cost = 0 (pure slice sampling). stoch_vol is R: its 503-D AR(1) joint prior is non-Gaussian in unconstrained space (the volatility path has a non-trivial correlation structure that cannot be captured by a diagonal Gaussian); ESS would be blocked. mgrad_gaussian is gradient-based but uses the Gaussian structure; also G for gp_regression. Phase 8B.3 correction: stoch_vol downgraded from G → R (future: blocked ESS).
+**Rationale**: Elliptical slice requires exact Gaussian prior structure. gp_regression is the only model with exact Gaussian prior structure, but joint elliptical slice still FAILS there (Phase 8B.3 cert): although the prior is exactly Gaussian (NCP Cholesky prior = N(0,I₂₀₀) × N(0,1)³, gradient cost = 0), the likelihood is ~10⁴× more concentrated than the prior (noise_scale=0.1, n=200), so the joint 203-D ellipse bracket collapses (subiter≈11.93) — cert: min_bulk_ESS=4.4, rhat=3.46, max_z=8–9 → FAIL. Real elliptical-slice coverage requires centered/Gibbs sampling (ESS on f | hyperparameters), which is future scope. stoch_vol is R: its 503-D AR(1) joint prior is non-Gaussian in unconstrained space (the volatility path has a non-trivial correlation structure that cannot be captured by a diagonal Gaussian); ESS would be blocked. mgrad_gaussian is gradient-based but uses the Gaussian structure; also G for gp_regression. Phase 8B.3 correction: both gp_regression (joint likelihood≫prior, cert FAIL) and stoch_vol (non-Gaussian joint prior) downgraded G → R; future: centered/blocked ESS.
 
 ### 6B — IRMH (requires: proposal_distribution)
 
