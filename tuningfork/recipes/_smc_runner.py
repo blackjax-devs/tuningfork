@@ -272,12 +272,15 @@ def emit_smc_recipe_for_cell(
                 }
 
     # --- Parameter update fn (W6) ---
+    # NOTE: built AFTER inner_params_init is known so initial_parameter_value
+    # can be passed; the update fn captures it in a closure to preserve pytree
+    # structure (blackjax inner_kernel_tuning passes TemperedSMCState, not
+    # StateWithParameterOverride, so current params aren't accessible from state).
+    # This assignment is a placeholder — rebuilt after inner_params_init is set.
     _update_kwargs = parameter_update_strategy_kwargs or (
         {"target_acceptance": 0.65} if "step_size" in parameter_update_strategy else {}
     )
-    mcmc_parameter_update_fn = build_parameter_update_fn(
-        parameter_update_strategy, **_update_kwargs
-    )
+    # Deferred: will call build_parameter_update_fn after inner_params_init is resolved.
 
     # --- Initialise particles ---
     _log(f"  Initialising {num_particles} particles from prior...", verbose)
@@ -367,6 +370,16 @@ def emit_smc_recipe_for_cell(
     mcmc_parameters = dict(inner_params_init)  # step_size + inverse_mass_matrix
     # Remove num_integration_steps if it leaked in (it's bound via partial).
     mcmc_parameters.pop("num_integration_steps", None)
+
+    # NOW build the parameter update fn with initial_parameter_value captured in closure.
+    # The update fn uses initial_parameter_value as the structural template so all
+    # keys are preserved in the return dict (blackjax inner_kernel_tuning requires
+    # the returned dict to have the same keys as initial_parameter_value every step).
+    mcmc_parameter_update_fn = build_parameter_update_fn(
+        parameter_update_strategy,
+        initial_parameter_value=mcmc_parameters,
+        **_update_kwargs,
+    )
 
     # --- Build SMC algorithm ---
     _log(
