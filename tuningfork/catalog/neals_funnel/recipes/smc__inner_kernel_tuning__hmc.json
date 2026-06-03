@@ -4,7 +4,9 @@
   "inner_method_name": "hmc",
   "num_particles": 1000,
   "max_steps": 500,
+  "seed": 20260517,
   "smc_params": {
+    "target_ess": 0.8,
     "num_mcmc_steps": 25
   },
   "inner_params_init": {
@@ -24,16 +26,16 @@
   },
   "inner_params_final": {
     "inverse_mass_matrix": [
-      62.779361724853516,
-      72.33543395996094,
-      48.39345932006836,
-      64.24906158447266,
-      67.4630355834961,
-      76.87957763671875,
-      329.86004638671875,
-      103.41065979003906,
-      62.067264556884766,
-      8.590590476989746
+      36.38251495361328,
+      80.06389617919922,
+      43.600608825683594,
+      46.75000762939453,
+      26.764667510986328,
+      38.505916595458984,
+      37.8505973815918,
+      31.567644119262695,
+      47.284141540527344,
+      9.24914836883545
     ],
     "step_size": 0.10000000149011612
   },
@@ -45,7 +47,7 @@
   "gate_evidence": {
     "auto": {
       "verdict": "PASS",
-      "max_abs_mean_z": 1.9369030677136716,
+      "max_abs_mean_z": 1.578906297898679,
       "particle_ess": 999.9999999999998,
       "particle_ess_fraction": 0.9999999999999998,
       "mode_coverage_fraction": null,
@@ -64,12 +66,12 @@
     "n_smc_steps": 1,
     "num_mcmc_steps": 25,
     "lambda_final": 1.0,
-    "wall_seconds_total": 5.963,
-    "wall_seconds_run": 1.583
+    "wall_seconds_total": 4.507,
+    "wall_seconds_run": 1.262
   },
   "notes": "",
   "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-06-03T14:48:40Z"
+  "timestamp_utc": "2026-06-03T15:11:02Z"
 }

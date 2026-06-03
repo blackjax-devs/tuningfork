@@ -4,19 +4,22 @@
   "inner_method_name": "rwm",
   "num_particles": 1000,
   "max_steps": 500,
+  "seed": 20260517,
   "smc_params": {
-    "target_ess": 0.625,
+    "target_ess": 0.8,
     "num_mcmc_steps": 25
   },
   "inner_params_init": {},
   "inner_params_final": null,
-  "parameter_update_strategy": "none",
-  "parameter_update_strategy_kwargs": {},
+  "parameter_update_strategy": "step_size_and_imm_from_particles",
+  "parameter_update_strategy_kwargs": {
+    "target_acceptance": 0.65
+  },
   "headline_metric": 0.039999999999999994,
   "gate_evidence": {
     "auto": {
       "verdict": "PASS",
-      "max_abs_mean_z": 1.2473358315989649,
+      "max_abs_mean_z": 1.6396687281018156,
       "particle_ess": 999.9999999999998,
       "particle_ess_fraction": 0.9999999999999998,
       "mode_coverage_fraction": 1.0,
@@ -35,12 +38,12 @@
     "n_smc_steps": 1,
     "num_mcmc_steps": 25,
     "lambda_final": 1.0,
-    "wall_seconds_total": 6.878,
-    "wall_seconds_run": 1.116
+    "wall_seconds_total": 6.74,
+    "wall_seconds_run": 1.109
   },
   "notes": "",
   "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-06-03T14:46:21Z"
+  "timestamp_utc": "2026-06-03T15:10:56Z"
 }
