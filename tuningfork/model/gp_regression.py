@@ -241,4 +241,26 @@ ENTRY = Posterior(
     requires_x64=True,
     headline_params=("log_lengthscale", "log_kernel_scale", "log_noise_scale"),
     headline_coords=None,
+    # ---- elliptical_slice prior (Phase 8B.3) ----
+    # logprior_gaussian = -0.5 * sum((x - mean)^2 / cov_diag)  (diagonal Gaussian)
+    # Priors match the NumPyro model:
+    #   log_lengthscale ~ N(0, 1)  → mean=0, var=1
+    #   log_kernel_scale ~ N(0, 1) → mean=0, var=1
+    #   log_noise_scale  ~ N(-2,1) → mean=-2, var=1
+    #   f_raw ~ N(0, I_200)        → mean=zeros(200), var=ones(200)
+    # The no_warmup runner reads these and passes them to blackjax.elliptical_slice
+    # as flat (d=203) arrays. ravel_pytree flattens the dict alphabetically:
+    # f_raw(200) | log_kernel_scale(1) | log_lengthscale(1) | log_noise_scale(1).
+    prior_mean={
+        "f_raw": [0.0] * N_OBS,
+        "log_kernel_scale": [0.0],
+        "log_lengthscale": [0.0],
+        "log_noise_scale": [-2.0],
+    },
+    prior_cov_diag={
+        "f_raw": [1.0] * N_OBS,
+        "log_kernel_scale": [1.0],
+        "log_lengthscale": [1.0],
+        "log_noise_scale": [1.0],
+    },
 )

@@ -89,11 +89,17 @@ STARTER_MODEL_NAMES = [
     "gp_regression",
 ]
 
-# All 6 base methods used in starter recipes
-ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc"]
+# Base methods used in starter recipes (LOW tier: emit_low_recipes)
+# gradient-free / no-warmup methods included so Recipe.from_default_config
+# stubs them out.  elliptical_slice is listed here; it requires
+# extra_required_kwargs (prior_cov/prior_mean) for actual emission — the
+# specialised wiring lands with the statistician's model+gate spec (Phase 8B.3).
+ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc", "elliptical_slice"]
 
-# Only nuts and hmc used for MEDIUM warmup-only recipes (window_adaptation_diag_imm compatibility)
-MEDIUM_METHOD_NAMES = ["nuts", "hmc"]
+# Methods eligible for MEDIUM warmup-only recipes (window_adaptation_diag_imm
+# compatibility).  rmhmc added in Phase 8B.3; its sampler template lives at
+# _templates/samplers/rmhmc.py.tmpl (IMM→mass_matrix conversion inlined).
+MEDIUM_METHOD_NAMES = ["nuts", "hmc", "rmhmc"]
 
 # ---------------------------------------------------------------------------
 # Conventional pairing map
@@ -383,7 +389,9 @@ def main() -> None:
     import argparse
 
     valid_warmups = {"no_warmup", "window_adaptation_diag_imm"}
-    valid_samplers = set(ALL_METHOD_NAMES)
+    # MEDIUM_METHOD_NAMES (rmhmc) are not in ALL_METHOD_NAMES but must be
+    # reachable via --sampler so emit_medium_recipes can be targeted directly.
+    valid_samplers = set(ALL_METHOD_NAMES) | set(MEDIUM_METHOD_NAMES)
 
     parser = argparse.ArgumentParser(
         description=(

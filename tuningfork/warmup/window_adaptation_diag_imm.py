@@ -188,6 +188,7 @@ ENTRY = Warmup(
         "hmc",
         "nuts",
         "mhmc",
+        "rmhmc",
         "dynamic_hmc",
         "dmhmc",
         "barker",
@@ -199,10 +200,16 @@ ENTRY = Warmup(
     ),
     notes=(
         "Standard Stan window adaptation: dual-averaging step_size + diagonal "
-        "mass matrix.  Compatible with hmc, nuts, mhmc, barker, mala, and "
+        "mass matrix.  Compatible with hmc, nuts, mhmc, rmhmc, barker, mala, and "
         "laplace_* variants (all kernels that accept inverse_mass_matrix; "
         "mhmc verified by RECIPE_GENERATION.md Table 1A note + "
         "needs_mass_matrix=True in registry).  "
+        "rmhmc added in Phase 8B.3: resolve_warmup_algorithm routes rmhmc to "
+        "blackjax.rmhmc (GenerateSamplingAPI) so window_adaptation can call "
+        "build_kernel(integrator) and init(position, logdensity_fn) — the "
+        "underlying kernel reuses hmc.build_kernel so inverse_mass_matrix is "
+        "passed correctly by window_adaptation despite rmhmc's user-facing API "
+        "taking mass_matrix.  "
         "NOT compatible with dynamic_hmc/dmhmc: their DynamicHMCState requires "
         "random_generator_arg at init time; blackjax.window_adaptation calls "
         "algorithm.init(position, logdensity_fn) without that arg -- needs an "

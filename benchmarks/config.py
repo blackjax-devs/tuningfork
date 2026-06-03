@@ -188,6 +188,36 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "low__dmhmc__window_adaptation_dense_imm.json",
         "calibrated",
     ),
+    # ── Phase 8B.3: rmhmc MEDIUM recipes (R1–R4) ─────────────────────────
+    # rmhmc uses implicit_midpoint integrator (vs velocity_verlet for HMC).
+    # logistic_synthetic: R1 PASS (rhat=1.001, ess=2334, z=1.95, ~8s e2e)
+    # eight_schools_ncp:  R3 APPROVE@REVIEW (rhat=1.010, ess=365, z=1.83,
+    #   statistician override — best-achievable for fixed-L rmhmc on NCP funnel)
+    # Calibrated (skip_warmup=True) cells: R2 + R4.
+    (
+        "tier1",
+        "logistic_synthetic",
+        "medium__rmhmc__window_adaptation_diag_imm.json",
+        "e2e",
+    ),
+    (
+        "tier1",
+        "logistic_synthetic",
+        "medium__rmhmc__window_adaptation_diag_imm.json",
+        "calibrated",
+    ),
+    (
+        "tier2",
+        "eight_schools_ncp",
+        "medium__rmhmc__window_adaptation_diag_imm.json",
+        "e2e",
+    ),
+    (
+        "tier2",
+        "eight_schools_ncp",
+        "medium__rmhmc__window_adaptation_diag_imm.json",
+        "calibrated",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

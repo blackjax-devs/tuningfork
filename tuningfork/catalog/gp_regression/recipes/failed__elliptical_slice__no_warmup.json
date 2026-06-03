@@ -1,0 +1,75 @@
+{
+  "model_name": "gp_regression",
+  "base_method_name": "elliptical_slice",
+  "effort": "failed",
+  "base_method_params": {},
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 0.0
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, elliptical_slice)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.elliptical_slice(logdensity_fn, **{})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: not yet measured.\nWall time to produce this recipe: ~0 s (machine-only).",
+  "notes": "HONEST-NULL: wiring is correct (B1/B2/B3 verified), but joint 203-D elliptical slice on gp_regression is structurally inefficient. Root cause: noise_scale=0.1 x n=200 makes the data likelihood ~10,000x more concentrated than the N(0,I) prior in all 203 dimensions. Elliptical slice must shrink the bracket ~12 times per step (subiter mean=11.93; 62% of steps need >10 shrinks; ideal=1-2). Measured cert result (4 chains x 1000 steps = 4000 draws, stationary init from reference posterior mean): rhat=3.46, min_bulk_ESS=4.4, n_div=0, max_z=9.1. All sites stuck (f_raw AND 3 GP hyperparams). Headline = 4.4/4000 = 0.0011 (gradient-free convention). Fix path: conditional elliptical slice (f_raw | fixed hypers) + separate sampler for hypers \u2014 out of scope for Phase 8B.3. Phase 8B.3 decision: record as honest-null; gp_regression joint elliptical_slice G->R rating pending statistician one-liner.",
+  "headline_basis": null,
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "no_warmup",
+      "params": {
+        "n_warmup": 0
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "verdict": "FAIL",
+      "rhat_max": 3.46,
+      "min_bulk_ess": 4.4,
+      "n_divergences": 0,
+      "max_abs_mean_z": 9.1
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
+  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "jax_version": "0.10.0",
+  "timestamp_utc": "2026-06-03T10:33:10Z",
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "base_method_params": {
+        "prior_mean": "see Posterior.prior_mean",
+        "prior_cov_diag": "see Posterior.prior_cov_diag"
+      },
+      "warmup_params": {
+        "n_warmup": 0,
+        "num_chains": 4,
+        "stationary_init": true
+      },
+      "seed": 20260517,
+      "gate_verdict": {
+        "verdict": "FAIL",
+        "rhat_max": 3.46,
+        "min_bulk_ess": 4.4,
+        "n_divergences": 0,
+        "max_abs_mean_z": 9.1,
+        "subiter_mean": 11.93,
+        "subiter_pct_gt10": 0.62
+      },
+      "wall_seconds": 30.6,
+      "note": "Stationary init from reference posterior mean. All sites stuck (f_raw + 3 GP hypers). Likelihood ~10000x more concentrated than prior -> bracket shrinks ~12x/step -> ESS=4.4."
+    }
+  ]
+}

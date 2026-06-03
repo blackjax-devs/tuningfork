@@ -77,6 +77,60 @@ def test_emit_script_returns_valid_python() -> None:
 
 
 @pytest.mark.fast
+def test_emit_script_rmhmc_template_valid_python() -> None:
+    """rmhmc sampler template produces syntactically valid Python and uses blackjax.rmhmc.
+
+    Phase 8B.3 smoke gate (2026-06-03): the rmhmc.py.tmpl was added alongside
+    the MEDIUM_METHOD_NAMES["rmhmc"] registration.  This test uses the existing
+    eight_schools_ncp LOW hmc recipe as a scaffold — substituting base_method_name
+    with "rmhmc" so emit_script loads the new template — and checks:
+
+    1. The emitted script is syntactically valid Python.
+    2. It calls ``blackjax.rmhmc`` (not ``blackjax.hmc``).
+    3. It does NOT call ``blackjax.hmc`` (template swap was complete).
+    4. It contains the ``_imm_to_mass_matrix`` helper that performs the
+       IMM→mass_matrix conversion required by the upstream rmhmc API.
+    """
+    import dataclasses
+
+    recipe_path = (
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "low__hmc__window_adaptation_diag_imm.json"
+    )
+    if not recipe_path.exists():
+        pytest.skip("eight_schools_ncp hmc recipe not in catalog — run emit first")
+
+    hmc_recipe = load_recipe(recipe_path)
+    # Swap only the method name; params are structurally identical (step_size,
+    # num_integration_steps, inverse_mass_matrix) so the template slots fill.
+    rmhmc_recipe = dataclasses.replace(hmc_recipe, base_method_name="rmhmc")
+
+    script = emit_script(rmhmc_recipe)
+
+    # 1. Syntactically valid Python
+    ast.parse(script)
+
+    # 2. Calls the right upstream API
+    assert "blackjax.rmhmc(" in script, (
+        "rmhmc template must call blackjax.rmhmc(...) — got:\n"
+        + script[max(0, script.find("blackjax.")) : script.find("blackjax.") + 80]
+    )
+
+    # 3. No stray blackjax.hmc calls (template swap was complete)
+    assert (
+        "blackjax.hmc(" not in script
+    ), "rmhmc template must not contain blackjax.hmc() calls"
+
+    # 4. IMM→mass_matrix helper present (required because upstream rmhmc takes
+    #    mass_matrix not inverse_mass_matrix)
+    assert (
+        "_imm_to_mass_matrix" in script
+    ), "rmhmc template must define _imm_to_mass_matrix for IMM→mass_matrix conversion"
+
+
+@pytest.mark.fast
 def test_emit_script_inference_choreography_has_no_tuningfork() -> None:
     """The inference choreography (warmup + sampler + loop) has zero ``import tuningfork``.
 

@@ -870,6 +870,80 @@ def emit_low_recipe_for_cell(
         # init_position is now phi_init (phi-space only); logdensity_fn is the
         # marginal logdensity over phi — this is what warmup.runner will use.
 
+    # --- elliptical_slice special path (B3) ---
+    # blackjax.elliptical_slice expects a LIKELIHOOD-ONLY logdensity, not the
+    # joint log-posterior.  We subtract the Gaussian prior analytically:
+    #   loglik(x) = logposterior(x) − logprior_gaussian(x, µ, diag(Σ))
+    #   logprior_gaussian = -0.5 · Σ_site Σ_dim (x_site - µ_site)² / σ²_site
+    # This requires posterior.prior_mean and posterior.prior_cov_diag to be set
+    # (both are per-site dicts; gp_regression has them for Phase 8B.3).
+    # JAX_ENABLE_X64 is handled by the requires_x64 flag above (line ~800).
+    is_elliptical_slice = sampler_name == "elliptical_slice"
+    if is_elliptical_slice:
+        if posterior.prior_mean is None or posterior.prior_cov_diag is None:
+            note = (
+                f"ERROR: elliptical_slice requested on {model_name!r} but "
+                "posterior.prior_mean / prior_cov_diag are None. "
+                "Set both fields on the Posterior entry."
+            )
+            _log(f"  {note}")
+            _append_outcome(model_name, warmup_name, sampler_name, note)
+            return CellResult(
+                model_name=model_name,
+                warmup_name=warmup_name,
+                sampler_name=sampler_name,
+                verdict="ERROR",
+                note=note,
+            )
+        # Build per-site prior pytrees for the logprior computation.
+        import jax.numpy as _jnp
+
+        _prior_mean_pytree = {k: _jnp.array(v) for k, v in posterior.prior_mean.items()}
+        _prior_cov_pytree = {
+            k: _jnp.array(v) for k, v in posterior.prior_cov_diag.items()
+        }
+        _joint_logdensity_fn = logdensity_fn
+
+        def loglik_fn(x: Any) -> Any:
+            """Likelihood-only: logposterior(x) minus the diagonal Gaussian prior."""
+            logprior = sum(
+                -0.5
+                * _jnp.sum(
+                    (x[site] - _prior_mean_pytree[site]) ** 2 / _prior_cov_pytree[site]
+                )
+                for site in _prior_mean_pytree
+            )
+            return _joint_logdensity_fn(x) - logprior
+
+        logdensity_fn = loglik_fn
+        _log(
+            "  elliptical_slice: built likelihood-only logdensity "
+            f"(subtracted diagonal Gaussian prior over {len(_prior_mean_pytree)} sites)"
+        )
+
+        # Auto-initialize near the reference posterior mean when no init_strategy
+        # is provided.  The GP posterior is highly concentrated (~20σ from the
+        # prior draw for log_noise_scale), so cold-start from prior gives
+        # rhat>>1 after 1000 steps.  _build_stationary_init_positions reads the
+        # reference/summary.json and places chains at mean ± small offsets,
+        # giving near-posterior initialization at zero extra computation cost.
+        if init_strategy is None:
+            try:
+                _stationary = _build_stationary_init_positions(
+                    model_name, 1, catalog_root
+                )
+                # _build_stationary_init_positions returns (1, ...) batched; squeeze.
+                init_position = jax.tree.map(lambda x: x[0], _stationary)
+                _log(
+                    "  elliptical_slice: initialized from reference posterior mean "
+                    "(cold-start from prior is ~20σ away for concentrated GP posteriors)"
+                )
+            except (FileNotFoundError, KeyError):
+                # If reference summary unavailable, fall back to prior draw.
+                _log(
+                    "  elliptical_slice: reference summary unavailable, using prior draw"
+                )
+
     # --- Apply init_strategy (optional override of initial position) ---
     # Applied after the laplace phi-space transformation so the override acts
     # on the same position space that the warmup kernel will operate on.
@@ -923,6 +997,14 @@ def emit_low_recipe_for_cell(
                 logdensity_fn=logdensity_fn,
                 num_chains=num_chains,
                 target_acceptance_rate=target_acceptance,
+                # B2: pass posterior_entry ONLY for no_warmup so it can read
+                # prior_mean/cov for elliptical_slice (extra_required_kwargs).
+                # Gradient-adapted warmup runners (window_adaptation_*) forward
+                # **kwargs → extra_kwargs → **warmup_kwargs → blackjax kernel,
+                # which rejects unknown kwargs; posterior_entry must not leak there.
+                **(
+                    {} if warmup_name != "no_warmup" else {"posterior_entry": posterior}
+                ),
             )
             batched_state = _warmup_result[0]
             batched_params = _warmup_result[1]
@@ -1063,8 +1145,26 @@ def emit_low_recipe_for_cell(
         # they're present as extra kwargs for the factory call below.
         pass
 
-    batched_step_size = batched_params["step_size"]
-    batched_imm = batched_params["inverse_mass_matrix"]
+    # Gradient-free / no-adapted-params samplers (elliptical_slice, rwm in no_warmup)
+    # return empty batched_params from no_warmup — they have no step_size or IMM.
+    # Inject prior_cov / prior_mean into shared_kwargs from posterior for
+    # elliptical_slice (needed to rebuild the kernel at each step).
+    batched_step_size = batched_params.get("step_size")
+    batched_imm = batched_params.get("inverse_mass_matrix")
+    is_no_adapted_params = batched_step_size is None and batched_imm is None
+
+    if is_elliptical_slice:
+        # B3 (Phase 8B.3): prior kwargs go into shared_kwargs so the factory
+        # can build the kernel with the correct Gaussian prior at each step.
+        from jax.flatten_util import ravel_pytree as _ravel_pytree
+
+        _mean_pytree = {k: jnp.array(v) for k, v in posterior.prior_mean.items()}  # type: ignore[union-attr]
+        _cov_pytree = {k: jnp.array(v) for k, v in posterior.prior_cov_diag.items()}  # type: ignore[union-attr]
+        _mean_flat, _ = _ravel_pytree(_mean_pytree)
+        _cov_flat, _ = _ravel_pytree(_cov_pytree)
+        shared_kwargs["prior_mean"] = _mean_flat
+        shared_kwargs["prior_cov"] = _cov_flat
+
     needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
 
     # mclmc-family: warmup returns adapted L in batched_params["L"].  Extract it
@@ -1189,6 +1289,20 @@ def emit_low_recipe_for_cell(
             )
 
         _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_mclmc)
+    elif is_no_adapted_params:
+        # Gradient-free / no-adapted-params path (e.g. elliptical_slice).
+        # No per-chain step_size or IMM; kernel built entirely from shared_kwargs
+        # (which for elliptical_slice contains prior_mean + prior_cov injected above).
+
+        def _step_one_chain_gf(state: Any, key: Any) -> Any:
+            kernel_step = base_method.factory(logdensity_fn, **shared_kwargs).step
+            return kernel_step(key, state)
+
+        def _vmapped_step_gf(rng_key: Any, states: Any) -> Any:
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain_gf)(states, keys)
+
+        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
     else:
 
         def _step_one_chain(state, key, step_size, imm):
@@ -1275,7 +1389,12 @@ def emit_low_recipe_for_cell(
     # --- Auto-gate ---
     # Pass step_size + num_integration_steps for the resonance check (fixed-L
     # HMC only; dynamic kernels have no fixed L, so NIS is absent from shared_kwargs).
-    _gate_chain0_ss = float(np.asarray(batched_step_size).ravel()[0])
+    # Gradient-free samplers have no step_size; pass 0.0 (no resonance check applies).
+    _gate_chain0_ss = (
+        float(np.asarray(batched_step_size).ravel()[0])
+        if batched_step_size is not None
+        else 0.0
+    )
     _gate_nis: int | None = shared_kwargs.get("num_integration_steps")
     _log("  Running auto-gate...")
     gate_verdict = auto_gate(
@@ -1355,6 +1474,22 @@ def emit_low_recipe_for_cell(
             "grad_count_convention": base_method.grad_count_convention or sampler_name,
             "is_lower_bound": _is_laplace,
         }
+    elif grad_evals == 0 and gate_verdict.min_bulk_ess is not None:
+        # Gradient-free sampler (e.g. elliptical_slice, rwm).
+        # Headline = min_bulk_ess / n_total_samples (efficiency per draw, not per grad).
+        # Phase 8B.3 ratified convention: don't leave headline null/inf for gradient-free.
+        _n_total = n_samples * num_chains
+        _min_ess: float = gate_verdict.min_bulk_ess  # narrowed: not None above
+        headline = _min_ess / _n_total
+        _grad_free_convention = (
+            "0 (gradient-free; headline = min_bulk_ess/n_total_samples)"
+        )
+        _headline_basis = {
+            "total_grad_evals": 0,
+            "min_bulk_ess": _min_ess,
+            "grad_count_convention": _grad_free_convention,
+            "is_lower_bound": False,
+        }
 
     # --- Compute sample_quality (GT-agreement; compare draws to reference) ---
     # Uses the same aligned GT keys used by auto_gate above.
@@ -1389,13 +1524,18 @@ def emit_low_recipe_for_cell(
     # specification, so we pin chain 0's adapted params.  Other chains' values
     # are functionally equivalent given the deterministic seed + per-chain key.
     _log(f"  Building {effort.value.upper()} recipe...")
-    chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
     # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
     # pinned params — it is reconstructed at recipe-run time via step_policy spec.
+    # Also exclude prior_cov / prior_mean: they are stored on the Posterior entry
+    # and do not need to be pinned per-recipe (they are read at run time).
+    _NON_SERIALISABLE_KEYS = {"integration_steps_fn", "prior_cov", "prior_mean"}
     pinned_params: dict[str, Any] = {
-        k: v for k, v in shared_kwargs.items() if k != "integration_steps_fn"
+        k: v for k, v in shared_kwargs.items() if k not in _NON_SERIALISABLE_KEYS
     }
-    pinned_params["step_size"] = chain0_step_size
+    if not is_no_adapted_params:
+        # Gradient-adapted samplers: pin chain 0's adapted step_size.
+        chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
+        pinned_params["step_size"] = chain0_step_size
     # mclmc-family: save the warmup-adapted L (chain 0) to the recipe so that
     # recipe re-runs (recertification) use the correct trajectory length rather
     # than the default_params_for fallback.  L was removed from shared_kwargs
