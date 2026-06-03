@@ -142,7 +142,9 @@ def _(load_recipe, recipe_dropdown, summarize_recipe):
 @app.cell(hide_code=True)
 def _(format_timing_context, mo, recipe):
     """Display timing metadata + machine info from calibration_budget when available."""
-    if recipe is None:
+    _is_smc = recipe is not None and hasattr(recipe, "smc_method_name")
+    if recipe is None or _is_smc:
+        # SMC recipes display timing via summarize_recipe; no warmup/sampling wall here.
         timing_panel = mo.md("")
     else:
         budget = recipe.calibration_budget or {}
@@ -192,7 +194,9 @@ def _(format_timing_context, mo, recipe):
 @app.cell(hide_code=True)
 def _(Effort, mo, recipe):
     """Sampling controls — 3 knobs for the run mode (+ regenerate slider for FAIL)."""
-    if recipe is None or recipe.effort == Effort.GROUNDTRUTH:
+    _is_smc = recipe is not None and hasattr(recipe, "smc_method_name")
+    if recipe is None or _is_smc or recipe.effort == Effort.GROUNDTRUTH:
+        # No sampling controls for SMC recipes (SMC has no MCMC warmup/sampling loop).
         # No controls needed for GROUNDTRUTH (load from cache).
         use_cached_switch = None
         skip_warmup_toggle = None
@@ -281,8 +285,9 @@ def _(
     populate_btn = None
     fail_regenerate_btn = None
     _estimate_and_button = mo.md("")
-    if recipe is None or recipe.effort == Effort.GROUNDTRUTH:
-        # No estimate box or button needed — load from cache.
+    _is_smc = recipe is not None and hasattr(recipe, "smc_method_name")
+    if recipe is None or _is_smc or recipe.effort == Effort.GROUNDTRUTH:
+        # No estimate box or button needed for SMC recipes or GROUNDTRUTH.
         pass
     elif recipe.effort == Effort.FAILED:
         # FAILED: show a diagnostic callout + regenerate button.
@@ -399,8 +404,18 @@ def _(
     # anything" debugging.
     idata = None
     _panel = mo.md("")
+    _is_smc = recipe is not None and hasattr(recipe, "smc_method_name")
     if recipe is None:
         _panel = mo.md("*Pick a recipe to see diagnostic plots.*")
+    elif _is_smc:
+        _panel = mo.callout(
+            mo.md(
+                "**SMC recipe** — the MCMC sampling panel does not apply. "
+                "See the summary table above for cert evidence "
+                "(particle_ess, max_abs_mean_z, λ_final, n_smc_steps, override note)."
+            ),
+            kind="info",
+        )
     elif recipe.effort == Effort.GROUNDTRUTH:
         # Groundtruth: load from cache (already persisted)
         try:
