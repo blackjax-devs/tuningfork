@@ -262,9 +262,11 @@ def _runner(
     if n_warmup > 0:
         from blackjax.adaptation.step_size import dual_averaging_adaptation as _da_adapt
 
-        _da_init_fn, _da_update_fn, _da_final_fn = _da_adapt(
-            target=target_acceptance_rate
+        # Defensive: target_acceptance_rate may be None if not set in warmup_params.
+        _da_target = (
+            float(target_acceptance_rate) if target_acceptance_rate is not None else 0.8
         )
+        _da_init_fn, _da_update_fn, _da_final_fn = _da_adapt(target=_da_target)
         _da_s0 = _da_init_fn(float(step_size_default))
 
         # Init from chain-0's VI-drawn position
