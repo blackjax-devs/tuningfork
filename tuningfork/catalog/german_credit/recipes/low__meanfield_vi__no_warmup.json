@@ -99,9 +99,9 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "VI-sampler REVIEW: max_abs_mean_z >= 4.0, which exceeds the z<4.0 REVIEW gate threshold for iid-VI-sampler recipes. z >= 4.0 indicates genuine VI bias beyond the pivotal sampling-noise floor (E[max|N(0,1)|_d] for this model's dimension). Gate choice: z is pivotal for iid draws (numerator and denominator both scale as 1/sqrt(n), so z does not shrink with more samples). The z<4.0 gate has <0.5% false-flag rate for d<=50 under EXACT VI; z>=4.0 identifies genuine posterior-mean bias in the variational approximation. See worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "reason": "Honest FAIL: genuine MFVI/FRVI posterior-mean bias on german_credit. z=21.4 far exceeds the 25-dim pivotal sampling-noise floor (E[max|N(0,1)|_25]=2.81). mf z=21.4 vs fr z=8.4: frvi<mfvi confirms correlation-induced bias is intrinsic (frvi's dense covariance approximates correlations better, yet still biased). The german_credit posterior has strong feature correlations; VI's mean approximation is biased relative to the true posterior mean. Honest out-of-scope. See worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
       "statistician_id": "",
-      "decision": "REVIEW"
+      "decision": "FAIL"
     }
   },
   "tuning_seed": 682737,
