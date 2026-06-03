@@ -34,3 +34,8 @@ Revise the function so that all output types match the corresponding input types
 - [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=4.276 ess=908.1
 - [gmm_25/inner_kernel_tuning/hmc] FAIL z=2.059 ess=1000.0
 - [gmm_25/inner_kernel_tuning/hmc] FAIL z=2.059 ess=1000.0
+- [logistic_synthetic/adaptive_tempered_smc/rwm] FAIL z=4.853 ess=879.2
+- [logistic_synthetic/adaptive_tempered_smc/rwm] FAIL z=2.320 ess=999.9
+- [logistic_synthetic/adaptive_tempered_smc/rwm] FAIL z=4.847 ess=901.3
+- [neals_funnel/inner_kernel_tuning/hmc] FAIL z=2.729 ess=1000.0
+- [logistic_synthetic/adaptive_tempered_smc/rwm] FAIL z=2.608 ess=1970.8
