@@ -30,3 +30,4 @@ Revise the function so that all output types match the corresponding input types
 - [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=3.376 ess=971.2
 - [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=2.825 ess=989.3
 - [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=3.431 ess=966.4
+- [gmm_25/adaptive_tempered_smc/rwm] FAIL SMC run error: TypeError: build_sampling_algorithm.<locals>.step_fn() got an unexpected keyword argument 'sigma'
