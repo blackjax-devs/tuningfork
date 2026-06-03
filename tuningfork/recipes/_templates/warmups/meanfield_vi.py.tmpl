@@ -1,24 +1,11 @@
-# === WARMUP: meanfield_vi (VI-based IMM + init-positions + adapted step_size) ===
-# Phase 1: single mean-field VI optimisation ($wp_num_optimization_steps Adam steps),
-#           shared across all chains.  Extracts diagonal IMM exp(2*rho) and
-#           draws num_chains init positions from N(mu, diag(exp(rho))^2).
-# Phase 2: step_size-only dual-averaging adaptation ($n_warmup steps from chain-0
-#           VI-drawn position, VI IMM FROZEN).  Incremental Nesterov DA:
-#           step_size updates each step; MCMC runs at the current step_size.
-#           The frozen-IMM constraint is load-bearing: mass matrix is not touched
-#           after VI fit.
-# Output:  _state_post_warmup (VI-drawn, per-chain init states) +
-#          _adapted_params["step_size"] (dual-averaged, shared) +
-#          _adapted_params["inverse_mass_matrix"] (VI diagonal, frozen).
-# Compatible: nuts, hmc, mala, rwm, barker.  NOT compatible with mclmc.
-#
-# Inference phase (post-warmup): use
-#   run_inference_algorithm(rng_key, alg, num_steps, initial_state=_state_post_warmup)
-# from blackjax.util — the emitted inference loop (inference_loop.py.tmpl) uses
-# this API with keyword initial_state= for correctness.
+# === WARMUP: meanfield_vi (VI-based IMM + init-position provider) ===
+# Runs a single mean-field VI optimisation ($wp_num_optimization_steps Adam steps)
+# shared across all chains. Draws num_chains init positions from N(mu, diag(exp(rho))^2)
+# and returns the diagonal IMM exp(2*rho) (shared across chains; only positions differ).
+# No step-size adaptation: constant default 1.0 per chain.
+# Compatible: nuts, hmc, mala, rwm, barker. NOT compatible with mclmc.
 import optax as _mfwu_optax
 import blackjax.vi.meanfield_vi as _mfwu_vi
-from blackjax.adaptation.step_size import dual_averaging_adaptation as _mfwu_da_adapt
 from jax.flatten_util import ravel_pytree as _mfwu_ravel
 
 _mfwu_optimizer = _mfwu_optax.adam(1e-2)
@@ -27,9 +14,9 @@ _mfwu_num_opt_steps = $wp_num_optimization_steps
 _mfwu_flat_init, _mfwu_unravel = _mfwu_ravel(init_position)
 _d = int(_mfwu_flat_init.shape[0])
 
-# ── Phase 1: VI optimisation ─────────────────────────────────────────────────
-_mfwu_vi_key, _mfwu_sample_key, _mfwu_sa_key = jax.random.split(
-    jax.random.key($tuning_seed), 3
+# --- Run VI optimisation (single fit, shared across all chains) ---
+_mfwu_vi_key, _mfwu_sample_key = jax.random.split(
+    jax.random.key($tuning_seed)
 )
 _mfwu_vi_init = _mfwu_vi.init(init_position, _mfwu_optimizer)
 
@@ -46,11 +33,12 @@ _mfwu_final_vi_state, _ = jax.lax.scan(
     _mfwu_vi_one_step, _mfwu_vi_init, _mfwu_vi_keys
 )
 
-# Extract diagonal IMM: exp(2 * rho).  rho encodes log-scale.
+# --- Extract diagonal IMM: exp(2 * rho) ---
+# rho encodes log-scale: sigma = exp(rho), variance = exp(2 * rho).
 _mfwu_rho_flat, _ = _mfwu_ravel(_mfwu_final_vi_state.rho)
 _mfwu_diag_imm = jnp.exp(2.0 * _mfwu_rho_flat)  # shape (d,)
 
-# Draw num_chains init positions from the fitted distribution.
+# --- Draw num_chains init positions from the fitted distribution ---
 _mfwu_chain_keys = jax.random.split(_mfwu_sample_key, num_chains)
 
 
@@ -65,74 +53,34 @@ def _mfwu_draw_one(key):
 _mfwu_flat_positions = _mfwu_draw_one(_mfwu_chain_keys)  # (num_chains, d)
 _mfwu_init_positions = jax.vmap(_mfwu_unravel)(_mfwu_flat_positions)
 
-# ── Phase 2: incremental step_size dual-averaging (VI IMM frozen) ─────────────
-# Nesterov dual averaging adapts step_size toward $target_acceptance_rate.
-# The VI diagonal IMM is held fixed throughout — no Welford, no re-estimation.
-# Incremental: step_size changes each iteration; MCMC runs at current step_size.
-# Runs from chain-0's VI-drawn position for $n_warmup steps.
-_mfwu_da_init_fn, _mfwu_da_update_fn, _mfwu_da_final_fn = _mfwu_da_adapt(
-    target=$target_acceptance_rate
-)
-_mfwu_da_s0 = _mfwu_da_init_fn(1.0)
-
-_mfwu_sa_init_state = $warmup_algorithm(
-    logdensity_fn,
-    step_size=1.0,
-    inverse_mass_matrix=_mfwu_diag_imm$warmup_extra_kwargs,
-).init(jax.tree.map(lambda x: x[0], _mfwu_init_positions))
-
-
-def _mfwu_sa_one_step(carry, step_key):
-    """One step of frozen-IMM incremental step_size dual-averaging."""
-    mcmc_state, da_state = carry
-    current_ss = jnp.exp(da_state.log_step_size)
-    new_mcmc_state, mcmc_info = $warmup_algorithm(
-        logdensity_fn,
-        step_size=current_ss,
-        inverse_mass_matrix=_mfwu_diag_imm$warmup_extra_kwargs,
-    ).step(step_key, mcmc_state)
-    _accept = jnp.asarray(
-        getattr(
-            mcmc_info,
-            "acceptance_rate",
-            getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),
-        )
-    )
-    new_da_state = _mfwu_da_update_fn(da_state, jnp.mean(_accept))
-    return (new_mcmc_state, new_da_state), None
-
-
-_mfwu_sa_keys = jax.random.split(_mfwu_sa_key, $n_warmup)
-(_mfwu_sa_final_mcmc, _mfwu_sa_final_da), _ = jax.lax.scan(
-    _mfwu_sa_one_step,
-    (_mfwu_sa_init_state, _mfwu_da_s0),
-    _mfwu_sa_keys,
-)
-# EMA-averaged adapted step_size (more stable than the final raw step_size).
-_mfwu_adapted_step_size = _mfwu_da_final_fn(_mfwu_sa_final_da)
-
-# ── Build downstream kernel states (VI positions + adapted step_size + VI IMM) ─
+# --- Build downstream kernel states for each chain ---
+# $warmup_algorithm is the downstream sampler (e.g., blackjax.nuts).
+# Each chain's state is initialised from its VI-drawn position with the
+# shared diagonal IMM; step_size=1.0 is a placeholder (adapted by BO/dual-averaging).
 
 
 @jax.vmap
 def _mfwu_init_one(pos):
     return $warmup_algorithm(
         logdensity_fn,
-        step_size=_mfwu_adapted_step_size,
+        step_size=1.0,
         inverse_mass_matrix=_mfwu_diag_imm$warmup_extra_kwargs,
     ).init(pos)
 
 
 _state_post_warmup = _mfwu_init_one(_mfwu_init_positions)
 
+# Adapted params: constant step_size per chain + shared diagonal IMM broadcast.
 _adapted_params = {
-    "step_size": jnp.full((num_chains,), _mfwu_adapted_step_size),
+    "step_size": jnp.full((num_chains,), 1.0),
     "inverse_mass_matrix": jnp.broadcast_to(
         _mfwu_diag_imm[None, :], (num_chains, _d)
     ),
 }
+# _warmup_is_perchain=True: each chain has its own (step_size, imm) entry,
+# so the inference loop builds per-chain kernels via jax.vmap.
 _warmup_is_perchain = True
 # After warmup:
-#   _state_post_warmup               batched downstream kernel states (num_chains, ...)
-#   _adapted_params["step_size"]     shape (num_chains,)    dual-averaged step_size × chains
-#   _adapted_params["inverse_mass_matrix"]  shape (num_chains, d)  VI diagonal (frozen)
+#   _state_post_warmup  -- batched downstream kernel states (leading num_chains axis)
+#   _adapted_params["step_size"]              shape (num_chains,)  constant 1.0
+#   _adapted_params["inverse_mass_matrix"]    shape (num_chains, d)  diagonal VI variance
