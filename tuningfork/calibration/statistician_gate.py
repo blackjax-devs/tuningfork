@@ -133,7 +133,9 @@ class AutoGateVerdict:
     max_abs_mean_z: float | None
     verdict: str  # "PASS" | "REVIEW" | "FAIL"
     margins: dict  # per-threshold proximity info
-    resonance_warning: bool | None = None  # True when L × ε ≥ 5.5 (fixed-L HMC only)
+    resonance_warning: bool | None = (
+        None  # True when L·ε ∈ 2kπ danger zone (fixed-L HMC only)
+    )
 
     def to_dict(self) -> dict:
         """Render in the exact shape ``Recipe.gate_evidence['auto']`` expects.
@@ -388,10 +390,12 @@ def auto_gate(
     step_size
         Adapted step size (ε) for fixed-L HMC kernels.  When both
         ``step_size`` and ``num_integration_steps`` are provided, a resonance
-        check is performed: ``num_integration_steps × step_size ≥ 5.5``
-        (~12% of 2π) flags the trajectory as near a resonance zone where
-        fixed-L HMC can exhibit systematic per-dimension bias (see lesson
-        ``2026-05-29-fixed-L-hmc-resonance-at-2pi.md``).  Does **not** affect
+        check is performed: ``L·ε ∈ [5.50,7.00] ∪ [11.05,14.07]`` (the true
+        2kπ danger zones, ±12% around 2π and 4π) flags the trajectory as near
+        a resonance zone where fixed-L HMC can exhibit systematic per-dimension
+        bias.  Odd-π/2 multiples (e.g. 5π/2≈7.85) are max-decorrelation points
+        and are NOT flagged.  See lesson
+        ``2026-05-29-fixed-L-hmc-resonance-at-2pi.md``.  Does **not** affect
         the verdict — stored as ``AutoGateVerdict.resonance_warning``.
     num_integration_steps
         Fixed leapfrog step count L.  Required with ``step_size`` for the
@@ -527,12 +531,25 @@ def auto_gate(
                 )
 
     # --- Resonance warning (fixed-L HMC only; does not alter verdict) ---
-    # L × ε ≥ 5.5 (~12% of 2π ≈ 6.28) puts the trajectory in the resonance
-    # zone where fixed-L HMC can exhibit per-dimension systematic bias.
-    # Lesson: worklog/lessons/code-patterns/2026-05-29-fixed-L-hmc-resonance-at-2pi.md
+    # True danger zones are the 2kπ resonances where fixed-L HMC exhibits
+    # per-dimension systematic bias.  Odd multiples of π/2 (e.g. 5π/2 ≈ 7.85)
+    # are max-decorrelation points — outside the danger zones.
+    #
+    # Zone k=1: L·ε ∈ [5.50, 7.00]  (±12% around 2π ≈ 6.28)
+    # Zone k=2: L·ε ∈ [11.05, 14.07] (±12% around 4π ≈ 12.57)
+    #
+    # Ratified Phase 8B.3 (2026-06-03): tightened from the previous ≥ 5.5
+    # catch-all to true 2kπ intervals only.  L=25 at ε≈0.31 gives L·ε≈7.85
+    # (≈ 5π/2, outside both zones → no warning); L=30 at same ε gives ≈9.4
+    # (≈ 3π, also outside both zones — but produces z=2.78 bias for other
+    # reasons).  Lesson: worklog/lessons/code-patterns/
+    # 2026-05-29-fixed-L-hmc-resonance-at-2pi.md
     _resonance_warning: bool | None = None
     if step_size is not None and num_integration_steps is not None:
-        _resonance_warning = bool(num_integration_steps * step_size >= 5.5)
+        _leps = num_integration_steps * step_size
+        _in_zone1 = 5.50 <= _leps <= 7.00
+        _in_zone2 = 11.05 <= _leps <= 14.07
+        _resonance_warning = bool(_in_zone1 or _in_zone2)
 
     # --- Classify each metric and accumulate verdict ---
     overall_verdict = "PASS"

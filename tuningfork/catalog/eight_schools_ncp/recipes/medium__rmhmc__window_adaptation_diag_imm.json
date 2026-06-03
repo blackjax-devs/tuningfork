@@ -119,9 +119,9 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "",
-      "statistician_id": "",
-      "decision": ""
+      "reason": "ESS=365 is 9% below threshold; all other metrics pass. The RESONANCE_WARN at L·ε=5π/2 is a false positive (5π/2 is outside the 2kπ danger zones defined in the resonance lesson). The only neighbouring L that improves ESS is L=30, which produces z=2.78 (bias concern). L=18–22 would enter the 2π danger zone. ESS shortfall reflects the hierarchical NCP funnel geometry of eight_schools_ncp. rhat=1.010 confirms correct mixing. APPROVE as best-achievable for fixed-L rmhmc on this model.",
+      "statistician_id": "statistician@phase8b3",
+      "decision": "APPROVE"
     }
   },
   "tuning_seed": 682737,
