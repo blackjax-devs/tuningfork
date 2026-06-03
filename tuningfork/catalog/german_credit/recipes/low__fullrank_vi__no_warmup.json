@@ -1,0 +1,114 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "fullrank_vi",
+  "effort": "low",
+  "base_method_params": {
+    "num_optimization_steps": 51000
+  },
+  "headline_metric": 899.66943359375,
+  "sample_quality": {
+    "mae_vs_reference": 0.13878091726398628,
+    "q05_error": 0.2719490995869322,
+    "q95_error": 0.4909281768641204,
+    "std_ratio_max_dev": 0.22618630132996342
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 5.519458216964267,
+    "n_warmup": 0,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 5.046,
+    "sampling_wall_seconds": 0.452,
+    "sampling_seconds_per_draw": 0.000113,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": null
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 899.6694.\nWall time to produce this recipe: ~5 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 4,
+    "min_bulk_ess": 3598.677734375,
+    "grad_count_convention": "1",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "no_warmup",
+      "params": {
+        "n_warmup": 0,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0016415874355153,
+      "min_bulk_ess": 3682.5369952549795,
+      "n_divergences": 0,
+      "max_abs_mean_z": 8.412779672196589,
+      "verdict": "REVIEW",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0016415874355153,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": Infinity
+        },
+        "min_bulk_ess": {
+          "value": 3682.5369952549795,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": Infinity
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": Infinity
+        },
+        "max_abs_mean_z": {
+          "value": 8.412779672196589,
+          "band": "REVIEW",
+          "pass_lo": 0.0,
+          "pass_hi": 4.0,
+          "review_lo": 4.0,
+          "review_hi": Infinity,
+          "frac_z2": 0.7307692307692307
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "VI-sampler REVIEW: max_abs_mean_z >= 4.0, which exceeds the z<4.0 REVIEW gate threshold for iid-VI-sampler recipes. z >= 4.0 indicates genuine VI bias beyond the pivotal sampling-noise floor (E[max|N(0,1)|_d] for this model's dimension). Gate choice: z is pivotal for iid draws (numerator and denominator both scale as 1/sqrt(n), so z does not shrink with more samples). The z<4.0 gate has <0.5% false-flag rate for d<=50 under EXACT VI; z>=4.0 identifies genuine posterior-mean bias in the variational approximation. See worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "statistician_id": "",
+      "decision": "REVIEW"
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
+  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-03T22:52:38Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
