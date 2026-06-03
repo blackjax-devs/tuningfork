@@ -20,3 +20,13 @@ Revise the function so that the carry output has the same pytree structure as th
 The input carry component carry[1].parameter_override['inverse_mass_matrix'] has type float32[1000,3] but the corresponding output carry component has type float32[3,3], so the shapes do not match.
 
 Revise the function so that all output types match the corresponding input types.
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=2.974 ess=962.0
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=2.089 ess=971.5
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=2.742 ess=973.2
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=3.389 ess=969.7
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=2.974 ess=962.0
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=4.066 ess=956.2
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=4.246 ess=922.2
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=3.376 ess=971.2
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=2.825 ess=989.3
+- [logistic_synthetic/inner_kernel_tuning/hmc] FAIL z=3.431 ess=966.4
