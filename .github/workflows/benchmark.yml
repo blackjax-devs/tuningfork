@@ -56,6 +56,32 @@ jobs:
         with:
           version: "latest"
 
+      - name: Restore JAX persistent compilation cache
+        # MUST run BEFORE the install steps so hashFiles('uv.lock') reflects the
+        # committed lockfile, NOT one mutated by "uv pip install blackjax@main".
+        #
+        # Bug history (#148 / fix PR): the cache step originally ran AFTER install.
+        # "uv pip install git+...blackjax@main" pins a new blackjax commit and can
+        # mutate uv.lock on disk; hashFiles('uv.lock') is evaluated at step-run
+        # time, so the key changed nearly every run → guaranteed miss.
+        #
+        # Fix:
+        #   1. Step moved here (pre-install) so hashFiles reads the committed lock.
+        #   2. restore-keys uses a hash-INDEPENDENT prefix so a new primary key
+        #      still restores the most-recent jax-compile cache entry (XLA artifacts
+        #      are forward-compatible within a JAX minor version; worst case a small
+        #      incremental recompile, not a cold 30-min rebuild).
+        #
+        # JAX's persistent cache survives jax.clear_caches() (in-memory only).
+        # Saves ~58 min/night on lotka_volterra + horseshoe e2e cells starting
+        # night 2 (night 1 cold, ~155 min, builds the cache).
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/jax-compile-cache
+          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04
+          restore-keys: |
+            jax-compile-py3.13-ubuntu-24.04-
+
       - name: Install bench-perf deps (from locked uv.lock)
         # DO NOT call uv update — use the checked-in lockfile exactly.
         # blackjax@main is installed explicitly below to track HEAD.
@@ -65,23 +91,6 @@ jobs:
         run: |
           uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax version:', blackjax.__version__)"
-
-      - name: Restore JAX persistent compilation cache
-        # JAX's persistent cache survives jax.clear_caches() (which only clears
-        # the in-memory cache).  For expensive slow-cell kernels (lotka_volterra
-        # ODE+NUTS, horseshoe dmhmc dense geometry), cold XLA compile dominates
-        # cell runtime (~25-30 min each).  With a warm disk cache, Step 1 of each
-        # cell loads the compiled artifact instead of recompiling → saves ~58 min/night
-        # starting night 2.  Night 1 (cache miss) is still ~155 min (cold build).
-        #
-        # Cache key includes uv.lock hash → auto-invalidates on JAX/blackjax bumps.
-        # restore-keys prefix allows a partial hit when only minor deps change.
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/jax-compile-cache
-          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04
-          restore-keys: |
-            jax-compile-${{ hashFiles('uv.lock') }}-py3.13-
 
       - name: Verify Python version
         run: |
