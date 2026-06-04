@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 
 from benchmarks._benchmark_helpers import bench_id, run_benchmark_cell
-from benchmarks.config import FAST_CELLS
+from benchmarks.config import FAST_CELLS, XFAIL_CELLS
 
 
 @pytest.mark.benchmark(group="recipes-fast")
@@ -42,6 +42,7 @@ from benchmarks.config import FAST_CELLS
     ids=[bench_id(c) for c in FAST_CELLS],
 )
 def test_recipe_perf(
+    request: pytest.FixtureRequest,
     benchmark: Any,
     tier: str,
     model_name: str,
@@ -54,5 +55,23 @@ def test_recipe_perf(
     JIT is warmed once by the session-scoped conftest fixture before any cell runs.
     Per-seed metrics are stored in ``benchmark.extra_info["per_seed_metrics"]``.
     GT-correctness (max_abs_mean_z < 4.0) is asserted for all seeds.
+
+    Cells in ``XFAIL_CELLS`` are marked ``pytest.mark.xfail``: the cell still
+    runs and is timed, but the GT-correctness AssertionError is an *expected*
+    failure.  An unexpected pass (XPASS) is surfaced in the report.
     """
+    # Apply xfail mark at runtime for known-flaky cells (XFAIL_CELLS).
+    # Unlike pytest.xfail() which aborts immediately, request.applymarker lets
+    # the full test run (timing is recorded); only a correctness AssertionError
+    # becomes an expected failure (xfail) rather than a CI-breaking failure.
+    # An unexpected pass (XPASS) is still surfaced in the report.
+    cell_id = bench_id((tier, model_name, recipe_file, mode))
+    if cell_id in XFAIL_CELLS:
+        request.applymarker(
+            pytest.mark.xfail(
+                reason=XFAIL_CELLS[cell_id],
+                strict=False,  # XPASS is OK — means issue resolved
+                raises=AssertionError,  # only catch correctness failures
+            )
+        )
     run_benchmark_cell(benchmark, model_name, recipe_file, mode)

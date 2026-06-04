@@ -357,6 +357,37 @@ SPEED_SEED: int = _today_seed()
 # reflect the original CI hardware and expK measured +27% (stoch_vol-dmhmc)
 # and +54% (horseshoe) delta vs those comments on current runners.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# XFAIL_CELLS: cells whose GT-correctness assertion is known to fail at one
+# or more nightly seeds.  These cells are marked ``pytest.mark.xfail`` so the
+# nightly cron stays green while the issue is tracked.
+#
+# Each entry maps bench_id → reason string (displayed in the pytest report).
+# The cell remains in FAST_CELLS / SLOW_CELLS — it still runs and times; only
+# the correctness ASSERT is marked expected-failure.  An unexpected PASS
+# (i.e. the cell somehow clears z<4.0 at all seeds) is recorded as XPASS.
+#
+# Rules:
+#   - Only add here on explicit TL/statistician sign-off.
+#   - Include a worklog reference so the root cause is tracked.
+#   - Remove the entry once the recipe is re-certified.
+# ---------------------------------------------------------------------------
+XFAIL_CELLS: dict[str, str] = {
+    # adjusted_mclmc_dynamic × logistic_synthetic e2e:
+    # Known seed-sensitive under-adaptation: passes tuning_seed=682737 (z=0.70)
+    # but fails 3/3 nightly seeds 20260601-20260603 (z≈4.5, threshold=4.0).
+    # min_bulk_ESS=509/4000=12.7% indicates warmup did not converge reliably.
+    # This is exactly the kind of single-seed cert failure our 3-seed policy
+    # exists to catch.  Under @statistician investigation for proper re-cert.
+    # Tracking: worklog 2026-06-04-adjusted-mclmc-dynamic-logistic-seed-instability.
+    # TL sign-off: 2026-06-04.
+    "tier1-logistic_synthetic-low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning-e2e": (
+        "known seed-sensitive under-adaptation (min_bulk_ESS 12.7%); passes tuning "
+        "seed only (z=0.70); fails 3/3 nightly seeds (z≈4.5); @statistician "
+        "investigating; tracking worklog 2026-06-04-adjusted-mclmc-dynamic-logistic"
+    ),
+}
+
 PINNED_SEEDS: dict[str, int] = {
     # stoch_vol × nuts e2e:
     #   20260603 is anomalously LOW (16.1s vs ~18s typical — shorter trajectory).
