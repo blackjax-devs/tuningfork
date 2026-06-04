@@ -907,10 +907,9 @@ def emit_script(
     preamble = _load_template("preamble.py.tmpl").safe_substitute(ctx)
 
     # Warmup variants that support a multi-chain (vmap) path when progress_bar=False.
-    # The single-chain templates (existing) include a warnings.warn() block that fires
-    # when progress_bar=True.  The multi-chain (_multichain) templates run
-    # jax.vmap(warmup.run) over num_chains so each chain gets its own adapted params;
-    # they require progress_bar=False because io_callback is unsupported in vmap.
+    # T1.6: window_adaptation variants unified into 2 templates (singlechain +
+    # multichain), parameterised by $window_adaptation_fn and
+    # $window_adaptation_extra_kwargs.
     _MULTICHAIN_WARMUP_VARIANTS = frozenset(
         {
             "window_adaptation_diag_imm",
@@ -918,6 +917,26 @@ def emit_script(
             "window_adaptation_low_rank_imm",
         }
     )
+    if recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
+        if recipe.warmup_name == "window_adaptation_diag_imm":
+            ctx["window_adaptation_fn"] = "blackjax.window_adaptation"
+            ctx["window_adaptation_extra_kwargs"] = ""
+        elif recipe.warmup_name == "window_adaptation_dense_imm":
+            ctx["window_adaptation_fn"] = "blackjax.window_adaptation"
+            ctx["window_adaptation_extra_kwargs"] = "is_mass_matrix_diagonal=False,"
+        else:  # window_adaptation_low_rank_imm
+            ctx["window_adaptation_fn"] = "blackjax.window_adaptation_low_rank"
+            # T0.2 guard: max_rank must be present for low_rank recipes.
+            # Resolved to its actual value here rather than leaving as $wp_max_rank
+            # (a nested slot inside a slot value is never re-substituted).
+            _max_rank = recipe.warmup_params.get("max_rank")
+            if _max_rank is None:
+                raise ValueError(
+                    "window_adaptation_low_rank_imm recipe is missing 'max_rank' in "
+                    "warmup_params. Add max_rank=<int> to the recipe's warmup_params "
+                    "before calling emit_script."
+                )
+            ctx["window_adaptation_extra_kwargs"] = f"max_rank={_max_rank},"
 
     # Resolve effective warmup_num_chains: call-time override wins over recipe-stamped.
     # None → fall back to recipe.warmup_num_chains (may also be None for legacy recipes).
@@ -932,30 +951,33 @@ def emit_script(
     _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
 
     # Build the warmup body: multi-phase laplace uses a dedicated template;
-    # single-phase uses the per-warmup template, branching on progress_bar for
-    # warmup variants that support multi-chain execution.
+    # window_adaptation variants use the unified templates (T1.6);
+    # other warmups use their own templates.
     if _is_laplace and _is_multiphase_warmup:
         # Multi-phase laplace: dedicated template (already single-chain + broadcast
         # by design); warmup_num_chains doesn't affect template selection here.
         warmup_body = _load_template(
             "warmups/laplace_multiphase_warmup.py.tmpl"
         ).safe_substitute(ctx)
-    elif _warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
-        # warmup_num_chains[0]=1 → force single-chain template regardless of
-        # progress_bar. Mirrors the laplace_multiphase_warmup pattern: one warmup
-        # chain, broadcast to num_chains for sampling.
+    elif (
+        not _is_laplace
+        and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
+        and not (_warmup_W0 == 1)
+        and not _warmup_pb
+    ):
+        # progress_bar=False (and warmup_num_chains != 1) → multi-chain warmup.
+        # T1.6: use unified multichain template.
         warmup_body = _load_template(
-            f"warmups/{recipe.warmup_name}.py.tmpl"
+            "warmups/window_adaptation_multichain.py.tmpl"
         ).safe_substitute(ctx)
-    elif not _warmup_pb and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
-        # progress_bar=False → multi-chain warmup via jax.vmap(warmup.run).
-        # Per-chain adapted params; _warmup_is_perchain=True set in the template.
+    elif recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
+        # progress_bar=True or warmup_num_chains=1 → single-chain warmup.
+        # T1.6: use unified singlechain template.
         warmup_body = _load_template(
-            f"warmups/{recipe.warmup_name}_multichain.py.tmpl"
+            "warmups/window_adaptation.py.tmpl"
         ).safe_substitute(ctx)
     else:
-        # progress_bar=True (default) or non-vmap warmup variant →
-        # single-chain warmup with broadcast + warnings.warn() in template.
+        # Non-window_adaptation warmup (no_warmup, pathfinder, VI, etc.).
         warmup_body = _load_template(
             f"warmups/{recipe.warmup_name}.py.tmpl"
         ).safe_substitute(ctx)

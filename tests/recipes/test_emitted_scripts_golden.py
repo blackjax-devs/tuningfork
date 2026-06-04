@@ -726,13 +726,14 @@ def test_window_adaptation_singlechain_emits_warmup_is_perchain_false() -> None:
 
 @pytest.mark.fast
 def test_low_rank_imm_slot_requires_max_rank() -> None:
-    """T0.2: low_rank_window_adaptation recipe with missing max_rank gets '$wp_max_rank' unresolved."""
-    import re
+    """T0.2: emit_script raises ValueError for low_rank recipe missing max_rank.
 
+    After T1.6 + T0.2 fix, emit_script raises ValueError at generation time
+    (rather than silently emitting broken Python with unresolved $wp_max_rank).
+    This is the correct behaviour: fail loudly at the generator, not at runtime.
+    """
     from tuningfork.recipes._base import Effort, Recipe
 
-    # Deliberately omit max_rank from warmup_params to verify the unresolved-slot
-    # detector fires. This is the T0.2 guard.
     recipe = Recipe(
         model_name="mvn_10",
         base_method_name="nuts",
@@ -740,7 +741,7 @@ def test_low_rank_imm_slot_requires_max_rank() -> None:
         effort=Effort.LOW,
         base_method_params={"step_size": 0.5, "max_num_doublings": 5},
         warmup_params={"n_warmup": 10, "target_acceptance_rate": 0.8, "num_chains": 4},
-        # max_rank intentionally absent
+        # max_rank intentionally absent — T0.2 guard
         warmups=[
             {"name": "window_adaptation_low_rank_imm", "params": {"n_warmup": 10}}
         ],
@@ -751,14 +752,8 @@ def test_low_rank_imm_slot_requires_max_rank() -> None:
         instructions="",
         tuning_seed=0,
     )
-    script = emit_script(recipe, num_samples=5)
-    # Without max_rank in warmup_params, the $wp_max_rank slot is unresolved
-    unresolved = re.findall(r"\$[A-Za-z_]\w*", script)
-    assert any("max_rank" in slot for slot in unresolved), (
-        "Expected '$wp_max_rank' to remain unresolved when max_rank absent from "
-        "warmup_params. This is the T0.2 guard: the emit-time assert in T1.1 "
-        "should catch this and raise before emitting broken Python."
-    )
+    with pytest.raises(ValueError, match="max_rank"):
+        emit_script(recipe, num_samples=5)
 
 
 # ---------------------------------------------------------------------------
