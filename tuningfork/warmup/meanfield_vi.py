@@ -85,6 +85,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from tuningfork.base_method._base import HyperparamSpace
 from tuningfork.warmup._base import Warmup
 
 __all__ = ["ENTRY"]
@@ -102,7 +103,7 @@ _adam_default = optax.adam(1e-2)
 def _runner(
     rng_key: jax.Array,
     init_position: Any,
-    n_warmup: int,  # noqa: ARG001 — accepted for interface uniformity; not used
+    n_warmup: int,  # step_size dual-averaging budget (0 = skip, use step_size_default)
     base_method: Any,  # BaseMethod; not imported to avoid circular dep
     *,
     logdensity_fn: Any,
@@ -111,6 +112,7 @@ def _runner(
     num_optimization_steps: int = 10_000,
     optimizer: Any = None,
     num_samples_per_step: int = 5,
+    target_acceptance_rate: float = 0.8,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
     """Run mean-field VI once (shared fit); draw ``num_chains`` init positions.
@@ -241,20 +243,70 @@ def _runner(
     # Convert flat (num_chains, d) positions back to the original pytree.
     init_positions_pytree = jax.vmap(unravel_fn)(flat_init_positions)
 
-    # --- Build kernel states for each chain ---
-    init_defaults: dict[str, Any] = {}
-    if base_method.needs_mass_matrix:
-        init_defaults["inverse_mass_matrix"] = jnp.ones(d)
-
+    # --- Build extra kwargs for the downstream kernel ---
     from tuningfork.calibration.tune import default_value_for_space
 
+    _extra_kwargs: dict[str, Any] = {}
+    if base_method.needs_mass_matrix:
+        _extra_kwargs["inverse_mass_matrix"] = diag_imm  # VI diagonal IMM
     for space in base_method.default_hp_space:
-        if space.name not in ("step_size", "inverse_mass_matrix"):
-            if space.name not in init_defaults:
-                init_defaults[space.name] = default_value_for_space(space)
-    init_defaults.setdefault("step_size", step_size_default)
+        if (
+            space.name not in ("step_size", "inverse_mass_matrix")
+            and space.name not in _extra_kwargs
+        ):
+            _extra_kwargs[space.name] = default_value_for_space(space)
 
-    kernel = base_method.factory(logdensity_fn, **init_defaults)
+    # --- Step_size adaptation via incremental dual averaging (VI IMM frozen) ---
+    # n_warmup > 0: run n_warmup steps of Nesterov DA from chain-0's VI position.
+    # The VI IMM is frozen throughout; only step_size is adapted.
+    # n_warmup == 0: skip adaptation, use step_size_default.
+    if n_warmup > 0:
+        from blackjax.adaptation.step_size import dual_averaging_adaptation as _da_adapt
+
+        # Defensive: target_acceptance_rate may be None if not set in warmup_params.
+        _da_target = (
+            float(target_acceptance_rate) if target_acceptance_rate is not None else 0.8
+        )
+        _da_init_fn, _da_update_fn, _da_final_fn = _da_adapt(target=_da_target)
+        _da_s0 = _da_init_fn(float(step_size_default))
+
+        # Init from chain-0's VI-drawn position
+        _sa_kernel_0 = base_method.factory(
+            logdensity_fn, step_size=float(step_size_default), **_extra_kwargs
+        )
+        _sa_init_state = _sa_kernel_0.init(
+            jax.tree.map(lambda x: x[0], init_positions_pytree)
+        )
+
+        def _sa_one_step(carry: tuple, step_key: jax.Array) -> tuple:
+            mcmc_state, da_state = carry
+            current_ss = jnp.exp(da_state.log_step_size)
+            new_mcmc_state, mcmc_info = base_method.factory(
+                logdensity_fn, step_size=current_ss, **_extra_kwargs
+            ).step(step_key, mcmc_state)
+            _accept = jnp.asarray(
+                getattr(
+                    mcmc_info,
+                    "acceptance_rate",
+                    getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),
+                )
+            )
+            new_da_state = _da_update_fn(da_state, jnp.mean(_accept))
+            return (new_mcmc_state, new_da_state), None
+
+        _sa_key = jax.random.fold_in(rng_key, 999)
+        _sa_keys = jax.random.split(_sa_key, n_warmup)
+        (_, _sa_final_da), _ = jax.lax.scan(
+            _sa_one_step, (_sa_init_state, _da_s0), _sa_keys
+        )
+        _adapted_step_size = float(jnp.exp(_sa_final_da.log_step_size_avg))
+    else:
+        _adapted_step_size = float(step_size_default)
+
+    # --- Build kernel states for each chain at the adapted step_size ---
+    kernel = base_method.factory(
+        logdensity_fn, step_size=_adapted_step_size, **_extra_kwargs
+    )
 
     @jax.vmap
     def init_one(pos: Any) -> Any:
@@ -266,7 +318,7 @@ def _runner(
     imm_per_chain = jnp.broadcast_to(diag_imm[None, :], (num_chains, d))
 
     adapted_params: dict[str, Any] = {
-        "step_size": jnp.full((num_chains,), step_size_default),
+        "step_size": jnp.full((num_chains,), _adapted_step_size),
         "inverse_mass_matrix": imm_per_chain,  # (num_chains, d)
         "_mfvi_elbo": final_elbo,  # scalar sidecar
     }
@@ -278,6 +330,14 @@ ENTRY = Warmup(
     name="meanfield_vi",
     runner=_runner,
     compatible_methods=_COMPATIBLE,
+    default_hp_space=(
+        # num_optimization_steps: BO-tunable VI optimisation budget.
+        # Mirror the base_method VI range for consistency (1k–50k).
+        # Default value (midpoint = 25_500) is close to the production 10_000 default
+        # when the recipe runner uses default_value_for_space; override by passing
+        # num_optimization_steps directly via warmup_kwargs_override in emit.
+        HyperparamSpace("num_optimization_steps", "int", low=1_000, high=50_000),
+    ),
     notes=(
         "Mean-field VI warmup: runs a single mean-field VI "
         "optimisation (shared across all chains) via jax.lax.scan over "
@@ -285,8 +345,10 @@ ENTRY = Warmup(
         "initial positions from the fitted variational distribution and "
         "returns the diagonal variance exp(2*rho) as the "
         "inverse_mass_matrix (shared across all chains — the fit is "
-        "shared, only init positions differ).  No step_size adaptation: "
-        "returns a constant scalar default (1.0) per chain.  "
+        "shared, only init positions differ).  "
+        "step_size adaptation: when n_warmup > 0, runs n_warmup steps of "
+        "Nesterov dual averaging with the VI IMM frozen to find the adapted "
+        "step_size; when n_warmup == 0, returns step_size_default (1.0).  "
         "Sidecar: _mfvi_elbo (final ELBO scalar).  "
         "Compatible: nuts, hmc, mala, rwm, barker.  "
         "NOT compatible with mclmc (microcanonical geometry).  "

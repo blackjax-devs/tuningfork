@@ -339,6 +339,7 @@ def _run_warmup(
     n_warmup: int,
     rng_key: jax.Array,
     warmup_name: str = "window_adaptation_diag_imm",
+    warmup_hp_params: dict[str, Any] | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     """Run warmup and return (adapted_state, adapted_params).
 
@@ -422,6 +423,7 @@ def _run_warmup(
         algorithm_entry,
         logdensity_fn=logdensity_fn,
         num_chains=1,
+        **(warmup_hp_params or {}),
     )
     batched_state, batched_params = _tune_warmup_result[0], _tune_warmup_result[1]
     return squeeze_single_chain(batched_state, batched_params)
@@ -729,25 +731,45 @@ def tune_algorithm(
             warmup_name = "no_warmup"
 
     # ------------------------------------------------------------------
-    # 3. Single warmup run (reused across ALL trials)
+    # 3. Warmup setup
     # ------------------------------------------------------------------
-    adapted_state, warmup_params = _run_warmup(
-        logdensity_fn=logdensity_fn,
-        init_position=init_position,
-        algorithm_entry=algorithm_entry,
-        n_warmup=n_warmup,
-        rng_key=rng_key_warmup,
-        warmup_name=warmup_name,
-    )
+    # When the warmup has its own HP space (e.g. meanfield_vi/fullrank_vi with
+    # num_optimization_steps), warmup must RE-RUN on every BO trial because
+    # the warmup output depends on the warmup HPs.
+    # When warmup has no HP space (all other warmups), warmup runs ONCE and
+    # the adapted state is reused across all trials.
+    from tuningfork.warmup import WARMUPS
+
+    _warmup_entry = WARMUPS[warmup_name]
+    _warmup_has_hp = bool(getattr(_warmup_entry, "default_hp_space", ()))
+    _warmup_default_hp = {
+        space.name: default_value_for_space(space)
+        for space in getattr(_warmup_entry, "default_hp_space", ())
+    }
+
+    if not _warmup_has_hp:
+        # Classic path: single warmup run, reused across all trials.
+        adapted_state, warmup_params = _run_warmup(
+            logdensity_fn=logdensity_fn,
+            init_position=init_position,
+            algorithm_entry=algorithm_entry,
+            n_warmup=n_warmup,
+            rng_key=rng_key_warmup,
+            warmup_name=warmup_name,
+        )
+    else:
+        # Warmup-HP path: placeholder; warmup re-runs inside objective per trial.
+        adapted_state, warmup_params = None, {}
     # warmup_params for window_adaptation_diag_imm (MM-kernels):
     #   {"step_size": ..., "inverse_mass_matrix": ...}
     # warmup_params for no_warmup (MALA/RWM): {} (all params come from BO)
     # warmup_params for mclmc_tuning:
     #   {"L": ..., "step_size": ..., "inverse_mass_matrix": ...,
     #    "_total_tuning_steps": ...}
+    # warmup_params for VI warmup: re-run per trial when _warmup_has_hp=True.
 
     # ------------------------------------------------------------------
-    # 3. Optuna study with selected sampler
+    # 4. Optuna study with selected sampler
     # ------------------------------------------------------------------
     # KEEP: int(jax_scalar) for Optuna seed; one-time setup (not in timing hot path).
     sampler_seed = int(
@@ -767,7 +789,8 @@ def tune_algorithm(
 
     # Enqueue deterministic default as trial 0 (pins the "out-of-the-box"
     # reference point for the TuningDifficulty calculation).
-    study.enqueue_trial(default_params_for(algorithm_entry))
+    # Include warmup HP defaults when the warmup has its own HP space.
+    study.enqueue_trial({**default_params_for(algorithm_entry), **_warmup_default_hp})
 
     # ------------------------------------------------------------------
     # 5. Per-trial objective (closure over warmup state + logdensity_fn)
@@ -777,7 +800,7 @@ def tune_algorithm(
     study_start = time.perf_counter()
 
     def objective(trial: optuna.Trial) -> float:
-        # Suggest HPs from the search space.
+        # Suggest sampler HPs from the base_method search space.
         trial_params: dict[str, Any] = {}
         for space in algorithm_entry.default_hp_space:
             dist = optuna_distribution_for_space(space)
@@ -800,16 +823,47 @@ def tune_algorithm(
                     list(dist.choices),
                 )
 
+        # Suggest warmup HPs (if warmup has its own HP space, e.g. VI num_opt_steps).
+        trial_warmup_hp: dict[str, Any] = {}
+        for space in getattr(_warmup_entry, "default_hp_space", ()):
+            dist = optuna_distribution_for_space(space)
+            if isinstance(dist, optuna.distributions.IntDistribution):
+                trial_warmup_hp[space.name] = trial.suggest_int(
+                    space.name, dist.low, dist.high
+                )
+            elif isinstance(dist, optuna.distributions.FloatDistribution):
+                trial_warmup_hp[space.name] = trial.suggest_float(
+                    space.name, dist.low, dist.high, log=dist.log
+                )
+            elif isinstance(dist, optuna.distributions.CategoricalDistribution):
+                trial_warmup_hp[space.name] = trial.suggest_categorical(
+                    space.name, list(dist.choices)
+                )
+
+        # When warmup has HP space: re-run warmup with this trial's warmup HPs.
+        # When warmup has no HP space: reuse the pre-computed adapted_state.
+        if _warmup_has_hp:
+            _trial_warmup_key = jax.random.fold_in(rng_key_warmup, trial.number)
+            _trial_adapted_state, _trial_warmup_params = _run_warmup(
+                logdensity_fn=logdensity_fn,
+                init_position=init_position,
+                algorithm_entry=algorithm_entry,
+                n_warmup=n_warmup,
+                rng_key=_trial_warmup_key,
+                warmup_name=warmup_name,
+                warmup_hp_params=trial_warmup_hp,
+            )
+        else:
+            _trial_adapted_state = adapted_state
+            _trial_warmup_params = warmup_params
+
         # Merge: warmup IMM is fixed; trial_params override BO-tunable HPs.
-        # The BO search space intentionally does NOT include
-        # inverse_mass_matrix (verified by tests), so the merge
-        # is safe: warmup_params provides IMM; trial_params provide the rest.
         # Strip internal metadata keys (underscore-prefixed, e.g.
         # "_total_tuning_steps" from mclmc_tuning) before passing to the
         # kernel factory — those keys are for Recipe.calibration_budget, not
         # for blackjax kernel construction.
         public_warmup_params = {
-            k: v for k, v in warmup_params.items() if not k.startswith("_")
+            k: v for k, v in _trial_warmup_params.items() if not k.startswith("_")
         }
         kernel_params = {**public_warmup_params, **trial_params}
 
@@ -828,7 +882,7 @@ def tune_algorithm(
             )
             score = _run_trial(
                 logdensity_fn=logdensity_fn,
-                adapted_state=adapted_state,
+                adapted_state=_trial_adapted_state,
                 algorithm_entry=algorithm_entry,
                 kernel_params=kernel_params,
                 n_chains=n_chains,

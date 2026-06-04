@@ -65,7 +65,7 @@ from tuningfork.base_method import BASE_METHODS
 from tuningfork.base_method._step_policy_registry import build_step_policy
 from tuningfork.base_method._warmup_to_sampler_transform import transform_warmup_state
 from tuningfork.calibration.statistician_gate import auto_gate
-from tuningfork.calibration.tune import default_params_for
+from tuningfork.calibration.tune import default_params_for, default_value_for_space
 from tuningfork.metrics.grad_counter import total_grad_evals
 from tuningfork.metrics.headline import min_bulk_ess_per_grad
 from tuningfork.metrics.reference_compare import (
@@ -645,6 +645,7 @@ def emit_low_recipe_for_cell(
     verbose: bool = True,
     target_acceptance: float | None = None,
     sampler_kwargs_override: dict[str, Any] | None = None,
+    warmup_kwargs_override: dict[str, Any] | None = None,
     step_policy: dict[str, Any] | None = None,
     policy_tag: str | None = None,
     effort: Effort = Effort.LOW,
@@ -989,6 +990,15 @@ def emit_low_recipe_for_cell(
             # Legacy path: warmup.runner handles implicit substitute-family logic.
             # window_adaptation runners return (states, params, kernel_info) as of
             # the exact-wge instrumentation; unpack defensively for backward compat.
+            # Build warmup HP kwargs: declared warmup HP space defaults, then
+            # override with warmup_kwargs_override (BO-found values or explicit config).
+            _warmup_hp_kwargs: dict[str, Any] = {
+                space.name: default_value_for_space(space)
+                for space in getattr(warmup, "default_hp_space", ())
+            }
+            if warmup_kwargs_override:
+                for _k, _v in warmup_kwargs_override.items():
+                    _warmup_hp_kwargs[_k] = _v
             _warmup_result = warmup.runner(
                 warmup_key,
                 init_position,
@@ -997,6 +1007,8 @@ def emit_low_recipe_for_cell(
                 logdensity_fn=logdensity_fn,
                 num_chains=num_chains,
                 target_acceptance_rate=target_acceptance,
+                # Warmup HPs (e.g. num_optimization_steps for VI warmup).
+                **_warmup_hp_kwargs,
                 # B2: pass posterior_entry ONLY for no_warmup so it can read
                 # prior_mean/cov for elliptical_slice (extra_required_kwargs).
                 # Gradient-adapted warmup runners (window_adaptation_*) forward
@@ -1581,6 +1593,21 @@ def emit_low_recipe_for_cell(
     # _recipe_step_policy is computed above (before gate early-returns) so that
     # it's available regardless of gate verdict.  See the assignment near line 897.
 
+    # Base warmup params: n_warmup, num_chains, target_acceptance.
+    # Warmup HP params (e.g. num_optimization_steps for VI warmup) are appended
+    # from the warmup's default_hp_space, overridden by warmup_kwargs_override.
+    _warmup_hp_params_to_record: dict[str, Any] = {
+        space.name: default_value_for_space(space)
+        for space in getattr(warmup, "default_hp_space", ())
+    }
+    if warmup_kwargs_override:
+        _warmup_hp_params_to_record.update(
+            {
+                k: v
+                for k, v in warmup_kwargs_override.items()
+                if any(k == s.name for s in getattr(warmup, "default_hp_space", ()))
+            }
+        )
     _warmup_params_dict: dict[str, Any] = {
         "n_warmup": n_warmup,
         "num_chains": num_chains,
@@ -1589,6 +1616,7 @@ def emit_low_recipe_for_cell(
             if target_acceptance is not None
             else (base_method.target_acceptance_rate or RECIPE_TARGET_ACCEPTANCE)
         ),
+        **_warmup_hp_params_to_record,
     }
 
     recipe_kwargs: dict[str, Any] = dict(
@@ -2317,6 +2345,14 @@ def run_recipe_to_idata(
     else:
         # Single-phase standard warmup. Resolve W from warmup_num_chains[0].
         _single_W = _wnc_effective[0] if _wnc_effective is not None else num_chains
+        # Read warmup HP params from recipe.warmup_params (e.g. num_optimization_steps
+        # for VI warmup); fall back to warmup HP defaults when not recorded.
+        _recipe_warmup_hp: dict[str, Any] = {
+            space.name: recipe.warmup_params.get(
+                space.name, default_value_for_space(space)
+            )
+            for space in getattr(warmup, "default_hp_space", ())
+        }
         _std_result = warmup.runner(
             warmup_key,
             init_position,
@@ -2325,6 +2361,7 @@ def run_recipe_to_idata(
             logdensity_fn=logdensity_fn,
             num_chains=_single_W,
             target_acceptance_rate=target_acceptance,
+            **_recipe_warmup_hp,
         )
         _raw_state_std, _raw_params_std = _std_result[0], _std_result[1]
         if _single_W != num_chains:
