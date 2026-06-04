@@ -43,7 +43,7 @@
   },
   "difficulty": null,
   "instructions": "**Low-effort recipe** (conventional `(adjusted_mclmc_tuning, adjusted_mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc(logdensity_fn, **{'step_size': 1.5745915174484253, 'L': 1.7320507764816284, 'inverse_mass_matrix': [0.7224339246749878, 0.9691308736801147, 1.5847969055175781]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0423.\nWall time to produce this recipe: ~10 s (machine-only).",
-  "notes": "",
+  "notes": "HONEST-NULL CELL (demoted 2026-06-04 per @statistician). adjusted_mclmc(_dynamic) achieves correct L/\u03b5 adaptation (L=1.73, \u03b5=1.57, L/\u03b5\u22481.1) but produces low ESS (~9-13%) on this model. Diagnosis: (1) the logistic posterior's off-diagonal correlations (driven by the design matrix X\u1d40WX) are not captured by the diagonal inverse-mass-matrix, leaving correlated geometry MCLMC's microcanonical dynamics can't efficiently explore; (2) the logistic likelihood's anharmonic curvature (non-quadratic potential) causes systematic mismatch in the microcanonical stationary distribution. Neither effect is present on isotropic-Gaussian targets (mvn_10 at d=10: ESS\u2248100%). For logistic regression, use NUTS or HMC.",
   "headline_basis": {
     "total_grad_evals": 8000,
     "min_bulk_ess": 338.0679190158844,
@@ -72,7 +72,7 @@
       "min_bulk_ess": 375.0626520129019,
       "n_divergences": 0,
       "max_abs_mean_z": 0.7210022228865314,
-      "verdict": "REVIEW",
+      "verdict": "FAIL",
       "margins": {
         "rhat_max": {
           "value": 1.007668226395004,
@@ -111,9 +111,9 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "",
-      "statistician_id": "",
-      "decision": ""
+      "reason": "HONEST-NULL CELL (demoted 2026-06-04 per @statistician). adjusted_mclmc(_dynamic) achieves correct L/\u03b5 adaptation (L=1.73, \u03b5=1.57, L/\u03b5\u22481.1) but produces low ESS (~9-13%) on this model. Diagnosis: (1) the logistic posterior's off-diagonal correlations (driven by the design matrix X\u1d40WX) are not captured by the diagonal inverse-mass-matrix, leaving correlated geometry MCLMC's microcanonical dynamics can't efficiently explore; (2) the logistic likelihood's anharmonic curvature (non-quadratic potential) causes systematic mismatch in the microcanonical stationary distribution. Neither effect is present on isotropic-Gaussian targets (mvn_10 at d=10: ESS\u2248100%). For logistic regression, use NUTS or HMC.",
+      "statistician_id": "statistician",
+      "decision": "DEMOTE"
     }
   },
   "tuning_seed": 682737,

@@ -105,19 +105,10 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "low__adjusted_mclmc__adjusted_mclmc_tuning.json",
         "calibrated",
     ),
-    # adjusted_mclmc_dynamic
-    (
-        "tier1",
-        "logistic_synthetic",
-        "low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json",
-        "e2e",
-    ),
-    (
-        "tier1",
-        "logistic_synthetic",
-        "low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json",
-        "calibrated",
-    ),
+    # adjusted_mclmc_dynamic -- logistic_synthetic cells REMOVED 2026-06-04:
+    # Both recipes demoted to honest-null per @statistician (diagonal IMM cannot
+    # capture logistic posterior's correlated geometry; anharmonic curvature).
+    # ESS 9-13%, failing 3/3 nightly seeds. See recipe notes for full diagnosis.
     # laplace family — e2e only (phi-space GT-means mismatch for skip_warmup)
     # CI timings: 37.5s, 16.5s, 16.5s, 16.2s — all well under 60s
     (
@@ -295,7 +286,7 @@ _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
         "tier1-logistic_synthetic-low__dynamic_hmc__window_adaptation_diag_imm-e2e",
         "tier1-logistic_synthetic-low__dmhmc__window_adaptation_diag_imm-e2e",
         "tier1-logistic_synthetic-low__mclmc__mclmc_tuning-e2e",
-        "tier1-logistic_synthetic-low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning-e2e",
+        # tier1-logistic_synthetic adjusted_mclmc_dynamic removed (recipe demoted honest-null 2026-06-04)
         # mvn_10 — Gaussian topology, static adjusted_mclmc family
         "tier1-mvn_10-low__adjusted_mclmc__adjusted_mclmc_tuning-e2e",
         # eight_schools_ncp — hierarchical NCP topology diversity
@@ -373,19 +364,9 @@ SPEED_SEED: int = _today_seed()
 #   - Remove the entry once the recipe is re-certified.
 # ---------------------------------------------------------------------------
 XFAIL_CELLS: dict[str, str] = {
-    # adjusted_mclmc_dynamic × logistic_synthetic e2e:
-    # Known seed-sensitive under-adaptation: passes tuning_seed=682737 (z=0.70)
-    # but fails 3/3 nightly seeds 20260601-20260603 (z≈4.5, threshold=4.0).
-    # min_bulk_ESS=509/4000=12.7% indicates warmup did not converge reliably.
-    # This is exactly the kind of single-seed cert failure our 3-seed policy
-    # exists to catch.  Under @statistician investigation for proper re-cert.
-    # Tracking: worklog 2026-06-04-adjusted-mclmc-dynamic-logistic-seed-instability.
-    # TL sign-off: 2026-06-04.
-    "tier1-logistic_synthetic-low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning-e2e": (
-        "known seed-sensitive under-adaptation (min_bulk_ESS 12.7%); passes tuning "
-        "seed only (z=0.70); fails 3/3 nightly seeds (z≈4.5); @statistician "
-        "investigating; tracking worklog 2026-06-04-adjusted-mclmc-dynamic-logistic"
-    ),
+    # (empty — adjusted_mclmc_dynamic/logistic_synthetic cells removed from suite
+    # on 2026-06-04; recipes formally demoted to honest-null per @statistician.
+    # The stop-gap xfail entry is no longer needed — cell is no longer in FAST_CELLS.)
 }
 
 PINNED_SEEDS: dict[str, int] = {
