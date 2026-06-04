@@ -214,13 +214,6 @@ class TestBaseMethodValidation:
         hmc_entry = BASE_METHODS["hmc"]
         assert hmc_entry.extra_required_kwargs == ()
 
-    def test_extra_required_kwargs_empty_on_standard_entry(self) -> None:
-        """Test F: a second vanilla entry also has extra_required_kwargs == ()."""
-        from tuningfork.base_method import BASE_METHODS
-
-        hmc_entry = BASE_METHODS["hmc"]
-        assert hmc_entry.extra_required_kwargs == ()
-
 
 class TestBaseMethodSmoke:
     def test_grad_count_callable(self) -> None:

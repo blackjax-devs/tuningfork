@@ -96,27 +96,6 @@ class TestWarmupRegistry:
             f"Registered: {sorted(WARMUPS)}"
         )
 
-    def test_warmups_has_window_adaptation_diag_imm(self) -> None:
-        assert "window_adaptation_diag_imm" in WARMUPS
-
-    def test_warmups_has_mclmc_tuning(self) -> None:
-        assert "mclmc_tuning" in WARMUPS
-
-    def test_warmups_has_no_warmup(self) -> None:
-        assert "no_warmup" in WARMUPS
-
-    def test_warmups_has_pathfinder(self) -> None:
-        """pathfinder warmup is registered."""
-        assert "pathfinder" in WARMUPS
-
-    def test_warmups_has_multipathfinder(self) -> None:
-        """multipathfinder warmup is registered."""
-        assert "multipathfinder" in WARMUPS
-
-    def test_warmups_has_meads(self) -> None:
-        """meads warmup is registered."""
-        assert "meads" in WARMUPS
-
     def test_all_entries_are_warmup_instances(self) -> None:
         for name, entry in WARMUPS.items():
             assert isinstance(
