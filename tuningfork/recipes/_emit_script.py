@@ -98,6 +98,39 @@ _STATE_REINIT_SAMPLERS = frozenset(
 )
 
 
+def _strip_no_warmup_try_block(sampler_body: str) -> str:
+    """T1.3: strip the per-sampler ``try: _state_post_warmup / except NameError:``
+    block from the emitted sampler body for non-no_warmup recipes.
+
+    All 15 non-nuts sampler templates contain a block of the form::
+
+        try:
+            _state_post_warmup
+        except NameError:
+            _warmup_init_is_single_chain = True   # (optional)
+            _state_post_warmup = ...              # init from init_position
+
+    For non-no_warmup recipes this entire block is dead code (the warmup
+    template already set ``_state_post_warmup`` before the sampler section
+    runs). Strip it here so the emitted script is straight-line.
+
+    The try-block sentinel is ``try:\\n    _state_post_warmup``, which is
+    unique — no other try/except probes ``_state_post_warmup`` directly.
+
+    Returns the sampler body with the dead block removed.
+    """
+    import re
+
+    # Match: optional leading blank line, then
+    # "try:\n    _state_post_warmup\nexcept NameError:\n" +
+    # all indented continuation lines.
+    pattern = re.compile(
+        r"\ntry:\n    _state_post_warmup\nexcept NameError:\n"
+        r"(?:    [^\n]*\n)*"  # one or more indented lines
+    )
+    return pattern.sub("\n", sampler_body)
+
+
 def _build_inference_loop(
     *,
     num_samples: int,
@@ -834,6 +867,12 @@ def emit_script(
     sampler_body = _load_template(
         f"samplers/{recipe.base_method_name}.py.tmpl"
     ).safe_substitute(ctx)
+
+    # T1.3: strip the try/except NameError _state_post_warmup block from
+    # sampler templates for non-no_warmup recipes (dead code for those paths).
+    # For no_warmup, the block is the initialization path and must be kept.
+    if recipe.warmup_name != "no_warmup":
+        sampler_body = _strip_no_warmup_try_block(sampler_body)
 
     # T1.1: resolve the 3 inference-loop sentinels at emit time.
     # All three flags are statically determined from (warmup_name, warmup_template_path,
