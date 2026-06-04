@@ -80,7 +80,7 @@ jobs:
           path: ${{ runner.temp }}/jax-compile-cache
           key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04
           restore-keys: |
-            jax-compile-py3.13-ubuntu-24.04-
+            jax-compile-
 
       - name: Install bench-perf deps (from locked uv.lock)
         # DO NOT call uv update — use the checked-in lockfile exactly.
