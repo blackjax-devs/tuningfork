@@ -85,6 +85,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from tuningfork.base_method._base import HyperparamSpace
 from tuningfork.warmup._base import Warmup
 
 __all__ = ["ENTRY"]
@@ -329,6 +330,14 @@ ENTRY = Warmup(
     name="meanfield_vi",
     runner=_runner,
     compatible_methods=_COMPATIBLE,
+    default_hp_space=(
+        # num_optimization_steps: BO-tunable VI optimisation budget.
+        # Mirror the base_method VI range for consistency (1k–50k).
+        # Default value (midpoint = 25_500) is close to the production 10_000 default
+        # when the recipe runner uses default_value_for_space; override by passing
+        # num_optimization_steps directly via warmup_kwargs_override in emit.
+        HyperparamSpace("num_optimization_steps", "int", low=1_000, high=50_000),
+    ),
     notes=(
         "Mean-field VI warmup: runs a single mean-field VI "
         "optimisation (shared across all chains) via jax.lax.scan over "

@@ -65,11 +65,13 @@ The multi-chain runner contract enables parallel warmup across multiple chains.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import jax
 import jax.numpy as jnp
+
+from tuningfork.base_method._base import HyperparamSpace
 
 
 def _maybe_replicate(position: Any, num_chains: int) -> Any:
@@ -179,6 +181,7 @@ class Warmup:
     runner: Callable[..., tuple[Any, dict]]
     compatible_methods: tuple[str, ...]
     notes: str = ""
+    default_hp_space: tuple[HyperparamSpace, ...] = field(default_factory=tuple)
 
     def is_compatible(self, base_method_name: str) -> bool:
         """Return True if this warmup supports the named algorithm.

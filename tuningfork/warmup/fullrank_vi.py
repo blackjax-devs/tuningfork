@@ -91,6 +91,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from tuningfork.base_method._base import HyperparamSpace
 from tuningfork.warmup._base import Warmup
 
 __all__ = ["ENTRY"]
@@ -358,6 +359,9 @@ ENTRY = Warmup(
     name="fullrank_vi",
     runner=_runner,
     compatible_methods=_COMPATIBLE,
+    default_hp_space=(
+        HyperparamSpace("num_optimization_steps", "int", low=1_000, high=50_000),
+    ),
     notes=(
         "Full-rank VI warmup: runs a single full-rank VI "
         "optimisation (shared across all chains) via jax.lax.scan over "
