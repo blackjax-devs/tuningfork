@@ -1,0 +1,65 @@
+# === SAMPLER: fullrank_vi (full-rank VI optimisation; IID samples from N(mu, L@L.T)) ===
+# Full-rank Gaussian variational inference in sampler mode.
+# The VI optimisation loop (Adam, $bm_num_optimization_steps steps) runs during
+# init via jax.lax.scan; each .step draws one IID sample from N(mu, L @ L.T)
+# where L is the Cholesky factor recovered from chol_params.
+# Does NOT use step_size or inverse_mass_matrix (VI has no MH acceptance step).
+# Recommended only for d <= 30: O(d^2) parameters make it expensive at higher dimension.
+import collections as _frvi_collections
+import optax as _optax_frvi
+import blackjax.vi.fullrank_vi as _frvi_module
+from jax.flatten_util import ravel_pytree as _frvi_ravel
+
+# Inline state definition (D8: no tuningfork import in inference choreography).
+_FRVISamplerState = _frvi_collections.namedtuple(
+    "_FRVISamplerState", ["position", "vi_state"]
+)
+
+_frvi_num_opt_steps = $bm_num_optimization_steps
+_frvi_optimizer = _optax_frvi.adam(1e-2)
+
+
+def _build_kernel(step_size, inverse_mass_matrix):  # noqa: ARG001
+    # VI does not use step_size or inverse_mass_matrix; both args present for
+    # protocol compatibility with the kernel_builder interface in
+    # inference_loop.py.tmpl.  Each call draws one IID sample from the fitted
+    # full-rank Gaussian distribution stored in state.vi_state.
+    def _vi_step(rng_key, state):
+        samples = _frvi_module.sample(rng_key, state.vi_state, num_samples=1)
+        new_position = jax.tree.map(lambda x: x[0], samples)
+        return (
+            _FRVISamplerState(position=new_position, vi_state=state.vi_state),
+            _frvi_module.FRVIInfo(elbo=jnp.asarray(0.0)),
+        )
+
+    return _vi_step
+
+
+kernel_builder = _build_kernel
+
+
+# Bind _state_post_warmup for the no_warmup path: run the full VI optimisation
+# loop here and store the final VI state (position = variational mean).
+# For a VI-warmup recipe this block is unreachable — warmup template sets it.
+try:
+    _state_post_warmup
+except NameError:
+    _warmup_init_is_single_chain = True
+    _frvi_init_state = _frvi_module.init(init_position, _frvi_optimizer)
+
+    def _frvi_one_step(carry, step_key):
+        new_state, info = _frvi_module.step(
+            step_key, carry, logdensity_fn, _frvi_optimizer, 5
+        )
+        return new_state, info
+
+    _frvi_keys = jax.random.split(jax.random.key($tuning_seed), _frvi_num_opt_steps)
+    _frvi_final_vi_state, _ = jax.lax.scan(
+        _frvi_one_step, _frvi_init_state, _frvi_keys
+    )
+    # Use the variational mean as the initial position.
+    _frvi_mu_flat, _frvi_unravel = _frvi_ravel(_frvi_final_vi_state.mu)
+    _frvi_init_pos = _frvi_unravel(_frvi_mu_flat)
+    _state_post_warmup = _FRVISamplerState(
+        position=_frvi_init_pos, vi_state=_frvi_final_vi_state
+    )

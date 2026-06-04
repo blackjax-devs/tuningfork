@@ -1,0 +1,64 @@
+# === SAMPLER: meanfield_vi (full VI optimisation; IID samples from fitted distribution) ===
+# Mean-field Gaussian variational inference in sampler mode.
+# The VI optimisation loop (Adam, $bm_num_optimization_steps steps) runs during
+# init via jax.lax.scan; each .step draws one IID sample from N(mu, diag(exp(rho))^2).
+# Does NOT use step_size or inverse_mass_matrix (VI has no MH acceptance step).
+# step_size / IMM args present only for protocol compat with kernel_builder interface.
+import collections as _mfvi_collections
+import optax as _optax_mfvi
+import blackjax.vi.meanfield_vi as _mfvi_module
+from jax.flatten_util import ravel_pytree as _mfvi_ravel
+
+# Inline state definition (D8: no tuningfork import in inference choreography).
+_MFVISamplerState = _mfvi_collections.namedtuple(
+    "_MFVISamplerState", ["position", "vi_state"]
+)
+
+_mfvi_num_opt_steps = $bm_num_optimization_steps
+_mfvi_optimizer = _optax_mfvi.adam(1e-2)
+
+
+def _build_kernel(step_size, inverse_mass_matrix):  # noqa: ARG001
+    # VI does not use step_size or inverse_mass_matrix; both args present for
+    # protocol compatibility with the kernel_builder interface in
+    # inference_loop.py.tmpl.  Each call draws one IID sample from the fitted
+    # variational distribution stored in state.vi_state.
+    def _vi_step(rng_key, state):
+        samples = _mfvi_module.sample(rng_key, state.vi_state, num_samples=1)
+        new_position = jax.tree.map(lambda x: x[0], samples)
+        return (
+            _MFVISamplerState(position=new_position, vi_state=state.vi_state),
+            _mfvi_module.MFVIInfo(elbo=jnp.asarray(0.0)),
+        )
+
+    return _vi_step
+
+
+kernel_builder = _build_kernel
+
+
+# Bind _state_post_warmup for the no_warmup path: run the full VI optimisation
+# loop here and store the final VI state (position = variational mean).
+# For a VI-warmup recipe this block is unreachable — warmup template sets it.
+try:
+    _state_post_warmup
+except NameError:
+    _warmup_init_is_single_chain = True
+    _mfvi_init_state = _mfvi_module.init(init_position, _mfvi_optimizer)
+
+    def _mfvi_one_step(carry, step_key):
+        new_state, info = _mfvi_module.step(
+            step_key, carry, logdensity_fn, _mfvi_optimizer, 5
+        )
+        return new_state, info
+
+    _mfvi_keys = jax.random.split(jax.random.key($tuning_seed), _mfvi_num_opt_steps)
+    _mfvi_final_vi_state, _ = jax.lax.scan(
+        _mfvi_one_step, _mfvi_init_state, _mfvi_keys
+    )
+    # Use the variational mean as the initial position.
+    _mfvi_mu_flat, _mfvi_unravel = _mfvi_ravel(_mfvi_final_vi_state.mu)
+    _mfvi_init_pos = _mfvi_unravel(_mfvi_mu_flat)
+    _state_post_warmup = _MFVISamplerState(
+        position=_mfvi_init_pos, vi_state=_mfvi_final_vi_state
+    )

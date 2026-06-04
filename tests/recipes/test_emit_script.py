@@ -62,6 +62,8 @@ _ALLOWED_TUNINGFORK_IMPORTS = frozenset(
 # stdlib modules used by the emitted preamble/postamble (e.g. ``time`` for
 # wall-clock timing, ``warnings`` for the progress_bar=True single-chain
 # warmup advisory) are also allowlisted here.
+# VI templates additionally import ``optax`` (VI optimizer) and ``collections``
+# (stdlib; for inline NamedTuple definition without the typing module).
 _ALLOWED_TOP_LEVEL = frozenset(
     {
         "jax",
@@ -72,8 +74,8 @@ _ALLOWED_TOP_LEVEL = frozenset(
         "tuningfork",
         "time",
         "warnings",
-        "optax",  # VI warmup templates use optax.adam for the VI optimizer
-        "collections",  # VI sampler templates use collections.namedtuple inline
+        "optax",
+        "collections",
     }
 )
 
@@ -1626,53 +1628,48 @@ def test_emit_script_sampling_progress_bar_constant_exposed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# VI warmup template round-trip tests (Phase 8B.2 Track B)
+# VI template round-trip tests (Phase 8B.2 -- meanfield_vi + fullrank_vi)
 # ---------------------------------------------------------------------------
 
 
-def _make_vi_warmup_recipe(warmup_name: str):  # type: ignore[return]
-    """Synthetic recipe for VI-as-warmup (Track B, nuts downstream)."""
+def _make_vi_sampler_recipe(base_method_name: str):  # type: ignore[return]
+    """Synthetic recipe for VI-as-inference (Track A)."""
     from tuningfork.recipes._base import Effort, Recipe
 
     return Recipe(
         model_name="mvn_10",
-        base_method_name="nuts",
-        warmup_name=warmup_name,
+        base_method_name=base_method_name,
+        warmup_name="no_warmup",
         effort=Effort.LOW,
-        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
-        warmup_params={
-            "n_warmup": 0,  # 0 step_size adapt steps for fast smoke (lax.scan over 0)
-            "num_optimization_steps": 200,
-            "num_chains": 1,
-            "target_acceptance_rate": 0.8,
-        },
+        base_method_params={"num_optimization_steps": 200},
+        warmup_params={"n_warmup": 0},
         headline_metric=None,
         sample_quality=None,
         calibration_budget={"num_chains": 1, "n_samples": 5},
         difficulty=None,
-        instructions="vi warmup template smoke",
+        instructions="vi template smoke",
         tuning_seed=42,
     )
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_is_valid_python(warmup_name: str) -> None:
-    """VI warmup (Track B, nuts downstream) emit_script produces valid Python.
+@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
+def test_emit_script_vi_sampler_is_valid_python(base_method_name: str) -> None:
+    """VI sampler (Track A) emit_script produces syntactically valid Python.
 
     Phase 8B.2 fast gate: verifies meanfield_vi.py.tmpl and fullrank_vi.py.tmpl
-    warmup templates produce syntactically valid Python and are D8-compliant.
+    sampler templates produce valid Python and are D8-compliant.
     """
-    recipe = _make_vi_warmup_recipe(warmup_name)
+    recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
     ast.parse(script)
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_d8_compliant(warmup_name: str) -> None:
-    """VI warmup (Track B) emitted script has no forbidden tuningfork imports (D8)."""
-    recipe = _make_vi_warmup_recipe(warmup_name)
+@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
+def test_emit_script_vi_sampler_d8_compliant(base_method_name: str) -> None:
+    """VI sampler (Track A) emitted script has no forbidden tuningfork imports (D8)."""
+    recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
     tree = ast.parse(script)
 
@@ -1689,72 +1686,34 @@ def test_emit_script_vi_warmup_d8_compliant(warmup_name: str) -> None:
     disallowed = [n for n in tuningfork_imports if n not in _ALLOWED_TUNINGFORK_IMPORTS]
     assert (
         not disallowed
-    ), f"VI warmup {warmup_name!r} emits forbidden tuningfork imports: {disallowed!r}."
+    ), f"VI sampler {base_method_name!r} emits forbidden imports: {disallowed!r}."
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_contains_vi_module_import(warmup_name: str) -> None:
-    """VI warmup template imports the correct blackjax.vi.* module."""
-    recipe = _make_vi_warmup_recipe(warmup_name)
+@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
+def test_emit_script_vi_sampler_contains_vi_module_import(
+    base_method_name: str,
+) -> None:
+    """VI sampler template imports the correct blackjax.vi.* module."""
+    recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
-    assert (
-        f"blackjax.vi.{warmup_name}" in script
-    ), f"VI warmup {warmup_name!r} must import `blackjax.vi.{warmup_name}`."
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_contains_dual_averaging(warmup_name: str) -> None:
-    """VI warmup (Track B) emitted script uses dual_averaging_adaptation (frozen-IMM gate).
-
-    Phase 8B.2 frozen-IMM constraint: the warmup template must adapt step_size via
-    Nesterov dual averaging from blackjax.adaptation.step_size, NOT via
-    window_adaptation (which would re-estimate the mass matrix).
-    """
-    recipe = _make_vi_warmup_recipe(warmup_name)
-    script = emit_script(recipe, num_samples=10)
-    assert "dual_averaging_adaptation" in script, (
-        f"VI warmup {warmup_name!r} must use dual_averaging_adaptation for step_size "
-        "(frozen VI IMM — not window_adaptation)."
+    assert f"blackjax.vi.{base_method_name}" in script, (
+        f"VI sampler template for {base_method_name!r} must import "
+        f"'blackjax.vi.{base_method_name}'."
     )
-    assert (
-        "window_adaptation" not in script
-    ), f"VI warmup {warmup_name!r} must NOT call window_adaptation (VI IMM frozen)."
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("warmup_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_warmup_executes(warmup_name: str, tmp_path: Path) -> None:
-    """VI warmup (Track B, nuts downstream) emitted script runs end-to-end.
+@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
+def test_emit_script_vi_sampler_executes(base_method_name: str, tmp_path: Path) -> None:
+    """VI-as-inference (Track A) emitted script runs end-to-end: exit 0 + DONE.
 
-    Phase 8B.2 e2e gate: {meanfield,fullrank}_vi warmup + nuts on mvn_10
-    with 200 VI steps, 50 step_size adapt steps, 5 NUTS samples.
-    Verifies: exit 0, DONE printed, n_divergences reported.
+    Phase 8B.2 e2e gate: {meanfield,fullrank}_vi + no_warmup on mvn_10 with
+    200 VI opt steps, 5 samples. Exit 0 + DONE + n_divergences= verified.
     """
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="nuts",
-        warmup_name=warmup_name,
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
-        warmup_params={
-            "n_warmup": 50,
-            "num_optimization_steps": 200,
-            "num_chains": 1,
-            "target_acceptance_rate": 0.8,
-        },
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={"num_chains": 1, "n_samples": 5},
-        difficulty=None,
-        instructions="e2e",
-        tuning_seed=42,
-    )
-    script = emit_script(recipe, num_samples=5, num_chains=1, progress_bar=False)
-    script_path = tmp_path / "test_vi_warmup.py"
+    recipe = _make_vi_sampler_recipe(base_method_name)
+    script = emit_script(recipe, num_samples=5, num_chains=1)
+    script_path = tmp_path / "test_vi_sampler.py"
     script_path.write_text(script)
 
     result = subprocess.run(
@@ -1766,7 +1725,7 @@ def test_emit_script_vi_warmup_executes(warmup_name: str, tmp_path: Path) -> Non
         env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
     )
     assert result.returncode == 0, (
-        f"VI warmup ({warmup_name} + nuts) failed.\n"
+        f"VI sampler ({base_method_name}) failed.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout

@@ -1408,6 +1408,17 @@ def emit_low_recipe_for_cell(
         else 0.0
     )
     _gate_nis: int | None = shared_kwargs.get("num_integration_steps")
+    # VI-sampler mode: base_method is meanfield_vi/fullrank_vi + warmup = no_warmup.
+    # iid draws make rhat/ESS/div vacuous; only max_abs_mean_z gates (z<4.0 REVIEW band).
+    # Per decision doc 2026-06-04-vi-sampler-pivotal-z-review-gate.md.
+    _vi_sampler_mode = (
+        sampler_name
+        in (
+            "meanfield_vi",
+            "fullrank_vi",
+        )
+        and warmup_name == "no_warmup"
+    )
     _log("  Running auto-gate...")
     gate_verdict = auto_gate(
         positions,
@@ -1417,6 +1428,7 @@ def emit_low_recipe_for_cell(
         n_chunks=n_chunks,
         step_size=_gate_chain0_ss,
         num_integration_steps=_gate_nis,
+        vi_sampler_mode=_vi_sampler_mode,
     )
     _log(
         f"  Gate: {gate_verdict.verdict}, "

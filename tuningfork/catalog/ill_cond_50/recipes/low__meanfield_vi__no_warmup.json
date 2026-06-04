@@ -1,0 +1,114 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "meanfield_vi",
+  "effort": "low",
+  "base_method_params": {
+    "num_optimization_steps": 25500
+  },
+  "headline_metric": 816.5903930664062,
+  "sample_quality": {
+    "mae_vs_reference": 0.05240761639105522,
+    "q05_error": 1.3967097682419414,
+    "q95_error": 1.4149418603308686,
+    "std_ratio_max_dev": 0.8424285325593706
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 2.4447130719199777,
+    "n_warmup": 0,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 0.817,
+    "sampling_wall_seconds": 0.376,
+    "sampling_seconds_per_draw": 9.4e-05,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": null
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, meanfield_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.meanfield_vi(logdensity_fn, **{'num_optimization_steps': 25500})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 816.5904.\nWall time to produce this recipe: ~2 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 4,
+    "min_bulk_ess": 3266.361572265625,
+    "grad_count_convention": "1",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "no_warmup",
+      "params": {
+        "n_warmup": 0,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0019314920096516,
+      "min_bulk_ess": 3362.0956188154073,
+      "n_divergences": 0,
+      "max_abs_mean_z": 10.481523278211045,
+      "verdict": "REVIEW",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0019314920096516,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": Infinity
+        },
+        "min_bulk_ess": {
+          "value": 3362.0956188154073,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": Infinity
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": Infinity
+        },
+        "max_abs_mean_z": {
+          "value": 10.481523278211045,
+          "band": "REVIEW",
+          "pass_lo": 0.0,
+          "pass_hi": 4.0,
+          "review_lo": 4.0,
+          "review_hi": Infinity,
+          "frac_z2": 0.68
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "Honest FAIL: MFVI stochastic-optimizer failure \u2014 \u03ba=1000 condition number makes ELBO-gradient noise dominate signal in ill-conditioned eigendirections; ELBO converges (10k/50k/100k Adam steps) but the variational mean does not reach the posterior mean (z=4.4-6.8, no downward trend with budget). The analytical MFVI optimum is exact for a Gaussian, so this is an optimizer limitation (would need >=100 MC samples/step), NOT a VI-family bias \u2014 conceptually distinct from the logistic/hierarchical intrinsic-bias FAILs. See statistician probe results and worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "statistician_id": "",
+      "decision": "FAIL"
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
+  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-03T22:52:22Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

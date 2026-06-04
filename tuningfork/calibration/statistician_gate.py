@@ -361,8 +361,25 @@ def auto_gate(
     n_chunks: int = 4,
     step_size: float | None = None,
     num_integration_steps: int | None = None,
+    vi_sampler_mode: bool = False,
 ) -> AutoGateVerdict:
     """Compute MCMC quality metrics and render a 3-band verdict.
+
+    When ``vi_sampler_mode=True`` (Track A VI-as-inference recipes where
+    each step draws iid from the fitted variational distribution), the gate
+    semantics change:
+
+    - ``rhat_max``, ``min_bulk_ess``, ``n_divergences`` are **computed and
+      reported** in ``margins`` and ``gate_evidence`` but do **not affect
+      the verdict** (their classification is overridden to ``"PASS"``).
+      iid draws trivially pass these MCMC diagnostics, so gating on them
+      is uninformative.
+    - ``max_abs_mean_z`` uses the z<4.0 REVIEW band (per the decision doc
+      ``2026-06-04-vi-sampler-pivotal-z-review-gate.md``): z is pivotal for
+      iid VI draws (numerator and denominator both ∝ 1/√n, so z ~ |N(0,1)|
+      regardless of sample size), making z<2.0 a false-REVIEW gate with
+      37–90% false-flag rate across models with d=10–50 under exact VI.
+      z<4.0 has <0.5% false-flag at d≤50 while still catching genuine bias.
 
     Parameters
     ----------
@@ -427,6 +444,23 @@ def auto_gate(
     ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
     """
     thresholds = resolve_thresholds(posterior)
+
+    # VI-sampler mode: override max_abs_mean_z thresholds to the z<4.0 gate
+    # (pivotal-z decision doc 2026-06-04-vi-sampler-pivotal-z-review-gate.md).
+    # rhat/ESS/div thresholds are set to "always PASS" — they're computed and
+    # reported in margins/evidence but never drive a non-PASS verdict.
+    if vi_sampler_mode:
+        thresholds = copy.deepcopy(thresholds)
+        thresholds["max_abs_mean_z"] = {
+            "pass": (0.0, 4.0),  # z < 4 → PASS (pivotal-z gate)
+            "review": (4.0, float("inf")),  # z ≥ 4 → REVIEW
+            # Note: no FAIL band — even extreme z gets REVIEW (iid draws, no ESS concern)
+        }
+        # rhat/ESS/div: use infinite PASS bands so they never push verdict to REVIEW/FAIL.
+        # The values are still computed and stored in margins for display.
+        thresholds["rhat_max"] = {"pass": (0.0, float("inf"))}
+        thresholds["min_bulk_ess"] = {"pass": (0.0, float("inf"))}
+        thresholds["n_divergences"] = {"pass": (0, float("inf"))}
 
     # --- Ensure multi-chain layout ---
     mc_samples = _samples_to_multichain(samples, n_chunks)
