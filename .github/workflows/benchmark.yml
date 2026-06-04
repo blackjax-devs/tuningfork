@@ -66,6 +66,23 @@ jobs:
           uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax version:', blackjax.__version__)"
 
+      - name: Restore JAX persistent compilation cache
+        # JAX's persistent cache survives jax.clear_caches() (which only clears
+        # the in-memory cache).  For expensive slow-cell kernels (lotka_volterra
+        # ODE+NUTS, horseshoe dmhmc dense geometry), cold XLA compile dominates
+        # cell runtime (~25-30 min each).  With a warm disk cache, Step 1 of each
+        # cell loads the compiled artifact instead of recompiling → saves ~58 min/night
+        # starting night 2.  Night 1 (cache miss) is still ~155 min (cold build).
+        #
+        # Cache key includes uv.lock hash → auto-invalidates on JAX/blackjax bumps.
+        # restore-keys prefix allows a partial hit when only minor deps change.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/jax-compile-cache
+          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04
+          restore-keys: |
+            jax-compile-${{ hashFiles('uv.lock') }}-py3.13-
+
       - name: Verify Python version
         run: |
           uv run --python 3.13 python --version
@@ -101,7 +118,11 @@ jobs:
 
           # Note: --timeout requires pytest-timeout (not in bench-perf deps).
           # Job-level timeout-minutes: 180 covers runaway cells.
-          JAX_PLATFORM_NAME=cpu uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
+          # JAX_COMPILATION_CACHE_DIR: persists XLA compiled artifacts to disk so
+          # clear_caches() (between cells, prevents OOM) doesn't force a cold recompile.
+          # JAX's persistent cache is NOT cleared by jax.clear_caches() — each cell's
+          # Step 1 compile-warmup loads from disk starting night 2.
+          JAX_PLATFORM_NAME=cpu JAX_COMPILATION_CACHE_DIR="${{ runner.temp }}/jax-compile-cache" uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
             --benchmark-json="${all_results_dir}/bench_results.json" \
             --benchmark-disable-gc \
