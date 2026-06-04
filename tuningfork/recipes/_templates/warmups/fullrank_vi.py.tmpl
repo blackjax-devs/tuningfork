@@ -1,0 +1,148 @@
+# === WARMUP: fullrank_vi (full-rank VI IMM + init-positions + adapted step_size) ===
+# Phase 1: single full-rank VI optimisation ($wp_num_optimization_steps Adam steps),
+#           shared across all chains.  Extracts dense IMM L@L.T (Cholesky) and
+#           draws num_chains init positions from N(mu, L@L.T).
+# Phase 2: step_size-only dual-averaging adaptation ($n_warmup steps from chain-0
+#           VI-drawn position, VI IMM FROZEN).  Incremental Nesterov DA:
+#           step_size updates each step; MCMC runs at the current step_size.
+#           The frozen-IMM constraint is load-bearing: mass matrix is not touched
+#           after VI fit.
+# Output:  _state_post_warmup (VI-drawn, per-chain init states) +
+#          _adapted_params["step_size"] (dual-averaged, shared) +
+#          _adapted_params["inverse_mass_matrix"] (VI dense, frozen).
+# Compatible: nuts, hmc, mala, rwm, barker.  NOT compatible with mclmc.
+# Recommended only for d <= 30: O(d^2) Cholesky parameters.
+#
+# Inference phase (post-warmup): use
+#   run_inference_algorithm(rng_key, alg, num_steps, initial_state=_state_post_warmup)
+# from blackjax.util — the emitted inference loop (inference_loop.py.tmpl) uses
+# this API with keyword initial_state= for correctness.
+import optax as _frwu_optax
+import blackjax.vi.fullrank_vi as _frwu_vi
+from blackjax.adaptation.step_size import dual_averaging_adaptation as _frwu_da_adapt
+from jax.flatten_util import ravel_pytree as _frwu_ravel
+
+_frwu_optimizer = _frwu_optax.adam(1e-2)
+_frwu_num_opt_steps = $wp_num_optimization_steps
+
+_frwu_flat_init, _frwu_unravel = _frwu_ravel(init_position)
+_d = int(_frwu_flat_init.shape[0])
+
+# ── Phase 1: VI optimisation ─────────────────────────────────────────────────
+_frwu_vi_key, _frwu_sample_key, _frwu_sa_key = jax.random.split(
+    jax.random.key($tuning_seed), 3
+)
+_frwu_vi_init = _frwu_vi.init(init_position, _frwu_optimizer)
+
+
+def _frwu_vi_one_step(carry, step_key):
+    new_state, info = _frwu_vi.step(
+        step_key, carry, logdensity_fn, _frwu_optimizer, 5
+    )
+    return new_state, info
+
+
+_frwu_vi_keys = jax.random.split(_frwu_vi_key, _frwu_num_opt_steps)
+_frwu_final_vi_state, _ = jax.lax.scan(
+    _frwu_vi_one_step, _frwu_vi_init, _frwu_vi_keys
+)
+
+# Reconstruct Cholesky factor L from chol_params; dense IMM = L @ L.T.
+# Mirrors fullrank_vi._unflatten_cholesky (D8: inlined, no tuningfork import).
+
+
+def _frwu_unflatten_cholesky(chol_params, dim):
+    tril = jnp.zeros((dim, dim))
+    tril = tril.at[jnp.tril_indices(dim, k=-1)].set(chol_params[dim:])
+    diag = jnp.exp(chol_params[:dim])
+    return tril + jnp.diag(diag)
+
+
+_frwu_chol = _frwu_unflatten_cholesky(_frwu_final_vi_state.chol_params, _d)
+_frwu_dense_imm = _frwu_chol @ _frwu_chol.T  # shape (d, d)
+
+# Draw num_chains init positions from the fitted distribution.
+_frwu_chain_keys = jax.random.split(_frwu_sample_key, num_chains)
+
+
+@jax.vmap
+def _frwu_draw_one(key):
+    samples = _frwu_vi.sample(key, _frwu_final_vi_state, num_samples=1)
+    pos = jax.tree.map(lambda x: x[0], samples)
+    flat_pos, _ = _frwu_ravel(pos)
+    return flat_pos
+
+
+_frwu_flat_positions = _frwu_draw_one(_frwu_chain_keys)  # (num_chains, d)
+_frwu_init_positions = jax.vmap(_frwu_unravel)(_frwu_flat_positions)
+
+# ── Phase 2: incremental step_size dual-averaging (VI IMM frozen) ─────────────
+# Nesterov dual averaging adapts step_size toward $target_acceptance_rate.
+# The VI dense IMM is held fixed throughout — no Welford, no re-estimation.
+# Incremental: step_size changes each iteration; MCMC runs at current step_size.
+# Runs from chain-0's VI-drawn position for $n_warmup steps.
+_frwu_da_init_fn, _frwu_da_update_fn, _frwu_da_final_fn = _frwu_da_adapt(
+    target=$target_acceptance_rate
+)
+_frwu_da_s0 = _frwu_da_init_fn(1.0)
+
+_frwu_sa_init_state = $warmup_algorithm(
+    logdensity_fn,
+    step_size=1.0,
+    inverse_mass_matrix=_frwu_dense_imm$warmup_extra_kwargs,
+).init(jax.tree.map(lambda x: x[0], _frwu_init_positions))
+
+
+def _frwu_sa_one_step(carry, step_key):
+    """One step of frozen-IMM incremental step_size dual-averaging."""
+    mcmc_state, da_state = carry
+    current_ss = jnp.exp(da_state.log_step_size)
+    new_mcmc_state, mcmc_info = $warmup_algorithm(
+        logdensity_fn,
+        step_size=current_ss,
+        inverse_mass_matrix=_frwu_dense_imm$warmup_extra_kwargs,
+    ).step(step_key, mcmc_state)
+    _accept = jnp.asarray(
+        getattr(
+            mcmc_info,
+            "acceptance_rate",
+            getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),
+        )
+    )
+    new_da_state = _frwu_da_update_fn(da_state, jnp.mean(_accept))
+    return (new_mcmc_state, new_da_state), None
+
+
+_frwu_sa_keys = jax.random.split(_frwu_sa_key, $n_warmup)
+(_frwu_sa_final_mcmc, _frwu_sa_final_da), _ = jax.lax.scan(
+    _frwu_sa_one_step,
+    (_frwu_sa_init_state, _frwu_da_s0),
+    _frwu_sa_keys,
+)
+_frwu_adapted_step_size = _frwu_da_final_fn(_frwu_sa_final_da)
+
+# ── Build downstream kernel states (VI positions + adapted step_size + VI IMM) ─
+
+
+@jax.vmap
+def _frwu_init_one(pos):
+    return $warmup_algorithm(
+        logdensity_fn,
+        step_size=_frwu_adapted_step_size,
+        inverse_mass_matrix=_frwu_dense_imm$warmup_extra_kwargs,
+    ).init(pos)
+
+
+_state_post_warmup = _frwu_init_one(_frwu_init_positions)
+
+_adapted_params = {
+    "step_size": jnp.full((num_chains,), _frwu_adapted_step_size),
+    "inverse_mass_matrix": jnp.broadcast_to(
+        _frwu_dense_imm[None, :, :], (num_chains, _d, _d)
+    ),
+}
+_warmup_is_perchain = True
+# After warmup:
+#   _state_post_warmup               batched downstream kernel states (num_chains, ...)
+#   _adapted_params["step_size"]     shape (num_chains,)     dual-averaged step_size × chains
+#   _adapted_params["inverse_mass_matrix"]  shape (num_chains, d, d)  VI dense (frozen)
