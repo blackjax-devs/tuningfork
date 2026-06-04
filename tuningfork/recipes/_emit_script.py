@@ -97,6 +97,96 @@ _STATE_REINIT_SAMPLERS = frozenset(
     {"dynamic_hmc", "dmhmc", "ghmc", "laplace_dhmc", "laplace_dmhmc"}
 )
 
+# T1.5: Info-field sets per sampler — resolved at emit time.
+# is_divergent: HMC-family only.
+_SAMPLERS_WITH_IS_DIVERGENT = frozenset(
+    {
+        "nuts",
+        "hmc",
+        "mhmc",
+        "dmhmc",
+        "dynamic_hmc",
+        "ghmc",
+        "rmhmc",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+    }
+)
+# acceptance_rate: all MCMC except VI; VI only has elbo.
+_VI_SAMPLER_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+# is_accepted (in addition to acceptance_rate): HMC + MH-family except pure NUTS.
+# NUTS has acceptance_rate but not is_accepted.
+_SAMPLERS_WITH_IS_ACCEPTED = frozenset(
+    {
+        "hmc",
+        "mhmc",
+        "dmhmc",
+        "dynamic_hmc",
+        "ghmc",
+        "rmhmc",
+        "mala",
+        "barker",
+        "rwm",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+    }
+)
+# Per-step stats to persist: vary by sampler.
+# All HMC-family have is_divergent + energy; NUTS also has num_integration_steps.
+# acceptance_rate and is_accepted vary; VI has none of these.
+_SAMPLERS_WITH_NIS_STAT = frozenset(
+    {"nuts", "hmc", "mhmc", "dmhmc", "dynamic_hmc", "ghmc", "rmhmc"}
+)
+
+
+def _build_info_diagnostics_block(sampler_name: str) -> str:
+    """T1.5: build resolved info-diagnostics block for the postamble.
+
+    Replaces the hasattr(_infos, ...) probes with straight-line code per
+    sampler family.
+    """
+    lines = [
+        '_acceptance = float("nan")',
+        "_n_div = 0",
+    ]
+    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
+        lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
+    if sampler_name not in _VI_SAMPLER_NAMES:
+        lines.append("_acceptance = float(jnp.mean(_infos.acceptance_rate))")
+    return "\n".join(lines)
+
+
+def _build_draws_ss_block(sampler_name: str) -> str:
+    """T1.5: build resolved per-step sample-stats block for the draws persistence.
+
+    Replaces the hasattr(_infos, _ss_field) loop with explicit field access
+    per sampler family.
+    """
+    if sampler_name in _VI_SAMPLER_NAMES:
+        # VI samplers have no MCMC diagnostics to persist.
+        return "    # VI sampler: no per-step MCMC stats (only elbo in info)."
+
+    fields: list[str] = []
+    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
+        fields.append("is_divergent")
+        fields.append("energy")
+    if sampler_name in _SAMPLERS_WITH_NIS_STAT:
+        fields.append("num_integration_steps")
+    fields.append("acceptance_rate")
+    if sampler_name in _SAMPLERS_WITH_IS_ACCEPTED:
+        fields.append("is_accepted")
+
+    lines = []
+    for field in fields:
+        lines.append(f'    _draws_dict["_ss_{field}"] = np.asarray(_infos.{field})')
+    return (
+        "\n".join(lines) if lines else "    pass  # no per-step stats for this sampler"
+    )
+
 
 def _strip_no_warmup_try_block(sampler_body: str) -> str:
     """T1.3: strip the per-sampler ``try: _state_post_warmup / except NameError:``
@@ -608,6 +698,12 @@ def emit_script(
         "warmup_progress_bar": _warmup_pb,
         "sampling_progress_bar": _sampling_pb,
     }
+    # T1.5: resolve postamble info-diagnostics and draws-stats blocks at emit time.
+    ctx["info_diagnostics_block"] = _build_info_diagnostics_block(
+        recipe.base_method_name
+    )
+    ctx["draws_ss_block"] = _build_draws_ss_block(recipe.base_method_name)
+
     # Programmatic spread: bm_<key> from base_method_params, wp_<key> from warmup_params.
     # Values are JSON-serialised scalar types (int/float/list); templates that need
     # them reference $bm_step_size, $bm_num_integration_steps, $wp_n_warmup, etc.
