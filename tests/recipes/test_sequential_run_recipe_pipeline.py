@@ -373,3 +373,28 @@ def test_compute_warmup_grad_evals_mclmc():
         num_chains=4,
     )
     assert wge == 3333
+
+
+# ---------------------------------------------------------------------------
+# Regression: laplace_dhmc typo (P0.T0.1)
+# ---------------------------------------------------------------------------
+
+
+def test_laplace_dhmc_is_dynamic_not_null():
+    """Regression test: laplace_dhmc must be classified as _DYNAMIC.
+
+    Bug: typo "laplace_dhdc" in _DYNAMIC frozenset caused laplace_dhmc recipes
+    to fall through to null wge path instead of warmup-rerun dynamic path.
+    This test ensures laplace_dhmc is correctly routed to the dynamic path
+    which runs warmup subprocess to get exact warmup_grad_evals from CUMSUM NIS.
+    """
+    from tuningfork.recipes.sequential_run_recipe_pipeline import _DYNAMIC
+
+    assert "laplace_dhmc" in _DYNAMIC, (
+        "laplace_dhmc must be in _DYNAMIC frozenset to trigger warmup-rerun "
+        "gradient-evaluation accounting (CUMSUM num_integration_steps). "
+        "The typo 'laplace_dhdc' prevented this routing."
+    )
+    assert (
+        "laplace_dhdc" not in _DYNAMIC
+    ), "laplace_dhdc is a typo and must not appear in _DYNAMIC"
