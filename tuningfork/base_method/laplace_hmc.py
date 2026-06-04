@@ -70,20 +70,9 @@ References
 from typing import Any
 
 import blackjax
-import jax.numpy as jnp
-
-try:
-    # Available after blackjax PR #928 merges to main.
-    from blackjax.mcmc.laplace_marginal import (
-        laplace_lbfgs_grad_evals as _laplace_grad_count,
-    )
-except ImportError:
-    # Fallback: ×5 heuristic until blackjax is updated.
-    def _laplace_grad_count(info):  # type: ignore[misc]
-        return jnp.asarray(info.num_integration_steps * 5)
-
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.base_method._laplace_common import _laplace_grad_count
 
 __all__ = ["ENTRY", "_factory"]
 
