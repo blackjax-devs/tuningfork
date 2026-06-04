@@ -59,7 +59,7 @@ _WGE_TIMEOUT_S = 120  # per-recipe warmup re-run timeout (dynamic families)
 _FIXED_STEP: frozenset[str] = frozenset({"hmc", "mhmc", "laplace_hmc", "laplace_mhmc"})
 # Families needing warmup re-run for CUMSUM NIS
 _DYNAMIC: frozenset[str] = frozenset(
-    {"nuts", "dynamic_hmc", "dmhmc", "laplace_dhdc", "laplace_dmhmc"}
+    {"nuts", "dynamic_hmc", "dmhmc", "laplace_dhmc", "laplace_dmhmc"}
 )
 # mclmc family: exact from _total_tuning_steps
 _MCLMC: frozenset[str] = frozenset(
