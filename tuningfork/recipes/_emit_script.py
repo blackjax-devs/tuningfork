@@ -704,6 +704,57 @@ def emit_script(
     )
     ctx["draws_ss_block"] = _build_draws_ss_block(recipe.base_method_name)
 
+    # T1.7: VI warmup + sampler slots (unified vi_warmup.py.tmpl + vi_sampler.py.tmpl).
+    _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+    _VI_SAMPLER_NAMES_TMPL = frozenset({"meanfield_vi", "fullrank_vi"})
+    if (
+        recipe.warmup_name in _VI_WARMUP_NAMES
+        or recipe.base_method_name in _VI_SAMPLER_NAMES_TMPL
+    ):
+        if "meanfield" in recipe.warmup_name or "meanfield" in recipe.base_method_name:
+            _vp = "_mf"
+            ctx["vi_prefix"] = _vp
+            ctx["vi_module"] = "blackjax.vi.meanfield_vi"
+            ctx["vi_imm_description"] = (
+                "diagonal IMM: exp(2*rho), rho encodes log-scale"
+            )
+            # Pre-resolve vi_prefix in extraction block (no nested template substitution).
+            ctx["vi_imm_extraction_block"] = (
+                f"{_vp}_rho_flat, _ = {_vp}_ravel({_vp}_final_vi_state.rho)\n"
+                f"{_vp}_imm = jnp.exp(2.0 * {_vp}_rho_flat)  # shape (d,)"
+            )
+            ctx["vi_adapted_imm_expr"] = (
+                f"jnp.broadcast_to(\n"
+                f"        {_vp}_imm[None, :], (num_chains, _d)\n"
+                f"    )"
+            )
+            ctx["vi_state_name"] = "_MFVISamplerState"
+            ctx["vi_info_name"] = "MFVIInfo"
+        else:  # fullrank
+            _vp = "_fr"
+            ctx["vi_prefix"] = _vp
+            ctx["vi_module"] = "blackjax.vi.fullrank_vi"
+            ctx["vi_imm_description"] = "dense IMM: L@L.T (Cholesky)"
+            # Cholesky extraction — pre-resolve vi_prefix.
+            ctx["vi_imm_extraction_block"] = (
+                f"def {_vp}_unflatten_cholesky(chol_params, dim):\n"
+                f"    tril = jnp.zeros((dim, dim))\n"
+                f"    tril = tril.at[jnp.tril_indices(dim, k=-1)].set(chol_params[dim:])\n"
+                f"    diag = jnp.exp(chol_params[:dim])\n"
+                f"    return tril + jnp.diag(diag)\n"
+                f"\n"
+                f"\n"
+                f"{_vp}_chol = {_vp}_unflatten_cholesky({_vp}_final_vi_state.chol_params, _d)\n"
+                f"{_vp}_imm = {_vp}_chol @ {_vp}_chol.T  # shape (d, d)"
+            )
+            ctx["vi_adapted_imm_expr"] = (
+                f"jnp.broadcast_to(\n"
+                f"        {_vp}_imm[None, :, :], (num_chains, _d, _d)\n"
+                f"    )"
+            )
+            ctx["vi_state_name"] = "_FRVISamplerState"
+            ctx["vi_info_name"] = "FRVIInfo"
+
     # Programmatic spread: bm_<key> from base_method_params, wp_<key> from warmup_params.
     # Values are JSON-serialised scalar types (int/float/list); templates that need
     # them reference $bm_step_size, $bm_num_integration_steps, $wp_n_warmup, etc.
@@ -976,15 +1027,24 @@ def emit_script(
         warmup_body = _load_template(
             "warmups/window_adaptation.py.tmpl"
         ).safe_substitute(ctx)
+    elif recipe.warmup_name in _VI_WARMUP_NAMES:
+        # T1.7: unified VI warmup template.
+        warmup_body = _load_template("warmups/vi_warmup.py.tmpl").safe_substitute(ctx)
     else:
-        # Non-window_adaptation warmup (no_warmup, pathfinder, VI, etc.).
+        # Non-window_adaptation, non-VI warmup (no_warmup, pathfinder, etc.).
         warmup_body = _load_template(
             f"warmups/{recipe.warmup_name}.py.tmpl"
         ).safe_substitute(ctx)
 
-    sampler_body = _load_template(
-        f"samplers/{recipe.base_method_name}.py.tmpl"
-    ).safe_substitute(ctx)
+    if recipe.base_method_name in _VI_SAMPLER_NAMES_TMPL:
+        # T1.7: unified VI sampler template.
+        sampler_body = _load_template("samplers/vi_sampler.py.tmpl").safe_substitute(
+            ctx
+        )
+    else:
+        sampler_body = _load_template(
+            f"samplers/{recipe.base_method_name}.py.tmpl"
+        ).safe_substitute(ctx)
 
     # T1.3: strip the try/except NameError _state_post_warmup block from
     # sampler templates for non-no_warmup recipes (dead code for those paths).

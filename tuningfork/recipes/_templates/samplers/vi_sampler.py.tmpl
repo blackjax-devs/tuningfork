@@ -1,0 +1,64 @@
+# === SAMPLER: $base_method_name (full VI optimisation; IID samples from fitted distribution) ===
+# Variational inference in sampler mode.
+# The VI optimisation loop (Adam, $bm_num_optimization_steps steps) runs during
+# init via jax.lax.scan; each .step draws one IID sample from the fitted distribution.
+# Does NOT use step_size or inverse_mass_matrix (VI has no MH acceptance step).
+# step_size / IMM args present only for protocol compat with kernel_builder interface.
+import collections as ${vi_prefix}_collections
+import optax as _optax_${vi_prefix}
+import $vi_module as ${vi_prefix}_module
+from jax.flatten_util import ravel_pytree as ${vi_prefix}_ravel
+
+# Inline state definition (D8: no tuningfork import in inference choreography).
+${vi_state_name} = ${vi_prefix}_collections.namedtuple(
+    "${vi_state_name}", ["position", "vi_state"]
+)
+
+${vi_prefix}_num_opt_steps = $bm_num_optimization_steps
+${vi_prefix}_optimizer = _optax_${vi_prefix}.adam(1e-2)
+
+
+def _build_kernel(step_size, inverse_mass_matrix):  # noqa: ARG001
+    # VI does not use step_size or inverse_mass_matrix; both args present for
+    # protocol compatibility with the kernel_builder interface in
+    # inference_loop.py.tmpl.  Each call draws one IID sample from the fitted
+    # variational distribution stored in state.vi_state.
+    def _vi_step(rng_key, state):
+        samples = ${vi_prefix}_module.sample(rng_key, state.vi_state, num_samples=1)
+        new_position = jax.tree.map(lambda x: x[0], samples)
+        return (
+            ${vi_state_name}(position=new_position, vi_state=state.vi_state),
+            ${vi_prefix}_module.${vi_info_name}(elbo=jnp.asarray(0.0)),
+        )
+
+    return _vi_step
+
+
+kernel_builder = _build_kernel
+
+
+# Bind _state_post_warmup for the no_warmup path: run the full VI optimisation
+# loop here and store the final VI state (position = variational mean).
+# For a VI-warmup recipe this block is unreachable — warmup template sets it.
+try:
+    _state_post_warmup
+except NameError:
+    _warmup_init_is_single_chain = True
+    ${vi_prefix}_init_state = ${vi_prefix}_module.init(init_position, ${vi_prefix}_optimizer)
+
+    def ${vi_prefix}_one_step(carry, step_key):
+        new_state, info = ${vi_prefix}_module.step(
+            step_key, carry, logdensity_fn, ${vi_prefix}_optimizer, 5
+        )
+        return new_state, info
+
+    ${vi_prefix}_keys = jax.random.split(jax.random.key($tuning_seed), ${vi_prefix}_num_opt_steps)
+    ${vi_prefix}_final_vi_state, _ = jax.lax.scan(
+        ${vi_prefix}_one_step, ${vi_prefix}_init_state, ${vi_prefix}_keys
+    )
+    # Use the variational mean as the initial position.
+    ${vi_prefix}_mu_flat, ${vi_prefix}_unravel = ${vi_prefix}_ravel(${vi_prefix}_final_vi_state.mu)
+    ${vi_prefix}_init_pos = ${vi_prefix}_unravel(${vi_prefix}_mu_flat)
+    _state_post_warmup = ${vi_state_name}(
+        position=${vi_prefix}_init_pos, vi_state=${vi_prefix}_final_vi_state
+    )
