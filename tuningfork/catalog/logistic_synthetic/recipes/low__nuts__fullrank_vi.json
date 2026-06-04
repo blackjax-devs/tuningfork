@@ -31,13 +31,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 4.964082233025692,
+    "wall_seconds_estimate": 3.935927347978577,
     "n_warmup": 200,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 4.039,
-    "sampling_wall_seconds": 0.903,
-    "sampling_seconds_per_draw": 0.000226,
+    "warmup_wall_seconds": 2.913,
+    "sampling_wall_seconds": 1.002,
+    "sampling_seconds_per_draw": 0.00025,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -53,7 +53,7 @@
     "warmup_grad_evals": null
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(fullrank_vi, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.7715532779693604, 'inverse_mass_matrix': [[0.5772770643234253, 0.24090847373008728, 0.13955391943454742], [0.24090847373008728, 0.6603900194168091, -0.009454368613660336], [0.13955391943454742, -0.009454368613660336, 1.0241382122039795]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0789.\nWall time to produce this recipe: ~4 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(fullrank_vi, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.7715532779693604, 'inverse_mass_matrix': [[0.5772770643234253, 0.24090847373008728, 0.13955391943454742], [0.24090847373008728, 0.6603900194168091, -0.009454368613660336], [0.13955391943454742, -0.009454368613660336, 1.0241382122039795]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0789.\nWall time to produce this recipe: ~3 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 20366,
@@ -68,7 +68,8 @@
       "params": {
         "n_warmup": 200,
         "num_chains": 4,
-        "target_acceptance": 0.8
+        "target_acceptance": 0.8,
+        "num_optimization_steps": 20000
       }
     }
   ],
@@ -131,7 +132,7 @@
   "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
   "blackjax_version": "1.6.dev87+g5549a0b9c",
   "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-03T22:53:02Z",
+  "timestamp_utc": "2026-06-04T04:40:02Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

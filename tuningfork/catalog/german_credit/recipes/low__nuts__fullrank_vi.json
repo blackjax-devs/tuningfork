@@ -15,13 +15,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 7.164544880972244,
+    "wall_seconds_estimate": 6.565907323965803,
     "n_warmup": 200,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 5.694,
-    "sampling_wall_seconds": 1.446,
-    "sampling_seconds_per_draw": 0.000361,
+    "warmup_wall_seconds": 4.663,
+    "sampling_wall_seconds": 1.88,
+    "sampling_seconds_per_draw": 0.00047,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
@@ -37,7 +37,7 @@
     "warmup_grad_evals": null
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(fullrank_vi, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.5116045475006104, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.1341.\nWall time to produce this recipe: ~7 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(fullrank_vi, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.5116045475006104, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.1341.\nWall time to produce this recipe: ~6 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 29284,
@@ -52,7 +52,8 @@
       "params": {
         "n_warmup": 200,
         "num_chains": 4,
-        "target_acceptance": 0.8
+        "target_acceptance": 0.8,
+        "num_optimization_steps": 20000
       }
     }
   ],
@@ -115,7 +116,7 @@
   "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
   "blackjax_version": "1.6.dev87+g5549a0b9c",
   "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-03T22:53:10Z",
+  "timestamp_utc": "2026-06-04T04:40:20Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
