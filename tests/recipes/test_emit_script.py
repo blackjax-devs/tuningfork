@@ -724,13 +724,18 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
     # The emit_script function only uses: model_name, base_method_name, warmup_name,
     # effort, base_method_params, warmup_params, tuning_seed, calibration_budget,
     # and gate_evidence. Most of these can be stubbed for the syntax check.
+    # window_adaptation_low_rank_imm requires max_rank in warmup_params (T0.2).
+    _wp = {"n_warmup": 100, "target_acceptance_rate": 0.8}
+    if warmup == "window_adaptation_low_rank_imm":
+        _wp["max_rank"] = 3
+
     recipe = Recipe(
         model_name="eight_schools_ncp",
         base_method_name=sampler,
         warmup_name=warmup,
         effort=Effort.LOW,
         base_method_params={"step_size": 0.1},
-        warmup_params={"n_warmup": 100, "target_acceptance_rate": 0.8},
+        warmup_params=_wp,
         headline_metric=None,
         sample_quality=None,
         calibration_budget={},

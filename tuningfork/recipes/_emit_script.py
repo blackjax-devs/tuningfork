@@ -76,20 +76,376 @@ _PROGRESS_BAR_WARNING_BLOCK = (
 _PROGRESS_BAR_WARNING_BLOCK_EMPTY = ""
 
 # Timing block inserted between warmup_body and sampler_body.
-# jax.block_until_ready forces async dispatch to complete before stamping
-# _warmup_t1, giving an honest warmup wall time (not just dispatch time).
-# The try/except NameError guard handles the no_warmup path, where
-# _state_post_warmup is initialised inside the sampler template (not warmup);
-# in that case _warmup_wall records only the trivial setup time (<1 ms).
-_WARMUP_TIMING_BLOCK = (
+# T1.4: resolved at emit time — no_warmup path omits block_until_ready
+# (no _state_post_warmup exists before the sampler template sets it).
+# Non-no_warmup path emits block_until_ready directly (no try/except).
+_WARMUP_TIMING_BLOCK_WARMUP = (
     "# --- warmup timing fence ---\n"
-    "try:\n"
-    "    jax.block_until_ready(_state_post_warmup)\n"
-    "except NameError:\n"
-    "    pass\n"
+    "jax.block_until_ready(_state_post_warmup)\n"
     "_warmup_wall = _recipe_time.perf_counter() - _warmup_t0\n"
     "_warmup_t1 = _recipe_time.perf_counter()\n"
 )
+_WARMUP_TIMING_BLOCK_NO_WARMUP = (
+    "# --- warmup timing fence (no_warmup: state set by sampler template below) ---\n"
+    "_warmup_wall = _recipe_time.perf_counter() - _warmup_t0\n"
+    "_warmup_t1 = _recipe_time.perf_counter()\n"
+)
+
+# Sentinel set of samplers that define _state_reinit (require state type change
+# after warmup). Resolved at emit time — no try/except NameError needed.
+_STATE_REINIT_SAMPLERS = frozenset(
+    {"dynamic_hmc", "dmhmc", "ghmc", "laplace_dhmc", "laplace_dmhmc"}
+)
+
+# T1.5: Info-field sets per sampler — resolved at emit time.
+# is_divergent: HMC-family only.
+_SAMPLERS_WITH_IS_DIVERGENT = frozenset(
+    {
+        "nuts",
+        "hmc",
+        "mhmc",
+        "dmhmc",
+        "dynamic_hmc",
+        "ghmc",
+        "rmhmc",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+    }
+)
+# acceptance_rate: all MCMC except VI; VI only has elbo.
+_VI_SAMPLER_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+# is_accepted (in addition to acceptance_rate): HMC + MH-family except pure NUTS.
+# NUTS has acceptance_rate but not is_accepted.
+_SAMPLERS_WITH_IS_ACCEPTED = frozenset(
+    {
+        "hmc",
+        "mhmc",
+        "dmhmc",
+        "dynamic_hmc",
+        "ghmc",
+        "rmhmc",
+        "mala",
+        "barker",
+        "rwm",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+    }
+)
+# Per-step stats to persist: vary by sampler.
+# All HMC-family have is_divergent + energy; NUTS also has num_integration_steps.
+# acceptance_rate and is_accepted vary; VI has none of these.
+_SAMPLERS_WITH_NIS_STAT = frozenset(
+    {"nuts", "hmc", "mhmc", "dmhmc", "dynamic_hmc", "ghmc", "rmhmc"}
+)
+
+
+def _build_info_diagnostics_block(sampler_name: str) -> str:
+    """T1.5: build resolved info-diagnostics block for the postamble.
+
+    Replaces the hasattr(_infos, ...) probes with straight-line code per
+    sampler family.
+    """
+    lines = [
+        '_acceptance = float("nan")',
+        "_n_div = 0",
+    ]
+    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
+        lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
+    if sampler_name not in _VI_SAMPLER_NAMES:
+        lines.append("_acceptance = float(jnp.mean(_infos.acceptance_rate))")
+    return "\n".join(lines)
+
+
+def _build_draws_ss_block(sampler_name: str) -> str:
+    """T1.5: build resolved per-step sample-stats block for the draws persistence.
+
+    Replaces the hasattr(_infos, _ss_field) loop with explicit field access
+    per sampler family.
+    """
+    if sampler_name in _VI_SAMPLER_NAMES:
+        # VI samplers have no MCMC diagnostics to persist.
+        return "    # VI sampler: no per-step MCMC stats (only elbo in info)."
+
+    fields: list[str] = []
+    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
+        fields.append("is_divergent")
+        fields.append("energy")
+    if sampler_name in _SAMPLERS_WITH_NIS_STAT:
+        fields.append("num_integration_steps")
+    fields.append("acceptance_rate")
+    if sampler_name in _SAMPLERS_WITH_IS_ACCEPTED:
+        fields.append("is_accepted")
+
+    lines = []
+    for field in fields:
+        lines.append(f'    _draws_dict["_ss_{field}"] = np.asarray(_infos.{field})')
+    return (
+        "\n".join(lines) if lines else "    pass  # no per-step stats for this sampler"
+    )
+
+
+def _strip_no_warmup_try_block(sampler_body: str) -> str:
+    """T1.3: strip the per-sampler ``try: _state_post_warmup / except NameError:``
+    block from the emitted sampler body for non-no_warmup recipes.
+
+    All 15 non-nuts sampler templates contain a block of the form::
+
+        try:
+            _state_post_warmup
+        except NameError:
+            _warmup_init_is_single_chain = True   # (optional)
+            _state_post_warmup = ...              # init from init_position
+
+    For non-no_warmup recipes this entire block is dead code (the warmup
+    template already set ``_state_post_warmup`` before the sampler section
+    runs). Strip it here so the emitted script is straight-line.
+
+    The try-block sentinel is ``try:\\n    _state_post_warmup``, which is
+    unique — no other try/except probes ``_state_post_warmup`` directly.
+
+    Returns the sampler body with the dead block removed.
+    """
+    import re
+
+    # Match: optional leading blank line, then
+    # "try:\n    _state_post_warmup\nexcept NameError:\n" +
+    # all indented continuation lines.
+    pattern = re.compile(
+        r"\ntry:\n    _state_post_warmup\nexcept NameError:\n"
+        r"(?:    [^\n]*\n)*"  # one or more indented lines
+    )
+    return pattern.sub("\n", sampler_body)
+
+
+def _build_inference_loop(
+    *,
+    num_samples: int,
+    sampler_seed: int,
+    tuning_seed: int,
+    num_chains: int,
+    sampling_pb: bool,
+    warmup_is_perchain: bool,
+    warmup_init_is_single_chain: bool,
+    needs_state_reinit: bool,
+) -> str:
+    """Build straight-line inference loop code with all branches resolved at emit time.
+
+    T1.1: replaces inference_loop.py.tmpl + inference_loop_singlechain.py.tmpl.
+    No try/except NameError probes — every flag is known at generation time.
+
+    Parameters
+    ----------
+    sampling_pb : bool
+        If True → single-chain loop (progress_bar=True, io_callback safe).
+        If False → multi-chain loop (scan + vmap, no progress bar).
+    warmup_is_perchain : bool
+        Warmup ran per-chain (jax.vmap). Adapted params are (num_chains, ...).
+    warmup_init_is_single_chain : bool
+        no_warmup path. State initialised by sampler template; needs broadcast.
+    needs_state_reinit : bool
+        Sampler (dynamic_hmc / dmhmc / ghmc / laplace_dhmc / laplace_dmhmc)
+        needs a different state type — per-chain re-init required.
+    """
+    lines: list[str] = []
+    a = lines.append
+
+    a(f"_NUM_SAMPLES = {num_samples}")
+
+    if sampling_pb:
+        # ── Single-chain path ────────────────────────────────────────────────
+        a(
+            "_SAMPLING_PROGRESS_BAR = True"
+            "  # single-chain (progress bar safe); set False for multi-chain"
+        )
+        a("# Single-chain sampling (progress_bar=True).")
+        a(
+            "# progress_bar uses io_callback inside the scan body.  io_callback is"
+            " not"
+        )
+        a(
+            "# supported inside jax.vmap, so multi-chain sampling cannot use a"
+            " progress bar."
+        )
+        a(
+            "# We sample ONE chain then re-add a leading axis of 1 so downstream"
+            " consumers"
+        )
+        a("# see shape (1, num_samples, ...) regardless of num_chains.")
+        a("")
+
+        # Step-size / IMM resolution
+        if warmup_init_is_single_chain:
+            # no_warmup: broadcast state, set defaults
+            a(
+                "_state_post_warmup = jax.tree.map("
+                "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
+                " _state_post_warmup)"
+            )
+            a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
+            a("from jax.flatten_util import ravel_pytree as _il_ravel")
+            a("_il_flat, _ = _il_ravel(init_position)")
+            a("_n_dims = int(_il_flat.shape[0])")
+            a("_shared_imm = jnp.ones(_n_dims)")
+        elif warmup_is_perchain:
+            # Per-chain warmup — use per-chain params, pick chain-0 for single-chain run
+            a('_shared_step_size = _adapted_params["step_size"][0]')
+            a('_shared_imm = _adapted_params["inverse_mass_matrix"][0]')
+        else:
+            # Single-chain warmup → scalar params
+            a('_shared_step_size = _adapted_params["step_size"]')
+            a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
+
+        a("")
+        a(
+            "from blackjax.util import run_inference_algorithm as _run_inference_algorithm"
+        )
+        a("from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm")
+        a("")
+        a("# Extract single-chain state (chain 0).")
+        a("_single_chain_state = jax.tree.map(lambda x: x[0], _state_post_warmup)")
+
+        if needs_state_reinit:
+            a("")
+            a("# Re-init per sampler state type (dynamic_hmc / dmhmc / ghmc).")
+            a(f"_single_reinit_key = jax.random.key({tuning_seed + 998})")
+            a(
+                "_single_chain_state = _state_reinit("
+                "_shared_step_size, _shared_imm,"
+                " _single_chain_state.position, _single_reinit_key)"
+            )
+
+        a("")
+        a("_single_chain_step = kernel_builder(_shared_step_size, _shared_imm)")
+        a(
+            "_sc_alg = _SamplingAlgorithm(lambda *args, **kwargs: None,"
+            " _single_chain_step)"
+        )
+        a("")
+        a(
+            "_sc_final_state, (_sc_states_hist, _sc_infos_hist) ="
+            " _run_inference_algorithm("
+        )
+        a(f"    jax.random.key({sampler_seed}),")
+        a("    _sc_alg,")
+        a("    num_steps=_NUM_SAMPLES,")
+        a("    initial_state=_single_chain_state,")
+        a("    progress_bar=True,")
+        a(")")
+        a("")
+        a(
+            "# Re-add the leading chain axis (size 1) for downstream shape"
+            " consistency."
+        )
+        a("_samples = jax.tree.map(lambda x: x[None], _sc_states_hist)")
+        a("_infos = jax.tree.map(lambda x: x[None], _sc_infos_hist)")
+
+    else:
+        # ── Multi-chain path ─────────────────────────────────────────────────
+        a(
+            "_SAMPLING_PROGRESS_BAR = False"
+            "  # multi-chain scan+vmap; set True for single-chain with progress bar"
+        )
+        a("")
+
+        # Step-size / IMM resolution
+        if warmup_init_is_single_chain:
+            # no_warmup: broadcast state, set defaults
+            a(
+                "# no_warmup: broadcast init_position-derived state to (num_chains, ...)."
+            )
+            a(
+                "_state_post_warmup = jax.tree.map("
+                "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
+                " _state_post_warmup)"
+            )
+            a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
+            a("from jax.flatten_util import ravel_pytree as _il_ravel")
+            a("_il_flat, _ = _il_ravel(init_position)")
+            a("_n_dims = int(_il_flat.shape[0])")
+            a("_shared_imm = jnp.ones(_n_dims)")
+        elif not warmup_is_perchain:
+            # Single-chain warmup → scalar shared params
+            a("# Single-chain warmup: adapted params are scalar / un-batched.")
+            a('_shared_step_size = _adapted_params["step_size"]')
+            a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
+
+        if needs_state_reinit:
+            a("")
+            a(
+                "# Re-init per-chain state (dynamic_hmc / dmhmc / ghmc: different state"
+                " type than warmup)."
+            )
+            a(
+                f"_reinit_keys = jax.random.split(jax.random.key({tuning_seed + 999}),"
+                f" num_chains)"
+            )
+            if warmup_is_perchain:
+                a('_batched_step_size = _adapted_params["step_size"]')
+                a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+                a(
+                    "_state_post_warmup = jax.vmap("
+                    "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
+                    ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
+                    " _batched_imm)"
+                )
+            else:
+                a(
+                    "_state_post_warmup = jax.vmap("
+                    "lambda s, k: _state_reinit(_shared_step_size, _shared_imm,"
+                    " s.position, k)"
+                    ")(_state_post_warmup, _reinit_keys)"
+                )
+
+        a("")
+        a("# Build the vmapped step function.")
+        a(
+            "from blackjax.util import run_inference_algorithm as _run_inference_algorithm"
+        )
+        a("from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm")
+        a("")
+
+        if warmup_is_perchain:
+            a("# Per-chain warmup: each chain gets its own (step_size, imm).")
+            a('_batched_step_size = _adapted_params["step_size"]')
+            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+            a("")
+            a("def _step_one_chain(state, key, step_size, imm):")
+            a("    return kernel_builder(step_size, imm)(key, state)")
+            a("")
+            a("def _vmapped_step(rng_key, states):")
+            a(f"    keys = jax.random.split(rng_key, {num_chains})")
+            a(
+                "    return jax.vmap(_step_one_chain)(states, keys, _batched_step_size,"
+                " _batched_imm)"
+            )
+        else:
+            a("# Single-chain warmup: shared step_size + IMM across all chains.")
+            a("_kernel_step = kernel_builder(_shared_step_size, _shared_imm)")
+            a("")
+            a("def _vmapped_step(rng_key, states):")
+            a(f"    keys = jax.random.split(rng_key, {num_chains})")
+            a("    return jax.vmap(_kernel_step)(keys, states)")
+
+        a("")
+        a("# run_inference_algorithm: (num_steps, num_chains, ...) output.")
+        a("_alg = _SamplingAlgorithm(lambda *args, **kwargs: None, _vmapped_step)")
+        a("_final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(")
+        a(f"    jax.random.key({sampler_seed}),")
+        a("    _alg,")
+        a("    num_steps=_NUM_SAMPLES,")
+        a("    initial_state=_state_post_warmup,")
+        a("    progress_bar=False,")
+        a(")")
+        a("")
+        a("# Swap axes: (num_steps, num_chains, ...) -> (num_chains, num_steps, ...).")
+        a("_samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)")
+        a("_infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos_hist)")
+
+    return "\n".join(lines)
 
 
 __all__ = ["emit_script"]
@@ -342,6 +698,63 @@ def emit_script(
         "warmup_progress_bar": _warmup_pb,
         "sampling_progress_bar": _sampling_pb,
     }
+    # T1.5: resolve postamble info-diagnostics and draws-stats blocks at emit time.
+    ctx["info_diagnostics_block"] = _build_info_diagnostics_block(
+        recipe.base_method_name
+    )
+    ctx["draws_ss_block"] = _build_draws_ss_block(recipe.base_method_name)
+
+    # T1.7: VI warmup + sampler slots (unified vi_warmup.py.tmpl + vi_sampler.py.tmpl).
+    _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+    _VI_SAMPLER_NAMES_TMPL = frozenset({"meanfield_vi", "fullrank_vi"})
+    if (
+        recipe.warmup_name in _VI_WARMUP_NAMES
+        or recipe.base_method_name in _VI_SAMPLER_NAMES_TMPL
+    ):
+        if "meanfield" in recipe.warmup_name or "meanfield" in recipe.base_method_name:
+            _vp = "_mf"
+            ctx["vi_prefix"] = _vp
+            ctx["vi_module"] = "blackjax.vi.meanfield_vi"
+            ctx["vi_imm_description"] = (
+                "diagonal IMM: exp(2*rho), rho encodes log-scale"
+            )
+            # Pre-resolve vi_prefix in extraction block (no nested template substitution).
+            ctx["vi_imm_extraction_block"] = (
+                f"{_vp}_rho_flat, _ = {_vp}_ravel({_vp}_final_vi_state.rho)\n"
+                f"{_vp}_imm = jnp.exp(2.0 * {_vp}_rho_flat)  # shape (d,)"
+            )
+            ctx["vi_adapted_imm_expr"] = (
+                f"jnp.broadcast_to(\n"
+                f"        {_vp}_imm[None, :], (num_chains, _d)\n"
+                f"    )"
+            )
+            ctx["vi_state_name"] = "_MFVISamplerState"
+            ctx["vi_info_name"] = "MFVIInfo"
+        else:  # fullrank
+            _vp = "_fr"
+            ctx["vi_prefix"] = _vp
+            ctx["vi_module"] = "blackjax.vi.fullrank_vi"
+            ctx["vi_imm_description"] = "dense IMM: L@L.T (Cholesky)"
+            # Cholesky extraction — pre-resolve vi_prefix.
+            ctx["vi_imm_extraction_block"] = (
+                f"def {_vp}_unflatten_cholesky(chol_params, dim):\n"
+                f"    tril = jnp.zeros((dim, dim))\n"
+                f"    tril = tril.at[jnp.tril_indices(dim, k=-1)].set(chol_params[dim:])\n"
+                f"    diag = jnp.exp(chol_params[:dim])\n"
+                f"    return tril + jnp.diag(diag)\n"
+                f"\n"
+                f"\n"
+                f"{_vp}_chol = {_vp}_unflatten_cholesky({_vp}_final_vi_state.chol_params, _d)\n"
+                f"{_vp}_imm = {_vp}_chol @ {_vp}_chol.T  # shape (d, d)"
+            )
+            ctx["vi_adapted_imm_expr"] = (
+                f"jnp.broadcast_to(\n"
+                f"        {_vp}_imm[None, :, :], (num_chains, _d, _d)\n"
+                f"    )"
+            )
+            ctx["vi_state_name"] = "_FRVISamplerState"
+            ctx["vi_info_name"] = "FRVIInfo"
+
     # Programmatic spread: bm_<key> from base_method_params, wp_<key> from warmup_params.
     # Values are JSON-serialised scalar types (int/float/list); templates that need
     # them reference $bm_step_size, $bm_num_integration_steps, $wp_n_warmup, etc.
@@ -545,10 +958,9 @@ def emit_script(
     preamble = _load_template("preamble.py.tmpl").safe_substitute(ctx)
 
     # Warmup variants that support a multi-chain (vmap) path when progress_bar=False.
-    # The single-chain templates (existing) include a warnings.warn() block that fires
-    # when progress_bar=True.  The multi-chain (_multichain) templates run
-    # jax.vmap(warmup.run) over num_chains so each chain gets its own adapted params;
-    # they require progress_bar=False because io_callback is unsupported in vmap.
+    # T1.6: window_adaptation variants unified into 2 templates (singlechain +
+    # multichain), parameterised by $window_adaptation_fn and
+    # $window_adaptation_extra_kwargs.
     _MULTICHAIN_WARMUP_VARIANTS = frozenset(
         {
             "window_adaptation_diag_imm",
@@ -556,6 +968,26 @@ def emit_script(
             "window_adaptation_low_rank_imm",
         }
     )
+    if recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
+        if recipe.warmup_name == "window_adaptation_diag_imm":
+            ctx["window_adaptation_fn"] = "blackjax.window_adaptation"
+            ctx["window_adaptation_extra_kwargs"] = ""
+        elif recipe.warmup_name == "window_adaptation_dense_imm":
+            ctx["window_adaptation_fn"] = "blackjax.window_adaptation"
+            ctx["window_adaptation_extra_kwargs"] = "is_mass_matrix_diagonal=False,"
+        else:  # window_adaptation_low_rank_imm
+            ctx["window_adaptation_fn"] = "blackjax.window_adaptation_low_rank"
+            # T0.2 guard: max_rank must be present for low_rank recipes.
+            # Resolved to its actual value here rather than leaving as $wp_max_rank
+            # (a nested slot inside a slot value is never re-substituted).
+            _max_rank = recipe.warmup_params.get("max_rank")
+            if _max_rank is None:
+                raise ValueError(
+                    "window_adaptation_low_rank_imm recipe is missing 'max_rank' in "
+                    "warmup_params. Add max_rank=<int> to the recipe's warmup_params "
+                    "before calling emit_script."
+                )
+            ctx["window_adaptation_extra_kwargs"] = f"max_rank={_max_rank},"
 
     # Resolve effective warmup_num_chains: call-time override wins over recipe-stamped.
     # None → fall back to recipe.warmup_num_chains (may also be None for legacy recipes).
@@ -570,48 +1002,100 @@ def emit_script(
     _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
 
     # Build the warmup body: multi-phase laplace uses a dedicated template;
-    # single-phase uses the per-warmup template, branching on progress_bar for
-    # warmup variants that support multi-chain execution.
+    # window_adaptation variants use the unified templates (T1.6);
+    # other warmups use their own templates.
     if _is_laplace and _is_multiphase_warmup:
         # Multi-phase laplace: dedicated template (already single-chain + broadcast
         # by design); warmup_num_chains doesn't affect template selection here.
         warmup_body = _load_template(
             "warmups/laplace_multiphase_warmup.py.tmpl"
         ).safe_substitute(ctx)
-    elif _warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
-        # warmup_num_chains[0]=1 → force single-chain template regardless of
-        # progress_bar. Mirrors the laplace_multiphase_warmup pattern: one warmup
-        # chain, broadcast to num_chains for sampling.
+    elif (
+        not _is_laplace
+        and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
+        and not (_warmup_W0 == 1)
+        and not _warmup_pb
+    ):
+        # progress_bar=False (and warmup_num_chains != 1) → multi-chain warmup.
+        # T1.6: use unified multichain template.
         warmup_body = _load_template(
-            f"warmups/{recipe.warmup_name}.py.tmpl"
+            "warmups/window_adaptation_multichain.py.tmpl"
         ).safe_substitute(ctx)
-    elif not _warmup_pb and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
-        # progress_bar=False → multi-chain warmup via jax.vmap(warmup.run).
-        # Per-chain adapted params; _warmup_is_perchain=True set in the template.
+    elif recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
+        # progress_bar=True or warmup_num_chains=1 → single-chain warmup.
+        # T1.6: use unified singlechain template.
         warmup_body = _load_template(
-            f"warmups/{recipe.warmup_name}_multichain.py.tmpl"
+            "warmups/window_adaptation.py.tmpl"
         ).safe_substitute(ctx)
+    elif recipe.warmup_name in _VI_WARMUP_NAMES:
+        # T1.7: unified VI warmup template.
+        warmup_body = _load_template("warmups/vi_warmup.py.tmpl").safe_substitute(ctx)
     else:
-        # progress_bar=True (default) or non-vmap warmup variant →
-        # single-chain warmup with broadcast + warnings.warn() in template.
+        # Non-window_adaptation, non-VI warmup (no_warmup, pathfinder, etc.).
         warmup_body = _load_template(
             f"warmups/{recipe.warmup_name}.py.tmpl"
         ).safe_substitute(ctx)
 
-    sampler_body = _load_template(
-        f"samplers/{recipe.base_method_name}.py.tmpl"
-    ).safe_substitute(ctx)
-
-    # Select inference loop template based on progress_bar:
-    # - True  → single-chain (no jax.vmap; progress bar safe; warns about single-chain)
-    # - False → multi-chain (jax.vmap over kernel step; no progress bar)
-    # Legacy inference_loop.py.tmpl is the multi-chain path (backward compat).
-    if _sampling_pb:
-        inference_loop = _load_template(
-            "inference_loop_singlechain.py.tmpl"
-        ).safe_substitute(ctx)
+    if recipe.base_method_name in _VI_SAMPLER_NAMES_TMPL:
+        # T1.7: unified VI sampler template.
+        sampler_body = _load_template("samplers/vi_sampler.py.tmpl").safe_substitute(
+            ctx
+        )
     else:
-        inference_loop = _load_template("inference_loop.py.tmpl").safe_substitute(ctx)
+        sampler_body = _load_template(
+            f"samplers/{recipe.base_method_name}.py.tmpl"
+        ).safe_substitute(ctx)
+
+    # T1.3: strip the try/except NameError _state_post_warmup block from
+    # sampler templates for non-no_warmup recipes (dead code for those paths).
+    # For no_warmup, the block is the initialization path and must be kept.
+    if recipe.warmup_name != "no_warmup":
+        sampler_body = _strip_no_warmup_try_block(sampler_body)
+
+    # T1.1: resolve the 3 inference-loop sentinels at emit time.
+    # All three flags are statically determined from (warmup_name, warmup_template_path,
+    # base_method_name) — no runtime try/except NameError probes needed.
+    #
+    # _warmup_init_is_single_chain: True iff warmup_name == "no_warmup"
+    _resolved_warmup_init_is_single_chain = recipe.warmup_name == "no_warmup"
+
+    # _warmup_is_perchain: True iff the selected warmup template sets it True.
+    # Specifically: multichain window_adaptation templates + VI warmups.
+    _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+    _uses_multichain_warmup_tmpl = (
+        not _is_laplace
+        and not _is_multiphase_warmup
+        and not _resolved_warmup_init_is_single_chain
+        and not (_warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS)
+        and (not _warmup_pb)
+        and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
+    )
+    _resolved_warmup_is_perchain = (
+        _uses_multichain_warmup_tmpl or recipe.warmup_name in _VI_WARMUP_NAMES
+    )
+
+    # _needs_state_reinit: True iff sampler template defines _state_reinit.
+    _resolved_needs_state_reinit = recipe.base_method_name in _STATE_REINIT_SAMPLERS
+
+    # T1.4: emit timing block without try/except — no_warmup path omits
+    # block_until_ready (state not yet set at this point in assembly).
+    _timing_block = (
+        _WARMUP_TIMING_BLOCK_NO_WARMUP
+        if _resolved_warmup_init_is_single_chain
+        else _WARMUP_TIMING_BLOCK_WARMUP
+    )
+
+    # T1.1: build straight-line inference loop (no try/except NameError probes).
+    inference_loop = _build_inference_loop(
+        num_samples=num_samples,
+        sampler_seed=sampler_seed,
+        tuning_seed=recipe.tuning_seed,
+        num_chains=num_chains,
+        sampling_pb=_sampling_pb,
+        warmup_is_perchain=_resolved_warmup_is_perchain,
+        warmup_init_is_single_chain=_resolved_warmup_init_is_single_chain,
+        needs_state_reinit=_resolved_needs_state_reinit,
+    )
 
     postamble = _load_template("postamble.py.tmpl").safe_substitute(ctx)
 
@@ -635,7 +1119,7 @@ def emit_script(
                 preamble,
                 laplace_preamble,
                 warmup_body,
-                _WARMUP_TIMING_BLOCK,
+                _timing_block,
                 sampler_body,
                 inference_loop,
                 postamble,
@@ -645,7 +1129,7 @@ def emit_script(
         [
             preamble,
             warmup_body,
-            _WARMUP_TIMING_BLOCK,
+            _timing_block,
             sampler_body,
             inference_loop,
             postamble,

@@ -1,12 +1,12 @@
-# === WARMUP: window_adaptation_low_rank_imm (max_rank=$wp_max_rank, target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
+# === WARMUP: $warmup_name (target_acceptance_rate=$target_acceptance_rate, n_warmup=$n_warmup) ===
 # Single-chain warmup: run once and broadcast the state to (num_chains,) so that
 # scan(vmap(kernel)) in the inference loop maps over chains sharing the same
 # adapted (step_size, inverse_mass_matrix).  Running warmup inside vmap is
 # discouraged because io_callback (progress_bar) is not supported inside vmap.
-_warmup = blackjax.window_adaptation_low_rank(
+_warmup = $window_adaptation_fn(
     $warmup_algorithm,
     logdensity_fn,
-    max_rank=$wp_max_rank,
+    $window_adaptation_extra_kwargs
     target_acceptance_rate=$target_acceptance_rate$warmup_extra_kwargs,
     progress_bar=$warmup_progress_bar,
 )
@@ -19,7 +19,3 @@ _state_post_warmup = jax.tree.map(
 )
 # _warmup_is_perchain=False: adapted params are scalar / un-batched (shared across chains).
 _warmup_is_perchain = False
-# After warmup:
-#   _state_post_warmup  -- batched state with leading num_chains axis
-#   _adapted_params["step_size"]              scalar (shared across chains)
-#   _adapted_params["inverse_mass_matrix"]    LowRankInverseMassMatrix (no chain axis)
