@@ -295,9 +295,14 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
         )
         a("# Multi-path Pathfinder + dual-averaging step size adaptation.")
         a(
-            "# Derives a shared dense (d,d) IMM from the PSIS-weighted L-BFGS mixture covariance;"
+            "# Derives a shared dense (d,d) IMM from the PSIS-weighted L-BFGS mixture covariance."
         )
-        a("# broadcasts to (num_chains, d, d).")
+        a(
+            "# pathfinder_adaptation returns: step_size scalar (num_chains=1) or (num_chains,),"
+        )
+        a(
+            "# inverse_mass_matrix always (d,d) — shared across chains, no broadcast needed."
+        )
         a(f"_n_paths = {n_paths}")
         a("")
         a("_mpf_adapt = blackjax.pathfinder_adaptation(")
@@ -315,15 +320,11 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
         )
         a("_state_post_warmup = _mpf_results.state")
         a("_adapted_params = {")
+        a("    # jnp.mean: handles scalar (num_chains=1) and (num_chains,) uniformly.")
+        a('    "step_size": jnp.mean(_mpf_results.parameters["step_size"]),  # scalar')
         a(
-            '    "step_size": _mpf_results.parameters["step_size"],       # (num_chains,)'
+            '    "inverse_mass_matrix": _mpf_results.parameters["inverse_mass_matrix"],  # (d, d)'
         )
-        a('    "inverse_mass_matrix": jnp.broadcast_to(')
-        a('        _mpf_results.parameters["inverse_mass_matrix"][None],')
-        a(
-            '        (num_chains,) + _mpf_results.parameters["inverse_mass_matrix"].shape,'
-        )
-        a("    ),  # (num_chains, d, d)")
         a('    "_multipathfinder_psis_pareto_k": _mpf_results.parameters.get(')
         a('        "_pathfinder_psis_pareto_k"')
         a("    ),")
@@ -334,7 +335,13 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
         )
         a("# Single-path Pathfinder + dual-averaging step size adaptation.")
         a(
-            "# Derives a dense (d,d) IMM from the L-BFGS inverse Hessian; broadcasts to num_chains."
+            "# Derives a dense (d,d) IMM from the L-BFGS inverse Hessian; shared across chains."
+        )
+        a(
+            "# pathfinder_adaptation returns: step_size scalar (num_chains=1) or (num_chains,),"
+        )
+        a(
+            "# inverse_mass_matrix always (d,d) — shared across chains, no broadcast needed."
         )
         a("_pf_adapt = blackjax.pathfinder_adaptation(")
         a("    blackjax.nuts,")
@@ -351,15 +358,11 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
         )
         a("_state_post_warmup = _pf_results.state")
         a("_adapted_params = {")
+        a("    # jnp.mean: handles scalar (num_chains=1) and (num_chains,) uniformly.")
+        a('    "step_size": jnp.mean(_pf_results.parameters["step_size"]),  # scalar')
         a(
-            '    "step_size": _pf_results.parameters["step_size"],       # scalar or (num_chains,)'
+            '    "inverse_mass_matrix": _pf_results.parameters["inverse_mass_matrix"],  # (d, d)'
         )
-        a('    "inverse_mass_matrix": jnp.broadcast_to(')
-        a('        _pf_results.parameters["inverse_mass_matrix"][None],')
-        a(
-            '        (num_chains,) + _pf_results.parameters["inverse_mass_matrix"].shape,'
-        )
-        a("    ),  # (num_chains, d, d)")
         a("}")
 
     return "\n".join(lines)
