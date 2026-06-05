@@ -318,12 +318,18 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
     Scans tuningfork/catalog/<model>/{groundtruth.json, recipes/*.json}, loads recipes,
     filters by effort (if specified), and renders a markdown table (default)
     or JSON list.
+
+    SMC recipes (``smc__*.json``) are excluded from the MCMC ranking — they
+    use a fundamentally different execution model (particles instead of chains,
+    no warmup phase, different gate metrics).  A note is printed when SMC
+    recipes are present so the user knows they exist.
     """
     import json
     from pathlib import Path
 
     from tuningfork.model import MODELS
     from tuningfork.recipes._base import Recipe
+    from tuningfork.recipes._base_smc import SMCRecipe
 
     # ------------------------------------------------------------------ #
     # 1. Validate model                                                  #
@@ -341,6 +347,7 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------ #
     recipe_dir = Path(__file__).parent / "catalog" / args.model / "recipes"
     recipes: list[Recipe] = []
+    n_smc_skipped = 0
     if not recipe_dir.exists():
         # Model directory doesn't exist; no recipes
         pass
@@ -348,8 +355,14 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
         recipe_files = sorted(recipe_dir.glob("*.json"))
         for recipe_file in recipe_files:
             try:
-                recipe = Recipe.load(recipe_file)
-                recipes.append(recipe)
+                loaded = _load_recipe_for_leaderboard(recipe_file)
+                if isinstance(loaded, SMCRecipe):
+                    # SMC recipes are excluded from the MCMC leaderboard ranking.
+                    # They have no effort/base_method_name attrs and use a separate
+                    # execution model (particles, no warmup, different gate metrics).
+                    n_smc_skipped += 1
+                else:
+                    recipes.append(loaded)
             except Exception as e:
                 print(
                     f"warning: failed to load {recipe_file}: {e}",
@@ -408,10 +421,15 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
         # markdown format (default)
         print()
         print(f"Leaderboard for {args.model}:")
+        if n_smc_skipped > 0:
+            print(
+                f"({n_smc_skipped} SMC recipe{'s' if n_smc_skipped != 1 else ''} present"
+                " — not ranked; SMC uses a separate execution model)"
+            )
         print()
 
         if not recipes:
-            print("No recipes found.")
+            print("No MCMC recipes found.")
             return 0
 
         # Render markdown table
@@ -450,6 +468,19 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
         print()
 
     return 0
+
+
+def _load_recipe_for_leaderboard(recipe_file):
+    """Load a recipe file, dispatching to SMCRecipe or Recipe based on content."""
+    import json
+
+    from tuningfork.recipes._base import Recipe
+    from tuningfork.recipes._base_smc import SMCRecipe
+
+    d = json.loads(recipe_file.read_text())
+    if "smc_method_name" in d:
+        return SMCRecipe.load(recipe_file)
+    return Recipe.load(recipe_file)
 
 
 def _cmd_tune(args: argparse.Namespace) -> int:

@@ -2083,6 +2083,17 @@ def run_recipe_to_idata(
     """
     import warnings
 
+    # Guard: SMCRecipe objects must use run_smc() — not this function.
+    # run_recipe_to_idata is MCMC-only (accesses base_method_name, warmup_name,
+    # effort; all absent on SMCRecipe).  Detect via absence of the 'effort'
+    # attribute (SMCRecipe has no effort field) or the presence of 'smc_method_name'.
+    if not hasattr(recipe, "effort"):
+        raise TypeError(
+            "run_recipe_to_idata() received an SMCRecipe; SMC recipes must be "
+            "run via tuningfork.runner.smc.run_smc(), not run_recipe_to_idata(). "
+            f"Got: {type(recipe).__name__!r}"
+        )
+
     if force_resample:
         warnings.warn(
             "force_resample=True is deprecated; use "
