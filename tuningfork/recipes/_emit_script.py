@@ -1030,6 +1030,12 @@ def emit_script(
     # For warmup names NOT in the 8 known families (e.g. mclmc_tuning,
     # adjusted_mclmc_tuning), emit_warmup raises ValueError which propagates
     # up — same effect as the previous FileNotFoundError from _load_template.
+    #
+    # SPECIAL CASE (preserved from pre-A3 logic): laplace multi-phase recipes
+    # dispatch to "laplace_multiphase_warmup" REGARDLESS of recipe.warmup_name.
+    # recipe.warmup_name for laplace HIGH recipes is the FINAL phase's warmup
+    # (e.g. "window_adaptation_dense_imm"), but the warmup body is always the
+    # multi-phase orchestration template when len(recipe.warmups) > 1.
     _EMIT_WARMUP_NAMES = frozenset(
         {
             "no_warmup",
@@ -1044,8 +1050,13 @@ def emit_script(
             "laplace_multiphase_warmup",
         }
     )
-    if recipe.warmup_name in _EMIT_WARMUP_NAMES:
-        warmup_body = emit_warmup(recipe.warmup_name, _bm_entry, ctx)
+    _effective_warmup_name = (
+        "laplace_multiphase_warmup"
+        if (_is_laplace and _is_multiphase_warmup)
+        else recipe.warmup_name
+    )
+    if _effective_warmup_name in _EMIT_WARMUP_NAMES:
+        warmup_body = emit_warmup(_effective_warmup_name, _bm_entry, ctx)
     else:
         # Unsupported warmup (mclmc_tuning, adjusted_mclmc_tuning, etc.) —
         # raise FileNotFoundError to match the old _load_template behaviour so
