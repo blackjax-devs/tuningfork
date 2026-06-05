@@ -626,6 +626,287 @@ def _compute_warmup_grad_evals(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Shared inference-building helpers (used by BOTH emit and rerun paths)
+# ---------------------------------------------------------------------------
+
+
+def _build_shared_kwargs(
+    base_method: Any,
+    sampler_name: str,
+    batched_params: dict[str, Any],
+    batched_warmup_info: Any,
+    warmup_inner_kernel: str | None,
+    step_policy: Any | None,
+    params_override: dict[str, Any] | None,
+    *,
+    step_policy_from_transform: bool = True,
+) -> tuple[dict[str, Any], Any]:
+    """Build per-step kernel kwargs shared by emit and rerun.
+
+    Starts from default_params_for(base_method) minus step_size/IMM, applies
+    transform_warmup_state when warmup_inner_kernel is set, wires
+    integration_steps_fn for dynamic_hmc/dmhmc, then merges params_override
+    (emit: sampler_kwargs_override; rerun: recipe.base_method_params subset).
+    step_policy_from_transform=False (rerun) keeps the pinned recipe step_policy
+    and discards any spec the transform would derive from the warmup trace,
+    ensuring rerun reproduces the stored recipe exactly even when step_policy=None.
+    Returns (shared_kwargs, effective_step_policy).
+    """
+    default_params = default_params_for(base_method)
+    shared_kwargs: dict[str, Any] = {
+        k: v
+        for k, v in default_params.items()
+        if k not in ("step_size", "inverse_mass_matrix")
+    }
+
+    _effective_step_policy = step_policy
+
+    # Schema extension: transform_warmup_state for explicit inner-kernel paths.
+    if warmup_inner_kernel is not None and batched_warmup_info is not None:
+        _transform_result = transform_warmup_state(
+            warmup_inner_kernel,
+            sampler_name,
+            batched_params,
+            batched_warmup_info,
+            step_policy_override=step_policy if step_policy is not None else None,
+        )
+        for _tk, _tv in _transform_result.items():
+            if _tk not in ("step_size", "inverse_mass_matrix"):
+                if _tk == "step_policy":
+                    if step_policy_from_transform:
+                        # emit path: allow transform to derive/override step_policy.
+                        _effective_step_policy = _tv
+                    # else rerun path: discard; use input step_policy (recipe pinned spec).
+                elif _tk == "num_integration_steps":
+                    shared_kwargs["num_integration_steps"] = _tv
+
+    # dynamic_hmc / dmhmc: strip int NIS; inject integration_steps_fn callable.
+    if sampler_name in ("dynamic_hmc", "dmhmc"):
+        shared_kwargs.pop("num_integration_steps", None)
+        shared_kwargs["integration_steps_fn"] = build_step_policy(
+            _effective_step_policy
+        )
+
+    # Apply caller-specific overrides (emit: sampler_kwargs_override; rerun: recipe params).
+    _EXCLUDE = frozenset(("step_size", "inverse_mass_matrix", "integration_steps_fn"))
+    if params_override:
+        for _k, _v in params_override.items():
+            if _k not in _EXCLUDE:
+                shared_kwargs[_k] = _v
+
+    return shared_kwargs, _effective_step_policy
+
+
+def _reinit_batched_state(
+    batched_state: Any,
+    batched_step_size: Any,
+    batched_imm: Any,
+    batched_L: Any | None,
+    reinit_keys: Any,
+    *,
+    is_laplace: bool,
+    needs_dyn_reinit: bool,
+    needs_mclmc_dyn_reinit: bool,
+    logdensity_fn: Any,
+    base_method: Any,
+    shared_kwargs: dict[str, Any],
+    laplace_log_joint_fn: Any,
+    laplace_theta_init: Any,
+) -> Any:
+    """Per-chain .init() for samplers whose state type differs from warmup output.
+
+    laplace_* needs LaplaceHMCState; dynamic_hmc/dmhmc and adjusted_mclmc_dynamic
+    need DynamicHMCState (random_generator_arg).  All others return batched_state
+    unchanged.  batched_L=None (rerun) means L is already a scalar in shared_kwargs;
+    batched_L=(num_chains,) array (emit) is vmapped per chain for adjusted_mclmc_dynamic.
+    """
+    _lljf = laplace_log_joint_fn
+    _lti = laplace_theta_init
+
+    if is_laplace:
+
+        def _init_one_chain_laplace(
+            init_state: Any, step_size: Any, imm: Any, reinit_key: Any
+        ) -> Any:
+            kernel = base_method.factory(
+                logdensity_fn,
+                log_joint_fn=_lljf,
+                theta_init=_lti,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            return kernel.init(init_state.position, reinit_key)
+
+        return jax.vmap(_init_one_chain_laplace)(
+            batched_state, batched_step_size, batched_imm, reinit_keys
+        )
+    elif needs_dyn_reinit:
+
+        def _init_one_chain_dyn(
+            init_state: Any, step_size: Any, imm: Any, reinit_key: Any
+        ) -> Any:
+            kernel = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            )
+            return kernel.init(init_state.position, reinit_key)
+
+        return jax.vmap(_init_one_chain_dyn)(
+            batched_state, batched_step_size, batched_imm, reinit_keys
+        )
+    elif needs_mclmc_dyn_reinit:
+        if batched_L is not None:
+            # emit path: L is per-chain array from warmup; vmap it alongside ss/imm.
+
+            def _init_one_chain_mclmc_dyn(
+                init_state: Any, step_size: Any, imm: Any, L: Any, reinit_key: Any
+            ) -> Any:
+                kernel = base_method.factory(
+                    logdensity_fn,
+                    step_size=step_size,
+                    inverse_mass_matrix=imm,
+                    L=L,
+                    **shared_kwargs,
+                )
+                return kernel.init(init_state.position, reinit_key)
+
+            return jax.vmap(_init_one_chain_mclmc_dyn)(
+                batched_state, batched_step_size, batched_imm, batched_L, reinit_keys
+            )
+        else:
+            # rerun path: L is already a scalar in shared_kwargs; no per-chain vmap.
+
+            def _init_one_chain_mclmc_dyn_r(
+                init_state: Any, step_size: Any, imm: Any, reinit_key: Any
+            ) -> Any:
+                kernel = base_method.factory(
+                    logdensity_fn,
+                    step_size=step_size,
+                    inverse_mass_matrix=imm,
+                    **shared_kwargs,
+                )
+                return kernel.init(init_state.position, reinit_key)
+
+            return jax.vmap(_init_one_chain_mclmc_dyn_r)(
+                batched_state, batched_step_size, batched_imm, reinit_keys
+            )
+    else:
+        return batched_state
+
+
+def _build_vmapped_inference(
+    base_method: Any,
+    logdensity_fn: Any,
+    num_chains: int,
+    shared_kwargs: dict[str, Any],
+    batched_step_size: Any,
+    batched_imm: Any,
+    batched_L: Any | None,
+    *,
+    is_laplace: bool,
+    is_mclmc_family: bool,
+    is_no_adapted_params: bool,
+    laplace_log_joint_fn: Any,
+    laplace_theta_init: Any,
+) -> Any:
+    """Return a vmapped SamplingAlgorithm for num_chains parallel chains.
+
+    Four branches: laplace (log_joint_fn+theta_init), mclmc with per-chain
+    batched_L (emit; batched_L=None falls through to default so rerun's scalar
+    L in shared_kwargs is used correctly), gradient-free (no ss/imm), default.
+    """
+    _lljf = laplace_log_joint_fn
+    _lti = laplace_theta_init
+
+    if is_laplace:
+
+        def _step_one_chain_laplace(
+            state: Any, key: Any, step_size: Any, imm: Any
+        ) -> Any:
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                log_joint_fn=_lljf,
+                theta_init=_lti,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _vmapped_step_laplace(rng_key: Any, states: Any) -> Any:
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain_laplace)(
+                states, keys, batched_step_size, batched_imm
+            )
+
+        return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace)
+
+    elif is_mclmc_family and batched_L is not None:
+        # emit path: L is per-chain array; vmap it alongside step_size and imm.
+        # Each chain receives its warmup-adapted trajectory length.
+        # (L was removed from shared_kwargs in the emit caller before this call.)
+
+        def _step_one_chain_mclmc(
+            state: Any, key: Any, step_size: Any, imm: Any, L: Any
+        ) -> Any:
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                L=L,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _vmapped_step_mclmc(rng_key: Any, states: Any) -> Any:
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain_mclmc)(
+                states, keys, batched_step_size, batched_imm, batched_L
+            )
+
+        return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_mclmc)
+
+    elif is_no_adapted_params:
+        # Gradient-free path (e.g. elliptical_slice, rwm via no_warmup).
+        # No per-chain step_size or IMM; factory built entirely from shared_kwargs.
+
+        def _step_one_chain_gf(state: Any, key: Any) -> Any:
+            kernel_step = base_method.factory(logdensity_fn, **shared_kwargs).step
+            return kernel_step(key, state)
+
+        def _vmapped_step_gf(rng_key: Any, states: Any) -> Any:
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain_gf)(states, keys)
+
+        return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
+
+    else:
+        # Default path: HMC / NUTS / MALA / Barker / RWM / mclmc(rerun) / etc.
+        # When is_mclmc_family and batched_L is None (rerun), L is already a
+        # scalar in shared_kwargs — handled correctly by this default branch.
+
+        def _step_one_chain(state: Any, key: Any, step_size: Any, imm: Any) -> Any:
+            kernel_step = base_method.factory(
+                logdensity_fn,
+                step_size=step_size,
+                inverse_mass_matrix=imm,
+                **shared_kwargs,
+            ).step
+            return kernel_step(key, state)
+
+        def _vmapped_step(rng_key: Any, states: Any) -> Any:
+            keys = jax.random.split(rng_key, num_chains)
+            return jax.vmap(_step_one_chain)(
+                states, keys, batched_step_size, batched_imm
+            )
+
+        return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step)
+
+
 # Main emit function
 # ---------------------------------------------------------------------------
 
@@ -1083,42 +1364,17 @@ def emit_low_recipe_for_cell(
         batched_params, batched_warmup_info, base_method, n_warmup, num_chains
     )
 
-    # --- Build shared kernel kwargs (per-chain (step_size, IMM) comes via vmap) ---
-    default_params = default_params_for(base_method)
-    # Defaults minus the per-chain-adapted keys
-    shared_kwargs: dict[str, Any] = {
-        k: v
-        for k, v in default_params.items()
-        if k not in ("step_size", "inverse_mass_matrix")
-    }
-
-    # --- Schema extension: transform_warmup_state dispatch ---
-    # When warmup_inner_kernel is set (explicit opt-in), run the resolution table:
-    #   nuts → hmc/mhmc  : inject num_integration_steps = median(NIS)
-    #   nuts → dynamic_hmc/dmhmc : inject step_policy = empirical(NIS)
-    #   (other rows: identity — step_size + IMM only)
-    # When warmup_inner_kernel is None (legacy): keep the existing implicit path
-    # (build_step_policy(step_policy) for dynamic_hmc/dmhmc; no change elsewhere).
-    _effective_step_policy = step_policy  # may be overwritten by transform below
-    if warmup_inner_kernel is not None and batched_warmup_info is not None:
-        # Explicit inner-kernel path: use transform_warmup_state resolution table.
-        # Pass step_policy as override only when an explicit spec was provided by
-        # the caller (prevents re-harvesting from warmup_info on recipe re-run).
-        _transform_result = transform_warmup_state(
-            warmup_inner_kernel,
-            sampler_name,
-            batched_params,
-            batched_warmup_info,
-            step_policy_override=step_policy if step_policy is not None else None,
-        )
-        # Inject transform results into shared_kwargs (excluding step_size and IMM
-        # which are handled per-chain via vmap below).
-        for _tk, _tv in _transform_result.items():
-            if _tk not in ("step_size", "inverse_mass_matrix"):
-                if _tk == "step_policy":
-                    _effective_step_policy = _tv
-                elif _tk == "num_integration_steps":
-                    shared_kwargs["num_integration_steps"] = _tv
+    # --- Build shared kernel kwargs via shared helper ---
+    # params_override = sampler_kwargs_override (caller-supplied live values).
+    shared_kwargs, _effective_step_policy = _build_shared_kwargs(
+        base_method,
+        sampler_name,
+        batched_params,
+        batched_warmup_info,
+        warmup_inner_kernel,
+        step_policy,
+        params_override=sampler_kwargs_override,
+    )
 
     # Compute step_policy to persist HERE (before any early returns) so that
     # dynamic_hmc/dmhmc with inner_nuts always carry the harvested step_policy
@@ -1127,35 +1383,6 @@ def emit_low_recipe_for_cell(
     _recipe_step_policy = (
         _effective_step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None
     )
-
-    # `dynamic_hmc` / `dmhmc` factories expect `integration_steps_fn` (callable),
-    # not the int `num_integration_steps` that the HMC-substituted warmup adapts.
-    # Strip the int; then inject the step_policy callable (V0 = library default
-    # when step_policy=None; non-V0 from build_step_policy when spec is provided).
-    if sampler_name in ("dynamic_hmc", "dmhmc"):
-        shared_kwargs.pop("num_integration_steps", None)
-        # Build integration_steps_fn from the (possibly transform-updated) spec.
-        # V0 (spec=None): returns the same callable as blackjax's built-in default,
-        # so behaviour is identical to not specifying it — we still inject explicitly
-        # to make the code path consistent and testable.
-        _integration_steps_fn = build_step_policy(_effective_step_policy)
-        shared_kwargs["integration_steps_fn"] = _integration_steps_fn
-    # Apply sampler_kwargs_override: caller-supplied values take precedence over
-    # defaults.  step_size and inverse_mass_matrix are always excluded — they
-    # come from warmup adaptation and must not be overridden here.
-    if sampler_kwargs_override:
-        for _k, _v in sampler_kwargs_override.items():
-            if _k not in ("step_size", "inverse_mass_matrix"):
-                shared_kwargs[_k] = _v
-    # laplace_* factories expect `log_joint_fn` and `theta_init` as positional-style
-    # kwargs but NOT `logdensity_fn` (the marginal).  Strip laplace_*-incompatible
-    # defaults from shared_kwargs (laplace_* don't have any standard incompatible
-    # HP defaults currently, but guard explicitly for future-proofing).
-    if is_laplace:
-        # log_joint_fn + theta_init are not in shared_kwargs (they come from the
-        # model decomposition built above); no stripping needed.  Just ensure
-        # they're present as extra kwargs for the factory call below.
-        pass
 
     # Gradient-free / no-adapted-params samplers (elliptical_slice, rwm in no_warmup)
     # return empty batched_params from no_warmup — they have no step_size or IMM.
@@ -1195,144 +1422,44 @@ def emit_low_recipe_for_cell(
         sampler_name == "adjusted_mclmc_dynamic" and is_mclmc_family
     )
 
-    # Capture laplace extras in closure for per-chain step function.
-    _laplace_log_joint_fn = laplace_log_joint_fn
-    _laplace_theta_init = laplace_theta_init
-
-    # --- Pre-scan init: handle samplers that need a different state type ---
-    # Laplace and dynamic_hmc/dmhmc require re-init before the scan loop because
-    # window_adaptation produces HMCState while these kernels need their own state.
-    # adjusted_mclmc_dynamic needs the same treatment (adapted HMCState → DynamicHMCState).
-    # Per-chain reinit is safe (vmapping .init() has no io_callback issues).
+    # --- Pre-scan init via shared helper ---
+    # Laplace / dynamic_hmc / dmhmc / adjusted_mclmc_dynamic need a kernel-specific
+    # state type different from the HMCState that window_adaptation produces.
     _reinit_keys = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
-    if is_laplace:
+    _run_states = _reinit_batched_state(
+        batched_state,
+        batched_step_size,
+        batched_imm,
+        batched_L,
+        _reinit_keys,
+        is_laplace=is_laplace,
+        needs_dyn_reinit=needs_dyn_reinit,
+        needs_mclmc_dyn_reinit=needs_mclmc_dyn_reinit,
+        logdensity_fn=logdensity_fn,
+        base_method=base_method,
+        shared_kwargs=shared_kwargs,
+        laplace_log_joint_fn=laplace_log_joint_fn,
+        laplace_theta_init=laplace_theta_init,
+    )
 
-        def _init_one_chain_laplace(init_state, step_size, imm, reinit_key):
-            kernel = base_method.factory(
-                logdensity_fn,
-                log_joint_fn=_laplace_log_joint_fn,
-                theta_init=_laplace_theta_init,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            )
-            return kernel.init(init_state.position, reinit_key)
-
-        _run_states = jax.vmap(_init_one_chain_laplace)(
-            batched_state, batched_step_size, batched_imm, _reinit_keys
-        )
-    elif needs_dyn_reinit:
-
-        def _init_one_chain_dyn(init_state, step_size, imm, reinit_key):
-            kernel = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            )
-            return kernel.init(init_state.position, reinit_key)
-
-        _run_states = jax.vmap(_init_one_chain_dyn)(
-            batched_state, batched_step_size, batched_imm, _reinit_keys
-        )
-    elif needs_mclmc_dyn_reinit:
-        # adjusted_mclmc_dynamic: convert warmup HMCState → DynamicHMCState using
-        # the per-chain adapted L (required by the factory; not in shared_kwargs).
-
-        def _init_one_chain_mclmc_dyn(init_state, step_size, imm, L, reinit_key):
-            kernel = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                L=L,
-                **shared_kwargs,
-            )
-            return kernel.init(init_state.position, reinit_key)
-
-        _run_states = jax.vmap(_init_one_chain_mclmc_dyn)(
-            batched_state, batched_step_size, batched_imm, batched_L, _reinit_keys
-        )
-    else:
-        _run_states = batched_state
-
-    # --- run_inference_algorithm(vmapped input) — canonical multi-chain pattern ---
-    # ONE kernel is built with per-chain (step_size, imm) via vmap inside the step.
-    # run_inference_algorithm is NOT vmapped; inputs are batched (num_chains, ...).
-    # progress_bar=False for the runner (uses timing/logging not a terminal bar).
-    if is_laplace:
-
-        def _step_one_chain_laplace(state, key, step_size, imm):
-            kernel_step = base_method.factory(
-                logdensity_fn,
-                log_joint_fn=_laplace_log_joint_fn,
-                theta_init=_laplace_theta_init,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            ).step
-            return kernel_step(key, state)
-
-        def _vmapped_step_laplace(rng_key, states):
-            keys = jax.random.split(rng_key, num_chains)
-            return jax.vmap(_step_one_chain_laplace)(
-                states, keys, batched_step_size, batched_imm
-            )
-
-        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace)
-    elif is_mclmc_family:
-        # mclmc-family: vmap L alongside step_size and imm so each chain
-        # receives its warmup-adapted trajectory length.  L was removed from
-        # shared_kwargs above; it arrives here as batched_L (num_chains,).
-
-        def _step_one_chain_mclmc(state, key, step_size, imm, L):
-            kernel_step = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                L=L,
-                **shared_kwargs,
-            ).step
-            return kernel_step(key, state)
-
-        def _vmapped_step_mclmc(rng_key, states):
-            keys = jax.random.split(rng_key, num_chains)
-            return jax.vmap(_step_one_chain_mclmc)(
-                states, keys, batched_step_size, batched_imm, batched_L
-            )
-
-        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_mclmc)
-    elif is_no_adapted_params:
-        # Gradient-free / no-adapted-params path (e.g. elliptical_slice).
-        # No per-chain step_size or IMM; kernel built entirely from shared_kwargs
-        # (which for elliptical_slice contains prior_mean + prior_cov injected above).
-
-        def _step_one_chain_gf(state: Any, key: Any) -> Any:
-            kernel_step = base_method.factory(logdensity_fn, **shared_kwargs).step
-            return kernel_step(key, state)
-
-        def _vmapped_step_gf(rng_key: Any, states: Any) -> Any:
-            keys = jax.random.split(rng_key, num_chains)
-            return jax.vmap(_step_one_chain_gf)(states, keys)
-
-        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
-    else:
-
-        def _step_one_chain(state, key, step_size, imm):
-            kernel_step = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            ).step
-            return kernel_step(key, state)
-
-        def _vmapped_step(rng_key, states):
-            keys = jax.random.split(rng_key, num_chains)
-            return jax.vmap(_step_one_chain)(
-                states, keys, batched_step_size, batched_imm
-            )
-
-        _alg = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step)
+    # --- Build vmapped inference algorithm via shared helper ---
+    # All four branches (laplace / mclmc / gradient-free / default) are
+    # handled inside _build_vmapped_inference, including the per-chain-L
+    # mclmc branch (emit path: batched_L is not None).
+    _alg = _build_vmapped_inference(
+        base_method,
+        logdensity_fn,
+        num_chains,
+        shared_kwargs,
+        batched_step_size,
+        batched_imm,
+        batched_L,
+        is_laplace=is_laplace,
+        is_mclmc_family=is_mclmc_family,
+        is_no_adapted_params=is_no_adapted_params,
+        laplace_log_joint_fn=laplace_log_joint_fn,
+        laplace_theta_init=laplace_theta_init,
+    )
 
     # --- Sampling (multi-chain via run_inference_algorithm(vmapped input)) ---
     _log(
@@ -2390,149 +2517,81 @@ def run_recipe_to_idata(
         jax.block_until_ready((batched_state, batched_params))
     _t_warmup = 0.0 if skip_warmup else (time.perf_counter() - _t_warmup_start)
 
-    # Build shared kernel kwargs
-    default_params = default_params_for(base_method)
-    shared_kwargs: dict[str, Any] = {
+    # Build shared kernel kwargs via shared helper.
+    # params_override = recipe.base_method_params (JSON-stored recipe values;
+    # excludes step_size/IMM/integration_steps_fn which the helper's _EXCLUDE strips).
+    # step_policy_from_transform=False: always use recipe.step_policy (pinned spec),
+    # never let transform_warmup_state overwrite it (even when recipe.step_policy=None).
+    _recipe_params_override: dict[str, Any] = {
         k: v
-        for k, v in default_params.items()
-        if k not in ("step_size", "inverse_mass_matrix")
+        for k, v in recipe.base_method_params.items()
+        if k not in ("step_size", "inverse_mass_matrix", "integration_steps_fn")
     }
-
-    # Schema extension: transform_warmup_state for explicit inner kernel recipes.
-    if recipe.warmup_inner_kernel is not None and _recipe_warmup_info is not None:
-        _rtransform = transform_warmup_state(
-            recipe.warmup_inner_kernel,
-            recipe.base_method_name,
-            batched_params,
-            _recipe_warmup_info,
-            step_policy_override=recipe.step_policy,  # use pinned spec from recipe
-        )
-        for _rtk, _rtv in _rtransform.items():
-            if _rtk not in ("step_size", "inverse_mass_matrix"):
-                if _rtk == "step_policy":
-                    pass  # handled below via build_step_policy(recipe.step_policy)
-                elif _rtk == "num_integration_steps":
-                    shared_kwargs["num_integration_steps"] = _rtv
-
-    if recipe.base_method_name in ("dynamic_hmc", "dmhmc"):
-        shared_kwargs.pop("num_integration_steps", None)
-        # Wire the step_policy callable from the recipe's stored spec.
-        # None = V0 library default; non-None = reconstructed from spec.
-        shared_kwargs["integration_steps_fn"] = build_step_policy(recipe.step_policy)
-
-    # Inject recipe's base_method_params (overrides defaults)
-    recipe_params = dict(recipe.base_method_params)
-    # Exclude step_size, IMM, and integration_steps_fn (callable; not in recipe params).
-    for k in list(recipe_params.keys()):
-        if k not in ("step_size", "inverse_mass_matrix", "integration_steps_fn"):
-            shared_kwargs[k] = recipe_params[k]
+    shared_kwargs, _ = _build_shared_kwargs(
+        base_method,
+        recipe.base_method_name,
+        batched_params,
+        _recipe_warmup_info,
+        recipe.warmup_inner_kernel,
+        recipe.step_policy,
+        params_override=_recipe_params_override,
+        step_policy_from_transform=False,
+    )
 
     batched_step_size = batched_params["step_size"]
     batched_imm = batched_params["inverse_mass_matrix"]
     needs_dyn_reinit = recipe.base_method_name in ("dynamic_hmc", "dmhmc")
-    # adjusted_mclmc_dynamic: L is in shared_kwargs (from recipe_params above);
-    # needs reinit from HMCState → DynamicHMCState using the stored scalar L.
-    # Unlike the emit path, L here is a Python float (not a vmapped array), so the
-    # factory call uses **shared_kwargs which already contains the correct stored L.
+    # adjusted_mclmc_dynamic: L is now in shared_kwargs (from _recipe_params_override
+    # above; the recipe stores L as a scalar Python float from the emit run).
+    # A reinit converts HMCState → DynamicHMCState using the scalar L in shared_kwargs.
     needs_mclmc_dyn_reinit_r = recipe.base_method_name == "adjusted_mclmc_dynamic"
+    # mclmc-family in rerun: L is a scalar in shared_kwargs (not a per-chain array).
+    # is_mclmc_family is passed to _build_vmapped_inference but batched_L=None, so
+    # the helper falls through to the default branch (correct: L in shared_kwargs).
+    is_mclmc_family_r = recipe.base_method_name in _MCLMC_FAMILY_NAMES
 
-    _laplace_log_joint_fn = laplace_log_joint_fn
-    _laplace_theta_init = laplace_theta_init
-
-    # --- Pre-scan init: handle samplers that need a different state type ---
-    # Laplace and dynamic_hmc/dmhmc require re-init before the scan loop because
-    # window_adaptation produces HMCState while these kernels need their own state.
-    # adjusted_mclmc_dynamic needs the same treatment (HMCState → DynamicHMCState).
+    # --- Pre-scan init via shared helper ---
+    # Laplace / dynamic_hmc / dmhmc / adjusted_mclmc_dynamic need a kernel-specific
+    # state type different from the HMCState that window_adaptation produces.
+    # batched_L=None because L is already in shared_kwargs as a scalar.
     _reinit_keys_r = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
-    if is_laplace:
+    _run_states_r = _reinit_batched_state(
+        batched_state,
+        batched_step_size,
+        batched_imm,
+        None,  # batched_L: rerun uses scalar L from shared_kwargs
+        _reinit_keys_r,
+        is_laplace=is_laplace,
+        needs_dyn_reinit=needs_dyn_reinit,
+        needs_mclmc_dyn_reinit=needs_mclmc_dyn_reinit_r,
+        logdensity_fn=logdensity_fn,
+        base_method=base_method,
+        shared_kwargs=shared_kwargs,
+        laplace_log_joint_fn=laplace_log_joint_fn,
+        laplace_theta_init=laplace_theta_init,
+    )
 
-        def _init_one_chain_laplace_r(init_state, step_size, imm, reinit_key):
-            kernel = base_method.factory(
-                logdensity_fn,
-                log_joint_fn=_laplace_log_joint_fn,
-                theta_init=_laplace_theta_init,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            )
-            return kernel.init(init_state.position, reinit_key)
-
-        _run_states_r = jax.vmap(_init_one_chain_laplace_r)(
-            batched_state, batched_step_size, batched_imm, _reinit_keys_r
-        )
-    elif needs_dyn_reinit:
-
-        def _init_one_chain_dyn_r(init_state, step_size, imm, reinit_key):
-            kernel = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            )
-            return kernel.init(init_state.position, reinit_key)
-
-        _run_states_r = jax.vmap(_init_one_chain_dyn_r)(
-            batched_state, batched_step_size, batched_imm, _reinit_keys_r
-        )
-    elif needs_mclmc_dyn_reinit_r:
-        # adjusted_mclmc_dynamic: L is in shared_kwargs (from recipe_params).
-        # The factory call includes L; kernel.init converts HMCState→DynamicHMCState.
-
-        def _init_one_chain_mclmc_dyn_r(init_state, step_size, imm, reinit_key):
-            kernel = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            )
-            return kernel.init(init_state.position, reinit_key)
-
-        _run_states_r = jax.vmap(_init_one_chain_mclmc_dyn_r)(
-            batched_state, batched_step_size, batched_imm, _reinit_keys_r
-        )
-    else:
-        _run_states_r = batched_state
-
-    # --- run_inference_algorithm(vmapped input) — canonical multi-chain pattern ---
-    # progress_bar=False for the runner (uses timing/logging not a terminal bar).
-    if is_laplace:
-
-        def _step_one_chain_laplace_r(state, key, step_size, imm):
-            kernel_step = base_method.factory(
-                logdensity_fn,
-                log_joint_fn=_laplace_log_joint_fn,
-                theta_init=_laplace_theta_init,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            ).step
-            return kernel_step(key, state)
-
-        def _vmapped_step_laplace_r(rng_key, states):
-            keys = jax.random.split(rng_key, num_chains)
-            return jax.vmap(_step_one_chain_laplace_r)(
-                states, keys, batched_step_size, batched_imm
-            )
-
-        _alg_r = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace_r)
-    else:
-
-        def _step_one_chain_r(state, key, step_size, imm):
-            kernel_step = base_method.factory(
-                logdensity_fn,
-                step_size=step_size,
-                inverse_mass_matrix=imm,
-                **shared_kwargs,
-            ).step
-            return kernel_step(key, state)
-
-        def _vmapped_step_r(rng_key, states):
-            keys = jax.random.split(rng_key, num_chains)
-            return jax.vmap(_step_one_chain_r)(
-                states, keys, batched_step_size, batched_imm
-            )
-
-        _alg_r = _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_r)
+    # --- Build vmapped inference algorithm via shared helper ---
+    # All four branches (laplace / mclmc / gradient-free / default) are handled
+    # inside _build_vmapped_inference.  For rerun:
+    # - batched_L=None → mclmc branch skips to default (L is scalar in shared_kwargs).
+    # - is_no_adapted_params=False → rerun always has step_size/IMM from recipe params.
+    # This fixes T0.3: old rerun only had laplace vs else, missing the mclmc branch.
+    # The default branch correctly handles mclmc (scalar L in shared_kwargs).
+    _alg_r = _build_vmapped_inference(
+        base_method,
+        logdensity_fn,
+        num_chains,
+        shared_kwargs,
+        batched_step_size,
+        batched_imm,
+        None,  # batched_L: rerun uses scalar L from shared_kwargs
+        is_laplace=is_laplace,
+        is_mclmc_family=is_mclmc_family_r,
+        is_no_adapted_params=False,
+        laplace_log_joint_fn=laplace_log_joint_fn,
+        laplace_theta_init=laplace_theta_init,
+    )
 
     # Run sampling via run_inference_algorithm(vmapped input)
     _t_sample_start = time.perf_counter()
