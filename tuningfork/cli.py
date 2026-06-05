@@ -339,9 +339,7 @@ def _cmd_leaderboard(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------ #
     # 2. Glob recipes from disk                                          #
     # ------------------------------------------------------------------ #
-    recipe_dir = (
-        Path(__file__).parent / "inference" / "recipes" / "starter" / args.model
-    )
+    recipe_dir = Path(__file__).parent / "catalog" / args.model / "recipes"
     recipes: list[Recipe] = []
     if not recipe_dir.exists():
         # Model directory doesn't exist; no recipes

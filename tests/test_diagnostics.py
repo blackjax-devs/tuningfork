@@ -23,11 +23,7 @@ import pytest
 
 from tuningfork.catalog.diagnostics import (
     render_gradient_mh,
-    render_mclmc_family,
-    render_smc_family,
-    render_specialised,
     render_universal_summary,
-    render_vi_family,
     samples_to_idata,
 )
 
@@ -119,56 +115,6 @@ def test_render_gradient_mh(mock_samples_multichain, mock_info_with_divergence):
     """Test gradient MH renderer (semantic name)."""
     idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
     figs = render_gradient_mh(idata, mock_info_with_divergence, sampler_name="nuts")
-    assert isinstance(figs, list)
-    assert len(figs) > 0
-    for fig in figs:
-        assert fig is not None
-        assert isinstance(fig, plt.Figure)
-        plt.close(fig)
-
-
-def test_render_mclmc_family(mock_samples_multichain, mock_info_with_divergence):
-    """Test MCLMC family renderer (semantic name)."""
-    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_mclmc_family(idata, mock_info_with_divergence)
-    assert isinstance(figs, list)
-    assert len(figs) > 0
-    for fig in figs:
-        assert fig is not None
-        assert isinstance(fig, plt.Figure)
-        plt.close(fig)
-
-
-def test_render_smc_family(mock_samples_multichain, mock_info_with_divergence):
-    """Test SMC family renderer (semantic name)."""
-    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_smc_family(idata, mock_info_with_divergence)
-    assert isinstance(figs, list)
-    assert len(figs) > 0
-    for fig in figs:
-        assert fig is not None
-        assert isinstance(fig, plt.Figure)
-        plt.close(fig)
-
-
-def test_render_vi_family(mock_samples_multichain, mock_info_with_divergence):
-    """Test VI family renderer (semantic name)."""
-    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_vi_family(idata, mock_info_with_divergence)
-    assert isinstance(figs, list)
-    assert len(figs) > 0
-    for fig in figs:
-        assert fig is not None
-        assert isinstance(fig, plt.Figure)
-        plt.close(fig)
-
-
-def test_render_specialised(mock_samples_multichain, mock_info_with_divergence):
-    """Test specialised sampler renderer (semantic name)."""
-    idata = samples_to_idata(mock_samples_multichain, is_multichain=True)
-    figs = render_specialised(
-        idata, mock_info_with_divergence, sampler_name="elliptical_slice"
-    )
     assert isinstance(figs, list)
     assert len(figs) > 0
     for fig in figs:

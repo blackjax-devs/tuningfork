@@ -39,11 +39,7 @@ from tuningfork.catalog._timing import compute_total_warmup_steps, format_timing
 from tuningfork.catalog.diagnostics import (
     plot_recipe_diagnostics,
     render_gradient_mh,
-    render_mclmc_family,
-    render_smc_family,
-    render_specialised,
     render_universal_summary,
-    render_vi_family,
     samples_to_idata,
 )
 from tuningfork.catalog.emit import emit_script
@@ -65,10 +61,6 @@ __all__ = [
     # diagnostics
     "render_universal_summary",
     "render_gradient_mh",
-    "render_mclmc_family",
-    "render_smc_family",
-    "render_vi_family",
-    "render_specialised",
     "plot_recipe_diagnostics",
     # timing
     "compute_total_warmup_steps",
