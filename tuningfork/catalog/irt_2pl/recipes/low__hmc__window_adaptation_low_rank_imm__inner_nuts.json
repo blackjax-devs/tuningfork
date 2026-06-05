@@ -109,9 +109,10 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "",
-      "statistician_id": "",
-      "decision": ""
+      "decision": "approve-with-note",
+      "statistician_id": "stat-2026-06-05",
+      "date": "2026-06-05",
+      "reason": "max_abs_mean_z=2.86 < Bonferroni z*≈4.2 for k≈700 irt_2pl parameters (k-correction makes this noise). frac_z2=7.6% ≈ 5% null expectation; no clustering or systematic offset. rhat=1.009 (PASS), ESS=979 (PASS), 0 divergences. Self-consistency diagnostics are genuinely clean; GT tension is dimensionality noise consistent with n_warmup=2000 being lean for d=144 IRT. Follows stat-2026-05-29 precedent on these cells. Honest LOW recipe documenting what library defaults produce on irt_2pl."
     }
   },
   "tuning_seed": 682737,
