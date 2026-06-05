@@ -33,5 +33,12 @@ from tuningfork.recipes._emit._laplace_preamble import emit_laplace_preamble
 from tuningfork.recipes._emit._postamble import emit_postamble
 from tuningfork.recipes._emit._preamble import emit_preamble
 from tuningfork.recipes._emit._sampler import emit_sampler
+from tuningfork.recipes._emit._warmup import emit_warmup
 
-__all__ = ["emit_preamble", "emit_laplace_preamble", "emit_postamble", "emit_sampler"]
+__all__ = [
+    "emit_preamble",
+    "emit_laplace_preamble",
+    "emit_postamble",
+    "emit_sampler",
+    "emit_warmup",
+]
