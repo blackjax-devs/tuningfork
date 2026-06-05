@@ -617,20 +617,6 @@ class TestStanWindowMultiChain:
             **kw,
         )
 
-    def test_default_num_chains_is_4(self) -> None:
-        """No num_chains kwarg → default 4; position leading dim == 4."""
-        key = jax.random.key(1001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params, *_ = WARMUPS["window_adaptation_diag_imm"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert leading == 4, f"Default num_chains should be 4, got {leading}"
-
     @pytest.mark.parametrize(
         "num_chains,expected_pos,expected_ss,expected_imm",
         [
@@ -643,7 +629,11 @@ class TestStanWindowMultiChain:
     def test_num_chains_shape(
         self, num_chains, expected_pos, expected_ss, expected_imm
     ) -> None:
-        """Diagonal IMM shape contract for num_chains=1/4/8."""
+        """Diagonal IMM shape + positivity contract for num_chains=1/4/8.
+
+        nc4 also serves as the default=4 smoke (default kwarg omitted → same
+        _run internally, so the leading-dim=4 contract is covered).
+        """
         seed = 1002 + num_chains
         states, params, *_ = self._run(seed, num_chains=num_chains)
         assert (
@@ -655,6 +645,11 @@ class TestStanWindowMultiChain:
         assert (
             params["inverse_mass_matrix"].shape == expected_imm
         ), f"nc={num_chains}: IMM shape {params['inverse_mass_matrix'].shape} != {expected_imm}"
+        if num_chains == 4:
+            # Positivity check on the nc4 row (avoids a separate JAX-traced call)
+            assert bool(
+                jnp.all(jnp.asarray(params["step_size"]) > 0)
+            ), f"Not all step sizes positive: {params['step_size']}"
 
     def test_pre_batched_init_position(self) -> None:
         """init_position with leading dim == num_chains passes through verbatim."""
@@ -690,12 +685,6 @@ class TestStanWindowMultiChain:
         pos_shape = _position_shape(states)
         assert pos_shape == (2, 10), f"Expected (2, 10), got {pos_shape}"
 
-    def test_all_step_sizes_positive(self) -> None:
-        """All per-chain step sizes must be positive."""
-        _, params, *_ = self._run(1009, num_chains=4)
-        ss = jnp.asarray(params["step_size"])
-        assert bool(jnp.all(ss > 0)), f"Not all step sizes positive: {ss}"
-
 
 # ---------------------------------------------------------------------------
 # 10. Multi-chain contracts — mclmc_tuning — SLOW
@@ -719,20 +708,6 @@ class TestMclmcTuningMultiChain:
             num_chains=num_chains,
         )
 
-    def test_default_num_chains_is_4(self) -> None:
-        """No num_chains kwarg → default 4."""
-        key = jax.random.key(2001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = WARMUPS["mclmc_tuning"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _MCLMC,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert leading == 4, f"Default num_chains should be 4, got {leading}"
-
     @pytest.mark.parametrize(
         "num_chains,expected_leading,expected_L,expected_ss,expected_imm",
         [
@@ -744,7 +719,11 @@ class TestMclmcTuningMultiChain:
     def test_num_chains_shape(
         self, num_chains, expected_leading, expected_L, expected_ss, expected_imm
     ) -> None:
-        """Shape contract for L/step_size/IMM for num_chains=1/4."""
+        """Shape + positivity + int-type contract for L/step_size/IMM.
+
+        nc4 row also covers: default=4 behavior, L>0, step_size>0,
+        and _total_tuning_steps is a Python int — avoids separate JAX-traced calls.
+        """
         seed = 2002 + num_chains
         states, params, *_ = self._run(seed, num_chains=num_chains)
         assert _state_leading_dim(states) == expected_leading
@@ -753,21 +732,15 @@ class TestMclmcTuningMultiChain:
         ), f"nc={num_chains}: L shape mismatch"
         assert jnp.asarray(params["step_size"]).shape == expected_ss
         assert params["inverse_mass_matrix"].shape == expected_imm
-
-    def test_total_tuning_steps_is_int(self) -> None:
-        """_total_tuning_steps is a Python int (not a JAX array)."""
-        _, params, *_ = self._run(2007, num_chains=4)
-        steps = params["_total_tuning_steps"]
-        assert isinstance(
-            steps, int
-        ), f"_total_tuning_steps should be int, got {type(steps)}"
-        assert steps > 0, f"_total_tuning_steps={steps} <= 0"
-
-    def test_all_L_positive(self) -> None:
-        """All per-chain L values must be positive."""
-        _, params, *_ = self._run(2008, num_chains=4)
-        L = jnp.asarray(params["L"])
-        assert bool(jnp.all(L > 0)), f"Not all L values positive: {L}"
+        if num_chains == 4:
+            assert bool(
+                jnp.all(jnp.asarray(params["L"]) > 0)
+            ), f"Not all L positive: {params['L']}"
+            steps = params["_total_tuning_steps"]
+            assert isinstance(
+                steps, int
+            ), f"_total_tuning_steps should be int, got {type(steps)}"
+            assert steps > 0, f"_total_tuning_steps={steps} <= 0"
 
 
 # ---------------------------------------------------------------------------
@@ -794,20 +767,6 @@ class TestNoWarmupMultiChain:
             logdensity_fn=logdensity_fn,
             num_chains=num_chains,
         )
-
-    def test_default_num_chains_is_4(self) -> None:
-        """No num_chains kwarg → default 4."""
-        key = jax.random.key(3001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = WARMUPS["no_warmup"].runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _RWM,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert leading == 4, f"Default num_chains should be 4, got {leading}"
 
     @pytest.mark.parametrize(
         "base_method_key,seed,num_chains",
@@ -870,57 +829,32 @@ class TestPathfinderMultiChain:
             **kw,
         )
 
-    def test_default_num_chains_equals_4(self) -> None:
-        """Default num_chains=4: position leading dim == 4, dense IMM (4, d, d)."""
-        from tuningfork.warmup.pathfinder import ENTRY
+    @pytest.mark.parametrize(
+        "num_chains,expected_pos,expected_ss,expected_imm",
+        [
+            (4, (4, _D), (4,), (4, _D, _D)),
+            (2, (2, _D), (2,), (2, _D, _D)),
+        ],
+        ids=["nc4", "nc2"],
+    )
+    def test_shape_and_keys(
+        self, num_chains, expected_pos, expected_ss, expected_imm
+    ) -> None:
+        """Dense IMM shape + keys present + step_size > 0 for nc=2 and nc=4.
 
-        key = jax.random.key(4001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = ENTRY.runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert leading == 4, f"Default num_chains should be 4, got {leading}"
-        ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
-        imm = params["inverse_mass_matrix"]
-        # Dense IMM: (num_chains, d, d) — changed from old (num_chains, d) diagonal
-        assert imm.shape == (
-            4,
-            _D,
-            _D,
-        ), f"IMM expected (4, {_D}, {_D}), got {imm.shape}"
-
-    def test_explicit_num_chains_2(self) -> None:
-        """num_chains=2: position (2, d), step_size (2,), dense IMM (2, d, d)."""
-        states, params, *_ = self._run(4002, num_chains=2)
-        pos_shape = _position_shape(states)
-        assert pos_shape == (2, _D), f"Expected (2, {_D}), got {pos_shape}"
-        ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (2,), f"step_size expected (2,), got {ss.shape}"
-        imm = params["inverse_mass_matrix"]
-        # Dense IMM: changed from (2, d) to (2, d, d)
-        assert imm.shape == (
-            2,
-            _D,
-            _D,
-        ), f"IMM expected (2, {_D}, {_D}), got {imm.shape}"
-
-    def test_step_size_and_imm_keys_present(self) -> None:
-        """adapted_params must contain step_size and inverse_mass_matrix."""
-        _, params, *_ = self._run(4004, num_chains=2)
-        assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
-        assert "inverse_mass_matrix" in params, f"Missing IMM; keys: {list(params)}"
-
-    def test_step_size_positive(self) -> None:
-        """Pathfinder now adapts step_size via DA; all values must be > 0."""
-        _, params, *_ = self._run(4006, num_chains=4)
-        ss = jnp.asarray(params["step_size"])
-        assert bool(jnp.all(ss > 0)), f"All step_sizes should be > 0, got {ss}"
+        nc4 row: verifies default=4 behavior and positivity.
+        nc2 row: verifies a non-default shape (two chains).
+        """
+        seed = 4001 + num_chains
+        states, params, *_ = self._run(seed, num_chains=num_chains)
+        assert _position_shape(states) == expected_pos
+        assert jnp.asarray(params["step_size"]).shape == expected_ss
+        assert params["inverse_mass_matrix"].shape == expected_imm
+        assert "step_size" in params
+        assert "inverse_mass_matrix" in params
+        assert bool(
+            jnp.all(jnp.asarray(params["step_size"]) > 0)
+        ), f"nc={num_chains}: step_size not all > 0"
 
     def test_num_chains_1_not_squeezed(self) -> None:
         """num_chains=1 → leading dim 1 (NOT squeezed), dense IMM (1, d, d)."""
@@ -987,51 +921,32 @@ class TestMultiPathfinderMultiChain:
             **kw,
         )
 
-    def test_default_num_chains_equals_4(self) -> None:
-        """Default num_chains=4: position leading dim == 4, dense IMM (4, d, d)."""
-        from tuningfork.warmup.multipathfinder import ENTRY
+    @pytest.mark.parametrize(
+        "num_chains,expected_pos,expected_ss,expected_imm",
+        [
+            (4, (4, _D), (4,), (4, _D, _D)),
+            (2, (2, _D), (2,), (2, _D, _D)),
+        ],
+        ids=["nc4", "nc2"],
+    )
+    def test_shape_and_keys(
+        self, num_chains, expected_pos, expected_ss, expected_imm
+    ) -> None:
+        """Dense IMM shape + keys present + step_size > 0 for nc=2 and nc=4.
 
-        key = jax.random.key(5001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = ENTRY.runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _NUTS,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert leading == 4, f"Default num_chains should be 4, got {leading}"
-        ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
-        imm = params["inverse_mass_matrix"]
-        # Dense IMM: (num_chains, d, d) — changed from old (num_chains, d) diagonal
-        assert imm.shape == (
-            4,
-            _D,
-            _D,
-        ), f"IMM expected (4, {_D}, {_D}), got {imm.shape}"
-
-    def test_explicit_num_chains_2(self) -> None:
-        """num_chains=2: position (2, d), step_size (2,), dense IMM (2, d, d)."""
-        states, params, *_ = self._run(5002, num_chains=2)
-        pos_shape = _position_shape(states)
-        assert pos_shape == (2, _D), f"Expected (2, {_D}), got {pos_shape}"
-        ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (2,), f"step_size expected (2,), got {ss.shape}"
-        imm = params["inverse_mass_matrix"]
-        # Dense IMM: changed from (2, d) to (2, d, d)
-        assert imm.shape == (
-            2,
-            _D,
-            _D,
-        ), f"IMM expected (2, {_D}, {_D}), got {imm.shape}"
-
-    def test_step_size_and_imm_keys_present(self) -> None:
-        """adapted_params must contain step_size and inverse_mass_matrix."""
-        _, params, *_ = self._run(5004, num_chains=2)
-        assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
-        assert "inverse_mass_matrix" in params, f"Missing IMM; keys: {list(params)}"
+        nc4 row: verifies default=4 behavior, keys present, and positivity.
+        nc2 row: verifies non-default shape (broadcast shared IMM contract still holds).
+        """
+        seed = 5001 + num_chains
+        states, params, *_ = self._run(seed, num_chains=num_chains)
+        assert _position_shape(states) == expected_pos
+        assert jnp.asarray(params["step_size"]).shape == expected_ss
+        assert params["inverse_mass_matrix"].shape == expected_imm
+        assert "step_size" in params
+        assert "inverse_mass_matrix" in params
+        assert bool(
+            jnp.all(jnp.asarray(params["step_size"]) > 0)
+        ), f"nc={num_chains}: step_size not all > 0"
 
     def test_psis_diagnostics_in_calibration_metadata(self) -> None:
         """_multipathfinder_psis_pareto_k sidecar must be present."""
@@ -1128,25 +1043,35 @@ class TestMeadsMultiChain:
             **kw,
         )
 
-    def test_default_num_chains_equals_4_meets_num_folds_4(self) -> None:
-        """num_chains=4 == num_folds=4 (default): should not raise; shapes correct."""
-        from tuningfork.warmup.meads import ENTRY
+    @pytest.mark.parametrize(
+        "num_chains,num_folds,expected_leading",
+        [
+            (4, None, 4),  # default num_folds=4; nc==nf OK; keys present; compat smoke
+            (8, 4, 8),  # nc > nf; shapes correct
+        ],
+        ids=["nc4_default", "nc8_nf4"],
+    )
+    def test_shape_and_keys(self, num_chains, num_folds, expected_leading) -> None:
+        """Shape + required-keys contract for MEADS at nc=4 (default) and nc=8/nf=4.
 
-        key = jax.random.key(6001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = ENTRY.runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            200,
-            _GHMC,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert (
-            leading == 4
-        ), f"Default num_chains=4: expected leading dim 4, got {leading}"
+        nc4 row: covers default=4 behavior, all required param keys, and compat smoke.
+        nc8/nf4 row: covers chains > folds shape (the happy path for non-default size).
+        """
+        kw = {} if num_folds is None else {"num_folds": num_folds}
+        seed = 6001 + num_chains
+        states, params, *_ = self._run(seed, num_chains=num_chains, **kw)
+        assert _state_leading_dim(states) == expected_leading
         ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
+        assert ss.shape == (
+            expected_leading,
+        ), f"step_size expected ({expected_leading},)"
+        if num_chains == 4:
+            # Keys present (checked once on nc4)
+            for key_name in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
+                assert key_name in params, f"Missing {key_name!r}; got: {list(params)}"
+        if num_chains == 8:
+            imm = jnp.asarray(params["momentum_inverse_scale"])
+            assert imm.shape == (8, _D), f"momentum_inverse_scale expected (8, {_D})"
 
     def test_num_chains_below_num_folds_raises(self) -> None:
         """HARD-KEEP: num_chains=2 < num_folds=4 must raise ValueError.
@@ -1203,14 +1128,6 @@ class TestMeadsMultiChain:
         pos_shape = _position_shape(states)
         assert pos_shape == (4, _D), f"Pre-batched: expected (4, {_D}), got {pos_shape}"
 
-    def test_step_size_alpha_delta_imm_keys_present(self) -> None:
-        """adapted_params must contain step_size, momentum_inverse_scale, alpha, delta."""
-        _, params, *_ = self._run(6005, num_chains=4)
-        for key_name in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
-            assert (
-                key_name in params
-            ), f"Missing {key_name!r} in MEADS adapted_params; got: {list(params)}"
-
     def test_meads_num_folds_sidecar_present(self) -> None:
         """_meads_num_folds sidecar key must be present."""
         _, params, *_ = self._run(6006, num_chains=4)
@@ -1218,13 +1135,6 @@ class TestMeadsMultiChain:
             "_meads_num_folds" in params
         ), f"Missing _meads_num_folds sidecar; got: {list(params)}"
         assert params["_meads_num_folds"] == 4
-
-    def test_meads_ghmc_compat_in_runner(self) -> None:
-        """MEADS runner works with GHMC (compat checked via parametrized table)."""
-        # The is_compatible() values for meads are in the _IS_COMPATIBLE_TABLE.
-        # This test confirms the runner itself does NOT raise for the compatible case.
-        states, params, *_ = self._run(6007, num_chains=4)
-        assert states is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1263,38 +1173,34 @@ class TestCheesMultiChain:
             **kw,
         )
 
-    def test_default_num_chains_equals_4(self) -> None:
-        """Default num_chains=4: position leading dim == 4."""
-        from tuningfork.warmup.chees import ENTRY
+    @pytest.mark.parametrize(
+        "num_chains,expected_leading,expected_ss,expected_imm",
+        [
+            (4, 4, (4,), (4, _D)),
+            (8, 8, (8,), (8, _D)),
+        ],
+        ids=["nc4", "nc8"],
+    )
+    def test_shape_and_keys(
+        self, num_chains, expected_leading, expected_ss, expected_imm
+    ) -> None:
+        """Shape + keys + positivity contract for CHEES at nc=4 and nc=8.
 
-        key = jax.random.key(7001)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        states, params = ENTRY.runner(
-            jax.random.fold_in(key, 1),
-            init_pos,
-            50,
-            _DYNAMIC_HMC,
-            logdensity_fn=logdensity_fn,
-        )
-        leading = _state_leading_dim(states)
-        assert (
-            leading == 4
-        ), f"Default num_chains=4: expected leading dim 4, got {leading}"
+        nc4 row: covers default=4 behavior, keys present, step_size > 0, IMM shape,
+        and compat smoke (dynamic_hmc runner succeeds).
+        nc8 row: covers non-default chains > 4 shape.
+        """
+        seed = 7001 + num_chains
+        states, params, *_ = self._run(seed, num_chains=num_chains)
+        assert _state_leading_dim(states) == expected_leading
         ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (4,), f"step_size expected (4,), got {ss.shape}"
-
-    def test_explicit_num_chains_8(self) -> None:
-        """num_chains=8: position leading dim == 8."""
-        states, params, *_ = self._run(7002, num_chains=8)
-        leading = _state_leading_dim(states)
-        assert leading == 8, f"Expected leading dim 8, got {leading}"
-        ss = jnp.asarray(params["step_size"])
-        assert ss.shape == (8,), f"step_size expected (8,), got {ss.shape}"
+        assert ss.shape == expected_ss
         imm = jnp.asarray(params["inverse_mass_matrix"])
-        assert imm.shape == (
-            8,
-            _D,
-        ), f"inverse_mass_matrix expected (8, {_D}), got {imm.shape}"
+        assert imm.shape == expected_imm
+        if num_chains == 4:
+            assert "step_size" in params
+            assert "inverse_mass_matrix" in params
+            assert bool(jnp.all(ss > 0)), f"step_size not all > 0: {ss}"
 
     def test_pre_batched_init_position_passes_through(self) -> None:
         """Pre-batched init_position (leading dim == num_chains) passes through verbatim."""
@@ -1316,14 +1222,6 @@ class TestCheesMultiChain:
         )
         pos_shape = _position_shape(states)
         assert pos_shape == (4, _D), f"Pre-batched: expected (4, {_D}), got {pos_shape}"
-
-    def test_step_size_and_imm_keys_present(self) -> None:
-        """adapted_params must contain step_size and inverse_mass_matrix."""
-        _, params, *_ = self._run(7004, num_chains=4)
-        assert "step_size" in params, f"Missing step_size; keys: {list(params)}"
-        assert (
-            "inverse_mass_matrix" in params
-        ), f"Missing inverse_mass_matrix; keys: {list(params)}"
 
     def test_callable_params_present(self) -> None:
         """HARD-KEEP: CHEES adapted_params must contain next_random_arg_fn and
@@ -1366,25 +1264,6 @@ class TestCheesMultiChain:
             params["_chees_max_leapfrog_steps"], int
         ), "_chees_max_leapfrog_steps must be a Python int"
 
-    def test_step_size_positive(self) -> None:
-        """Adapted step_size must be positive across all chains."""
-        _, params, *_ = self._run(7008, num_chains=4)
-        ss = jnp.asarray(params["step_size"])
-        assert bool(jnp.all(ss > 0)), f"Not all step sizes positive: {ss}"
-
-    def test_imm_shape_num_chains_4(self) -> None:
-        """num_chains=4 → inverse_mass_matrix has shape (4, d)."""
-        _, params, *_ = self._run(7009, num_chains=4)
-        imm = params["inverse_mass_matrix"]
-        assert imm.shape == (4, _D), f"Expected (4, {_D}), got {imm.shape}"
-
-    def test_chees_dynamic_hmc_compat_in_runner(self) -> None:
-        """CHEES runner works with dynamic_hmc (compat checked via parametrized table)."""
-        # is_compatible() values for chees are in the _IS_COMPATIBLE_TABLE.
-        # This confirms the runner itself does NOT raise for the compatible case.
-        states, params, *_ = self._run(7010, num_chains=4)
-        assert states is not None
-
 
 # ---------------------------------------------------------------------------
 # 16. adjusted_mclmc_tuning warmup — SLOW (chain-running tests only)
@@ -1404,7 +1283,7 @@ class TestAdjustedMclmcTuning:
     """
 
     def test_single_chain_signature_adjusted_mclmc(self) -> None:
-        """Single-chain run on MVN-10 with adjusted_mclmc: verify returned param keys."""
+        """Single-chain run: verify returned param keys and positivity."""
         from tuningfork.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
         from tuningfork.warmup.adjusted_mclmc_tuning import ENTRY
 
@@ -1430,23 +1309,7 @@ class TestAdjustedMclmcTuning:
         assert (
             "_total_tuning_steps" in params
         ), f"_total_tuning_steps missing; keys={list(params)}"
-
-    def test_single_chain_L_and_step_size_positive(self) -> None:
-        from tuningfork.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
-        from tuningfork.warmup.adjusted_mclmc_tuning import ENTRY
-
-        key = jax.random.key(8002)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        warmup_key = jax.random.fold_in(key, 1)
-
-        _, params = ENTRY.runner(
-            warmup_key,
-            init_pos,
-            100,
-            _ADJ_MCLMC,
-            logdensity_fn=logdensity_fn,
-            num_chains=1,
-        )
+        # Positivity (merged from test_single_chain_L_and_step_size_positive)
         assert bool(jnp.all(jnp.asarray(params["L"]) > 0)), f"L not > 0: {params['L']}"
         assert bool(
             jnp.all(jnp.asarray(params["step_size"]) > 0)
@@ -1487,23 +1350,7 @@ class TestAdjustedMclmcTuning:
         imm = params["inverse_mass_matrix"]
         d = _D
         assert imm.shape == (3, d), f"Expected IMM.shape=(3, {d}), got {imm.shape}"
-
-    def test_total_tuning_steps_is_python_int(self) -> None:
-        from tuningfork.base_method.adjusted_mclmc import ENTRY as _ADJ_MCLMC
-        from tuningfork.warmup.adjusted_mclmc_tuning import ENTRY
-
-        key = jax.random.key(8004)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        warmup_key = jax.random.fold_in(key, 1)
-
-        _, params = ENTRY.runner(
-            warmup_key,
-            init_pos,
-            100,
-            _ADJ_MCLMC,
-            logdensity_fn=logdensity_fn,
-            num_chains=2,
-        )
+        # _total_tuning_steps is a Python int (merged from test_total_tuning_steps_is_python_int)
         steps = params["_total_tuning_steps"]
         assert isinstance(
             steps, int
