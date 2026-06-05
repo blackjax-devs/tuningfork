@@ -908,3 +908,186 @@ def test_golden_execution_meanfield_vi_warmup(tmp_path: Path) -> None:
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_fullrank_vi_warmup(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × fullrank_vi warmup prints DONE (dense IMM path)."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="fullrank_vi",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "num_optimization_steps": 20,
+        },
+        warmups=[
+            {
+                "name": "fullrank_vi",
+                "params": {
+                    "n_warmup": 10,
+                    "target_acceptance_rate": 0.8,
+                    "num_optimization_steps": 20,
+                },
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, num_chains=2)
+    script_path = tmp_path / "golden_nuts_frvi_warmup.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+fullrank_vi warmup script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_window_adaptation_multichain(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × window_adaptation_diag_imm, progress_bar=False
+    (multichain vmap path, _warmup_is_perchain=True)."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={"n_warmup": 10, "target_acceptance_rate": 0.8, "num_chains": 2},
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 10}}],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    # progress_bar=False → multichain warmup template (_warmup_is_perchain=True)
+    script = emit_script(recipe, num_samples=5, num_warmup=5, progress_bar=False)
+    assert "_warmup_is_perchain = True" in script
+    script_path = tmp_path / "golden_nuts_wadapt_multichain.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+window_adaptation multichain script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_window_adaptation_low_rank(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × window_adaptation_low_rank_imm prints DONE."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="window_adaptation_low_rank_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "max_rank": 3,
+        },
+        warmups=[
+            {
+                "name": "window_adaptation_low_rank_imm",
+                "params": {"n_warmup": 10, "max_rank": 3},
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, progress_bar=False)
+    script_path = tmp_path / "golden_nuts_wadapt_low_rank.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+window_adaptation_low_rank script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_laplace_hmc(tmp_path: Path) -> None:
+    """Execution smoke: eight_schools_ncp × laplace_hmc × window_adaptation_diag_imm prints DONE.
+
+    Exercises emit_laplace_preamble (phi/theta split + log_joint_fn + factories).
+    """
+    recipe_path = (
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "low__laplace_hmc__window_adaptation_diag_imm.json"
+    )
+    if not recipe_path.exists():
+        pytest.skip("Catalog laplace_hmc recipe not found")
+
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
+    # Verify laplace preamble is present (D8 compliant)
+    assert "log_joint_fn" in script
+    assert "_lmf" in script
+    assert "phi_init" in script
+    script_path = tmp_path / "golden_laplace_hmc_wadapt.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden laplace_hmc script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
