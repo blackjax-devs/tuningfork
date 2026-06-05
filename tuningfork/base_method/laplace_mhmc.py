@@ -126,6 +126,12 @@ ENTRY = BaseMethod(
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
     extra_required_kwargs=("log_joint_fn", "theta_init"),
+    # T2.3 descriptors: standard HMC family per-chain params.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=True,  # laplace_mhmc needs LaplaceHMCState (theta_star warm-start);
+    # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
+    extra_kwarg_builder=None,  # Laplace component construction is model-specific;
+    # handled via _build_laplace_components runner helper, not a portable descriptor.
     notes=(
         "Multinomial HMC on the Laplace-approximated marginal log-density. "
         "Identical to laplace_hmc but proposes from the full trajectory via multinomial "

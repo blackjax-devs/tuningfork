@@ -109,6 +109,10 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=None,  # no MH step; orbital weights replace rejection
+    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=False,  # PeriodicOrbitalState from warmup is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Periodic Orbital MCMC (Neklyudov & Welling 2022). Each iteration builds "
         "a Hamiltonian orbit of `period` positions and returns all as weighted samples. "

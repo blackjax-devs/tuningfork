@@ -75,6 +75,11 @@ ENTRY = BaseMethod(
     default_hp_space=(HyperparamSpace("sigma", "loguniform", low=1e-3, high=10.0),),
     needs_mass_matrix=False,
     target_acceptance_rate=0.234,
+    # T2.3 descriptors: gradient-free; RWM uses sigma (not step_size/imm) as HP.
+    # When run with no_warmup, batched_params is empty → is_no_adapted_params=True.
+    per_chain_param_keys=(),
+    reinit_state=False,  # RMHState from warmup is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Isotropic Gaussian proposal; sigma is the proposal scale. "
         "proposal_generator built internally via ravel_pytree so any JAX "

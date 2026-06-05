@@ -54,6 +54,11 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,  # inverse_mass_matrix from CHEES warmup, not BO
     target_acceptance_rate=0.651,  # CHEES upstream default (slightly above HMC 0.65)
+    # T2.3 descriptors: step_size + imm per-chain from CHEES warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=True,  # dmhmc needs DynamicHMCState (random_generator_arg);
+    # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Dynamic Multinomial HMC (Betancourt 2017 §A.2 + Hoffman et al. 2022). "
         "Dynamic HMC with multinomial trajectory proposal; HP surface is identical "

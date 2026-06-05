@@ -143,6 +143,11 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
+    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
+    # Note: rmhmc factory converts inverse_mass_matrix → mass_matrix internally.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=False,  # HMCState from warmup is directly usable (rmhmc reuses HMCState).
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Riemannian Manifold HMC (Girolami & Calderhead 2011). "
         "Upstream: blackjax.mcmc.rmhmc reuses hmc.init + hmc.build_kernel with "
