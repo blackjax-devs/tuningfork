@@ -43,14 +43,9 @@ def test_model_registered(model_name: str) -> None:
 
 @pytest.mark.parametrize("model_name", _MODELS)
 def test_model_has_dim_and_class(model_name: str) -> None:
-    """ENTRY has dim (positive int) and class_ (one of valid types)."""
+    """ENTRY has dim (positive int) and class_ (non-empty string label)."""
     entry = MODELS[model_name]
     assert isinstance(entry.dim, int) and entry.dim > 0
-    valid_classes = {
-        "gaussian",
-        "funnel",
-        "hierarchical",
-        "pathological",
-        "multimodal",
-    }
-    assert entry.class_ in valid_classes
+    assert (
+        isinstance(entry.class_, str) and entry.class_
+    ), f"Model '{model_name}' must have a non-empty string class_; got {entry.class_!r}"

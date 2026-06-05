@@ -47,9 +47,7 @@ _IMM = jnp.ones(_DIM)
 @pytest.mark.parametrize("algo_name", _ALGORITHMS_TO_TEST)
 def test_algorithm_registered(algo_name: str) -> None:
     """Algorithm is registered in BASE_METHODS."""
-    assert (
-        algo_name in BASE_METHODS
-    ), f"BASE_METHODS must contain '{algo_name}'"
+    assert algo_name in BASE_METHODS, f"BASE_METHODS must contain '{algo_name}'"
 
 
 @pytest.mark.parametrize("algo_name", _ALGORITHMS_TO_TEST)
@@ -97,9 +95,11 @@ def test_hp_bounds_consistent(algo_name: str) -> None:
 
 @pytest.mark.parametrize("algo_name", _ALGORITHMS_TO_TEST)
 def test_step_size_hp_present(algo_name: str) -> None:
-    """step_size is in default_hp_space (common across all)."""
+    """A step-scale hyperparameter is in default_hp_space (step_size, or sigma for rwm)."""
     names = [hp.name for hp in BASE_METHODS[algo_name].default_hp_space]
-    assert "step_size" in names
+    assert (
+        "step_size" in names or "sigma" in names
+    ), f"{algo_name} default_hp_space has no step-scale HP; got {names}"
 
 
 # ===========================================================================

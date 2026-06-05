@@ -98,9 +98,7 @@ def test_smc_method_num_particles_default_positive(smc_name: str) -> None:
 def test_smc_method_factory_is_callable(smc_name: str) -> None:
     """ENTRY.factory is callable."""
     entry = SMC_METHODS[smc_name]
-    assert callable(
-        entry.factory
-    ), f"{smc_name}.factory must be callable"
+    assert callable(entry.factory), f"{smc_name}.factory must be callable"
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
