@@ -908,3 +908,201 @@ def test_golden_execution_meanfield_vi_warmup(tmp_path: Path) -> None:
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_fullrank_vi_warmup(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × fullrank_vi warmup prints DONE (dense IMM path)."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="fullrank_vi",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "num_optimization_steps": 20,
+        },
+        warmups=[
+            {
+                "name": "fullrank_vi",
+                "params": {
+                    "n_warmup": 10,
+                    "target_acceptance_rate": 0.8,
+                    "num_optimization_steps": 20,
+                },
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, num_chains=2)
+    script_path = tmp_path / "golden_nuts_frvi_warmup.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+fullrank_vi warmup script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_window_adaptation_multichain(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × window_adaptation_diag_imm, progress_bar=False
+    (multichain vmap path, _warmup_is_perchain=True)."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={"n_warmup": 10, "target_acceptance_rate": 0.8, "num_chains": 2},
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 10}}],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    # progress_bar=False → multichain warmup template (_warmup_is_perchain=True)
+    script = emit_script(recipe, num_samples=5, num_warmup=5, progress_bar=False)
+    assert "_warmup_is_perchain = True" in script
+    script_path = tmp_path / "golden_nuts_wadapt_multichain.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+window_adaptation multichain script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_window_adaptation_low_rank(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × window_adaptation_low_rank_imm prints DONE."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="window_adaptation_low_rank_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "max_rank": 3,
+        },
+        warmups=[
+            {
+                "name": "window_adaptation_low_rank_imm",
+                "params": {"n_warmup": 10, "max_rank": 3},
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, progress_bar=False)
+    script_path = tmp_path / "golden_nuts_wadapt_low_rank.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+window_adaptation_low_rank script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_laplace_hmc_emit_structure(tmp_path: Path) -> None:
+    """Structural check: eight_schools_ncp × laplace_hmc emitted script has correct
+    laplace preamble structure (log_joint_fn, _lmf factory, phi_init).
+
+    NOTE: Laplace emitted scripts have a pre-existing execution gap — the warmup
+    section uses ``blackjax.nuts`` as the inner kernel (WARMUP_SUBSTITUTE path),
+    which calls ``hmc.init(position, logdensity_fn)`` with ``has_aux=False``.
+    However, the laplace preamble sets ``logdensity_fn = _laplace_warmup[0]``
+    (a LaplaceMarginal returning ``(lp, theta_star)``, i.e. ``has_aux=True``),
+    which is incompatible with NUTS warmup.  The PASS verdict on the catalog
+    recipe was produced by the runner (which uses a scalar marginal for warmup),
+    not by executing the emitted script.
+
+    This test asserts the structural correctness of the emitted preamble
+    (emit_laplace_preamble output) without running the inference loop.
+    Fixing the emit-time laplace warmup is deferred (A2/standalone fix).
+    """
+    recipe_path = (
+        _CATALOG_ROOT
+        / "eight_schools_ncp"
+        / "recipes"
+        / "low__laplace_hmc__window_adaptation_diag_imm.json"
+    )
+    if not recipe_path.exists():
+        pytest.skip("Catalog laplace_hmc recipe not found")
+
+    recipe = load_recipe(recipe_path)
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
+    # Verify emit_laplace_preamble structural output (D8 compliant)
+    assert "log_joint_fn" in script, "Missing log_joint_fn in laplace preamble"
+    assert (
+        "_lmf" in script
+    ), "Missing _lmf (laplace_marginal_factory) in laplace preamble"
+    assert (
+        "phi_init" in script
+    ), "Missing phi_init (phi/theta split) in laplace preamble"
+    assert "_laplace_warmup" in script, "Missing _laplace_warmup factory list"
+    assert (
+        "from blackjax.mcmc.laplace_marginal" in script
+    ), "Missing laplace import (D8 check)"
+    # Verify D8: no forbidden tuningfork imports
+    import ast as _ast
+
+    tree = _ast.parse(script)
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.ImportFrom):
+            m = node.module or ""
+            assert not (
+                m.startswith("tuningfork")
+                and m not in {"tuningfork.model", "tuningfork.model._numpyro"}
+            ), f"D8 violation: {m}"
