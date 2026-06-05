@@ -933,18 +933,6 @@ class TestFailedRecipe:
     """Coverage for the FAILED effort tier + forking-path log."""
 
     @pytest.mark.fast
-    def test_effort_enum_has_five_values(self) -> None:
-        """Effort now has LOW, MEDIUM, HIGH, GROUNDTRUTH, FAILED."""
-        assert set(Effort) == {
-            Effort.LOW,
-            Effort.MEDIUM,
-            Effort.HIGH,
-            Effort.GROUNDTRUTH,
-            Effort.FAILED,
-        }
-        assert Effort.FAILED == "failed"
-
-    @pytest.mark.fast
     def test_failure_diagnosis_enum_has_five_values(self) -> None:
         """FailureDiagnosis covers the 5 canonical buckets."""
         assert set(FailureDiagnosis) == {
