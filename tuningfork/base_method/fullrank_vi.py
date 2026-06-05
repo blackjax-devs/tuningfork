@@ -47,11 +47,11 @@ dimension.
 from typing import Any, NamedTuple
 
 import blackjax.vi.fullrank_vi as fr
-import jax
 import jax.numpy as jnp
 import optax
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.base_method._vi_sampler_common import make_vi_sampler_algorithm
 
 __all__ = ["ENTRY", "_factory", "FRVISamplerState"]
 
@@ -76,93 +76,10 @@ class FRVISamplerState(NamedTuple):
     vi_state: fr.FRVIState
 
 
-class _FRVISamplerAlgorithm:
-    """Thin wrapper that presents the full-rank VI optimiser as a sampler kernel.
-
-    Attributes
-    ----------
-    init
-        Callable ``(init_position) -> FRVISamplerState``.  Runs the full VI
-        optimisation loop via ``jax.lax.scan`` and stores the final
-        ``FRVIState``.  The ``position`` field of the returned state is set to
-        the variational mean ``mu``.
-    step
-        Callable ``(rng_key, state) -> (FRVISamplerState, FRVIInfo)``.  Draws
-        one sample from the fitted variational distribution and returns it as
-        the new ``position``.
-    """
-
-    def __init__(
-        self,
-        logdensity_fn: Any,
-        optimizer: Any,
-        num_optimization_steps: int,
-        num_samples_per_step: int,
-    ) -> None:
-        self._logdensity_fn = logdensity_fn
-        self._optimizer = optimizer
-        self._num_optimization_steps = num_optimization_steps
-        self._num_samples_per_step = num_samples_per_step
-
-    def init(self, init_position: Any) -> FRVISamplerState:
-        """Run the full VI optimisation loop; return the final state.
-
-        Parameters
-        ----------
-        init_position
-            Initial unconstrained parameter pytree (one chain's worth).
-
-        Returns
-        -------
-        FRVISamplerState
-            Wrapper state with ``position = mu`` (variational mean) and the
-            final ``vi_state`` from the optimisation loop.
-        """
-        vi_init = fr.init(init_position, self._optimizer)
-
-        def one_step(carry: fr.FRVIState, rng_key: jax.Array):
-            new_state, info = fr.step(
-                rng_key,
-                carry,
-                self._logdensity_fn,
-                self._optimizer,
-                self._num_samples_per_step,
-            )
-            return new_state, info
-
-        keys = jax.random.split(jax.random.key(0), self._num_optimization_steps)
-        final_vi_state, _infos = jax.lax.scan(one_step, vi_init, keys)
-        # Use the variational mean as the initial position after optimisation.
-        mu_flat, unravel_fn = jax.flatten_util.ravel_pytree(final_vi_state.mu)
-        position = unravel_fn(mu_flat)
-        return FRVISamplerState(position=position, vi_state=final_vi_state)
-
-    def step(
-        self, rng_key: jax.Array, state: FRVISamplerState
-    ) -> tuple[FRVISamplerState, fr.FRVIInfo]:
-        """Draw one sample from the fitted variational distribution.
-
-        Parameters
-        ----------
-        rng_key
-            JAX random key for this draw.
-        state
-            Current ``FRVISamplerState`` containing the fitted ``vi_state``.
-
-        Returns
-        -------
-        new_state
-            ``FRVISamplerState`` with the drawn sample as ``position``.  The
-            ``vi_state`` is unchanged (the fit is frozen after ``init``).
-        info
-            ``FRVIInfo`` with a placeholder ``elbo=0.0`` (the ELBO was
-            computed during ``init``; no optimisation happens at step time).
-        """
-        samples = fr.sample(rng_key, state.vi_state, num_samples=1)
-        # samples is a pytree with leading dim 1; take the first (only) draw.
-        new_position = jax.tree.map(lambda x: x[0], samples)
-        new_state = FRVISamplerState(position=new_position, vi_state=state.vi_state)
-        return new_state, fr.FRVIInfo(elbo=jnp.asarray(0.0))
+# Build the concrete algorithm class via the generic factory.
+# _FRVISamplerAlgorithm is exported for backward-compatibility (recipes and
+# tests may import it directly from this module).
+_FRVISamplerAlgorithm = make_vi_sampler_algorithm(fr, FRVISamplerState)
 
 
 def _factory(
@@ -172,7 +89,7 @@ def _factory(
     optimizer: Any = None,
     num_samples: int = 1000,
     **kwargs: Any,
-) -> _FRVISamplerAlgorithm:
+) -> Any:
     """Build a full-rank VI sampler-mode kernel.
 
     The full VI optimisation loop runs during ``.init``; each ``.step`` draws
