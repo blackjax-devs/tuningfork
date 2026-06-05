@@ -84,8 +84,8 @@ from typing import Any
 import blackjax
 import jax
 
-from tuningfork.warmup._base import Warmup, _maybe_replicate
-from tuningfork.warmup._laplace_adapter import resolve_warmup_algorithm
+from tuningfork.warmup._base import Warmup
+from tuningfork.warmup._window_adaptation_common import _window_adaptation_body
 
 __all__ = ["ENTRY"]
 
@@ -152,58 +152,39 @@ def _runner(
         leading ``num_chains`` axis).  Pytree-flat / vmap-compatible by
         construction since [blackjax#917](https://github.com/blackjax-devs/blackjax/pull/917).
     """
-    from tuningfork.calibration.tune import default_value_for_space
 
-    target = target_acceptance_rate or base_method.target_acceptance_rate or 0.80
-
-    # Build extra kwargs for the warmup call: inject default values for any
-    # HP that the kernel needs during warmup but is NOT step_size or
-    # inverse_mass_matrix (those come from the adaptation itself).
-    extra_kwargs: dict[str, Any] = dict(kwargs)  # caller-supplied overrides first
-    for space in base_method.default_hp_space:
-        if space.name not in ("step_size", "inverse_mass_matrix"):
-            if space.name not in extra_kwargs:
-                extra_kwargs[space.name] = default_value_for_space(space)
-
-    # For laplace_* base methods, substitute blackjax.hmc as the warmup
-    # algorithm so that low_rank_window_adaptation receives a proper algorithm
-    # object with .build_kernel and .init(position, logdensity_fn).  The caller
-    # is responsible for passing the laplace marginal logdensity
-    # (phi → float) as logdensity_fn — this adapter does not build it.
-    warmup_algorithm, warmup_kwargs = resolve_warmup_algorithm(
-        base_method, extra_kwargs
-    )
-
-    # Construct the low-rank window adaptation.
     # NB: blackjax PR #923 (2026-05-20, on main 2026-05-20) renamed the upstream
     # function `low_rank_window_adaptation` → `window_adaptation_low_rank` with
     # no deprecation alias. The top-level symbol `blackjax.window_adaptation_low_rank`
     # is the new entry point; the legacy module path
     # `blackjax.adaptation.low_rank_adaptation.low_rank_window_adaptation` no
     # longer exists (caused the test-slow failure on main 2026-05-21).
-    warmup = blackjax.window_adaptation_low_rank(
-        warmup_algorithm,
-        logdensity_fn,
-        max_rank=max_rank,
-        target_acceptance_rate=target,
-        **warmup_kwargs,
+    def _build_low_rank_warmup(
+        warmup_algorithm: Any,
+        logdensity_fn: Any,
+        *,
+        target_acceptance_rate: float,
+        **warmup_kwargs: Any,
+    ) -> Any:
+        return blackjax.window_adaptation_low_rank(
+            warmup_algorithm,
+            logdensity_fn,
+            max_rank=max_rank,
+            target_acceptance_rate=target_acceptance_rate,
+            **warmup_kwargs,
+        )
+
+    return _window_adaptation_body(
+        rng_key,
+        init_position,
+        n_warmup,
+        base_method,
+        logdensity_fn=logdensity_fn,
+        target_acceptance_rate=target_acceptance_rate,
+        num_chains=num_chains,
+        warmup_builder_fn=_build_low_rank_warmup,
+        **kwargs,
     )
-
-    # Split the key for num_chains independent runs.
-    chain_keys = jax.random.split(rng_key, num_chains)
-
-    # Replicate init_position across chains.  Pass-through if pre-batched.
-    init_positions = _maybe_replicate(init_position, num_chains)
-
-    # vmap the warmup.run over (key, init_position).
-    # Return adapt_info.info as third value for exact wge CUMSUM.
-    @jax.vmap
-    def run_one(k: jax.Array, x0: Any) -> tuple[Any, Any, Any]:
-        (state, params), adapt_info = warmup.run(k, x0, n_warmup)
-        return state, params, adapt_info.info
-
-    states, adapted_params, kernel_info = run_one(chain_keys, init_positions)
-    return states, dict(adapted_params), kernel_info
 
 
 ENTRY = Warmup(
