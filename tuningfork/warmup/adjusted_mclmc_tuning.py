@@ -68,9 +68,9 @@ from typing import Any
 
 import blackjax
 import jax
-import jax.numpy as jnp
 
 from tuningfork.warmup._base import Warmup, _maybe_replicate
+from tuningfork.warmup._mclmc_common import _unpack_mclmc_adaptation
 
 __all__ = ["ENTRY"]
 
@@ -161,22 +161,9 @@ def _runner(
         warmup_keys, init_states
     )
 
-    # SYNC: block until vmapped tuning completes before host-materialising the
-    # step count.  Without this, int() goes through the buffer protocol on an
-    # unsynced JAX future — same deadlock risk as the calibration/ subtree.
-    jax.block_until_ready((states, adaptation_states, total_tuning_steps_per_chain))
-    # total_tuning_steps is the same for all chains (same num_steps).
-    # Take the value from chain 0 and convert to Python int.
-    total_tuning_steps = int(jnp.asarray(total_tuning_steps_per_chain)[0])
-
-    # MCLMCAdaptationState._fields = ('L', 'step_size', 'inverse_mass_matrix')
-    adapted: dict[str, Any] = {
-        "L": adaptation_states.L,  # shape (num_chains,)
-        "step_size": adaptation_states.step_size,  # shape (num_chains,)
-        "inverse_mass_matrix": adaptation_states.inverse_mass_matrix,  # (num_chains, d)
-        "_total_tuning_steps": total_tuning_steps,
-    }
-    return states, adapted
+    return _unpack_mclmc_adaptation(
+        states, adaptation_states, total_tuning_steps_per_chain
+    )
 
 
 ENTRY = Warmup(
