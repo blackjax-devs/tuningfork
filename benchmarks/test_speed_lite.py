@@ -48,10 +48,11 @@ import pytest
 
 from benchmarks.config import PINNED_SEEDS, SPEED_LITE_CELLS, SPEED_SEED, _bench_id
 
-# Invariant: must be 15 after #139 cell expansion.  A silent filter-drop
-# (e.g. a new SLOW cell not yet in ALL_CELLS) would reduce this count.
-assert len(SPEED_LITE_CELLS) == 15, (
-    f"Expected 15 speed-lite cells, got {len(SPEED_LITE_CELLS)}. "
+# Invariant: must be 14 after adjusted_mclmc_dynamic/logistic_synthetic removal
+# (2026-06-04, recipe demoted to honest-null; was 15 after #139 cell expansion).
+# A silent filter-drop (e.g. a new SLOW cell not yet in ALL_CELLS) would reduce this count.
+assert len(SPEED_LITE_CELLS) == 14, (
+    f"Expected 14 speed-lite cells, got {len(SPEED_LITE_CELLS)}. "
     "Check _SPEED_LITE_BENCH_IDS against ALL_CELLS in config.py."
 )
 

@@ -259,10 +259,12 @@ def _bench_id(cell: tuple[str, str, str, str]) -> str:
 
 # Speed-lite filter: bench_ids drawn from ALL_CELLS for the timing axis.
 #
-# 15 cells (9 original + 6 added in #139).
+# 14 cells (8 active from original group + 6 added in #139; 1 removed 2026-06-04).
+# Original group was 9 tier1 logistic/mvn/eight_schools e2e; adjusted_mclmc_dynamic
+# removed on 2026-06-04 (recipe demoted to honest-null, ESS 9-13% on logistic).
 #
-# Original 9 (tier1 logistic/mvn/eight_schools e2e):
-#   Covers 7 sampler families on cheap models (logistic_synthetic GLM, mvn_10,
+# Original active 8 (tier1 logistic/mvn/eight_schools e2e):
+#   Covers 6 sampler families on cheap models (logistic_synthetic GLM, mvn_10,
 #   eight_schools_ncp NCP funnel) — quick baseline for per-sampler regression.
 #
 # Added 6 (tier2, nightly budget unlocked):
@@ -313,7 +315,7 @@ _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
 
 # Derived from ALL_CELLS — not a hand-curated duplicate list.
 # Preserves the ALL_CELLS ordering; updates automatically if a cell is renamed.
-# Invariant: len(SPEED_LITE_CELLS) == 15  (assert in test_speed_lite.py at collection time)
+# Invariant: len(SPEED_LITE_CELLS) == 14  (assert in test_speed_lite.py at collection time)
 SPEED_LITE_CELLS: list[tuple[str, str, str, str]] = [
     c for c in ALL_CELLS if _bench_id(c) in _SPEED_LITE_BENCH_IDS
 ]
