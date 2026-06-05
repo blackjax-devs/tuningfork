@@ -73,13 +73,19 @@ def _build_diag_warmup(
     logdensity_fn: Any,
     *,
     target_acceptance_rate: float,
+    is_mass_matrix_diagonal: bool = True,
     **warmup_kwargs: Any,
 ) -> Any:
-    """Build ``blackjax.window_adaptation`` pinned to diagonal mass matrix."""
+    """Build ``blackjax.window_adaptation`` with the caller-supplied diagonal flag.
+
+    Defaults to ``is_mass_matrix_diagonal=True`` (the diag variant's default),
+    but honours an explicit ``False`` so callers can request a dense IMM via
+    ``window_adaptation_diag_imm.runner(..., is_mass_matrix_diagonal=False)``.
+    """
     return blackjax.window_adaptation(
         warmup_algorithm,
         logdensity_fn,
-        is_mass_matrix_diagonal=True,
+        is_mass_matrix_diagonal=is_mass_matrix_diagonal,
         target_acceptance_rate=target_acceptance_rate,
         **warmup_kwargs,
     )
@@ -150,11 +156,6 @@ def _runner(
         ``"inverse_mass_matrix"`` has shape ``(num_chains, d)`` for diagonal
         or ``(num_chains, d, d)`` for dense.
     """
-    # is_mass_matrix_diagonal is accepted for interface uniformity but this
-    # entry always pins diagonal=True.  A caller that needs dense should use
-    # window_adaptation_dense_imm instead.
-    del is_mass_matrix_diagonal  # pinned to True via _build_diag_warmup
-
     return _window_adaptation_body(
         rng_key,
         init_position,
@@ -164,6 +165,7 @@ def _runner(
         target_acceptance_rate=target_acceptance_rate,
         num_chains=num_chains,
         warmup_builder_fn=_build_diag_warmup,
+        is_mass_matrix_diagonal=is_mass_matrix_diagonal,
         **kwargs,
     )
 
