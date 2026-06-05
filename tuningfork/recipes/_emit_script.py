@@ -45,6 +45,12 @@ from pathlib import Path
 from string import Template
 from typing import TYPE_CHECKING
 
+from tuningfork.recipes._emit import (
+    emit_laplace_preamble,
+    emit_postamble,
+    emit_preamble,
+)
+
 if TYPE_CHECKING:
     from tuningfork.recipes._base import Recipe
 
@@ -955,7 +961,7 @@ def emit_script(
     # leave the slot as a literal dollar-prefixed string rather than raising
     # KeyError.  Each template is responsible for using only the slots that
     # actually exist for its algorithm family.
-    preamble = _load_template("preamble.py.tmpl").safe_substitute(ctx)
+    preamble = emit_preamble(ctx)
 
     # Warmup variants that support a multi-chain (vmap) path when progress_bar=False.
     # T1.6: window_adaptation variants unified into 2 templates (singlechain +
@@ -1097,7 +1103,7 @@ def emit_script(
         needs_state_reinit=_resolved_needs_state_reinit,
     )
 
-    postamble = _load_template("postamble.py.tmpl").safe_substitute(ctx)
+    postamble = emit_postamble(ctx)
 
     # Assembly order:
     # - Standard:  [preamble, warmup_body, sampler_body, inference_loop, postamble]
@@ -1111,9 +1117,7 @@ def emit_script(
     # Model definition is imported from tuningfork.model in the preamble;
     # no separate model template assembled here (post R3.5-MVP clarification).
     if _is_laplace:
-        laplace_preamble = _load_template("laplace_preamble.py.tmpl").safe_substitute(
-            ctx
-        )
+        laplace_preamble = emit_laplace_preamble(ctx)
         return "\n\n".join(
             [
                 preamble,
