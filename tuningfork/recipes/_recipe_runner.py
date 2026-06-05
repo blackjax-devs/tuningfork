@@ -705,9 +705,6 @@ def _reinit_batched_state(
     batched_L: Any | None,
     reinit_keys: Any,
     *,
-    is_laplace: bool,
-    needs_dyn_reinit: bool,
-    needs_mclmc_dyn_reinit: bool,
     logdensity_fn: Any,
     base_method: Any,
     shared_kwargs: dict[str, Any],
@@ -716,15 +713,31 @@ def _reinit_batched_state(
 ) -> Any:
     """Per-chain .init() for samplers whose state type differs from warmup output.
 
-    laplace_* needs LaplaceHMCState; dynamic_hmc/dmhmc and adjusted_mclmc_dynamic
-    need DynamicHMCState (random_generator_arg).  All others return batched_state
-    unchanged.  batched_L=None (rerun) means L is already a scalar in shared_kwargs;
-    batched_L=(num_chains,) array (emit) is vmapped per chain for adjusted_mclmc_dynamic.
+    Dispatch is data-driven via BaseMethod descriptors:
+      - laplace family (reinit_state=True, "log_joint_fn" in extra_required_kwargs):
+        builds LaplaceHMCState via factory(log_joint_fn, theta_init, ...).
+      - mclmc dynamic (reinit_state=True, "L" in per_chain_param_keys):
+        builds DynamicHMCState with per-chain L (emit, batched_L not None) or
+        scalar L in shared_kwargs (rerun, batched_L=None).
+      - other reinit_state=True kernels (dynamic_hmc, dmhmc):
+        builds DynamicHMCState without L.
+      - reinit_state=False: returns batched_state unchanged.
     """
+    # Data-driven dispatch via registry descriptors (T2.3).
+    _is_laplace_reinit = "log_joint_fn" in base_method.extra_required_kwargs
+    _is_mclmc_dyn_reinit = (
+        base_method.reinit_state
+        and "L" in base_method.per_chain_param_keys
+        and not _is_laplace_reinit
+    )
+    _is_dyn_reinit = (
+        base_method.reinit_state and not _is_laplace_reinit and not _is_mclmc_dyn_reinit
+    )
+
     _lljf = laplace_log_joint_fn
     _lti = laplace_theta_init
 
-    if is_laplace:
+    if _is_laplace_reinit:
 
         def _init_one_chain_laplace(
             init_state: Any, step_size: Any, imm: Any, reinit_key: Any
@@ -742,7 +755,7 @@ def _reinit_batched_state(
         return jax.vmap(_init_one_chain_laplace)(
             batched_state, batched_step_size, batched_imm, reinit_keys
         )
-    elif needs_dyn_reinit:
+    elif _is_dyn_reinit:
 
         def _init_one_chain_dyn(
             init_state: Any, step_size: Any, imm: Any, reinit_key: Any
@@ -758,7 +771,7 @@ def _reinit_batched_state(
         return jax.vmap(_init_one_chain_dyn)(
             batched_state, batched_step_size, batched_imm, reinit_keys
         )
-    elif needs_mclmc_dyn_reinit:
+    elif _is_mclmc_dyn_reinit:
         if batched_L is not None:
             # emit path: L is per-chain array from warmup; vmap it alongside ss/imm.
 
@@ -807,22 +820,30 @@ def _build_vmapped_inference(
     batched_imm: Any,
     batched_L: Any | None,
     *,
-    is_laplace: bool,
-    is_mclmc_family: bool,
-    is_no_adapted_params: bool,
     laplace_log_joint_fn: Any,
     laplace_theta_init: Any,
 ) -> Any:
     """Return a vmapped SamplingAlgorithm for num_chains parallel chains.
 
-    Four branches: laplace (log_joint_fn+theta_init), mclmc with per-chain
-    batched_L (emit; batched_L=None falls through to default so rerun's scalar
-    L in shared_kwargs is used correctly), gradient-free (no ss/imm), default.
+    Dispatch is data-driven via BaseMethod descriptors (T2.3):
+      - laplace family ("log_joint_fn" in extra_required_kwargs):
+        per-chain step_size+imm, plus log_joint_fn/theta_init in factory call.
+      - mclmc family ("L" in per_chain_param_keys, batched_L not None):
+        per-chain step_size+imm+L (emit path; batched_L=None falls through to
+        default so rerun's scalar L in shared_kwargs is used correctly).
+      - gradient-free (per_chain_param_keys == ()):
+        factory built entirely from shared_kwargs (no per-chain ss/imm).
+      - default: per-chain step_size+imm (HMC/NUTS/MALA/Barker/mclmc-rerun/etc).
     """
+    # Data-driven dispatch via registry descriptors (T2.3).
+    _is_laplace = "log_joint_fn" in base_method.extra_required_kwargs
+    _is_mclmc = "L" in base_method.per_chain_param_keys and batched_L is not None
+    _is_no_adapted = base_method.per_chain_param_keys == ()
+
     _lljf = laplace_log_joint_fn
     _lti = laplace_theta_init
 
-    if is_laplace:
+    if _is_laplace:
 
         def _step_one_chain_laplace(
             state: Any, key: Any, step_size: Any, imm: Any
@@ -845,7 +866,7 @@ def _build_vmapped_inference(
 
         return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_laplace)
 
-    elif is_mclmc_family and batched_L is not None:
+    elif _is_mclmc:
         # emit path: L is per-chain array; vmap it alongside step_size and imm.
         # Each chain receives its warmup-adapted trajectory length.
         # (L was removed from shared_kwargs in the emit caller before this call.)
@@ -870,7 +891,7 @@ def _build_vmapped_inference(
 
         return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_mclmc)
 
-    elif is_no_adapted_params:
+    elif _is_no_adapted:
         # Gradient-free path (e.g. elliptical_slice, rwm via no_warmup).
         # No per-chain step_size or IMM; factory built entirely from shared_kwargs.
 
@@ -885,9 +906,9 @@ def _build_vmapped_inference(
         return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
 
     else:
-        # Default path: HMC / NUTS / MALA / Barker / RWM / mclmc(rerun) / etc.
-        # When is_mclmc_family and batched_L is None (rerun), L is already a
-        # scalar in shared_kwargs — handled correctly by this default branch.
+        # Default path: HMC / NUTS / MALA / Barker / mclmc(rerun) / etc.
+        # When "L" in per_chain_param_keys and batched_L is None (rerun), L is
+        # already a scalar in shared_kwargs — handled correctly by this branch.
 
         def _step_one_chain(state: Any, key: Any, step_size: Any, imm: Any) -> Any:
             kernel_step = base_method.factory(
@@ -1384,13 +1405,11 @@ def emit_low_recipe_for_cell(
         _effective_step_policy if sampler_name in ("dynamic_hmc", "dmhmc") else None
     )
 
-    # Gradient-free / no-adapted-params samplers (elliptical_slice, rwm in no_warmup)
-    # return empty batched_params from no_warmup — they have no step_size or IMM.
-    # Inject prior_cov / prior_mean into shared_kwargs from posterior for
-    # elliptical_slice (needed to rebuild the kernel at each step).
+    # Extract per-chain warmup params.  Gradient-free / no-adapted-params samplers
+    # (elliptical_slice, rwm in no_warmup) return empty batched_params from no_warmup
+    # — they have no step_size or IMM; the helper detects this via per_chain_param_keys=().
     batched_step_size = batched_params.get("step_size")
     batched_imm = batched_params.get("inverse_mass_matrix")
-    is_no_adapted_params = batched_step_size is None and batched_imm is None
 
     if is_elliptical_slice:
         # B3 (Phase 8B.3): prior kwargs go into shared_kwargs so the factory
@@ -1404,27 +1423,18 @@ def emit_low_recipe_for_cell(
         shared_kwargs["prior_mean"] = _mean_flat
         shared_kwargs["prior_cov"] = _cov_flat
 
-    needs_dyn_reinit = sampler_name in ("dynamic_hmc", "dmhmc")
-
     # mclmc-family: warmup returns adapted L in batched_params["L"].  Extract it
     # and remove the default-L entry from shared_kwargs so the factory receives
     # the per-chain warmup-adapted value, not the default_params_for fallback.
+    # Descriptor-driven: "L" in base_method.per_chain_param_keys flags MCLMC family.
     batched_L = batched_params.get("L")  # (num_chains,) array or None
-    is_mclmc_family = sampler_name in _MCLMC_FAMILY_NAMES and batched_L is not None
-    if is_mclmc_family:
+    if "L" in base_method.per_chain_param_keys and batched_L is not None:
         # L comes per-chain from batched_L; remove the static default from shared_kwargs.
         shared_kwargs.pop("L", None)
 
-    # adjusted_mclmc_dynamic uses adjusted_mclmc_tuning which returns HMCState,
-    # but the sampling kernel needs DynamicHMCState (has random_generator_arg).
-    # A per-chain reinit converts HMCState → DynamicHMCState via kernel.init().
-    needs_mclmc_dyn_reinit = (
-        sampler_name == "adjusted_mclmc_dynamic" and is_mclmc_family
-    )
-
-    # --- Pre-scan init via shared helper ---
-    # Laplace / dynamic_hmc / dmhmc / adjusted_mclmc_dynamic need a kernel-specific
-    # state type different from the HMCState that window_adaptation produces.
+    # --- Pre-scan init via shared helper (T2.3: descriptor-driven dispatch) ---
+    # Dispatch is now data-driven via base_method.reinit_state and descriptor fields;
+    # no bool-flag parameters needed at the call site.
     _reinit_keys = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
     _run_states = _reinit_batched_state(
         batched_state,
@@ -1432,9 +1442,6 @@ def emit_low_recipe_for_cell(
         batched_imm,
         batched_L,
         _reinit_keys,
-        is_laplace=is_laplace,
-        needs_dyn_reinit=needs_dyn_reinit,
-        needs_mclmc_dyn_reinit=needs_mclmc_dyn_reinit,
         logdensity_fn=logdensity_fn,
         base_method=base_method,
         shared_kwargs=shared_kwargs,
@@ -1442,10 +1449,9 @@ def emit_low_recipe_for_cell(
         laplace_theta_init=laplace_theta_init,
     )
 
-    # --- Build vmapped inference algorithm via shared helper ---
-    # All four branches (laplace / mclmc / gradient-free / default) are
-    # handled inside _build_vmapped_inference, including the per-chain-L
-    # mclmc branch (emit path: batched_L is not None).
+    # --- Build vmapped inference algorithm via shared helper (T2.3: descriptor-driven) ---
+    # All four branches (laplace / mclmc / gradient-free / default) are handled
+    # inside _build_vmapped_inference via per_chain_param_keys + extra_required_kwargs.
     _alg = _build_vmapped_inference(
         base_method,
         logdensity_fn,
@@ -1454,9 +1460,6 @@ def emit_low_recipe_for_cell(
         batched_step_size,
         batched_imm,
         batched_L,
-        is_laplace=is_laplace,
-        is_mclmc_family=is_mclmc_family,
-        is_no_adapted_params=is_no_adapted_params,
         laplace_log_joint_fn=laplace_log_joint_fn,
         laplace_theta_init=laplace_theta_init,
     )
@@ -1683,15 +1686,18 @@ def emit_low_recipe_for_cell(
     pinned_params: dict[str, Any] = {
         k: v for k, v in shared_kwargs.items() if k not in _NON_SERIALISABLE_KEYS
     }
-    if not is_no_adapted_params:
-        # Gradient-adapted samplers: pin chain 0's adapted step_size.
+    if base_method.per_chain_param_keys:
+        # Gradient-adapted samplers (HMC family, MCLMC family): have per-chain
+        # step_size from warmup; pin chain 0's adapted step_size to the recipe.
+        # Gradient-free samplers (per_chain_param_keys=()) have no step_size to pin.
         chain0_step_size = float(np.asarray(batched_step_size).ravel()[0])
         pinned_params["step_size"] = chain0_step_size
     # mclmc-family: save the warmup-adapted L (chain 0) to the recipe so that
     # recipe re-runs (recertification) use the correct trajectory length rather
     # than the default_params_for fallback.  L was removed from shared_kwargs
     # above; add it back here as a concrete scalar for JSON serialisation.
-    if is_mclmc_family and batched_L is not None:
+    # T2.3: use descriptor "L" in per_chain_param_keys instead of _MCLMC_FAMILY_NAMES.
+    if "L" in base_method.per_chain_param_keys and batched_L is not None:
         pinned_params["L"] = float(np.asarray(batched_L).ravel()[0])
     jsonable_params = _to_jsonable(pinned_params)
 
@@ -2551,20 +2557,13 @@ def run_recipe_to_idata(
 
     batched_step_size = batched_params["step_size"]
     batched_imm = batched_params["inverse_mass_matrix"]
-    needs_dyn_reinit = recipe.base_method_name in ("dynamic_hmc", "dmhmc")
-    # adjusted_mclmc_dynamic: L is now in shared_kwargs (from _recipe_params_override
-    # above; the recipe stores L as a scalar Python float from the emit run).
-    # A reinit converts HMCState → DynamicHMCState using the scalar L in shared_kwargs.
-    needs_mclmc_dyn_reinit_r = recipe.base_method_name == "adjusted_mclmc_dynamic"
-    # mclmc-family in rerun: L is a scalar in shared_kwargs (not a per-chain array).
-    # is_mclmc_family is passed to _build_vmapped_inference but batched_L=None, so
-    # the helper falls through to the default branch (correct: L in shared_kwargs).
-    is_mclmc_family_r = recipe.base_method_name in _MCLMC_FAMILY_NAMES
 
-    # --- Pre-scan init via shared helper ---
+    # --- Pre-scan init via shared helper (T2.3: descriptor-driven dispatch) ---
     # Laplace / dynamic_hmc / dmhmc / adjusted_mclmc_dynamic need a kernel-specific
     # state type different from the HMCState that window_adaptation produces.
-    # batched_L=None because L is already in shared_kwargs as a scalar.
+    # batched_L=None because L is already in shared_kwargs as a scalar (rerun path:
+    # adjusted_mclmc_dynamic stores L as a scalar in recipe.base_method_params).
+    # Dispatch is now data-driven via base_method.reinit_state; no bool flags needed.
     _reinit_keys_r = jax.random.split(jax.random.fold_in(sample_key, 9999), num_chains)
     _run_states_r = _reinit_batched_state(
         batched_state,
@@ -2572,9 +2571,6 @@ def run_recipe_to_idata(
         batched_imm,
         None,  # batched_L: rerun uses scalar L from shared_kwargs
         _reinit_keys_r,
-        is_laplace=is_laplace,
-        needs_dyn_reinit=needs_dyn_reinit,
-        needs_mclmc_dyn_reinit=needs_mclmc_dyn_reinit_r,
         logdensity_fn=logdensity_fn,
         base_method=base_method,
         shared_kwargs=shared_kwargs,
@@ -2582,13 +2578,12 @@ def run_recipe_to_idata(
         laplace_theta_init=laplace_theta_init,
     )
 
-    # --- Build vmapped inference algorithm via shared helper ---
+    # --- Build vmapped inference algorithm via shared helper (T2.3: descriptor-driven) ---
     # All four branches (laplace / mclmc / gradient-free / default) are handled
-    # inside _build_vmapped_inference.  For rerun:
-    # - batched_L=None → mclmc branch skips to default (L is scalar in shared_kwargs).
-    # - is_no_adapted_params=False → rerun always has step_size/IMM from recipe params.
+    # inside _build_vmapped_inference via per_chain_param_keys + extra_required_kwargs.
+    # For rerun: batched_L=None → mclmc branch skips to default (L is scalar in
+    # shared_kwargs). The descriptor per_chain_param_keys correctly drives dispatch.
     # This fixes T0.3: old rerun only had laplace vs else, missing the mclmc branch.
-    # The default branch correctly handles mclmc (scalar L in shared_kwargs).
     _alg_r = _build_vmapped_inference(
         base_method,
         logdensity_fn,
@@ -2597,9 +2592,6 @@ def run_recipe_to_idata(
         batched_step_size,
         batched_imm,
         None,  # batched_L: rerun uses scalar L from shared_kwargs
-        is_laplace=is_laplace,
-        is_mclmc_family=is_mclmc_family_r,
-        is_no_adapted_params=False,
         laplace_log_joint_fn=laplace_log_joint_fn,
         laplace_theta_init=laplace_theta_init,
     )
