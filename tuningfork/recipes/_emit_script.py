@@ -49,6 +49,7 @@ from tuningfork.recipes._emit import (
     emit_laplace_preamble,
     emit_postamble,
     emit_preamble,
+    emit_sampler,
 )
 
 if TYPE_CHECKING:
@@ -1042,11 +1043,35 @@ def emit_script(
             f"warmups/{recipe.warmup_name}.py.tmpl"
         ).safe_substitute(ctx)
 
-    if recipe.base_method_name in _VI_SAMPLER_NAMES_TMPL:
-        # T1.7: unified VI sampler template.
-        sampler_body = _load_template("samplers/vi_sampler.py.tmpl").safe_substitute(
-            ctx
-        )
+    # A2: descriptor-driven emit for all 15 sampler template families.
+    # For methods outside this set (mclmc, adjusted_mclmc, etc.), the
+    # FileNotFoundError from _load_template propagates up, which causes
+    # _try_emit_script to return None (skip) in the golden gate tests --
+    # same behavior as before.
+    _EMIT_SAMPLER_NAMES = frozenset(
+        {
+            "nuts",
+            "hmc",
+            "mhmc",
+            "rmhmc",
+            "dynamic_hmc",
+            "dmhmc",
+            "ghmc",
+            "laplace_hmc",
+            "laplace_mhmc",
+            "laplace_dhmc",
+            "laplace_dmhmc",
+            "mala",
+            "barker",
+            "rwm",
+            "meanfield_vi",
+            "fullrank_vi",
+        }
+    )
+    _bm_entry = BASE_METHODS[recipe.base_method_name]
+    if recipe.base_method_name in _EMIT_SAMPLER_NAMES:
+        # A2: Python emit-function (descriptor-driven; no .tmpl file).
+        sampler_body = emit_sampler(_bm_entry, ctx)
     else:
         sampler_body = _load_template(
             f"samplers/{recipe.base_method_name}.py.tmpl"
