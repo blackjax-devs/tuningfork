@@ -150,6 +150,13 @@ ENTRY = BaseMethod(
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
     extra_required_kwargs=("log_joint_fn", "theta_init"),
+    # T2.3 descriptors: standard HMC family per-chain params.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=True,  # laplace_hmc needs LaplaceHMCState (theta_star warm-start);
+    # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
+    # extra_kwarg_builder=None: laplace component construction is model-specific and
+    # handled via the _build_laplace_components runner helper (not portable as a descriptor).
+    extra_kwarg_builder=None,
     notes=(
         "HMC on the Laplace-approximated marginal log-density of hierarchical models. "
         "Latent vars theta integrated out via L-BFGS at each leapfrog step (warm-started "

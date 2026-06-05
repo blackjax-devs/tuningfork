@@ -40,6 +40,10 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.65,
+    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=False,  # HMCState from warmup is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Beskos et al. optimal accept ≈ 0.65 for fixed-L HMC; both step_size "
         "and num_integration_steps are BO-tunable. inverse_mass_matrix comes "

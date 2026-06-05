@@ -46,6 +46,11 @@ from typing import Any, Literal
 
 from jax import Array
 
+# Sentinel for "not yet populated" — forces explicit assignment on every ENTRY.
+# Using a named object instead of None makes missing-population detectable at
+# import time (see tests/base_method/test_registry_descriptors.py).
+_DESCRIPTOR_REQUIRED: tuple[str, ...] = ()
+
 __all__ = ["HyperparamSpace", "BaseMethod"]
 
 # Valid kinds — duplicated as a frozenset for the __post_init__ guard so we
@@ -221,6 +226,60 @@ class BaseMethod:
       ("prior_cov", "prior_mean")        — Gaussian-prior specialists (mgrad_gaussian, elliptical_slice)
       ("proposal_distribution",)         — IRMH-family
       ("log_joint_fn", "theta_init")     — Laplace-marginal family
+    """
+
+    # ---- data-driven dispatch descriptors (T2.3) ----
+    per_chain_param_keys: tuple[str, ...] = ("step_size", "inverse_mass_matrix")
+    """Parameter keys that are per-chain (vmapped) at step time.
+
+    These are the keys extracted from ``batched_params`` and passed
+    individually to each chain's factory call inside ``jax.vmap``.
+
+    Typical values:
+      ("step_size", "inverse_mass_matrix")  — HMC family, NUTS, MALA, Barker, GHMC, etc.
+      ("step_size", "inverse_mass_matrix", "L")  — MCLMC family (L also per-chain from warmup)
+      ()  — gradient-free (elliptical_slice, irmh, rwm via no_warmup): no adapted params
+    """
+
+    reinit_state: bool = False
+    """Whether state must be re-initialised post-warmup via kernel.init().
+
+    True for kernels whose state type differs from the HMCState that
+    window_adaptation / mclmc_tuning produces.
+
+    True for:
+      dynamic_hmc, dmhmc       — need DynamicHMCState (random_generator_arg)
+      ghmc                     — need GHMCState (momentum)
+      laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc
+                               — need LaplaceHMCState (theta_star warm-start)
+    False for everything else (HMC, NUTS, MALA, Barker, RWM, MCLMC, etc.).
+
+    Note: adjusted_mclmc_dynamic also needs reinit but only when batched_L
+    is not None (emit path).  Its reinit_state=True flag is guarded by the
+    ``batched_L is not None`` check in the runner (rerun path falls through to
+    the default no-reinit branch via batched_L=None).
+    """
+
+    extra_kwarg_builder: Callable[..., dict[str, Any]] | None = None
+    """Optional callable that builds extra factory kwargs from runtime context.
+
+    Signature: ``(base_method, logdensity_fn, posterior, batched_params, ...) -> dict``
+    where the dict is merged into ``shared_kwargs`` before calling factory(...).
+
+    Used to inject extra kwargs beyond (logdensity_fn, step_size, imm, shared_kwargs)
+    that cannot be computed from HP-space alone and depend on runtime context:
+      - Laplace family: builds ``log_joint_fn`` + ``theta_init`` from the model
+      - mgrad_gaussian / elliptical_slice: builds ``prior_cov`` + ``prior_mean``
+      - irmh: builds ``proposal_distribution``
+      - additive_step_random_walk: builds ``proposal_generator``
+
+    None = no extra kwargs needed (standard HMC/NUTS/MALA/Barker/RWM/MCLMC/etc.).
+
+    NOTE: ``extra_kwarg_builder`` is for runner-level dispatch only — the actual
+    construction of laplace components, prior pytrees, etc., still requires
+    model-specific logic in the runner.  The builder receives a ``context`` dict
+    with all runner-available state.  See ``_recipe_runner.py`` for the calling
+    convention.
     """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})

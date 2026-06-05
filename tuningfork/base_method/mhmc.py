@@ -50,6 +50,10 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.65,
+    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=False,  # HMCState from warmup is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Multinomial HMC (Betancourt 2017 §A.2). Replaces HMC's slice-sampling "
         "trajectory selector with multinomial sampling; HP surface is identical to HMC. "

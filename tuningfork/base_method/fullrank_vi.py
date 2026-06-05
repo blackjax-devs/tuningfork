@@ -146,6 +146,11 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # VI is not a MH sampler
+    # T2.3 descriptors: VI in sampler-mode uses no_warmup → no adapted step_size/imm.
+    # Runner takes the gradient-free (is_no_adapted_params=True) path at step time.
+    per_chain_param_keys=(),
+    reinit_state=False,  # VISamplerState from .init() is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Full-rank variational inference (FRVI) in sampler mode. "
         "The full VI optimisation loop runs inside .init via jax.lax.scan "

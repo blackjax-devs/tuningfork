@@ -91,6 +91,13 @@ ENTRY = BaseMethod(
     needs_mass_matrix=False,
     target_acceptance_rate=0.5,  # upstream docstring guidance
     extra_required_kwargs=("prior_cov", "prior_mean"),
+    # T2.3 descriptors: gradient-based but no adapted step_size/imm from HMC warmup.
+    # step_size is BO-tunable but not per-chain (no mass matrix warmup).
+    # Uses the default/gradient-free path (is_no_adapted_params check in runner).
+    per_chain_param_keys=(),
+    reinit_state=False,  # MarginalState from .init() is directly usable.
+    extra_kwarg_builder=None,  # prior_cov/prior_mean are injected via shared_kwargs
+    # from the posterior entry in the runner (model-specific, not a portable builder).
     notes=(
         "Titsias 2018 marginal sampler for latent-Gaussian models q(x) ∝ exp(f(x)) * "
         "N(x; mean, cov). Uses a first-order approximation to the log-likelihood; sole "

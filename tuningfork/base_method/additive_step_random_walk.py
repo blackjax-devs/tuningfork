@@ -90,6 +90,11 @@ ENTRY = BaseMethod(
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # depends entirely on proposal-vs-target overlap
     extra_required_kwargs=("proposal_generator",),
+    # T2.3 descriptors: gradient-free, no adapted step_size/imm from warmup.
+    per_chain_param_keys=(),  # no_warmup returns empty batched_params.
+    reinit_state=False,  # RWState from .init() is directly usable.
+    extra_kwarg_builder=None,  # proposal_generator is injected by the caller
+    # (model-specific, not a portable descriptor builder).
     notes=(
         "Additive Step Random Walk MH (Metropolis et al. 1953). The proposal adds "
         "a user-supplied step to the current position: new_pos = pos + proposal_generator(key, pos). "

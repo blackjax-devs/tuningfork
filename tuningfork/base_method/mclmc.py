@@ -50,6 +50,10 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # rejection-free; not applicable
+    # T2.3 descriptors: MCLMC family — L is also per-chain from mclmc_tuning warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix", "L"),
+    reinit_state=False,  # MCLMCState from mclmc_tuning is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Constant 2 grads/step (default isokinetic_mclachlan integrator). "
         "MCLMCInfo._fields = ('logdensity', 'kinetic_change', 'energy_change', 'nonans'); "

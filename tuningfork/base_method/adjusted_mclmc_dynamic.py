@@ -108,6 +108,13 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.9,
+    # T2.3 descriptors: MCLMC family — L is also per-chain from adjusted_mclmc_tuning warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix", "L"),
+    reinit_state=True,  # adjusted_mclmc_dynamic needs DynamicHMCState (random_generator_arg);
+    # adjusted_mclmc_tuning returns plain HMCState → per-chain kernel.init() required.
+    # Note: reinit only fires on the emit path (batched_L is not None); rerun path
+    # (batched_L=None) skips reinit and uses scalar L in shared_kwargs correctly.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Dynamic Metropolis-adjusted MCLMC (adjusted_mclmc_dynamic). "
         "Factory translates (step_size, L) -> integration_steps_params=(avg,) "

@@ -59,6 +59,12 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,  # momentum_inverse_scale comes from MEADS, not BO
     target_acceptance_rate=0.65,  # Beskos et al. optimal ≈ 0.65 (same as HMC)
+    # T2.3 descriptors: step_size + imm per-chain from MEADS warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
+    reinit_state=False,  # GHMCState from MEADS is directly usable by the sampling kernel.
+    # (Note: the audit suggested reinit_state=True for ghmc, but the current runner
+    # does NOT reinit ghmc — keeping False preserves behavior-identical semantics.)
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Generalized HMC with persistent momentum (Horowitz 1991; "
         "Sohl-Dickstein et al. 2014). alpha ∈ [0,1]: alpha=0 ≡ standard HMC "

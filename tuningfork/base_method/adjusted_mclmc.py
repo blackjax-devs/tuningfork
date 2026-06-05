@@ -99,6 +99,10 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.9,
+    # T2.3 descriptors: MCLMC family — L is also per-chain from adjusted_mclmc_tuning warmup.
+    per_chain_param_keys=("step_size", "inverse_mass_matrix", "L"),
+    reinit_state=False,  # HMCState from adjusted_mclmc_tuning is directly usable.
+    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Metropolis-adjusted MCLMC (adjusted_mclmc). "
         "Factory translates (step_size, L) -> integration_steps_params=(N,) "
