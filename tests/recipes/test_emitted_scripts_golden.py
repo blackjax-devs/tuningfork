@@ -150,19 +150,16 @@ def _try_emit_script(recipe_path: Path) -> tuple | None:
 def _is_known_preexisting_invalid(recipe_path: Path) -> bool:
     """Return True for recipes known to emit syntactically invalid Python pre-T1.x.
 
-    T0.2: window_adaptation_low_rank_imm recipes are missing max_rank in
-    warmup_params; emit_script uses safe_substitute which leaves $wp_max_rank
-    unresolved → SyntaxError in emitted script.
-
     Some irt_2pl hmc recipes have empty base_method_params; hmc.py.tmpl uses
     $bm_step_size / $bm_num_integration_steps which remain unresolved.
 
-    These are documented defects to be fixed by T0.2 / T1.1; NOT regressions
+    These are documented defects to be fixed by T1.1; NOT regressions
     introduced by the Phase 1 refactoring.
+
+    NOTE: T0.2 window_adaptation_low_rank_imm recipes were FIXED in PR #156
+    (max_rank=10 backfilled into all recipes, 2026-05-29). They now emit
+    cleanly and should flow through normal validation.
     """
-    # T0.2: low_rank_imm missing max_rank
-    if "window_adaptation_low_rank_imm" in recipe_path.name:
-        return True
     # irt_2pl hmc recipes with empty base_method_params
     if recipe_path.parent.parent.name == "irt_2pl" and "__hmc__" in recipe_path.name:
         return True
@@ -185,8 +182,8 @@ def test_catalog_recipe_emits_valid_python(recipe_path: Path) -> None:
     SMC recipes (SMCRecipe type) do not use emit_script — they are skipped.
 
     Pre-existing defects:
-    - T0.2: window_adaptation_low_rank_imm recipes missing max_rank emit broken
-      Python; marked xfail (not regressions, pre-existing catalog data issue).
+    - Some irt_2pl hmc recipes have empty base_method_params and may be marked
+      xfail (not regressions, pre-existing catalog data issue).
     """
     result = _try_emit_script(recipe_path)
     if result is None:
@@ -196,7 +193,7 @@ def test_catalog_recipe_emits_valid_python(recipe_path: Path) -> None:
     label = f"{recipe_path.parent.parent.name}/{recipe_path.name}"
     if _is_known_preexisting_invalid(recipe_path):
         pytest.xfail(
-            reason="T0.2: low_rank_imm recipe missing max_rank — known pre-existing defect"
+            reason="irt_2pl hmc recipe with empty base_method_params — known pre-existing defect"
         )
     _assert_valid_python(script, label)
 
@@ -308,11 +305,9 @@ def test_catalog_recipe_no_unresolved_dollar_slots(recipe_path: Path) -> None:
         return
     _recipe, script = result
 
-    # T0.2 known issue: window_adaptation_low_rank_imm recipes that pre-date
-    # the max_rank schema requirement leave $wp_max_rank unresolved.
-    # These are annotated as a known pre-existing defect (not introduced by T1.x).
-    # Filter them out here so the test tracks NEW unresolved slots introduced
-    # by refactoring; the T0.2 bug is tracked separately.
+    # PR #156 (2026-05-29): window_adaptation_low_rank_imm recipes now have max_rank=10
+    # backfilled, so all recipes should emit cleanly.
+    # This test tracks NEW unresolved slots introduced by refactoring or schema changes.
     novel_unresolved = _find_unresolved_slots_in_code(script)
     assert not novel_unresolved, (
         f"Emitted script for {recipe_path.name} has NEW unresolved $slots in code: "
