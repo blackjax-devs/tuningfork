@@ -86,19 +86,6 @@ __all__ = [
 ]
 
 # ---------------------------------------------------------------------------
-# MCLMC-family constants
-# ---------------------------------------------------------------------------
-
-# Samplers that accept ``L`` as a factory kwarg and whose warmup routines
-# (mclmc_tuning / adjusted_mclmc_tuning) return the adapted ``L`` in
-# ``batched_params["L"]``.  This key must be vmapped per-chain (not served from
-# the default_params_for fallback) to ensure the warmup-adapted trajectory
-# length reaches the sampling kernel.
-_MCLMC_FAMILY_NAMES: frozenset[str] = frozenset(
-    ("mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic")
-)
-
-# ---------------------------------------------------------------------------
 # Laplace optimizer kwargs helpers
 # ---------------------------------------------------------------------------
 
@@ -1696,7 +1683,7 @@ def emit_low_recipe_for_cell(
     # recipe re-runs (recertification) use the correct trajectory length rather
     # than the default_params_for fallback.  L was removed from shared_kwargs
     # above; add it back here as a concrete scalar for JSON serialisation.
-    # T2.3: use descriptor "L" in per_chain_param_keys instead of _MCLMC_FAMILY_NAMES.
+    # Descriptor-driven: "L" in per_chain_param_keys flags MCLMC family (T2.3).
     if "L" in base_method.per_chain_param_keys and batched_L is not None:
         pinned_params["L"] = float(np.asarray(batched_L).ravel()[0])
     jsonable_params = _to_jsonable(pinned_params)
