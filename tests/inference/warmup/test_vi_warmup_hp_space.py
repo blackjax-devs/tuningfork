@@ -57,19 +57,42 @@ def test_fullrank_vi_warmup_has_hp_space() -> None:
 def test_other_warmups_have_empty_hp_space() -> None:
     """window_adaptation, no_warmup, pathfinder, etc. have empty default_hp_space.
 
-    The VI warmups are the only ones with a declared warmup HP space.
-    All other warmups fall back to the Warmup dataclass default (empty tuple).
+    Exceptions (intentional non-empty hp_space for non-VI warmups):
+    - window_adaptation_low_rank_imm: declares max_rank so the recipe runner
+      persists it into warmup_params (and emit_script can read it back). Added
+      in PR recert-irt2pl-hmc-inner-nuts (2026-06-05).
+
+    All other non-VI warmups fall back to the Warmup dataclass default (empty tuple).
     """
     from tuningfork.warmup import WARMUPS
 
-    vi_warmup_names = {"meanfield_vi", "fullrank_vi"}
+    # Warmups that intentionally declare non-empty default_hp_space.
+    _known_non_empty_hp_space = {
+        "meanfield_vi",
+        "fullrank_vi",
+        "window_adaptation_low_rank_imm",
+    }
     for name, entry in WARMUPS.items():
-        if name in vi_warmup_names:
+        if name in _known_non_empty_hp_space:
             continue
         hp_space = getattr(entry, "default_hp_space", ())
         assert (
             hp_space == () or len(hp_space) == 0
         ), f"Non-VI warmup {name!r} unexpectedly has default_hp_space: {hp_space}"
+
+
+def test_low_rank_warmup_has_max_rank_hp_space() -> None:
+    """window_adaptation_low_rank_imm ENTRY.default_hp_space declares max_rank."""
+    from tuningfork.warmup import WARMUPS
+
+    lrwu = WARMUPS["window_adaptation_low_rank_imm"]
+    assert hasattr(lrwu, "default_hp_space")
+    assert len(lrwu.default_hp_space) == 1
+    space = lrwu.default_hp_space[0]
+    assert space.name == "max_rank"
+    assert space.kind == "int"
+    assert space.low == 10
+    assert space.high == 10
 
 
 def test_default_value_for_space_midpoint() -> None:

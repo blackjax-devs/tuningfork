@@ -84,6 +84,7 @@ from typing import Any
 import blackjax
 import jax
 
+from tuningfork.base_method._base import HyperparamSpace
 from tuningfork.warmup._base import Warmup
 from tuningfork.warmup._window_adaptation_common import _window_adaptation_body
 
@@ -202,6 +203,14 @@ ENTRY = Warmup(
         "laplace_dhmc",
         "laplace_mhmc",
         "laplace_dmhmc",
+    ),
+    default_hp_space=(
+        # max_rank: number of eigenvectors in the low-rank correction.
+        # Declared here so the recipe runner persists it into warmup_params
+        # (and emit_script can read it back via recipe.warmup_params["max_rank"]).
+        # Default=10 matches the _runner default and all existing catalog recipes.
+        # BO callers may widen the range; recipes use warmup_kwargs_override to pin it.
+        HyperparamSpace("max_rank", "int", low=10, high=10),
     ),
     notes=(
         "Low-rank mass matrix adaptation via Fisher divergence minimisation "

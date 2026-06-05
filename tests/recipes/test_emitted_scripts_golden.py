@@ -150,19 +150,14 @@ def _try_emit_script(recipe_path: Path) -> tuple | None:
 def _is_known_preexisting_invalid(recipe_path: Path) -> bool:
     """Return True for recipes known to emit syntactically invalid Python pre-T1.x.
 
-    Some irt_2pl hmc recipes have empty base_method_params; hmc.py.tmpl uses
-    $bm_step_size / $bm_num_integration_steps which remain unresolved.
-
-    These are documented defects to be fixed by T1.1; NOT regressions
-    introduced by the Phase 1 refactoring.
-
     NOTE: T0.2 window_adaptation_low_rank_imm recipes were FIXED in PR #156
     (max_rank=10 backfilled into all recipes, 2026-05-29). They now emit
     cleanly and should flow through normal validation.
+
+    NOTE: irt_2pl hmc (inner_nuts) recipes were FIXED by re-cert (PR recert-irt2pl-hmc-inner-nuts,
+    2026-06-05). base_method_params now populated with step_size + num_integration_steps from
+    NUTS-harvested warmup trace. No further preexisting-invalid cases remain.
     """
-    # irt_2pl hmc recipes with empty base_method_params
-    if recipe_path.parent.parent.name == "irt_2pl" and "__hmc__" in recipe_path.name:
-        return True
     return False
 
 
@@ -180,10 +175,6 @@ def test_catalog_recipe_emits_valid_python(recipe_path: Path) -> None:
     script or left as an unresolved literal).
 
     SMC recipes (SMCRecipe type) do not use emit_script — they are skipped.
-
-    Pre-existing defects:
-    - Some irt_2pl hmc recipes have empty base_method_params and may be marked
-      xfail (not regressions, pre-existing catalog data issue).
     """
     result = _try_emit_script(recipe_path)
     if result is None:
@@ -554,14 +545,16 @@ def _find_unresolved_slots_in_code(script: str) -> list[str]:
     ]
     code_text = "\n".join(code_lines)
     # Known pre-existing slots from catalog data issues (not introduced by T1.x).
+    # $wp_max_rank: T0.2 fixed in PR #156 (max_rank backfilled).
+    # $bm_step_size / $bm_num_integration_steps: irt_2pl hmc recipes fixed by
+    #   re-cert in PR recert-irt2pl-hmc-inner-nuts (2026-06-05).
+    # Remaining: rwm/ghmc with empty base_method_params (no warmup path; those
+    #   catalog recipes legitimately have empty bmp since defaults are used at runtime).
     _known_preexisting_slots = frozenset(
         {
-            "$wp_max_rank",  # T0.2: low_rank_imm recipes missing max_rank
-            "$bm_step_size",  # catalog recipes with empty base_method_params
-            "$bm_num_integration_steps",  # catalog recipes with empty base_method_params
-            "$bm_sigma",  # rwm with empty base_method_params
-            "$bm_alpha",  # ghmc with empty base_method_params
-            "$bm_delta",  # ghmc with empty base_method_params
+            "$bm_sigma",  # rwm with empty base_method_params (no-warmup default)
+            "$bm_alpha",  # ghmc with empty base_method_params (no-warmup default)
+            "$bm_delta",  # ghmc with empty base_method_params (no-warmup default)
         }
     )
     all_found = re.findall(r"\$[A-Za-z_]\w*", code_text)
