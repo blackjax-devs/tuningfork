@@ -18,7 +18,8 @@
   ],
   "base_method_params": {},
   "warmup_params": {
-    "target_acceptance": 0.8
+    "target_acceptance": 0.8,
+    "max_rank": 10
   },
   "headline_metric": null,
   "sample_quality": null,

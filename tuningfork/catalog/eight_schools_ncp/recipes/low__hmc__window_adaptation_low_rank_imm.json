@@ -11,7 +11,8 @@
   "warmup_params": {
     "n_warmup": 1000,
     "num_chains": 4,
-    "target_acceptance": 0.65
+    "target_acceptance": 0.65,
+    "max_rank": 10
   },
   "headline_metric": 0.003943915478885174,
   "sample_quality": {

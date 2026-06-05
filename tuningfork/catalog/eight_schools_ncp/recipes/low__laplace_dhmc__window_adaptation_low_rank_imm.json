@@ -45,7 +45,8 @@
       "params": {
         "n_warmup": 1000,
         "num_chains": 4,
-        "target_acceptance": 0.8
+        "target_acceptance": 0.8,
+        "max_rank": 10
       }
     }
   ],

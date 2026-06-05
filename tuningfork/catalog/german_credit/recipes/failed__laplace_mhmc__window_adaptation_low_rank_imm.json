@@ -6,7 +6,9 @@
   "failure_diagnosis": "out_of_scope",
   "attempted_configurations": [],
   "base_method_params": {},
-  "warmup_params": {},
+  "warmup_params": {
+    "max_rank": 10
+  },
   "headline_metric": null,
   "sample_quality": null,
   "calibration_budget": {

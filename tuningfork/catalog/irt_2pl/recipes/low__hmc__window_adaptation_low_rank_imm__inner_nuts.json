@@ -7,7 +7,8 @@
   "warmup_params": {
     "n_warmup": 2000,
     "num_chains": 4,
-    "target_acceptance": 0.95
+    "target_acceptance": 0.95,
+    "max_rank": 10
   },
   "headline_metric": 0.0003238802274276747,
   "sample_quality": null,
@@ -36,7 +37,8 @@
       "params": {
         "n_warmup": 2000,
         "num_chains": 4,
-        "target_acceptance": 0.95
+        "target_acceptance": 0.95,
+        "max_rank": 10
       }
     }
   ],
