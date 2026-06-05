@@ -642,64 +642,16 @@ def _build_shared_kwargs(
     *,
     step_policy_from_transform: bool = True,
 ) -> tuple[dict[str, Any], Any]:
-    """Build shared kernel kwargs common to both emit and rerun pipelines.
+    """Build per-step kernel kwargs shared by emit and rerun.
 
-    Constructs the dict of per-step kernel kwargs (excluding ``step_size`` and
-    ``inverse_mass_matrix``, which are handled per-chain via vmap in the step
-    builder).  Handles three concerns:
-
-    1. Start from ``default_params_for(base_method)`` minus per-chain adapted
-       keys (``step_size`` / ``inverse_mass_matrix``).
-    2. Apply ``transform_warmup_state`` when ``warmup_inner_kernel`` is set
-       (explicit inner-kernel path: harvests ``num_integration_steps`` or
-       ``step_policy`` from the warmup trace).
-    3. Wire ``dynamic_hmc`` / ``dmhmc``: strip the int
-       ``num_integration_steps`` injected by WA substitution; inject
-       ``integration_steps_fn`` from the effective step-policy spec.
-
-    Caller-specific overrides are applied last via ``params_override``:
-    - emit path: ``sampler_kwargs_override`` dict (caller-supplied live values).
-    - rerun path: ``recipe.base_method_params`` subset (JSON-stored recipe values).
-    Both are flat dicts of non-ss/imm keys; keys already excluded at call
-    site if not applicable (``integration_steps_fn`` is always excluded).
-
-    Parameters
-    ----------
-    base_method
-        BaseMethod registry entry.
-    sampler_name
-        Registry key for the sampler (e.g. ``"nuts"``).
-    batched_params
-        Dict returned by the warmup runner; used only to check if
-        ``transform_warmup_state`` should fire.
-    batched_warmup_info
-        Per-step warmup trace info (used by ``transform_warmup_state``); may
-        be ``None``.
-    warmup_inner_kernel
-        Explicit inner kernel name, or ``None`` for the implicit path.
-    step_policy
-        Step-policy spec (for ``dynamic_hmc`` / ``dmhmc``); may be ``None``.
-    params_override
-        Flat dict of additional kernel kwargs to merge in after the defaults.
-        ``step_size``, ``inverse_mass_matrix``, and ``integration_steps_fn``
-        are silently excluded even if present.  ``None`` means no override.
-    step_policy_from_transform
-        When ``True`` (default, emit path), the step_policy returned by
-        ``transform_warmup_state`` is allowed to overwrite the input
-        ``step_policy`` (used when ``step_policy=None`` and the transform
-        can harvest an empirical spec from the warmup trace).
-        When ``False`` (rerun path), the transform's step_policy key is
-        ignored; ``step_policy`` is used as-is for ``build_step_policy``.
-        This ensures rerun always uses the pinned recipe ``step_policy``
-        spec (even when it is ``None`` = V0 default).
-
-    Returns
-    -------
-    (shared_kwargs, effective_step_policy)
-        ``shared_kwargs`` — dict ready to splat into every ``factory()`` call.
-        ``effective_step_policy`` — the step-policy spec that was wired (may
-        differ from the input ``step_policy`` when ``transform_warmup_state``
-        harvested a new spec from the warmup trace).
+    Starts from default_params_for(base_method) minus step_size/IMM, applies
+    transform_warmup_state when warmup_inner_kernel is set, wires
+    integration_steps_fn for dynamic_hmc/dmhmc, then merges params_override
+    (emit: sampler_kwargs_override; rerun: recipe.base_method_params subset).
+    step_policy_from_transform=False (rerun) keeps the pinned recipe step_policy
+    and discards any spec the transform would derive from the warmup trace,
+    ensuring rerun reproduces the stored recipe exactly even when step_policy=None.
+    Returns (shared_kwargs, effective_step_policy).
     """
     default_params = default_params_for(base_method)
     shared_kwargs: dict[str, Any] = {
@@ -762,66 +714,12 @@ def _reinit_batched_state(
     laplace_log_joint_fn: Any,
     laplace_theta_init: Any,
 ) -> Any:
-    """Re-initialise batched chain states for samplers that need a different state type.
+    """Per-chain .init() for samplers whose state type differs from warmup output.
 
-    Three cases require per-chain ``.init()`` before the sampling scan:
-
-    * **laplace_***: window_adaptation produces ``HMCState``; ``laplace_*``
-      kernels need ``LaplaceHMCState`` (carries ``phi`` + ``theta_star``
-      fields).
-    * **dynamic_hmc / dmhmc**: warmup produces ``HMCState``; these kernels
-      need ``DynamicHMCState`` (adds ``random_generator_arg``).
-    * **adjusted_mclmc_dynamic**: warmup produces ``HMCState`` (from
-      ``adjusted_mclmc_tuning``); needs ``DynamicHMCState``.
-
-    For all other samplers the warmup state is already the correct type;
-    this function returns ``batched_state`` unchanged.
-
-    The ``batched_L`` parameter distinguishes the two callers:
-
-    * **emit path**: ``batched_L`` is a ``(num_chains,)`` JAX array of
-      per-chain warmup-adapted trajectory lengths.  Vmapped per chain.
-    * **rerun path**: ``batched_L`` is ``None`` because ``L`` is already
-      present as a scalar Python float in ``shared_kwargs`` (read from the
-      recipe JSON by the rerun caller before invoking this helper).
-
-    Parameters
-    ----------
-    batched_state
-        Batched warmup output state, leading dim ``num_chains``.
-    batched_step_size
-        Per-chain step sizes from warmup, shape ``(num_chains,)``.
-    batched_imm
-        Per-chain inverse mass matrices from warmup.
-    batched_L
-        Per-chain trajectory lengths from MCLMC warmup
-        (``(num_chains,)`` array), or ``None`` if ``L`` is already in
-        ``shared_kwargs`` (rerun path).
-    reinit_keys
-        Per-chain JAX random keys, shape ``(num_chains,)``.
-    is_laplace
-        ``True`` if the sampler is in ``LAPLACE_METHOD_NAMES``.
-    needs_dyn_reinit
-        ``True`` if sampler is ``dynamic_hmc`` or ``dmhmc``.
-    needs_mclmc_dyn_reinit
-        ``True`` if sampler is ``adjusted_mclmc_dynamic``.
-    logdensity_fn
-        Log-density callable (marginal for laplace_*, joint for others).
-    base_method
-        BaseMethod registry entry.
-    shared_kwargs
-        Shared kernel kwargs (output of ``_build_shared_kwargs``).
-    laplace_log_joint_fn
-        Joint log-density ``(theta, phi) → float``; used only when
-        ``is_laplace=True``.
-    laplace_theta_init
-        Initial ``theta`` point for the Laplace marginalisation; used only
-        when ``is_laplace=True``.
-
-    Returns
-    -------
-    run_states
-        Batched state suitable for passing to ``run_inference_algorithm``.
+    laplace_* needs LaplaceHMCState; dynamic_hmc/dmhmc and adjusted_mclmc_dynamic
+    need DynamicHMCState (random_generator_arg).  All others return batched_state
+    unchanged.  batched_L=None (rerun) means L is already a scalar in shared_kwargs;
+    batched_L=(num_chains,) array (emit) is vmapped per chain for adjusted_mclmc_dynamic.
     """
     _lljf = laplace_log_joint_fn
     _lti = laplace_theta_init
@@ -915,60 +813,11 @@ def _build_vmapped_inference(
     laplace_log_joint_fn: Any,
     laplace_theta_init: Any,
 ) -> Any:
-    """Build a vmapped ``SamplingAlgorithm`` over ``num_chains`` parallel chains.
+    """Return a vmapped SamplingAlgorithm for num_chains parallel chains.
 
-    Encapsulates the four dispatch branches shared by the emit and rerun
-    pipelines:
-
-    * **laplace** — factory receives ``log_joint_fn`` + ``theta_init`` in
-      addition to the standard ``(logdensity_fn, step_size, imm)``.
-    * **mclmc-family** — factory receives a per-chain ``L`` from
-      ``batched_L`` (emit path) or the scalar ``L`` already present in
-      ``shared_kwargs`` (rerun path, ``batched_L=None``).  The T0.3 latent
-      bug in the old rerun step-builder was that it always fell into the
-      ``else`` branch, using a scalar ``L`` from ``shared_kwargs``; this
-      function fixes that by providing the dedicated mclmc branch with the
-      correct per-chain vmapping when ``batched_L`` is not ``None``.
-    * **gradient-free** — no per-chain ``step_size`` or ``imm``; factory
-      receives only ``shared_kwargs`` (e.g. ``elliptical_slice``).
-    * **default** — standard path for HMC / NUTS / MALA / etc.
-
-    Parameters
-    ----------
-    base_method
-        BaseMethod registry entry; provides ``.factory``.
-    logdensity_fn
-        Log-density callable.
-    num_chains
-        Number of parallel chains.
-    shared_kwargs
-        Shared kernel kwargs (output of ``_build_shared_kwargs``).
-    batched_step_size
-        Per-chain step sizes, shape ``(num_chains,)``, or ``None`` for
-        gradient-free samplers.
-    batched_imm
-        Per-chain inverse mass matrices, or ``None`` for gradient-free samplers.
-    batched_L
-        Per-chain trajectory lengths for MCLMC-family samplers
-        (``(num_chains,)`` array from emit warmup), or ``None`` when ``L``
-        is already a scalar in ``shared_kwargs`` (rerun path).
-    is_laplace
-        ``True`` if the sampler is in ``LAPLACE_METHOD_NAMES``.
-    is_mclmc_family
-        ``True`` if the sampler is in ``_MCLMC_FAMILY_NAMES``.
-    is_no_adapted_params
-        ``True`` if the sampler has no adapted ``step_size`` / ``imm``
-        (gradient-free path, e.g. ``elliptical_slice``).
-    laplace_log_joint_fn
-        Joint log-density for laplace branch; ignored when ``is_laplace=False``.
-    laplace_theta_init
-        Initial theta for laplace branch; ignored when ``is_laplace=False``.
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A ``SamplingAlgorithm(init, step)`` whose ``.step(rng_key, states)``
-        accepts batched ``(num_chains, ...)`` states and returns batched outputs.
+    Four branches: laplace (log_joint_fn+theta_init), mclmc with per-chain
+    batched_L (emit; batched_L=None falls through to default so rerun's scalar
+    L in shared_kwargs is used correctly), gradient-free (no ss/imm), default.
     """
     _lljf = laplace_log_joint_fn
     _lti = laplace_theta_init

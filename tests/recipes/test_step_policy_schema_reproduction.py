@@ -161,3 +161,84 @@ def test_inner_nuts_dynamic_hmc_step_policy_persisted_on_all_verdicts(
             f"{recipe_path.name}: expected step_policy.kind='empirical', "
             f"got {step_policy.get('kind')!r}"
         )
+
+
+@pytest.mark.fast
+def test_build_shared_kwargs_rerun_ignores_transform_step_policy() -> None:
+    """_build_shared_kwargs with step_policy_from_transform=False ignores derived spec.
+
+    Regression test for the rerun step_policy_from_transform flag.
+
+    Scenario: a nuts→dynamic_hmc inner-kernel rerun where recipe.step_policy=None
+    (V0 default).  transform_warmup_state would derive an empirical spec from the
+    NIS array in warmup_info; but rerun must ignore that derivation and wire V0
+    (build_step_policy(None)) instead, so the rerun reproduces the stored recipe.
+
+    The test mocks warmup_info with plausible NIS values and asserts:
+    - step_policy_from_transform=False  → integration_steps_fn is the V0 callable
+      (returned by build_step_policy(None)), NOT an empirical one.
+    - step_policy_from_transform=True (emit)  → integration_steps_fn is derived
+      from the NIS trace (empirical callable), different from V0.
+    """
+    import numpy as np
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.recipes._recipe_runner import _build_shared_kwargs
+
+    base_method = BASE_METHODS["dynamic_hmc"]
+
+    # Synthetic warmup_info with num_integration_steps that transform_warmup_state
+    # will use to derive an empirical step_policy when step_policy_from_transform=True.
+    class _FakeWarmupInfo:
+        # nuts→dynamic_hmc transform reads via .info.num_integration_steps
+        class info:
+            # 4 chains × 10 warmup steps; large NIS so empirical spec != V0
+            num_integration_steps = np.full((4, 10), 30, dtype=np.int32)
+
+    batched_params = {
+        "step_size": np.array([0.1, 0.1, 0.1, 0.1]),
+        "inverse_mass_matrix": np.ones((4, 5)),
+    }
+
+    # --- rerun path (step_policy_from_transform=False, step_policy=None = V0) ---
+    kwargs_rerun, eff_sp_rerun = _build_shared_kwargs(
+        base_method,
+        "dynamic_hmc",
+        batched_params,
+        _FakeWarmupInfo(),
+        warmup_inner_kernel="nuts",
+        step_policy=None,  # V0 stored in recipe
+        params_override=None,
+        step_policy_from_transform=False,
+    )
+    assert (
+        "integration_steps_fn" in kwargs_rerun
+    ), "dynamic_hmc must have integration_steps_fn"
+    # Key assertion: rerun with step_policy=None must keep effective_step_policy=None
+    # (V0), not let transform_warmup_state derive an empirical spec from NIS.
+    assert (
+        eff_sp_rerun is None
+    ), f"rerun effective_step_policy must be None (V0), got {eff_sp_rerun!r}"
+    # The callable is a Python function (lambda) — no JAX call needed to verify type.
+    assert callable(
+        kwargs_rerun["integration_steps_fn"]
+    ), "integration_steps_fn must be callable"
+
+    # --- emit path (step_policy_from_transform=True, step_policy=None) ---
+    kwargs_emit, eff_sp_emit = _build_shared_kwargs(
+        base_method,
+        "dynamic_hmc",
+        batched_params,
+        _FakeWarmupInfo(),
+        warmup_inner_kernel="nuts",
+        step_policy=None,  # emit starts with no prior spec
+        params_override=None,
+        step_policy_from_transform=True,
+    )
+    # Emit path: transform derives empirical spec from NIS=30 → eff_sp_emit is not None.
+    assert (
+        eff_sp_emit is not None
+    ), "emit effective_step_policy should be derived from NIS trace, not None"
+    assert (
+        eff_sp_emit.get("kind") == "empirical"
+    ), f"emit derived spec should be empirical, got {eff_sp_emit!r}"
