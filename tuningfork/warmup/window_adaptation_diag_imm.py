@@ -62,10 +62,27 @@ from typing import Any
 import blackjax
 import jax
 
-from tuningfork.warmup._base import Warmup, _maybe_replicate
-from tuningfork.warmup._laplace_adapter import resolve_warmup_algorithm
+from tuningfork.warmup._base import Warmup
+from tuningfork.warmup._window_adaptation_common import _window_adaptation_body
 
 __all__ = ["ENTRY"]
+
+
+def _build_diag_warmup(
+    warmup_algorithm: Any,
+    logdensity_fn: Any,
+    *,
+    target_acceptance_rate: float,
+    **warmup_kwargs: Any,
+) -> Any:
+    """Build ``blackjax.window_adaptation`` pinned to diagonal mass matrix."""
+    return blackjax.window_adaptation(
+        warmup_algorithm,
+        logdensity_fn,
+        is_mass_matrix_diagonal=True,
+        target_acceptance_rate=target_acceptance_rate,
+        **warmup_kwargs,
+    )
 
 
 def _runner(
@@ -133,52 +150,22 @@ def _runner(
         ``"inverse_mass_matrix"`` has shape ``(num_chains, d)`` for diagonal
         or ``(num_chains, d, d)`` for dense.
     """
-    from tuningfork.calibration.tune import default_value_for_space
+    # is_mass_matrix_diagonal is accepted for interface uniformity but this
+    # entry always pins diagonal=True.  A caller that needs dense should use
+    # window_adaptation_dense_imm instead.
+    del is_mass_matrix_diagonal  # pinned to True via _build_diag_warmup
 
-    target = target_acceptance_rate or base_method.target_acceptance_rate or 0.80
-
-    # Build extra kwargs for the warmup call: inject default values for any
-    # HP that the kernel needs during warmup but is NOT step_size or
-    # inverse_mass_matrix (those come from the adaptation itself).
-    extra_kwargs: dict[str, Any] = dict(kwargs)  # caller-supplied overrides first
-    for space in base_method.default_hp_space:
-        if space.name not in ("step_size", "inverse_mass_matrix"):
-            if space.name not in extra_kwargs:
-                extra_kwargs[space.name] = default_value_for_space(space)
-
-    # For laplace_* base methods, substitute blackjax.hmc as the warmup
-    # algorithm so that window_adaptation receives a proper algorithm object
-    # with .build_kernel and .init(position, logdensity_fn).  The caller
-    # is responsible for passing the laplace marginal logdensity
-    # (phi → float) as logdensity_fn — this adapter does not build it.
-    warmup_algorithm, warmup_kwargs = resolve_warmup_algorithm(
-        base_method, extra_kwargs
+    return _window_adaptation_body(
+        rng_key,
+        init_position,
+        n_warmup,
+        base_method,
+        logdensity_fn=logdensity_fn,
+        target_acceptance_rate=target_acceptance_rate,
+        num_chains=num_chains,
+        warmup_builder_fn=_build_diag_warmup,
+        **kwargs,
     )
-
-    warmup = blackjax.window_adaptation(
-        warmup_algorithm,
-        logdensity_fn,
-        is_mass_matrix_diagonal=is_mass_matrix_diagonal,
-        target_acceptance_rate=target,
-        **warmup_kwargs,
-    )
-
-    # Split the key for num_chains independent runs.
-    chain_keys = jax.random.split(rng_key, num_chains)
-
-    # Replicate init_position across chains.  Pass-through if pre-batched.
-    init_positions = _maybe_replicate(init_position, num_chains)
-
-    # vmap the warmup.run over (key, init_position).
-    # Return adapt_info.info (per-step kernel info: NUTSInfo / HMCInfo) as a
-    # third value so callers can CUMSUM num_integration_steps for exact wge.
-    @jax.vmap
-    def run_one(k: jax.Array, x0: Any) -> tuple[Any, Any, Any]:
-        (state, params), adapt_info = warmup.run(k, x0, n_warmup)
-        return state, params, adapt_info.info
-
-    states, adapted_params, kernel_info = run_one(chain_keys, init_positions)
-    return states, dict(adapted_params), kernel_info
 
 
 ENTRY = Warmup(
