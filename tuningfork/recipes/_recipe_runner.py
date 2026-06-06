@@ -2222,15 +2222,30 @@ def run_recipe_to_idata(
                 "skip_warmup=True is not supported for MCLMC: momentum init "
                 "requires a special key path not handled here."
             )
-        if "step_size" not in recipe.base_method_params:
+        # NB: check the VALUE is non-None, not just the KEY's presence. Some
+        # recipes (a few medium-effort dmhmc/dynamic_hmc step_policy variants)
+        # carry explicit `None` values from a recipe-gen persistence gap
+        # similar to the irt_2pl __inner_nuts gap fixed in #161. Without this
+        # guard, validation passes and the runner crashes later at
+        # `jnp.array(None)` with an opaque JAX message.
+        if recipe.base_method_params.get("step_size") is None:
             raise ValueError(
-                "skip_warmup=True requires recipe.base_method_params to contain "
-                "'step_size'. This recipe was likely emitted from no_warmup."
+                "skip_warmup=True requires recipe.base_method_params['step_size'] "
+                "to be a non-None scalar. Got "
+                f"{recipe.base_method_params.get('step_size')!r}. The recipe was "
+                "likely emitted from no_warmup, or step_size was not persisted by "
+                "the recipe-generation pipeline (a known M2-backfill gap on some "
+                "medium-effort inner-kernel recipes). Re-run with skip_warmup=False."
             )
-        if "inverse_mass_matrix" not in recipe.base_method_params:
+        if recipe.base_method_params.get("inverse_mass_matrix") is None:
             raise ValueError(
-                "skip_warmup=True requires recipe.base_method_params to contain "
-                "'inverse_mass_matrix'. This recipe was likely emitted from no_warmup."
+                "skip_warmup=True requires "
+                "recipe.base_method_params['inverse_mass_matrix'] to be a "
+                f"non-None array. Got {recipe.base_method_params.get('inverse_mass_matrix')!r}. "
+                "The recipe was likely emitted from no_warmup, or IMM was not "
+                "persisted by the recipe-generation pipeline (a known M2-backfill "
+                "gap on some medium-effort inner-kernel recipes). Re-run with "
+                "skip_warmup=False."
             )
 
     # Run warmup — multi-phase (recipe.warmups > 1) or single-phase.
