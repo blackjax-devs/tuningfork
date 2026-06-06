@@ -1066,6 +1066,18 @@ def emit_script(
             "emit_warmup only supports the 8 standard warmup families."
         )
 
+    # Pre-compute whether laplace_hmc/laplace_mhmc need warmup-state reinit.
+    # Must be in ctx BEFORE emit_sampler is called (sampler reads it for
+    # _state_reinit emission).  The same flag is also used by _resolved_needs_state_reinit
+    # below (for the inference loop).
+    # Condition: laplace recipe + NUTS warmup substitute → warmup produces HMCState,
+    # which is incompatible with laplace_hmc.kernel (requires LaplaceHMCState.theta_star).
+    ctx["_laplace_needs_warmup_state_reinit"] = (
+        _is_laplace
+        and recipe.base_method_name in {"laplace_hmc", "laplace_mhmc"}
+        and _warmup_sampler == "nuts"
+    )
+
     # A2: descriptor-driven emit for all 15 sampler template families.
     # For methods outside this set (mclmc, adjusted_mclmc, etc.), the
     # FileNotFoundError from _load_template propagates up, which causes
@@ -1128,7 +1140,11 @@ def emit_script(
     )
 
     # _needs_state_reinit: True iff sampler template defines _state_reinit.
-    _resolved_needs_state_reinit = recipe.base_method_name in _STATE_REINIT_SAMPLERS
+    # ctx["_laplace_needs_warmup_state_reinit"] was already set before emit_sampler.
+    _resolved_needs_state_reinit = (
+        recipe.base_method_name in _STATE_REINIT_SAMPLERS
+        or ctx["_laplace_needs_warmup_state_reinit"]
+    )
 
     # T1.4: emit timing block without try/except — no_warmup path omits
     # block_until_ready (state not yet set at this point in assembly).

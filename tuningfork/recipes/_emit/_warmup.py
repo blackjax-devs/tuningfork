@@ -692,10 +692,12 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     Single-chain warmup; final state broadcast to (num_chains,).
 
     NOTE: The laplace_preamble (emitted before this section) sets up:
-      - ``logdensity_fn = _laplace_warmup[0]`` (the scalar LaplaceMarginal
-        for Phase 1)
-    This warmup section then overrides ``logdensity_fn = _laplace_warmup[1]``
-    for Phase 2 (higher maxiter).
+      - When warmup_algorithm is blackjax.nuts: scalar adapter ``_warmup_logdensity_fn``
+        wrapping ``_laplace_warmup[0]`` (nuts calls has_aux=False).
+      - When warmup_algorithm is blackjax.laplace_hmc: ``logdensity_fn = _laplace_warmup[0]``
+        directly (laplace_hmc.init calls has_aux=True, needs aux-returning marginal).
+    This warmup section then overrides ``logdensity_fn`` for Phase 2 using the
+    same conditional logic applied to ``_laplace_warmup[1]``.
 
     Parameters
     ----------
@@ -745,7 +747,9 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("# is not supported inside vmap.")
     a("")
     a("# ── Phase 1: traversal (diagonal IMM) ────────────────────────────────────────")
-    a("# Phase 1 logdensity_fn: _laplace_warmup[0] (already set by laplace_preamble)")
+    a(
+        "# Phase 1 logdensity_fn: scalar wrapper _warmup_logdensity_fn (already set by laplace_preamble)"
+    )
     a("_warmup_p1 = blackjax.window_adaptation(")
     a(f"    {warmup_algorithm},")
     a("    logdensity_fn,")
@@ -763,7 +767,22 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("")
     a("# ── Phase 2: Welford dense IMM capture ───────────────────────────────────────")
     a("# Switch to Phase 2 LaplaceMarginal (higher maxiter for accurate Hessians).")
-    a("logdensity_fn = _laplace_warmup[1]")
+
+    # Mirror the preamble logic: nuts warmup needs scalar wrapper; laplace_hmc
+    # warmup needs the aux-returning marginal directly.
+    _warmup_alg = ctx.get("warmup_algorithm", "blackjax.nuts")
+    if _warmup_alg == "blackjax.nuts":
+        a("# Scalar adapter for NUTS warmup (has_aux=False path).")
+        a("")
+        a("")
+        a("def _warmup_logdensity_fn(phi):  # noqa: F811")
+        a("    return _laplace_warmup[1](phi)[0]")
+        a("")
+        a("")
+        a("logdensity_fn = _warmup_logdensity_fn")
+    else:
+        a("# laplace_hmc inner kernel needs aux-returning marginal directly.")
+        a("logdensity_fn = _laplace_warmup[1]")
     a("# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (0-d JAX scalar).")
     a(
         "# Keep as a JAX array — float() would trigger the buffer protocol on a still-live"

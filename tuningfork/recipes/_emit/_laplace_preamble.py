@@ -82,21 +82,52 @@ def emit_laplace_preamble(ctx: dict[str, Any]) -> str:
     a("")
     a("# Build one LaplaceMarginal per warmup phase.")
     a("# LaplaceMarginal(phi[, theta_prev=None]) -> (lp: float, theta_star: pytree)")
-    a("#")
-    a(
-        "# window_adaptation(blackjax.laplace_hmc, laplace, ...) uses the LaplaceMarginal as"
-    )
-    a("# its logdensity_fn.  laplace_hmc.init(phi, laplace) calls:")
-    a("#   jax.value_and_grad(laplace, has_aux=True)(phi)")
-    a("# which requires the (lp, aux) return contract that LaplaceMarginal satisfies.")
-    a(
-        "# (A plain phi->float marginal would fail here because has_aux=True expects a tuple.)"
-    )
+    a("# i.e. has_aux=True return contract.")
     a(f"_laplace_warmup = [{ctx['laplace_factories_expr']}]")
     a("")
-    a(
-        "# Set logdensity_fn to phase 1 LaplaceMarginal -- picked up by the first warmup template."
-    )
-    a("logdensity_fn = _laplace_warmup[0]")
+
+    # Determine which logdensity_fn wrapper to use for warmup.
+    # When warmup_algorithm is blackjax.nuts (WARMUP_SUBSTITUTE path):
+    #   nuts calls jax.value_and_grad(logdensity_fn)(phi) with has_aux=False.
+    #   LaplaceMarginal returns (lp, theta_star) → would crash.
+    #   → Use scalar adapter: _warmup_logdensity_fn(phi) = _laplace_warmup[0](phi)[0]
+    # When warmup_algorithm is blackjax.laplace_hmc (multi-phase explicit inner kernel):
+    #   laplace_hmc.init calls jax.value_and_grad(laplace, has_aux=True)(phi).
+    #   It NEEDS the aux-returning marginal.
+    #   → Set logdensity_fn = _laplace_warmup[0] directly.
+    _warmup_alg = ctx.get("warmup_algorithm", "blackjax.nuts")
+    _uses_nuts_warmup = _warmup_alg == "blackjax.nuts"
+
+    if _uses_nuts_warmup:
+        a("# The warmup inner kernel (blackjax.nuts substituted for laplace_*) calls")
+        a("#   jax.value_and_grad(logdensity_fn)(phi)  -- has_aux=False.")
+        a("# The LaplaceMarginal returns (lp, theta_star) which would crash that call.")
+        a("# Wrap phase-0 marginal in a scalar adapter that drops the aux -- mirrors")
+        a("# the runner's _build_laplace_components marginal_logdensity_fn wrapper.")
+        a(
+            "# The sampler (laplace_hmc/mhmc etc.) uses log_joint_fn + theta_init directly"
+        )
+        a(
+            "# and never reads logdensity_fn after warmup, so the scalar adapter is safe."
+        )
+        a("")
+        a("")
+        a("def _warmup_logdensity_fn(phi):")
+        a("    return _laplace_warmup[0](phi)[0]")
+        a("")
+        a("")
+        a("logdensity_fn = _warmup_logdensity_fn")
+    else:
+        a(
+            "# The warmup inner kernel is blackjax.laplace_hmc (explicit inner_kernel path)."
+        )
+        a("# laplace_hmc.init calls jax.value_and_grad(laplace, has_aux=True)(phi),")
+        a(
+            "# which requires the aux-returning LaplaceMarginal (lp, theta_star) contract."
+        )
+        a(
+            "# Set logdensity_fn to _laplace_warmup[0] directly (no scalar wrapper needed)."
+        )
+        a("logdensity_fn = _laplace_warmup[0]")
 
     return "\n".join(lines)
