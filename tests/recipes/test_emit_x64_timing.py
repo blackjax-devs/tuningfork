@@ -287,17 +287,13 @@ def test_emitted_script_gp_regression_timing_split_is_valid_python() -> None:
 # ── Progress bar tests ───────────────────────────────────────────────────
 
 
-def test_emitted_window_adaptation_uses_progress_bar_true() -> None:
-    """window_adaptation calls in emitted scripts (default path) use progress_bar=True.
+def test_emitted_window_adaptation_uses_progress_bar_false() -> None:
+    """window_adaptation calls in emitted scripts (default path) now use progress_bar=False.
 
-    This makes warmup progress visible when running standalone (previously
-    hardcoded to False, causing the script to appear hung during ~10 min
-    Laplace warmup runs).
-
-    Note: the single-chain (progress_bar=True) warmup template also emits a
-    warnings.warn() block that mentions "progress_bar=False" as an alternative.
-    The assertion below checks that the window_adaptation call site uses
-    progress_bar=True, not that the string is absent from the entire script.
+    Changed 2026-06-06: the default changed from True to False to preserve
+    multichain warmup specs in recipes. The default now enables multichain
+    window_adaptation via jax.vmap. Scripts run without visible progress in the
+    warmup section, but the multichain warmup behavior matches the recipe spec.
     """
     recipe = _make_recipe(
         "eight_schools_ncp",
@@ -309,22 +305,23 @@ def test_emitted_window_adaptation_uses_progress_bar_true() -> None:
     warmup_section = script[
         script.find("# === WARMUP:") : script.find("# === SAMPLER:")
     ]
-    assert "progress_bar=True" in warmup_section, (
-        "window_adaptation in emitted script should use progress_bar=True "
-        "so warmup progress is visible in standalone runs.\n"
+    assert "progress_bar=False" in warmup_section, (
+        "window_adaptation in emitted script should use progress_bar=False "
+        "(default changed 2026-06-06 to preserve multichain warmup specs).\n"
         f"Script warmup section:\n{warmup_section}"
     )
-    # The window_adaptation(.., progress_bar=...) call must use True.
-    # (warnings.warn text may mention 'progress_bar=False' as an informational note
-    # about the multi-chain alternative; we only require the actual call arg is True.)
-    assert "progress_bar=True" in warmup_section, (
-        "window_adaptation call in warmup section must have progress_bar=True.\n"
+    # Also verify jax.vmap is present for multichain.
+    assert "jax.vmap" in warmup_section, (
+        "window_adaptation with progress_bar=False should enable multichain via jax.vmap.\n"
         f"Section:\n{warmup_section}"
     )
 
 
-def test_emitted_dense_window_adaptation_uses_progress_bar_true() -> None:
-    """window_adaptation_dense_imm emitted template uses progress_bar=True."""
+def test_emitted_dense_window_adaptation_uses_progress_bar_false() -> None:
+    """window_adaptation_dense_imm emitted template uses progress_bar=False.
+
+    Changed 2026-06-06: the default changed to False to preserve multichain warmup.
+    """
     recipe = _make_recipe(
         "eight_schools_ncp",
         base_method_name="nuts",
@@ -332,7 +329,6 @@ def test_emitted_dense_window_adaptation_uses_progress_bar_true() -> None:
     )
     script = emit_script(recipe, num_samples=10)
 
-    assert "progress_bar=True" in script, (
-        "window_adaptation in emitted window_adaptation_dense_imm script "
-        "should use progress_bar=True."
-    )
+    assert (
+        "progress_bar=False" in script
+    ), "window_adaptation_dense_imm in emitted script should use progress_bar=False."

@@ -597,19 +597,10 @@ def emit_script(
         )
 
     # Resolve progress_bar overrides.
-    # When None: defaults (warmup True, sampling True via _SAMPLING_PROGRESS_BAR).
-    _warmup_pb = True if progress_bar is None else bool(progress_bar)
-    _sampling_pb = True if progress_bar is None else bool(progress_bar)
-
-    # Call-time warning: issued immediately when progress_bar=True (explicit)
-    # so that callers using emit_script() in a notebook or script see the advisory
-    # before the generated file is written, not only at script-execution time.
-    # Not issued when progress_bar=None (the backward-compatible default) to avoid
-    # breaking existing callers that never set this argument explicitly.
-    if progress_bar is True:
-        import warnings as _warnings
-
-        _warnings.warn(_PROGRESS_BAR_WARNING_TEXT, stacklevel=2)
+    # When None: defaults to False (preserves multichain warmup for recipes that spec it).
+    # When True or False: user's choice (True forces single-chain for vmap compatibility).
+    _warmup_pb = False if progress_bar is None else bool(progress_bar)
+    _sampling_pb = False if progress_bar is None else bool(progress_bar)
 
     # x64 requirement: look up the model in the registry and check requires_x64.
     # This mirrors the runner logic at _recipe_runner.py:551-554.
@@ -674,11 +665,10 @@ def emit_script(
             f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
         )
 
-    # Progress-bar warning block for preamble: emitted at the TOP of the generated
-    # file when progress_bar=True so users see the advisory before any computation.
-    _pb_warning_block = (
-        _PROGRESS_BAR_WARNING_BLOCK if _warmup_pb else _PROGRESS_BAR_WARNING_BLOCK_EMPTY
-    )
+    # Progress-bar warning: no longer injected into the preamble (changed 2026-06-06).
+    # Warnings are now issued at emit_script() call-time via the Python warnings module,
+    # not in the emitted script. This allows clearer diagnostic feedback before the script runs.
+    _pb_warning_block = _PROGRESS_BAR_WARNING_BLOCK_EMPTY
 
     ctx = {
         "recipe_id": (
@@ -1025,6 +1015,29 @@ def emit_script(
         and not _warmup_pb
     )
     ctx["_warmup_is_multichain"] = _is_wa_multichain
+
+    # Warn when progress_bar=True forces single-chain for a multichain recipe.
+    # Only fires if the recipe WOULD HAVE BEEN multichain in the absence of the user's
+    # progress_bar=True choice. Single-chain recipes (no_warmup, etc.) don't warn.
+    if (
+        progress_bar is True  # explicitly passed (not None, not False)
+        and not _is_laplace
+        and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
+        and not (_warmup_W0 == 1)
+        and num_chains > 1
+    ):
+        import warnings as _warnings_emit
+
+        _warnings_emit.warn(
+            f"emit_script: progress_bar=True forced single-chain warmup for "
+            f"recipe with warmup_name={recipe.warmup_name!r} and num_chains={num_chains}. "
+            f"The recipe specifies multichain warmup (each chain runs an independent "
+            f"window_adaptation), but progress_bar=True is incompatible with the vmap'd "
+            f"multichain path. Results may differ from run_recipe_to_idata (the runner) "
+            f"which always uses multichain warmup. Pass progress_bar=False (or omit it) "
+            f"to preserve the recipe's multichain warmup spec.",
+            stacklevel=2,
+        )
 
     # A3: all 8 warmup families use Python emit-functions.
     # For warmup names NOT in the 8 known families (e.g. mclmc_tuning,
