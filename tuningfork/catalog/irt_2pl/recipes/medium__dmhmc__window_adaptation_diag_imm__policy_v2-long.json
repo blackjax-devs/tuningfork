@@ -1,38 +1,47 @@
 {
   "model_name": "irt_2pl",
   "base_method_name": "dmhmc",
-  "warmup_name": "window_adaptation_diag_imm",
   "effort": "medium",
   "base_method_params": {
-    "step_size": 0.07895,
-    "inverse_mass_matrix": null
+    "step_size": 0.09568566083908081,
+    "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 2000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.0019866751972585917,
+  "sample_quality": {
+    "mae_vs_reference": 0.09437652758152718,
+    "q05_error": 0.29703937510033207,
+    "q95_error": 0.133225860203758,
+    "std_ratio_max_dev": 0.14010412072393597
   },
-  "headline_metric": 0.0004760319788008593,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 69.7,
+    "wall_seconds_estimate": 65.04364100599196,
     "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 26.9,
-    "sampling_wall_seconds": null,
-    "sampling_seconds_per_draw": null,
-    "split_source": null,
-    "machine_info": null,
-    "warmup_grad_evals": 364725
+    "warmup_wall_seconds": 23.634,
+    "sampling_wall_seconds": 36.685,
+    "sampling_seconds_per_draw": 0.009171,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": 369256
   },
   "difficulty": null,
-  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) \u2014 step_policy {'kind': 'uniform_int', 'low': 50, 'high': 200}.\nREVIEW gate approved by statistician (Bonferroni): z=2.849 < z*=3.87 for k=144 sites.",
-  "notes": "dmhmc requires V2 [50,200) L_mean=125 for irt_2pl \u2014 persistent momentum accumulates high autocorrelation at shorter trajectories. V1 gave ESS=282 (below gate). V7 auto-oracle gave ESS=9.9 (catastrophic). 1 divergence in 4000 draws (0.025%, well under 5% gate).",
+  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) -- step_policy {'kind': 'uniform_int', 'low': 50, 'high': 200}.\nREVIEW gate approved by statistician (Bonferroni): z=2.920 < z*=3.87 for k=144 sites.",
+  "notes": "dmhmc requires V2 [50,200) L_mean=125 for irt_2pl -- persistent momentum accumulates high autocorrelation at shorter trajectories. V1 gave ESS=282 (below gate). V7 auto-oracle gave ESS=9.9 (catastrophic). 1 divergence in 4000 draws (0.025%, well under 5% gate). Re-certed 2026-06-06 to populate inverse_mass_matrix (was null \u2014 persistence gap); diagnostics reproduce identically.",
   "headline_basis": {
-    "total_grad_evals": 2487648,
-    "min_bulk_ess": 1184.2,
+    "total_grad_evals": 501903,
+    "min_bulk_ess": 997.1182415296789,
     "grad_count_convention": "info.num_integration_steps (realized count per step)",
     "is_lower_bound": false
   },
@@ -54,29 +63,64 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
-  "inverse_mass_matrix_path": null,
+  "inverse_mass_matrix_path": "irt_2pl/recipes/medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0045,
-      "min_bulk_ess": 1184.2,
+      "rhat_max": 1.0045463862501984,
+      "min_bulk_ess": 1184.1896556673205,
       "n_divergences": 1,
-      "max_abs_mean_z": 2.849,
+      "max_abs_mean_z": 2.920448775593391,
       "verdict": "REVIEW",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0045463862501984,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 1184.1896556673205,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 1.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 2.920448775593391,
+          "band": "REVIEW",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0625
+        }
+      },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "decision": "approve-with-note",
-      "statistician_id": "stat-2026-05-30",
-      "date": "2026-05-30",
-      "reason": "z=2.849 < Bonferroni z*=3.87 for k=144 sites (FWER=5%). ESS=1184 >> 400 (PASS band). rhat=1.0045 (PASS band). No bias evidence."
+      "statistician_id": "stat-2026-06-06",
+      "date": "2026-06-06",
+      "reason": "z=2.920 < Bonferroni z*=3.87 for k=144 sites (FWER=5%). ESS=1184 >> 400 (PASS band). rhat=1.0045 (PASS band). 1 divergence in 4000 draws (0.025%, well under 5% gate; same as original cert). Re-cert of 2026-05-30 result; IMM backfill \u2014 no bias evidence. Follows stat-2026-05-30 precedent."
     }
   },
-  "tuning_seed": 0,
-  "tuningfork_version": "0.0.0.dev0",
-  "blackjax_version": "",
-  "jax_version": "",
-  "timestamp_utc": "",
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev53+g821da1795",
+  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-06T06:48:50Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
