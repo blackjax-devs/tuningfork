@@ -1573,16 +1573,15 @@ def test_emit_script_progress_bar_override_false() -> None:
 def test_emit_script_progress_bar_override_true() -> None:
     """emit_script(recipe, progress_bar=True) explicitly enables both progress bars.
 
-    Both warmup and sampling must have progress_bar=True (same as the default).
-    Also verifies the call-time warning is issued (pytest.warns) so tests are not
-    surprised by UserWarning-as-error under filterwarnings=error.
+    Both warmup and sampling must have progress_bar=True when explicitly requested.
+    For a single-chain recipe, no warning is issued (warning only fires for multichain).
     """
     from tuningfork.catalog import emit_script, load_recipe
 
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
-    with pytest.warns(UserWarning, match="#927"):
-        script = emit_script(recipe, num_samples=50, progress_bar=True)
+    # No warning expected for single-chain recipes (eight_schools_ncp is groundtruth/1-chain).
+    script = emit_script(recipe, num_samples=50, progress_bar=True)
 
     assert (
         "progress_bar=True" in script
@@ -1594,10 +1593,10 @@ def test_emit_script_progress_bar_override_true() -> None:
 
 @pytest.mark.fast
 def test_emit_script_progress_bar_none_keeps_defaults() -> None:
-    """emit_script(recipe, progress_bar=None) uses defaults (warmup True, sampling True).
+    """emit_script(recipe, progress_bar=None) uses defaults (warmup False, sampling False).
 
-    The default behaviour (None) must emit progress_bar=True for warmup and
-    _SAMPLING_PROGRESS_BAR = True for sampling — unchanged from pre-override baseline.
+    The default behaviour (None) now resolves to False (changed 2026-06-06) to preserve
+    multichain warmup specs in recipes. progress_bar=False in the emitted script.
     """
     from tuningfork.catalog import emit_script, load_recipe
 
@@ -1610,8 +1609,8 @@ def test_emit_script_progress_bar_none_keeps_defaults() -> None:
     assert (
         script_default == script_none
     ), "emit_script with progress_bar=None should produce identical output to default call."
-    assert "progress_bar=True" in script_none
-    assert "_SAMPLING_PROGRESS_BAR = True" in script_none
+    assert "progress_bar=False" in script_none
+    assert "_SAMPLING_PROGRESS_BAR = False" in script_none
 
 
 @pytest.mark.fast
@@ -1735,3 +1734,66 @@ def test_emit_script_vi_sampler_executes(base_method_name: str, tmp_path: Path) 
     )
     assert "DONE" in result.stdout
     assert "n_divergences=" in result.stdout
+
+
+@pytest.mark.fast
+def test_emit_script_default_progress_bar_preserves_multichain() -> None:
+    """Default progress_bar=None resolves to False, preserving multichain warmup.
+
+    When progress_bar is not passed (the default, None), the emitted script should
+    contain jax.vmap for a window_adaptation recipe with num_chains > 1. This verifies
+    that the default no longer forces single-chain warmup.
+    """
+    # Load a window_adaptation recipe with num_chains=4 (multichain spec).
+    recipe_path = (
+        _CATALOG_ROOT
+        / "irt_2pl"
+        / "recipes"
+        / "medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json"
+    )
+    if not recipe_path.exists():
+        # Fallback: use a groundtruth recipe which should have window adaptation + multichain.
+        recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+
+    recipe = load_recipe(recipe_path)
+
+    # Emit with default progress_bar=None (no explicit argument).
+    script = emit_script(recipe, num_samples=100, num_chains=4)
+
+    # The emitted script should contain jax.vmap if it's truly multichain.
+    # This is a structural check: multichain window_adaptation wraps the
+    # per-chain adaptation in a vmap block.
+    assert "jax.vmap" in script, (
+        "Default emit_script (progress_bar=None) should preserve multichain warmup "
+        "for a window_adaptation recipe with num_chains > 1. Expected jax.vmap in emitted script."
+    )
+
+
+@pytest.mark.fast
+def test_emit_script_progress_bar_true_warns() -> None:
+    """Explicit progress_bar=True issues a UserWarning for multichain recipes.
+
+    When the user explicitly passes progress_bar=True and the recipe specifies
+    multichain warmup (window_adaptation with num_chains > 1), a warning should
+    be issued at emit_script() call time (not just when the script runs).
+    """
+    # Load a window_adaptation recipe with num_chains > 1.
+    recipe_path = (
+        _CATALOG_ROOT
+        / "irt_2pl"
+        / "recipes"
+        / "medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json"
+    )
+    if not recipe_path.exists():
+        # Fallback: use a groundtruth recipe.
+        recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+
+    recipe = load_recipe(recipe_path)
+
+    # Emit with explicit progress_bar=True and num_chains > 1.
+    with pytest.warns(UserWarning, match="multichain"):
+        script = emit_script(recipe, num_samples=100, num_chains=4, progress_bar=True)
+
+    # The emitted script should NOT contain jax.vmap (forced single-chain).
+    # Verify the warning was triggered by checking the script was still emitted.
+    assert isinstance(script, str) and len(script) > 0

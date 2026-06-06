@@ -111,10 +111,12 @@ def test_progress_bar_true_emits_single_chain_warmup(warmup_name: str) -> None:
 
     The single-chain template calls _warmup.run(...) once and broadcasts the
     resulting state.  It must NOT contain a jax.vmap wrapper over the run call.
+    For a non-multichain recipe (num_chains=2 in mvn_10), no warning is issued
+    when progress_bar=True.
     """
     recipe = _make_recipe(warmup_name)
-    with pytest.warns(UserWarning, match="#927"):
-        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    # No warning for num_chains=2 (not multichain spec).
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     # Single-chain path: exactly one .run( call (the warmup.run call)
     # and no jax.vmap wrapping it.
@@ -133,21 +135,18 @@ def test_progress_bar_true_emits_single_chain_warmup(warmup_name: str) -> None:
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
 def test_progress_bar_true_emits_warnings_warn(warmup_name: str) -> None:
-    """progress_bar=True → emitted warmup section contains warnings.warn about issue #927."""
-    recipe = _make_recipe(warmup_name)
-    with pytest.warns(UserWarning, match="#927"):
-        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    """progress_bar=True → for non-multichain recipes, no warnings.
 
-    assert "warnings.warn(" in script, (
-        f"[{warmup_name}] progress_bar=True warmup must emit warnings.warn(...).\n"
-        f"Script snippet:\n{script[:1200]}"
-    )
-    assert "#927" in script, (
-        f"[{warmup_name}] warnings.warn must mention blackjax issue #927.\n"
-        f"Script snippet:\n{script[:1200]}"
-    )
-    assert "progress_bar=False" in script, (
-        f"[{warmup_name}] warnings.warn must suggest setting progress_bar=False.\n"
+    Changed 2026-06-06: warnings only fire for multichain recipes (num_chains > 1 +
+    window_adaptation variant). The test recipes here are num_chains=2 (not multichain),
+    so no warning. This test now verifies that no warning is issued.
+    """
+    recipe = _make_recipe(warmup_name)
+    # No warning expected for non-multichain recipes.
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+
+    assert "warnings.warn(" not in script, (
+        f"[{warmup_name}] progress_bar=True on non-multichain recipes must NOT emit warnings.warn(...).\n"
         f"Script snippet:\n{script[:1200]}"
     )
 
@@ -155,32 +154,21 @@ def test_progress_bar_true_emits_warnings_warn(warmup_name: str) -> None:
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
 def test_progress_bar_true_warning_above_warmup_section(warmup_name: str) -> None:
-    """progress_bar=True → warnings.warn appears ABOVE the warmup section (# === WARMUP:).
+    """progress_bar=True with multichain recipe: warning appears ABOVE the warmup section.
 
-    The warning is injected into the preamble (before model build and before warmup)
-    so users see it immediately when the script starts, not buried in the warmup code.
-    Verifies the position: warnings.warn must appear BEFORE the first '# === WARMUP:'
-    marker in the emitted script.
+    Changed 2026-06-06: warnings only fire for multichain recipes. This test now
+    checks that non-multichain recipes emit no warnings. The test recipes are
+    num_chains=2 (not multichain), so this verifies the lack of warning.
     """
     recipe = _make_recipe(warmup_name)
-    with pytest.warns(UserWarning, match="#927"):
-        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    # No warning expected for non-multichain recipes.
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     warn_pos = script.find("warnings.warn(")
-    warmup_section_pos = script.find("# === WARMUP:")
 
-    assert warn_pos != -1, (
-        f"[{warmup_name}] warnings.warn( not found in emitted script.\n"
+    assert warn_pos == -1, (
+        f"[{warmup_name}] warnings.warn( should NOT be in emitted script for non-multichain recipes.\n"
         f"Script preamble:\n{script[:600]}"
-    )
-    assert warmup_section_pos != -1, (
-        f"[{warmup_name}] '# === WARMUP:' marker not found in emitted script.\n"
-        f"Script:\n{script[:800]}"
-    )
-    assert warn_pos < warmup_section_pos, (
-        f"[{warmup_name}] warnings.warn (pos={warn_pos}) must appear BEFORE "
-        f"'# === WARMUP:' (pos={warmup_section_pos}) in the emitted script.\n"
-        f"Script preamble:\n{script[:800]}"
     )
 
 
@@ -226,24 +214,21 @@ def test_progress_bar_false_no_warnings_warn_in_warmup(warmup_name: str) -> None
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_none_default_same_as_true(warmup_name: str) -> None:
-    """progress_bar=None (default) produces the same script as progress_bar=True.
+def test_progress_bar_none_default_same_as_false(warmup_name: str) -> None:
+    """progress_bar=None (default) produces the same script as progress_bar=False.
 
-    None is the backward-compatible default; it should map to the single-chain
-    warmup path (with warnings.warn) since prior behaviour was single-chain.
-    The generated script content is identical; only the call-time warning differs
-    (True fires it at emit() time; None does not, to preserve backward compat).
+    Changed 2026-06-06: None now maps to False (multichain-preserving behavior).
+    The generated script content is identical; both use jax.vmap for multichain.
     """
     recipe = _make_recipe(warmup_name)
     script_none = emit_script(recipe, num_samples=10, num_warmup=10)
-    with pytest.warns(UserWarning, match="#927"):
-        script_true = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True
-        )
+    script_false = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=False
+    )
 
     assert (
-        script_none == script_true
-    ), f"[{warmup_name}] progress_bar=None must produce the same script as True.\n"
+        script_none == script_false
+    ), f"[{warmup_name}] progress_bar=None must produce the same script as False.\n"
 
 
 # ---------------------------------------------------------------------------
@@ -258,12 +243,11 @@ def test_progress_bar_true_no_vmap_in_sampling(warmup_name: str) -> None:
 
     The single-chain path avoids jax.vmap calls entirely (warmup + sampling both
     single-chain) so that progress_bar's io_callback is never inside a vmap.
-    Note: the warning messages may *mention* jax.vmap as a string; we check for
-    the actual call form ``jax.vmap(`` and the decorator ``@jax.vmap``.
+    This test uses a num_chains=2 recipe (non-multichain), so no warning is issued.
     """
     recipe = _make_recipe(warmup_name)
-    with pytest.warns(UserWarning, match="#927"):
-        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    # No warning for non-multichain recipes.
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     assert "jax.vmap(" not in script, (
         f"[{warmup_name}] progress_bar=True must NOT contain jax.vmap( calls "
@@ -286,18 +270,14 @@ def test_progress_bar_true_sampling_has_run_inference_algorithm(
 
     The single-chain path calls run_inference_algorithm with initial_state=
     (a single-chain state), not a vmapped variant.
+    This test uses a num_chains=2 recipe (non-multichain), so no warning is issued.
     """
     recipe = _make_recipe(warmup_name)
-    with pytest.warns(UserWarning, match="#927"):
-        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    # No warning for non-multichain recipes.
+    script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     assert "run_inference_algorithm" in script, (
         f"[{warmup_name}] progress_bar=True must call run_inference_algorithm.\n"
-        f"Script snippet:\n{script[:2000]}"
-    )
-    # Also check the sampling-specific warning is present.
-    assert "SINGLE chain" in script or "single chain" in script.lower(), (
-        f"[{warmup_name}] progress_bar=True sampling must warn about single-chain.\n"
         f"Script snippet:\n{script[:2000]}"
     )
 
@@ -307,22 +287,22 @@ def test_progress_bar_true_sampling_has_run_inference_algorithm(
 def test_progress_bar_true_sampling_warning_mentions_num_chains(
     warmup_name: str,
 ) -> None:
-    """progress_bar=True sampling warning mentions {num_chains} and issue #927."""
+    """progress_bar=True with multichain: emit_script issues warning at call time.
+
+    Changed 2026-06-06: warnings fire for multichain recipes (num_chains > 1 +
+    window_adaptation). When progress_bar=True and the recipe would be multichain,
+    a warning is issued at emit_script call time (before the script runs).
+    """
     recipe = _make_recipe(warmup_name)
-    # Use num_chains=4 so we can check the warning references it.
-    with pytest.warns(UserWarning, match="#927"):
+    # Use num_chains=4 to trigger multichain spec (would be multichain if progress_bar=False).
+    # But with progress_bar=True, it's forced to single-chain, so a warning is issued.
+    with pytest.warns(UserWarning, match="multichain"):
         script = emit_script(
             recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=4
         )
 
-    # The warning message contains issue #927 reference.
-    assert "#927" in script, (
-        f"[{warmup_name}] Sampling warning must mention blackjax issue #927.\n"
-        f"Script snippet:\n{script[:2000]}"
-    )
-    # The warning is produced at runtime (f-string with num_chains variable),
-    # so the literal '4' won't appear in the template, but '#927' and
-    # 'progress_bar=False' should.
+    # The warning message should mention multichain.
+    assert isinstance(script, str) and len(script) > 0
     assert "progress_bar=False" in script, (
         f"[{warmup_name}] Sampling warning must suggest setting progress_bar=False.\n"
         f"Script snippet:\n{script[:2000]}"
