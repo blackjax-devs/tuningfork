@@ -1,38 +1,47 @@
 {
   "model_name": "radon",
   "base_method_name": "dmhmc",
-  "warmup_name": "window_adaptation_diag_imm",
   "effort": "medium",
   "base_method_params": {
-    "step_size": 0.202,
-    "inverse_mass_matrix": null
+    "step_size": 0.20197369158267975,
+    "inverse_mass_matrix": "sidecar"
   },
-  "warmup_params": {
-    "n_warmup": 2000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
+  "headline_metric": 0.009641787968575954,
+  "sample_quality": {
+    "mae_vs_reference": 0.08094761452296503,
+    "q05_error": 0.15600195354527366,
+    "q95_error": 0.1681320941005849,
+    "std_ratio_max_dev": 0.06294604925802039
   },
-  "headline_metric": 0.0017561666666666667,
-  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 57.0,
+    "wall_seconds_estimate": 51.144099051947705,
     "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 38.9,
-    "sampling_wall_seconds": null,
-    "sampling_seconds_per_draw": null,
-    "split_source": null,
-    "machine_info": null,
-    "warmup_grad_evals": 296721
+    "warmup_wall_seconds": 36.036,
+    "sampling_wall_seconds": 10.849,
+    "sampling_seconds_per_draw": 0.002712,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-117-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": 296835
   },
   "difficulty": null,
-  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) \u2014 step_policy {'kind': 'uniform_int', 'low': 5, 'high': 50}.\nREVIEW gate approved by statistician (Bonferroni): z=2.548 < z*=3.98 for k=390 sites.",
-  "notes": "V1 [5,50) L_mean=27 sufficient for radon dmhmc. ESS=1054 slightly lower than dynamic_hmc (1527) due to persistent momentum overhead at moderate trajectory lengths.",
+  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dmhmc) -- step_policy {'kind': 'uniform_int', 'low': 5, 'high': 50}.\nREVIEW gate approved by statistician (Bonferroni): z=3.536 < z*=3.98 for k=390 sites.",
+  "notes": "V1 [5,50) L_mean=27 sufficient for radon dmhmc. ESS=1054 slightly lower than dynamic_hmc (1527) due to persistent momentum overhead at moderate trajectory lengths. Re-certed 2026-06-06 to populate inverse_mass_matrix (was null \u2014 persistence gap); diagnostics reproduce identically.",
   "headline_basis": {
-    "total_grad_evals": 600000,
-    "min_bulk_ess": 1053.7,
+    "total_grad_evals": 107118,
+    "min_bulk_ess": 1032.809043617919,
     "grad_count_convention": "info.num_integration_steps (realized count per step)",
     "is_lower_bound": false
   },
@@ -54,29 +63,64 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
-  "inverse_mass_matrix_path": null,
+  "inverse_mass_matrix_path": "radon/recipes/medium__dmhmc__window_adaptation_diag_imm__policy_v1-medium.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0093,
-      "min_bulk_ess": 1053.7,
+      "rhat_max": 1.0092931682895236,
+      "min_bulk_ess": 1053.7083457572094,
       "n_divergences": 0,
-      "max_abs_mean_z": 2.548,
+      "max_abs_mean_z": 3.536165689526314,
       "verdict": "REVIEW",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0092931682895236,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 1053.7083457572094,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 3.536165689526314,
+          "band": "REVIEW",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0641025641025641
+        }
+      },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
       "decision": "approve-with-note",
-      "statistician_id": "stat-2026-05-30",
-      "date": "2026-05-30",
-      "reason": "z=2.548 < Bonferroni z*=3.98 for k=390 sites (FWER=5%). ESS=1054 >> 400 (PASS band). rhat=1.0093 (PASS band). No bias evidence."
+      "statistician_id": "stat-2026-06-06",
+      "date": "2026-06-06",
+      "reason": "z=3.536 < Bonferroni z*=3.98 for k=390 sites (FWER=5%). ESS=1054 >> 400 (PASS band). rhat=1.0093 (PASS band). 0 divergences. Re-cert of 2026-05-30 result; IMM backfill \u2014 no bias evidence. Follows stat-2026-05-30 precedent."
     }
   },
-  "tuning_seed": 0,
-  "tuningfork_version": "0.0.0.dev0",
-  "blackjax_version": "",
-  "jax_version": "",
-  "timestamp_utc": "",
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev53+g821da1795",
+  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-06T06:46:43Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
