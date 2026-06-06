@@ -173,11 +173,11 @@ tuningfork/
 │   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
 │   ├── warmup/                # 12 warmup wrappers (window_adaptation_diag_imm, pathfinder, ...)
 │   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
-│   ├── recipes/               # Recipe schema + generators + emit_script templates
+│   ├── recipes/               # Recipe schema + generators + emit_script
 │   │   ├── _base.py, _instructions.py
 │   │   ├── _generate_starter.py, _generate_groundtruth.py
-│   │   ├── _emit_script.py    # recipe → reproduction Python script
-│   │   └── _templates/        # .py.tmpl wiring templates (warmups/, samplers/)
+│   │   ├── _emit_script.py    # recipe → reproduction Python script — orchestrator
+│   │   └── _emit/             # Python emit-functions (preamble/postamble/inference_loop/sampler/warmup)
 │   ├── calibration/           # certify_reference, tune (Optuna BO), statistician_gate
 │   ├── metrics/               # headline metric, grad-counter, reference_compare
 │   ├── runner/                # SMC init + run helpers

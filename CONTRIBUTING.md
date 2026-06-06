@@ -148,7 +148,7 @@ Post-R3 restructure (2026-05-17), the package is split into two layers.
 | `load_recipe`, `summarize_recipe` | `tuningfork/catalog/inspect.py` | `tests/notebooks/test_inspect.py` |
 | `load_samples`, `load_chain_stats`, `load_idata`, `samples_to_idata` | `tuningfork/catalog/render.py` | `tests/notebooks/test_render.py` |
 | ArviZ family-aware diagnostic renderers | `tuningfork/catalog/diagnostics.py` | `tests/test_diagnostics.py` |
-| `emit_script` (recipe → standalone `.py`) | `tuningfork/catalog/emit.py`, `tuningfork/recipes/_emit_script.py`, `tuningfork/recipes/_templates/` | `tests/recipes/test_emit_script.py` |
+| `emit_script` (recipe → standalone `.py`) | `tuningfork/catalog/emit.py`, `tuningfork/recipes/_emit_script.py`, `tuningfork/recipes/_emit/` | `tests/recipes/test_emit_script.py` |
 | Per-model artifacts (lessons.md, groundtruth.json, recipes/, reference/) | `tuningfork/catalog/<model>/` | (artifact-only; verified via parametric tests in `tests/recipes/test_schema.py`) |
 
 **Benchmark suite** (initial release):
