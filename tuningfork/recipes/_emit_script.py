@@ -665,11 +665,10 @@ def emit_script(
             f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
         )
 
-    # Progress-bar warning block for preamble: emitted at the TOP of the generated
-    # file when progress_bar=True so users see the advisory before any computation.
-    _pb_warning_block = (
-        _PROGRESS_BAR_WARNING_BLOCK if _warmup_pb else _PROGRESS_BAR_WARNING_BLOCK_EMPTY
-    )
+    # Progress-bar warning: no longer injected into the preamble (changed 2026-06-06).
+    # Warnings are now issued at emit_script() call-time via the Python warnings module,
+    # not in the emitted script. This allows clearer diagnostic feedback before the script runs.
+    _pb_warning_block = _PROGRESS_BAR_WARNING_BLOCK_EMPTY
 
     ctx = {
         "recipe_id": (
