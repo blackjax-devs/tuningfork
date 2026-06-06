@@ -692,10 +692,10 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     Single-chain warmup; final state broadcast to (num_chains,).
 
     NOTE: The laplace_preamble (emitted before this section) sets up:
-      - ``logdensity_fn = _laplace_warmup[0]`` (the scalar LaplaceMarginal
-        for Phase 1)
-    This warmup section then overrides ``logdensity_fn = _laplace_warmup[1]``
-    for Phase 2 (higher maxiter).
+      - ``_warmup_logdensity_fn`` (scalar adapter wrapping _laplace_warmup[0])
+      - ``logdensity_fn = _warmup_logdensity_fn`` for Phase 1 warmup
+    This warmup section then overrides ``logdensity_fn`` with a scalar adapter
+    wrapping ``_laplace_warmup[1]`` for Phase 2 (higher maxiter).
 
     Parameters
     ----------
@@ -745,7 +745,9 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("# is not supported inside vmap.")
     a("")
     a("# ── Phase 1: traversal (diagonal IMM) ────────────────────────────────────────")
-    a("# Phase 1 logdensity_fn: _laplace_warmup[0] (already set by laplace_preamble)")
+    a(
+        "# Phase 1 logdensity_fn: scalar wrapper _warmup_logdensity_fn (already set by laplace_preamble)"
+    )
     a("_warmup_p1 = blackjax.window_adaptation(")
     a(f"    {warmup_algorithm},")
     a("    logdensity_fn,")
@@ -763,7 +765,14 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("")
     a("# ── Phase 2: Welford dense IMM capture ───────────────────────────────────────")
     a("# Switch to Phase 2 LaplaceMarginal (higher maxiter for accurate Hessians).")
-    a("logdensity_fn = _laplace_warmup[1]")
+    a("# Wrap in a scalar adapter so NUTS warmup (has_aux=False) does not crash.")
+    a("")
+    a("")
+    a("def _warmup_logdensity_fn(phi):  # noqa: F811")
+    a("    return _laplace_warmup[1](phi)[0]")
+    a("")
+    a("")
+    a("logdensity_fn = _warmup_logdensity_fn")
     a("# Seed Phase 2 dual-averaging at Phase 1's adapted step_size (0-d JAX scalar).")
     a(
         "# Keep as a JAX array — float() would trigger the buffer protocol on a still-live"

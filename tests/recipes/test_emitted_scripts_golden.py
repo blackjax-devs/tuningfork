@@ -1089,22 +1089,15 @@ def test_golden_execution_window_adaptation_low_rank(tmp_path: Path) -> None:
 
 
 @pytest.mark.slow
-def test_golden_execution_laplace_hmc_emit_structure(tmp_path: Path) -> None:
-    """Structural check: eight_schools_ncp × laplace_hmc emitted script has correct
-    laplace preamble structure (log_joint_fn, _lmf factory, phi_init).
+def test_golden_execution_laplace_hmc(tmp_path: Path) -> None:
+    """Execution smoke: eight_schools_ncp × laplace_hmc emitted script runs to DONE.
 
-    NOTE: Laplace emitted scripts have a pre-existing execution gap — the warmup
-    section uses ``blackjax.nuts`` as the inner kernel (WARMUP_SUBSTITUTE path),
-    which calls ``hmc.init(position, logdensity_fn)`` with ``has_aux=False``.
-    However, the laplace preamble sets ``logdensity_fn = _laplace_warmup[0]``
-    (a LaplaceMarginal returning ``(lp, theta_star)``, i.e. ``has_aux=True``),
-    which is incompatible with NUTS warmup.  The PASS verdict on the catalog
-    recipe was produced by the runner (which uses a scalar marginal for warmup),
-    not by executing the emitted script.
+    Verifies both structural correctness of the laplace preamble and that the
+    emitted script actually executes to completion in subprocess.
 
-    This test asserts the structural correctness of the emitted preamble
-    (emit_laplace_preamble output) without running the inference loop.
-    Fixing the emit-time laplace warmup is deferred (A2/standalone fix).
+    The laplace warmup uses ``blackjax.nuts`` as the inner kernel (WARMUP_SUBSTITUTE
+    path). The emitted logdensity_fn is a scalar adapter that drops the LaplaceMarginal
+    aux, mirroring the runner's ``_build_laplace_components`` marginal_logdensity_fn.
     """
     recipe_path = (
         _CATALOG_ROOT
@@ -1129,6 +1122,9 @@ def test_golden_execution_laplace_hmc_emit_structure(tmp_path: Path) -> None:
     assert (
         "from blackjax.mcmc.laplace_marginal" in script
     ), "Missing laplace import (D8 check)"
+    assert (
+        "_warmup_logdensity_fn" in script
+    ), "Missing scalar warmup adapter (_warmup_logdensity_fn) in laplace preamble"
     # Verify D8: no forbidden tuningfork imports
     import ast as _ast
 
@@ -1140,6 +1136,24 @@ def test_golden_execution_laplace_hmc_emit_structure(tmp_path: Path) -> None:
                 m.startswith("tuningfork")
                 and m not in {"tuningfork.model", "tuningfork.model._numpyro"}
             ), f"D8 violation: {m}"
+
+    # Execute: verify the script runs to completion in subprocess.
+    script_path = tmp_path / "golden_laplace_hmc.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden laplace_hmc emitted script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
 
 
 # ---------------------------------------------------------------------------

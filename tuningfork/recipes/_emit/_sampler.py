@@ -504,13 +504,18 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     D8: no logdensity_fn reference — laplace_* uses log_joint_fn directly.
     """
     name = base_method.name
-    # Use the structural frozenset for emit-time _state_reinit decision, NOT
-    # base_method.reinit_state: laplace_hmc/mhmc have reinit_state=True in the
-    # runner descriptor (for warmup state mismatch) but the EMITTED script does
-    # not need _state_reinit because the warmup produces a compatible LaplaceHMCState.
-    # Only laplace_dhmc/laplace_dmhmc need _state_reinit in the emitted script
-    # (dynamic trajectory length + random_generator_arg in LaplaceDynamicHMCState).
-    needs_reinit = name in _LAPLACE_WITH_REINIT
+    # needs_reinit governs _state_reinit emission:
+    # - laplace_dhmc/laplace_dmhmc: always need reinit (dynamic trajectory + rng arg).
+    # - laplace_hmc/laplace_mhmc: need reinit when warmup used NUTS substitute
+    #   (NUTS produces HMCState; laplace_hmc requires LaplaceHMCState with theta_star).
+    #   ctx["_laplace_needs_warmup_state_reinit"] is set True by _emit_script.py when
+    #   _warmup_sampler == "nuts" for a laplace_hmc/laplace_mhmc recipe.
+    #   When warmup uses laplace_hmc as inner kernel (multi-phase path), the warmup
+    #   already produces LaplaceHMCState — no reinit needed.
+    _warmup_reinit_for_hmc_mhmc = ctx.get("_laplace_needs_warmup_state_reinit", False)
+    needs_reinit = name in _LAPLACE_WITH_REINIT or (
+        name in {"laplace_hmc", "laplace_mhmc"} and _warmup_reinit_for_hmc_mhmc
+    )
     has_nis = name in _LAPLACE_WITH_NIS
 
     lines: list[str] = []
@@ -584,7 +589,39 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         a("")
         a("")
         a("def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):")
-        if name == "laplace_dhmc":
+        if name == "laplace_hmc":
+            a('    """Re-init per-chain LaplaceHMCState from warmup position.')
+            a("    Warmup used blackjax.nuts (WARMUP_SUBSTITUTE path), which produces")
+            a("    HMCState.  laplace_hmc requires LaplaceHMCState (with theta_star).")
+            a(
+                "    rng_key accepted for interface compatibility but ignored (laplace_hmc.init"
+            )
+            a('    does not consume a PRNG key)."""')
+            a("    return blackjax.laplace_hmc(")
+            a("        log_joint_fn,")
+            a("        theta_init,")
+            a("        step_size=step_size,")
+            a("        inverse_mass_matrix=inverse_mass_matrix,")
+            a("        num_integration_steps=_num_steps,")
+            a("        **_optimizer_kwargs,")
+            a("    ).init(position)")
+        elif name == "laplace_mhmc":
+            a('    """Re-init per-chain LaplaceHMCState from warmup position.')
+            a("    Warmup used blackjax.nuts (WARMUP_SUBSTITUTE path), which produces")
+            a("    HMCState.  laplace_mhmc requires LaplaceHMCState (with theta_star).")
+            a(
+                "    rng_key accepted for interface compatibility but ignored (laplace_mhmc.init"
+            )
+            a('    does not consume a PRNG key)."""')
+            a("    return blackjax.laplace_mhmc(")
+            a("        log_joint_fn,")
+            a("        theta_init,")
+            a("        step_size=step_size,")
+            a("        inverse_mass_matrix=inverse_mass_matrix,")
+            a("        num_integration_steps=_num_steps,")
+            a("        **_optimizer_kwargs,")
+            a("    ).init(position)")
+        elif name == "laplace_dhmc":
             a(
                 '    """Re-init per-chain LaplaceDynamicHMCState from (position, rng_key)."""'
             )
@@ -614,7 +651,7 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("except NameError:")
     a("    # no_warmup path: placeholder state; _state_reinit handles per-chain init.")
     a("    _warmup_init_is_single_chain = True")
-    if needs_reinit:
+    if name in _LAPLACE_WITH_REINIT:
         # laplace_dhmc/dmhmc: placeholder via laplace_hmc (which produces LaplaceHMCState).
         a("    _state_post_warmup = blackjax.laplace_hmc(")
         a("        log_joint_fn,")
