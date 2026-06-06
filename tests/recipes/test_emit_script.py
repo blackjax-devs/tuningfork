@@ -918,7 +918,9 @@ def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> Non
 
     # Emitted script's warmup (executed in subprocess for isolation).
     # Use num_samples=10, num_warmup=10 to keep the test fast.
-    script = emit_script(recipe, num_samples=10, num_warmup=10)
+    # Pass progress_bar=True to preserve the single-chain emit this test was designed for.
+    with pytest.warns(UserWarning, match="multichain"):
+        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
 
     epilogue = """
 import json

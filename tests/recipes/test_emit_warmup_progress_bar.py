@@ -399,7 +399,7 @@ def test_emit_warmup_pb_executes_and_shapes_correct(
     recipe = _make_recipe(warmup_name, n_warmup=10)
 
     if progress_bar is True:
-        with pytest.warns(UserWarning, match="#927"):
+        with pytest.warns(UserWarning, match="multichain"):
             script = emit_script(
                 recipe,
                 num_samples=_NUM_SAMPLES,
