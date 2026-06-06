@@ -1,8 +1,0 @@
-# === WARMUP: no_warmup (no adaptation; sampler params taken from recipe base_method_params) ===
-# _adapted_params is empty; each sampler template falls back to $bm_* recipe defaults.
-# _state_post_warmup will be bound in the sampler template after the kernel is constructed.
-_adapted_params = {}
-# Signal to inference_loop.py.tmpl that _state_post_warmup is a single-chain
-# state (set by the sampler template's NameError fallback) and needs broadcasting
-# to (num_chains, ...) before the vmap-scan loop.
-_warmup_init_is_single_chain = True

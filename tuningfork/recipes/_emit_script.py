@@ -50,6 +50,7 @@ from tuningfork.recipes._emit import (
     emit_postamble,
     emit_preamble,
     emit_sampler,
+    emit_warmup,
 )
 
 if TYPE_CHECKING:
@@ -1008,40 +1009,62 @@ def emit_script(
     # is the runner's concern, not the template's).
     _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
 
-    # Build the warmup body: multi-phase laplace uses a dedicated template;
-    # window_adaptation variants use the unified templates (T1.6);
-    # other warmups use their own templates.
-    if _is_laplace and _is_multiphase_warmup:
-        # Multi-phase laplace: dedicated template (already single-chain + broadcast
-        # by design); warmup_num_chains doesn't affect template selection here.
-        warmup_body = _load_template(
-            "warmups/laplace_multiphase_warmup.py.tmpl"
-        ).safe_substitute(ctx)
-    elif (
+    # Registry entry for the sampler — needed by both emit_warmup (A3) and
+    # emit_sampler (A2). Resolved once here before warmup dispatch.
+    _bm_entry = BASE_METHODS[recipe.base_method_name]
+
+    # Build the warmup body: A3 Python emit-functions (descriptor-driven).
+    # All 8 warmup template families now use emit_warmup() — no .tmpl loading.
+    #
+    # The multichain flag for WA variants is resolved here and injected into ctx
+    # so emit_warmup can dispatch on it without re-deriving the same logic.
+    _is_wa_multichain = (
         not _is_laplace
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
         and not (_warmup_W0 == 1)
         and not _warmup_pb
-    ):
-        # progress_bar=False (and warmup_num_chains != 1) → multi-chain warmup.
-        # T1.6: use unified multichain template.
-        warmup_body = _load_template(
-            "warmups/window_adaptation_multichain.py.tmpl"
-        ).safe_substitute(ctx)
-    elif recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS:
-        # progress_bar=True or warmup_num_chains=1 → single-chain warmup.
-        # T1.6: use unified singlechain template.
-        warmup_body = _load_template(
-            "warmups/window_adaptation.py.tmpl"
-        ).safe_substitute(ctx)
-    elif recipe.warmup_name in _VI_WARMUP_NAMES:
-        # T1.7: unified VI warmup template.
-        warmup_body = _load_template("warmups/vi_warmup.py.tmpl").safe_substitute(ctx)
+    )
+    ctx["_warmup_is_multichain"] = _is_wa_multichain
+
+    # A3: all 8 warmup families use Python emit-functions.
+    # For warmup names NOT in the 8 known families (e.g. mclmc_tuning,
+    # adjusted_mclmc_tuning), emit_warmup raises ValueError which propagates
+    # up — same effect as the previous FileNotFoundError from _load_template.
+    #
+    # SPECIAL CASE (preserved from pre-A3 logic): laplace multi-phase recipes
+    # dispatch to "laplace_multiphase_warmup" REGARDLESS of recipe.warmup_name.
+    # recipe.warmup_name for laplace HIGH recipes is the FINAL phase's warmup
+    # (e.g. "window_adaptation_dense_imm"), but the warmup body is always the
+    # multi-phase orchestration template when len(recipe.warmups) > 1.
+    _EMIT_WARMUP_NAMES = frozenset(
+        {
+            "no_warmup",
+            "window_adaptation_diag_imm",
+            "window_adaptation_dense_imm",
+            "window_adaptation_low_rank_imm",
+            "pathfinder",
+            "multipathfinder",
+            "multipathfinder_window_adaptation",
+            "meanfield_vi",
+            "fullrank_vi",
+            "laplace_multiphase_warmup",
+        }
+    )
+    _effective_warmup_name = (
+        "laplace_multiphase_warmup"
+        if (_is_laplace and _is_multiphase_warmup)
+        else recipe.warmup_name
+    )
+    if _effective_warmup_name in _EMIT_WARMUP_NAMES:
+        warmup_body = emit_warmup(_effective_warmup_name, _bm_entry, ctx)
     else:
-        # Non-window_adaptation, non-VI warmup (no_warmup, pathfinder, etc.).
-        warmup_body = _load_template(
-            f"warmups/{recipe.warmup_name}.py.tmpl"
-        ).safe_substitute(ctx)
+        # Unsupported warmup (mclmc_tuning, adjusted_mclmc_tuning, etc.) —
+        # raise FileNotFoundError to match the old _load_template behaviour so
+        # _try_emit_script returns None (skip) in the golden gate tests.
+        raise FileNotFoundError(
+            f"No emit function for warmup {recipe.warmup_name!r}. "
+            "emit_warmup only supports the 8 standard warmup families."
+        )
 
     # A2: descriptor-driven emit for all 15 sampler template families.
     # For methods outside this set (mclmc, adjusted_mclmc, etc.), the
@@ -1068,7 +1091,6 @@ def emit_script(
             "fullrank_vi",
         }
     )
-    _bm_entry = BASE_METHODS[recipe.base_method_name]
     if recipe.base_method_name in _EMIT_SAMPLER_NAMES:
         # A2: Python emit-function (descriptor-driven; no .tmpl file).
         sampler_body = emit_sampler(_bm_entry, ctx)

@@ -460,6 +460,40 @@ _COMBO_COVER = [
             "num_optimization_steps": 20,
         },
     ),
+    # A3: pathfinder (single-path Pathfinder warmup)
+    (
+        "pathfinder",
+        "nuts",
+        {"step_size": 0.5, "max_num_doublings": 5},
+        {"n_warmup": 10, "target_acceptance_rate": 0.8, "num_chains": 2},
+    ),
+    # A3: multipathfinder (multi-path Pathfinder warmup)
+    (
+        "multipathfinder",
+        "nuts",
+        {"step_size": 0.5, "max_num_doublings": 5},
+        {
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "n_paths": 2,
+            "num_samples_per_path": 5,
+        },
+    ),
+    # A3: multipathfinder_window_adaptation (composition warmup)
+    (
+        "multipathfinder_window_adaptation",
+        "nuts",
+        {"step_size": 0.5, "max_num_doublings": 5},
+        {
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "n_paths": 2,
+            "num_samples_per_path": 5,
+            "imm_shrinkage_to_previous": 20.0,
+        },
+    ),
 ]
 
 
@@ -1106,3 +1140,172 @@ def test_golden_execution_laplace_hmc_emit_structure(tmp_path: Path) -> None:
                 m.startswith("tuningfork")
                 and m not in {"tuningfork.model", "tuningfork.model._numpyro"}
             ), f"D8 violation: {m}"
+
+
+# ---------------------------------------------------------------------------
+# A3: Execution smoke-tests for new warmup families
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_golden_execution_pathfinder_warmup(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × pathfinder warmup prints DONE.
+
+    A3: single-path Pathfinder + dual-averaging step size adaptation.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="pathfinder",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={"n_warmup": 10, "target_acceptance_rate": 0.8, "num_chains": 2},
+        warmups=[{"name": "pathfinder", "params": {"n_warmup": 10}}],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, num_chains=2)
+    assert "pathfinder_adaptation" in script
+    script_path = tmp_path / "golden_nuts_pathfinder.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+pathfinder warmup script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_multipathfinder_warmup(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × nuts × multipathfinder warmup prints DONE.
+
+    A3: multi-path Pathfinder + PSIS-weighted IMM.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="multipathfinder",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "n_paths": 2,
+            "num_samples_per_path": 5,
+        },
+        warmups=[
+            {
+                "name": "multipathfinder",
+                "params": {
+                    "n_warmup": 10,
+                    "n_paths": 2,
+                    "num_samples_per_path": 5,
+                },
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, num_chains=2)
+    assert "lbfgs_psis_mixture" in script
+    script_path = tmp_path / "golden_nuts_multipathfinder.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+multipathfinder warmup script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_multipathfinder_window_adaptation_warmup(
+    tmp_path: Path,
+) -> None:
+    """Execution smoke: mvn_10 × nuts × multipathfinder_window_adaptation prints DONE.
+
+    A3: composition warmup (stage 1 MPF + stage 2 window_adaptation seeded with MPF IMM).
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="multipathfinder_window_adaptation",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
+        warmup_params={
+            "n_warmup": 10,
+            "target_acceptance_rate": 0.8,
+            "num_chains": 2,
+            "n_paths": 2,
+            "num_samples_per_path": 5,
+            "imm_shrinkage_to_previous": 20.0,
+        },
+        warmups=[
+            {
+                "name": "multipathfinder_window_adaptation",
+                "params": {
+                    "n_warmup": 10,
+                    "n_paths": 2,
+                    "num_samples_per_path": 5,
+                    "imm_shrinkage_to_previous": 20.0,
+                },
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_warmup=5, num_chains=2)
+    assert "psis_weights" in script
+    assert "imm_shrinkage_to_previous" in script
+    script_path = tmp_path / "golden_nuts_mpf_wa.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden nuts+multipathfinder_window_adaptation script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
