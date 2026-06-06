@@ -221,6 +221,7 @@ class CellResult:
         wall_seconds: float = 0.0,
         note: str = "",
         warmup_grad_evals: int | None = None,
+        sampling_grad_evals: int | None = None,
     ):
         self.model_name = model_name
         self.warmup_name = warmup_name
@@ -236,6 +237,7 @@ class CellResult:
         # Exact warmup gradient evaluations (gate-independent — populated whenever
         # warmup completes successfully, regardless of subsequent sampling verdict).
         self.warmup_grad_evals = warmup_grad_evals
+        self.sampling_grad_evals = sampling_grad_evals
 
     def __repr__(self) -> str:
         return (
@@ -574,7 +576,10 @@ def _compute_warmup_grad_evals(
     total_tuning = batched_params.get("_total_tuning_steps") if batched_params else None
     if total_tuning is not None:
         try:
-            return int(total_tuning)
+            # _total_tuning_steps = per-chain integrator steps.
+            # McLachlan uses 2 gradient evaluations per integrator step.
+            # Multiply by num_chains to match NUTS convention (total across all chains).
+            return int(total_tuning) * 2 * num_chains
         except (TypeError, ValueError):
             pass
 
@@ -1489,6 +1494,8 @@ def emit_low_recipe_for_cell(
     t_total = time.perf_counter() - t_start
     _log(f"  Sampling done in {t_sample:.1f}s (total {t_total:.1f}s).")
 
+    _sge = total_grad_evals(infos, base_method.grad_count_per_step)
+
     # Check for non-finite positions
     for site, arr in positions.items():
         arr_np = np.asarray(arr)
@@ -1504,6 +1511,7 @@ def emit_low_recipe_for_cell(
                 wall_seconds=t_total,
                 note=note,
                 warmup_grad_evals=_wge,
+                sampling_grad_evals=_sge,
             )
 
     # --- Align GT keys for auto-gate and sample_quality ---
@@ -1587,6 +1595,7 @@ def emit_low_recipe_for_cell(
             wall_seconds=t_total,
             note=note,
             warmup_grad_evals=_wge,
+            sampling_grad_evals=_sge,
         )
     # REVIEW: fall through to headline computation + recipe building (same as PASS).
     if gate_verdict.verdict == "REVIEW":
@@ -1857,6 +1866,7 @@ def emit_low_recipe_for_cell(
         wall_seconds=t_total,
         note=f"{_verdict} rhat={gate_verdict.rhat_max:.4f} ess={gate_verdict.min_bulk_ess:.1f} div={gate_verdict.n_divergences}",
         warmup_grad_evals=_wge,
+        sampling_grad_evals=_sge,
     )
 
 

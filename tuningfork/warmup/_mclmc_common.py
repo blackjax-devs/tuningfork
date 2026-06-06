@@ -44,7 +44,7 @@ def _unpack_mclmc_adaptation(
         - "L": (num_chains,) adapted trajectory lengths
         - "step_size": (num_chains,) adapted step sizes
         - "inverse_mass_matrix": (num_chains, d) adapted preconditioners
-        - "_total_tuning_steps": int — total gradient evals (summed across chains)
+        - "_total_tuning_steps": int — integrator steps per chain
     """
     # SYNC: block until vmapped tuning completes before host-materialising the
     # step count.  Without this, int() goes through the buffer protocol on an

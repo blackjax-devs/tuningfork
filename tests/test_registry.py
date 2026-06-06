@@ -29,7 +29,9 @@ from tuningfork.model import MODELS, ReferenceMethod, build_logdensity_fn
 pytestmark = pytest.mark.fast
 
 
-@pytest.mark.parametrize("name", ["mvn_10", "neals_funnel", "eight_schools_ncp"])
+@pytest.mark.parametrize(
+    "name", ["mvn_10", "neals_funnel", "eight_schools_ncp", "irt_1pl", "lgcp"]
+)
 def test_all_starter_models_registered(name: str) -> None:
     """All three Phase-1 models must appear in MODELS."""
     assert name in MODELS, f"{name!r} not found in MODELS"

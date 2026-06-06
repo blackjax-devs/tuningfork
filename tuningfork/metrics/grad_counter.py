@@ -82,4 +82,17 @@ def total_grad_evals(
     >>> total_grad_evals(infos, lambda i: 0)
     """
     counts = jax.vmap(grad_count_per_step)(infos)
+
+    # Constant-gradient samplers (MALA, MCLMC, etc.) return a scalar from
+    # grad_count_per_step, meaning vmap returns a (num_chains,) array instead of
+    # a (num_chains, n_samples) array. We scale the sum by n_samples to compensate.
+    leaves = jax.tree.leaves(infos)
+    if leaves:
+        first_leaf = leaves[0]
+        if len(first_leaf.shape) >= 2:
+            num_chains = first_leaf.shape[0]
+            n_samples = first_leaf.shape[1]
+            if counts.shape == (num_chains,):
+                return int(jnp.sum(counts) * n_samples)
+
     return int(jnp.sum(counts))
