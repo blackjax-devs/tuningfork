@@ -822,11 +822,11 @@ class Recipe:
         recipe_kwargs: dict[str, Any] = dict(
             model_name=posterior.name,
             base_method_name=base_method.name,
-            warmup_name="no_warmup",
+            warmup_name="mclmc_tuning" if base_method.name in {"mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic"} else "no_warmup",
             effort=Effort.LOW,
             base_method_params=params,
             warmup_params={},
-            warmups=[{"name": "no_warmup", "params": {}}],
+            warmups=[{"name": "mclmc_tuning" if base_method.name in {"mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic"} else "no_warmup", "params": {}}],
             # headline_metric is None when no MCMC has been run; may be filled later
             headline_metric=None,
             sample_quality=None,

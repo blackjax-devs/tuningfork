@@ -3,69 +3,24 @@
   "base_method_name": "mclmc",
   "effort": "low",
   "base_method_params": {
-    "step_size": 3.4272587299346924,
-    "L": 2.6940128803253174,
-    "inverse_mass_matrix": [
-      0.9641655683517456,
-      1.0688475370407104,
-      0.9651588201522827,
-      0.9758087992668152,
-      0.9736080169677734,
-      0.8904812932014465,
-      0.9563887715339661,
-      0.9833000898361206,
-      0.9166107773780823,
-      0.9843713641166687
-    ]
+    "step_size": 0.12589254117941667,
+    "L": 12.58925411794167
   },
-  "headline_metric": 255.85911560058594,
-  "sample_quality": {
-    "mae_vs_reference": 0.008865516191928114,
-    "q05_error": null,
-    "q95_error": null,
-    "std_ratio_max_dev": null
-  },
+  "headline_metric": null,
+  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 13.39104109199252,
-    "n_warmup": 10000,
-    "n_samples": 1000,
-    "num_chains": 4,
-    "warmup_wall_seconds": 10.502,
-    "sampling_wall_seconds": 0.929,
-    "sampling_seconds_per_draw": 0.000232,
-    "split_source": "measured",
-    "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.0",
-      "blackjax_version": "1.6.dev84+g0ef2f578a",
-      "jax_x64_enabled": false,
-      "jax_default_device": "cpu",
-      "gpu_info": null
-    },
-    "warmup_grad_evals": 3333
+    "wall_seconds_estimate": 0.0
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 3.4272587299346924, 'L': 2.6940128803253174, 'inverse_mass_matrix': [0.9641655683517456, 1.0688475370407104, 0.9651588201522827, 0.9758087992668152, 0.9736080169677734, 0.8904812932014465, 0.9563887715339661, 0.9833000898361206, 0.9166107773780823, 0.9843713641166687]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 255.8591.\nWall time to produce this recipe: ~13 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 0.12589254117941667, 'L': 12.58925411794167})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: not yet measured.\nWall time to produce this recipe: ~0 s (machine-only).",
   "notes": "",
-  "headline_basis": {
-    "total_grad_evals": 8,
-    "min_bulk_ess": 2046.8729248046875,
-    "grad_count_convention": "2",
-    "is_lower_bound": false
-  },
+  "headline_basis": null,
   "step_policy": null,
   "warmups": [
     {
       "name": "mclmc_tuning",
-      "params": {
-        "n_warmup": 10000,
-        "num_chains": 4,
-        "target_acceptance": 0.8
-      }
+      "params": {}
     }
   ],
   "warmup_inner_kernel": null,
@@ -75,47 +30,12 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0015693526112186,
-      "min_bulk_ess": 2050.843089334052,
-      "n_divergences": 0,
-      "max_abs_mean_z": 2.147757833335125,
-      "verdict": "REVIEW",
-      "margins": {
-        "rhat_max": {
-          "value": 1.0015693526112186,
-          "band": "PASS",
-          "pass_lo": 0.0,
-          "pass_hi": 1.01,
-          "review_lo": 1.01,
-          "review_hi": 1.05
-        },
-        "min_bulk_ess": {
-          "value": 2050.843089334052,
-          "band": "PASS",
-          "pass_lo": 400.0,
-          "pass_hi": Infinity,
-          "review_lo": 100.0,
-          "review_hi": 400.0
-        },
-        "n_divergences": {
-          "value": 0.0,
-          "band": "PASS",
-          "pass_lo": 0,
-          "pass_hi": 6,
-          "review_lo": 6,
-          "review_hi": 40
-        },
-        "max_abs_mean_z": {
-          "value": 2.147757833335125,
-          "band": "REVIEW",
-          "pass_lo": 0.0,
-          "pass_hi": 2.0,
-          "review_lo": 2.0,
-          "review_hi": 4.0,
-          "frac_z2": 0.1
-        }
-      },
-      "gt_cert_coverage": "full_posterior"
+      "rhat_max": null,
+      "min_bulk_ess": null,
+      "n_divergences": null,
+      "max_abs_mean_z": null,
+      "verdict": "NOT_RUN",
+      "margins": {}
     },
     "override": {
       "reason": "",
@@ -123,21 +43,11 @@
       "decision": ""
     }
   },
-  "tuning_seed": 682737,
-  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev84+g0ef2f578a",
-  "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-30T16:50:09Z",
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.2.dev41+g912bbe76a",
+  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-07T14:34:30Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [
-    {
-      "n_warmup": 50000,
-      "outcome": "REVIEW",
-      "rhat_max": 1.0016,
-      "min_ess": 2131.0,
-      "max_abs_mean_z": 2.134,
-      "headline": 266.1,
-      "note": "z 2.15->2.13 (MC noise, not warmup-dependent); no verdict change; 10K is efficient optimum (5x cost for noise-level gain)."
-    }
-  ]
+  "attempted_configurations": []
 }

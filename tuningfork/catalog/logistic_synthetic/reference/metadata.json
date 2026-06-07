@@ -1,33 +1,33 @@
 {
   "name": "logistic_synthetic",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "0097e21e5b191fbd300525d4c5fd158c7e83e938",
+  "code_sha": "526a4eb45256054ce71407d52f64b10d0d6d0f42",
   "generator": "nuts",
-  "num_samples": 40000,
+  "num_samples": 100000,
   "seed": 0,
-  "timestamp_utc": "2026-05-26T10:35:22Z",
-  "wall_time_seconds": 13.443154425011016,
+  "timestamp_utc": "2026-06-07T14:25:09Z",
+  "wall_time_seconds": 20.177964951843023,
   "divergence_rate_tolerance_used": 0.001,
-  "warmup_wall_seconds": 1.314939094998408,
-  "sampling_wall_seconds": 3.5635022899950854,
-  "sampling_seconds_per_draw": 8.9e-05,
+  "warmup_wall_seconds": 1.3982815681956708,
+  "sampling_wall_seconds": 7.729777831118554,
+  "sampling_seconds_per_draw": 7.7e-05,
   "split_source": "measured",
   "machine_info": {
     "cpu_model": "x86_64",
-    "cpu_count_logical": 8,
-    "os": "Linux 6.8.0-117-generic",
-    "python_version": "3.13.13",
-    "jax_version": "0.10.0",
-    "blackjax_version": "1.6.dev81+ga8998469a",
+    "cpu_count_logical": 12,
+    "os": "Linux 6.18.14-1rodete3-amd64",
+    "python_version": "3.13.12",
+    "jax_version": "0.10.1",
+    "blackjax_version": "1.6.dev87+g5549a0b9c",
     "jax_x64_enabled": false,
     "jax_default_device": "cpu",
     "gpu_info": null
   },
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0001903772354126,
-    "min_chunk_bulk_ess": 4365.48388671875,
+    "split_rhat_max": 1.0000118017196655,
+    "min_chunk_bulk_ess": 10474.0625,
     "num_divergences": 0,
-    "e_bfmi": 0.9696612358093262
+    "e_bfmi": 0.9596673250198364
   }
 }

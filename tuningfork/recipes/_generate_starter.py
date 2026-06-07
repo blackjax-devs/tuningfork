@@ -85,6 +85,8 @@ STARTER_MODEL_NAMES = [
     "radon",
     "irt_2pl",
     "stoch_vol",
+    "irt_1pl",
+    "lgcp",
     "lotka_volterra",
     "gp_regression",
 ]
@@ -388,7 +390,7 @@ def main() -> None:
     """
     import argparse
 
-    valid_warmups = {"no_warmup", "window_adaptation_diag_imm"}
+    valid_warmups = {"no_warmup", "window_adaptation_diag_imm", "mclmc_tuning"}
     # MEDIUM_METHOD_NAMES (rmhmc) are not in ALL_METHOD_NAMES but must be
     # reachable via --sampler so emit_medium_recipes can be targeted directly.
     valid_samplers = set(ALL_METHOD_NAMES) | set(MEDIUM_METHOD_NAMES)
