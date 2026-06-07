@@ -50,7 +50,7 @@ def _cmd_reference(args: argparse.Namespace) -> int:
         nuts_kwargs = {
             "n_warmup": args.n_warmup,
             "n_chunks": 4,
-            "target_acceptance": 0.90 if entry.name == "lgcp" else 0.80,
+            "target_acceptance": entry.reference_target_acceptance,
         }
 
     t0 = time.monotonic()

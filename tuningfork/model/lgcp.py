@@ -109,4 +109,9 @@ ENTRY = Posterior(
     ),
     headline_params=None,
     headline_coords=None,
+    # 1600-D separable GP latent space has sharper curvature near the posterior
+    # tails than a smooth GLM: 0.90 keeps the leapfrog step size small enough
+    # to avoid energy errors across all 1600 dimensions.  Verified via cert run
+    # (E-BFMI=1.0014, 0 divergences, min-bulk-ESS=36359 at n=80000).
+    reference_target_acceptance=0.90,
 )
