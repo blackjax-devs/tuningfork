@@ -1,0 +1,62 @@
+{
+  "model_name": "lgcp",
+  "base_method_name": "nuts",
+  "effort": "groundtruth",
+  "base_method_params": {
+    "step_size": 0.1945572942495346,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 191.57606902101543,
+    "n_warmup": 5000,
+    "n_samples": 80000,
+    "warmup_wall_seconds": 14.25418680999428,
+    "sampling_wall_seconds": 162.29112498403993
+  },
+  "difficulty": null,
+  "instructions": "**Ground-truth reference recipe** for `lgcp`. Sampled via a single long NUTS chain (1\u00d780000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.9). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/lgcp/draws.npz` (gitignored \u2014 80000 samples \u00d7 dim=1600). Load via:\n\n    from tuningfork._cache_io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['lgcp'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
+  "notes": "",
+  "headline_basis": null,
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 5000,
+        "n_chunks": 4,
+        "target_acceptance": 0.9,
+        "max_num_doublings": 10
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": "lgcp/groundtruth.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0000373125076294,
+      "min_bulk_ess": 37201.47265625,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {}
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 0,
+  "tuningfork_version": "0.0.0.dev0",
+  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-07T06:47:55Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
