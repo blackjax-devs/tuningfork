@@ -1,22 +1,22 @@
 {
   "name": "irt_1pl",
   "tuningfork_version": "0.0.0.dev0",
-  "code_sha": "655a169912b380c68d1498ce23c46d1a086e1944",
+  "code_sha": "3eeb334282e20e541c02b5099ebbbc1c0c9bd058",
   "generator": "nuts",
   "num_samples": 40000,
   "seed": 0,
-  "timestamp_utc": "2026-06-06T21:02:31Z",
-  "wall_time_seconds": 88.97441850975156,
+  "timestamp_utc": "2026-06-07T06:40:47Z",
+  "wall_time_seconds": 43.66028535400983,
   "divergence_rate_tolerance_used": 0.001,
-  "warmup_wall_seconds": 10.63172896206379,
-  "sampling_wall_seconds": 66.87615125905722,
-  "sampling_seconds_per_draw": 0.001672,
+  "warmup_wall_seconds": 4.916483456036076,
+  "sampling_wall_seconds": 29.619478855049238,
+  "sampling_seconds_per_draw": 0.00074,
   "split_source": "measured",
   "machine_info": {
     "cpu_model": "x86_64",
-    "cpu_count_logical": 12,
-    "os": "Linux 6.18.14-1rodete3-amd64",
-    "python_version": "3.13.12",
+    "cpu_count_logical": 8,
+    "os": "Linux 6.8.0-117-generic",
+    "python_version": "3.13.13",
     "jax_version": "0.10.1",
     "blackjax_version": "1.6.dev87+g5549a0b9c",
     "jax_x64_enabled": false,
@@ -25,9 +25,9 @@
   },
   "certification": {
     "passed": true,
-    "split_rhat_max": 1.0000426769256592,
-    "min_chunk_bulk_ess": 21332.458984375,
+    "split_rhat_max": 1.0000412464141846,
+    "min_chunk_bulk_ess": 19577.583984375,
     "num_divergences": 0,
-    "e_bfmi": 1.0004875659942627
+    "e_bfmi": 1.0048695802688599
   }
 }
