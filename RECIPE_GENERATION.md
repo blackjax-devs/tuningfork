@@ -46,9 +46,9 @@ SMC compatible inner methods (all 6 share the same set): rwm, irmh, mala, barker
 | Group | Models | Key geometry |
 |-------|--------|-------------|
 | **Easy** | mvn_10, ill_cond_50, logistic_synthetic, eight_schools_ncp, lotka_volterra | Unimodal, smooth; ill_cond has κ≈1000 (IMM critical) |
-| **Hierarchical NCP** | radon (d=390), irt_2pl (d=144), german_credit (d≈26) | NCP so no funnel; radon + irt_2pl are high-d |
+| **Hierarchical NCP** | radon (d=390), irt_2pl (d=144), irt_1pl (d=500), german_credit (d≈26) | NCP so no funnel; radon, irt_2pl, irt_1pl are high-d |
 | **Pathological** | neals_funnel, gmm_25, banana | Funnel / multimodal / curved manifold |
-| **Specialised** | horseshoe (d=204), gp_regression, stoch_vol (d=503) | Heavy tails / latent GP / high-d AR(1) |
+| **Specialised** | horseshoe (d=204), gp_regression, stoch_vol (d=503), lgcp (d=1600) | Heavy tails / latent GP / high-d AR(1) / spatial GP |
 
 ---
 
@@ -62,14 +62,14 @@ Colour legend: G = green (low effort), Y = yellow (moderate), R = red (high effo
 
 For `mhmc` and `rmhmc`: `window_adaptation_diag_imm` is also compatible (they accept `inverse_mass_matrix`).
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| window_adaptation_diag_imm + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| window_adaptation_diag_imm + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| window_adaptation_diag_imm + **mhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| window_adaptation_diag_imm + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| window_adaptation_diag_imm + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| window_adaptation_diag_imm + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| window_adaptation_diag_imm + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y | G | G |
+| window_adaptation_diag_imm + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y | Y | Y |
+| window_adaptation_diag_imm + **mhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y | Y | Y |
+| window_adaptation_diag_imm + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R | Y | Y |
+| window_adaptation_diag_imm + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R | Y | Y |
+| window_adaptation_diag_imm + **rmhmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R | R | R |
 
 **Cell notes (non-green)**:
 - ill_cond_50 + mala/barker Y: gradient-based step limited by worst-conditioned direction; κ≈1000 means mala step-size has to be tiny — converges but slowly without IMM adaptation, and window_adaptation_diag_imm diagonal IMM helps a lot here, so actually likely G with good adaptation; flagged Y as conservative.
@@ -94,13 +94,13 @@ For `mhmc` and `rmhmc`: `window_adaptation_diag_imm` is also compatible (they ac
 
 Pathfinder provides init position + diagonal IMM (L-BFGS inverse Hessian). No step_size adaptation; needs dual-averaging or BO downstream.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| pathfinder + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| pathfinder + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
-| pathfinder + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| pathfinder + **rwm** | G | Y | G | G | Y | Y | R | G | R | R | R | R | Y | R |
-| pathfinder + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| pathfinder + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y | G | G |
+| pathfinder + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y | Y | Y |
+| pathfinder + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R | Y | Y |
+| pathfinder + **rwm** | G | Y | G | G | Y | Y | R | G | R | R | R | R | Y | R | R | R |
+| pathfinder + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R | Y | Y |
 
 **Cell notes**:
 - pathfinder + rwm: Pathfinder init is valuable but RWM without IMM adaptation degrades badly at d≥50. irt_2pl (d=144) and stoch_vol (d=503) are R; radon (d=390) Y at best. Horseshoe R (heavy tails plus d=204). banana R (curved manifold kills isotropic RWM even with good init). Generally: pathfinder warmup + rwm is only green for d≤30 flat posteriors.
@@ -112,13 +112,13 @@ Pathfinder provides init position + diagonal IMM (L-BFGS inverse Hessian). No st
 
 Multi-path Pathfinder with PSIS resampling. Provides diverse init positions (useful when posterior has multiple basins or is elongated). Colour is generally same as pathfinder; upgrade Y→G where init diversity is the bottleneck (banana, neals_funnel).
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| multipathfinder + **nuts** | G | G | G | G | G | G | G | G | Y | R | G | Y | G | Y |
-| multipathfinder + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | G | Y | G | Y |
-| multipathfinder + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
-| multipathfinder + **rwm** | G | Y | G | G | Y | Y | R | G | R | R | R | R | Y | R |
-| multipathfinder + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| multipathfinder + **nuts** | G | G | G | G | G | G | G | G | Y | R | G | Y | G | Y | G | G |
+| multipathfinder + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | G | Y | G | Y | Y | Y |
+| multipathfinder + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R | Y | Y |
+| multipathfinder + **rwm** | G | Y | G | G | Y | Y | R | G | R | R | R | R | Y | R | R | R |
+| multipathfinder + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | Y | Y | Y | R | Y | Y |
 
 **Cell notes**:
 - multipathfinder + nuts + banana: G (vs pathfinder's Y). Multi-path covers the curved manifold better; PSIS resamples to good init positions; diverse starts improve banana mixing.
@@ -130,13 +130,13 @@ Multi-path Pathfinder with PSIS resampling. Provides diverse init positions (use
 
 Provides diagonal IMM from VI covariance. Same applicability as reference certification VI analysis: hard excludes = gmm_25, neals_funnel, horseshoe, stoch_vol, banana.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| meanfield_vi + **nuts** | G | G | G | G | G | G | G | G | R | R | R | R | G | R |
-| meanfield_vi + **hmc** | G | G | G | G | G | Y | Y | G | R | R | R | R | G | R |
-| meanfield_vi + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | R | R | Y | R |
-| meanfield_vi + **rwm** | G | Y | G | G | Y | Y | R | G | R | R | R | R | Y | R |
-| meanfield_vi + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | R | R | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| meanfield_vi + **nuts** | G | G | G | G | G | G | G | G | R | R | R | R | G | R | G | G |
+| meanfield_vi + **hmc** | G | G | G | G | G | Y | Y | G | R | R | R | R | G | R | Y | Y |
+| meanfield_vi + **mala** | G | Y | G | G | Y | Y | Y | G | R | R | R | R | Y | R | Y | Y |
+| meanfield_vi + **rwm** | G | Y | G | G | Y | Y | R | G | R | R | R | R | Y | R | R | R |
+| meanfield_vi + **barker** | G | Y | G | G | Y | Y | Y | G | R | R | R | R | Y | R | Y | Y |
 
 **Rationale for hard-R cells**: VI collapses multimodal (gmm_25), funnel (neals_funnel), heavy-tail (horseshoe, stoch_vol), curved manifold (banana) posteriors to a poor Gaussian surrogate. The IMM produced is misleading, often making the sampler WORSE than no-warmup by imposing a geometry-mismatched metric.
 
@@ -146,13 +146,13 @@ Provides diagonal IMM from VI covariance. Same applicability as reference certif
 
 Dense IMM from full-rank VI. Only viable for d≤30 (O(d²) dense matrix). Recommended for logistic_synthetic (d≈26) and lotka_volterra — both low-d smooth posteriors.
 
-| Warmup + Sampler | mvn_10 (d=10) | ill_cond_50 (d=50) | logistic_syn (d≈26) | eight_schools (d≈18) | lotka_volterra (d≈4) | radon (d=390) | irt_2pl (d=144) | german_credit (d≈26) | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| fullrank_vi + **nuts** | G | R | G | G | G | R | R | G | R | R | R | R | Y | R |
-| fullrank_vi + **hmc** | G | R | G | G | G | R | R | G | R | R | R | R | Y | R |
-| fullrank_vi + **mala** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R |
-| fullrank_vi + **rwm** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R |
-| fullrank_vi + **barker** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R |
+| Warmup + Sampler | mvn_10 (d=10) | ill_cond_50 (d=50) | logistic_syn (d≈26) | eight_schools (d≈18) | lotka_volterra (d≈4) | radon (d=390) | irt_2pl (d=144) | german_credit (d≈26) | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| fullrank_vi + **nuts** | G | R | G | G | G | R | R | G | R | R | R | R | Y | R | R | R |
+| fullrank_vi + **hmc** | G | R | G | G | G | R | R | G | R | R | R | R | Y | R | R | R |
+| fullrank_vi + **mala** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R | R | R |
+| fullrank_vi + **rwm** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R | R | R |
+| fullrank_vi + **barker** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R | R | R |
 
 **Cell notes**:
 - ill_cond_50 + fullrank_vi R: d=50 → 1275-param Cholesky; O(d²) IMM reconstruction expensive; meanfield_vi is strictly better here.
@@ -168,9 +168,9 @@ Dense IMM from full-rank VI. Only viable for d≤30 (O(d²) dense matrix). Recom
 
 MCLMC is gradient-based, rejection-free (no MH), continuous-momentum. Works best on smooth unimodal posteriors. High dimension is a strength (MCLMC was designed for d>100). Multimodal = R. Non-differentiable = R.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| mclmc_tuning + **mclmc** | G | G | G | G | Y | G | G | G | R | R | Y | Y | G | G |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mclmc_tuning + **mclmc** | G | G | G | G | Y | G | G | G | R | R | Y | Y | G | G | G | G |
 
 **Cell notes**:
 - lotka_volterra Y: stiff ODE gradients; MCLMC can handle but step-size sensitivity higher; flag Y.
@@ -186,10 +186,10 @@ MCLMC is gradient-based, rejection-free (no MH), continuous-momentum. Works best
 
 Adjusted MCLMC has the MH correction (target_acceptance=0.9), so it's safer on geometrically challenging models. Still microcanonical — not compatible with SMC tempering.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| adjusted_mclmc_tuning + **adjusted_mclmc** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | G |
-| adjusted_mclmc_tuning + **adjusted_mclmc_dynamic** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | G |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| adjusted_mclmc_tuning + **adjusted_mclmc** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | G | G | G |
+| adjusted_mclmc_tuning + **adjusted_mclmc_dynamic** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | G | G | G |
 
 **Cell notes**:
 - neals_funnel + adjusted_mclmc Y (vs R for vanilla mclmc): the MH correction prevents runaway; still challenging but not hopeless. Flag Y — will need longer warmup and careful step-size tuning.
@@ -202,9 +202,9 @@ Adjusted MCLMC has the MH correction (target_acceptance=0.9), so it's safer on g
 
 LAPS (Late Adjusted Parallel Sampler, EMAUS-paper) adapts `adjusted_mclmc` using cross-chain information. Requires mesh infrastructure; upstream currently has a limitation with IMM extraction (placeholder `jnp.ones(ndims)`). Recipe generation must register it and fix the IMM path before recipe use.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| laps + **adjusted_mclmc** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | G |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| laps + **adjusted_mclmc** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | G | G | G |
 
 **Note**: Identical colour as `adjusted_mclmc_tuning + adjusted_mclmc`. The LAPS advantage (parallel cross-chain adaptation) shows in ESS/s not in convergence rate. The key recipe question is whether LAPS-adapted step_size/L is better calibrated than `adjusted_mclmc_tuning` output. Flag these cells Y until the IMM-extraction upstream issue is resolved.
 
@@ -214,10 +214,10 @@ LAPS (Late Adjusted Parallel Sampler, EMAUS-paper) adapts `adjusted_mclmc` using
 
 Wraps BlackJAX `low_rank_window_adaptation`; compatible with hmc, nuts, mala, barker (same as window_adaptation_diag_imm). Reconstructs dense IMM = `diag(σ)(I + U(Λ-I)U^T)diag(σ)` which is O(dk) but O(d²) at wrapper boundary. Best when posterior has a small number of dominant correlation directions (k << d). Advantage over window_adaptation_diag_imm is capturing off-diagonal correlations at lower cost than fullrank_vi.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| low_rank_window + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| low_rank_window + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| low_rank_window + **nuts** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y | G | G |
+| low_rank_window + **hmc** | G | G | G | G | G | Y | Y | G | Y | R | Y | Y | G | Y | Y | Y |
 
 **Cell notes**: Essentially same as `window_adaptation_diag_imm` but with better IMM quality for correlated posteriors. Only materially different from window_adaptation_diag_imm for ill_cond_50 (high correlation — low_rank should outperform diagonal), radon (correlated hierarchical hyperparams), horseshoe (correlated regression coefficients). The O(d²) dense-IMM cost is paid at wrapper boundary only, not per-step. Colour matches window_adaptation_diag_imm since convergence guarantee is the same; low_rank_window is a benchmark question (supersession §) not a correctness question.
 
@@ -229,9 +229,9 @@ Wraps BlackJAX `low_rank_window_adaptation`; compatible with hmc, nuts, mala, ba
 
 MEADS is multi-chain-by-construction. Adapts step_size, momentum_inverse_scale, alpha (momentum persistence), delta (slice parameter). GHMC is a generalized HMC with persistent momentum — between MALA and HMC in gradient cost.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| meads + **ghmc** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | Y |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| meads + **ghmc** | G | G | G | G | Y | G | G | G | Y | R | Y | Y | G | Y | G | G |
 
 **Cell notes**:
 - GHMC + MEADS is the targeted adaptation path for GHMC. Geometry coverage: similar to adjusted_mclmc but with MH correction and persistent momentum. Funnel (neals_funnel) Y not R because MEADS can learn a step size that handles the neck at the cost of more chains/warmup. gmm_25 R as always.
@@ -245,11 +245,11 @@ MEADS is multi-chain-by-construction. Adapts step_size, momentum_inverse_scale, 
 
 CHEES adapts both step_size and the trajectory-length distribution for dynamic_hmc. Returns callable `integration_steps_fn` + `next_random_arg_fn` — the key feature of dynamic_hmc over NUTS.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| chees + **dynamic_hmc** (uniform L) | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| chees + **dynamic_hmc** (CHEES-adapted L) | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
-| chees + **dmhmc** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| chees + **dynamic_hmc** (uniform L) | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y | G | G |
+| chees + **dynamic_hmc** (CHEES-adapted L) | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y | G | G |
+| chees + **dmhmc** | G | G | G | G | G | G | G | G | Y | R | Y | Y | G | Y | G | G |
 
 **Sampler-specific dimension for dynamic_hmc / dmhmc** (trajectory-length generator):
 - Sub-row "uniform L": default `next_random_arg_fn` from CHEES (uniform distribution over [1, max_doublings]). Green for all standard models.
@@ -266,14 +266,14 @@ CHEES adapts both step_size and the trajectory-length distribution for dynamic_h
 
 No adaptation; default hyperparameters from HP space. Low effort only for gradient-free or pre-adapted recipes. For gradient-based samplers this is the baseline "cold start" that recipe generation wants to compare against.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| no_warmup + **nuts** | G | Y | G | G | Y | R | R | G | Y | R | Y | R | Y | R |
-| no_warmup + **rwm** | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R |
-| no_warmup + **mclmc** | G | G | G | G | Y | Y | Y | G | R | R | Y | Y | G | Y |
-| no_warmup + **adjusted_mclmc** | G | G | G | G | Y | Y | Y | G | Y | R | Y | Y | G | Y |
-| no_warmup + **ghmc** | G | Y | G | G | Y | R | R | G | Y | R | Y | R | Y | R |
-| no_warmup + **mala** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| no_warmup + **nuts** | G | Y | G | G | Y | R | R | G | Y | R | Y | R | Y | R | Y | Y |
+| no_warmup + **rwm** | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R | R | R |
+| no_warmup + **mclmc** | G | G | G | G | Y | Y | Y | G | R | R | Y | Y | G | Y | Y | Y |
+| no_warmup + **adjusted_mclmc** | G | G | G | G | Y | Y | Y | G | Y | R | Y | Y | G | Y | Y | Y |
+| no_warmup + **ghmc** | G | Y | G | G | Y | R | R | G | Y | R | Y | R | Y | R | R | R |
+| no_warmup + **mala** | G | R | G | G | Y | R | R | G | R | R | R | R | Y | R | R | R |
 
 **Cell notes**:
 - no_warmup is the LOW-effort baseline. Without adaptation, high-d models (radon d=390, irt_2pl d=144, stoch_vol d=503) fall to R: geometric-mean default step_size=0.1259 (WORKLOG audit note) is inappropriate for d>>10.
@@ -291,10 +291,10 @@ These samplers use `extra_required_kwargs` — they cannot use `no_warmup` witho
 
 Both are latent-Gaussian specialists. Applicable ONLY to models with explicit Gaussian priors: gp_regression (GP kernel = Gaussian prior on latents), stoch_vol (AR(1) = Gaussian prior). The other 12 models either lack explicit Gaussian priors or have non-Gaussian likelihoods that break the elliptical slice sampler's exactness guarantee.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| no_warmup + **elliptical_slice** | R | R | R | R | R | R | R | R | R | R | R | R | R (cert FAIL: ESS 4.4) | R (future: blocked ESS) |
-| no_warmup + **mgrad_gaussian** | R | R | R | R | R | R | R | R | R | R | R | R | G | G |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| no_warmup + **elliptical_slice** | R | R | R | R | R | R | R | R | R | R | R | R | R (cert FAIL: ESS 4.4) | R (future: blocked ESS) | R | R |
+| no_warmup + **mgrad_gaussian** | R | R | R | R | R | R | R | R | R | R | R | R | G | G | R | R |
 
 **Rationale**: Elliptical slice requires exact Gaussian prior structure. gp_regression is the only model with exact Gaussian prior structure, but joint elliptical slice still FAILS there (Phase 8B.3 cert): although the prior is exactly Gaussian (NCP Cholesky prior = N(0,I₂₀₀) × N(0,1)³, gradient cost = 0), the likelihood is ~10⁴× more concentrated than the prior (noise_scale=0.1, n=200), so the joint 203-D ellipse bracket collapses (subiter≈11.93) — cert: min_bulk_ESS=4.4, rhat=3.46, max_z=8–9 → FAIL. Real elliptical-slice coverage requires centered/Gibbs sampling (ESS on f | hyperparameters), which is future scope. stoch_vol is R: its 503-D AR(1) joint prior is non-Gaussian in unconstrained space (the volatility path has a non-trivial correlation structure that cannot be captured by a diagonal Gaussian); ESS would be blocked. mgrad_gaussian is gradient-based but uses the Gaussian structure; also G for gp_regression. Phase 8B.3 correction: both gp_regression (joint likelihood≫prior, cert FAIL) and stoch_vol (non-Gaussian joint prior) downgraded G → R; future: centered/blocked ESS.
 
@@ -302,11 +302,11 @@ Both are latent-Gaussian specialists. Applicable ONLY to models with explicit Ga
 
 IRMH is the primary SMC inner kernel when using within-SMC tuning. As a standalone sampler with a fixed proposal, it degenerates to independence MH — only viable when the proposal covers the posterior well. Three meaningful sub-rows by proposal type:
 
-| Proposal type | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| irmh (prior-based proposal) | G | R | Y | Y | R | R | R | Y | R | R | R | R | R | R |
-| irmh (Pathfinder-VI proposal) | G | G | G | G | G | G | Y | G | R | R | Y | Y | G | Y |
-| irmh (fullrank-VI proposal) | G | G | G | G | G | Y | R | G | R | R | R | R | G | R |
+| Proposal type | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| irmh (prior-based proposal) | G | R | Y | Y | R | R | R | Y | R | R | R | R | R | R | R | R |
+| irmh (Pathfinder-VI proposal) | G | G | G | G | G | G | Y | G | R | R | Y | Y | G | Y | Y | Y |
+| irmh (fullrank-VI proposal) | G | G | G | G | G | Y | R | G | R | R | R | R | G | R | G | G |
 
 **Rationale**:
 - Prior-based: only viable when prior closely approximates posterior. Works for mvn_10 (G — prior is standard; posterior is close for symmetric target). Fails for high-d, heavy-tail, or multimodal models.
@@ -317,11 +317,11 @@ IRMH is the primary SMC inner kernel when using within-SMC tuning. As a standalo
 
 Three sub-rows by proposal generator type:
 
-| Proposal type | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| additive_step_rw (Gaussian) | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R |
-| additive_step_rw (heavy-tailed: Cauchy) | G | Y | G | G | Y | R | R | G | Y | R | Y | Y | Y | Y |
-| additive_step_rw (asymmetric) | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R |
+| Proposal type | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| additive_step_rw (Gaussian) | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R | G | G |
+| additive_step_rw (heavy-tailed: Cauchy) | G | Y | G | G | Y | R | R | G | Y | R | Y | Y | Y | Y | G | G |
+| additive_step_rw (asymmetric) | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R | G | G |
 
 **Rationale**:
 - Gaussian: standard RWM under a different name. Same applicability as rwm.
@@ -332,12 +332,12 @@ Three sub-rows by proposal generator type:
 
 4 samplers (laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc) all require the latent-Gaussian hierarchical structure: `log_joint_fn` = joint log-density including latent GP/AR1 marginal, `theta_init` = Laplace approximation point. The `theta_star` field persists the Laplace optimum across steps (warm-start trick). Applicable ONLY to hierarchical models with latent Gaussian structure where marginalizing the latent layer is tractable.
 
-| Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| laplace_hmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G |
-| laplace_dhmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G |
-| laplace_mhmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G |
-| laplace_dmhmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G |
+| Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| laplace_hmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G | Y | G |
+| laplace_dhmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G | Y | G |
+| laplace_mhmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G | Y | G |
+| laplace_dmhmc | R | R | R | Y | R | Y | Y | R | R | R | R | R | G | G | Y | G |
 
 **Rationale**:
 - gp_regression G: GP latents = Gaussian prior; Laplace marginalizes them exactly; hyperparameter inference via HMC on the marginal. This is the textbook use case.
@@ -349,9 +349,9 @@ Three sub-rows by proposal generator type:
 
 Orbital HMC stores full orbit per state; lower bound on grad_count (period-many grads per "step"). Best for very smooth well-conditioned posteriors where the orbit can be computed cheaply.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| no_warmup + **orbital_hmc** | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| no_warmup + **orbital_hmc** | G | Y | G | G | Y | R | R | G | R | R | Y | R | Y | R | R | R |
 
 **Rationale**: Orbital HMC requires smooth periodicity. High-d (radon, irt_2pl, stoch_vol) R — orbit computation too expensive. Funnel/multimodal R. Banana Y — curved manifold orbital may work but period selection non-trivial. Horseshoe R — heavy-tail gradients break periodicity.
 
@@ -359,10 +359,10 @@ Orbital HMC stores full orbit per state; lower bound on grad_count (period-many 
 
 Riemannian HMC uses a position-dependent metric. The `window_adaptation_diag_imm` warmup provides a constant IMM (compatible with rmhmc as diagonal mass matrix), but the Riemannian character requires a callable `mass_matrix_fn`. Recipe generation must define what callable to supply per model — this is the non-trivial engineering task.
 
-| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| window_adaptation_diag_imm + **rmhmc** (diagonal metric) | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R |
-| no_warmup + **rmhmc** (Hessian metric) | Y | Y | Y | Y | R | R | R | Y | Y | R | Y | Y | Y | R |
+| Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| window_adaptation_diag_imm + **rmhmc** (diagonal metric) | G | G | G | G | G | Y | Y | G | Y | R | Y | R | Y | R | R | R |
+| no_warmup + **rmhmc** (Hessian metric) | Y | Y | Y | Y | R | R | R | Y | Y | R | Y | Y | Y | R | R | R |
 
 **Rationale**:
 - Diagonal metric: same as window_adaptation_diag_imm + hmc; the Riemannian character is nullified. Green for easy models, yellow for high-d. Horseshoe and stoch_vol R (Riemannian metric callable not defined for these model structures yet).
@@ -374,10 +374,10 @@ Riemannian HMC uses a position-dependent metric. The `window_adaptation_diag_imm
 
 Using VI as the sampler (not as warmup) — outputs approximate posterior samples, not MCMC samples. Use only when benchmark Q is VI quality vs MCMC, or when full MCMC budget is infeasible.
 
-| Base Method | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **meanfield_vi** | G | G | G | G | G | G | G | G | R | R | R | R | G | R |
-| **fullrank_vi** | G | R | G | G | G | Y | R | G | R | R | R | R | Y | R |
+| Base Method | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **meanfield_vi** | G | G | G | G | G | G | G | G | R | R | R | R | G | R | G | G |
+| **fullrank_vi** | G | R | G | G | G | Y | R | G | R | R | R | R | Y | R | R | R |
 
 **VI applicability**: meanfield = 8 models applicable; fullrank = mvn_10 + logistic_syn + eight_schools + german_credit + lotka_volterra (d≤30 smooth); both R for the 4 hard-excluded models.
 
@@ -395,16 +395,16 @@ The *SMC outer method* colour depends mainly on whether the model's likelihood f
 
 #### Inner kernel effort for SMC (applies across all 6 outer methods)
 
-| Inner Kernel | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **rwm** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y |
-| **irmh** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y |
-| **mala** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y |
-| **barker** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y |
-| **hmc** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G |
-| **nuts** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G |
-| **ghmc** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G |
-| **dynamic_hmc** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G |
+| Inner Kernel | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **rwm** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y | R | R |
+| **irmh** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y | G | G |
+| **mala** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y | Y | Y |
+| **barker** | G | Y | G | G | Y | Y | Y | G | G | G | G | Y | G | Y | Y | Y |
+| **hmc** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G | Y | Y |
+| **nuts** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G | G | G |
+| **ghmc** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G | G | G |
+| **dynamic_hmc** | G | G | G | G | G | G | G | G | Y | G | G | G | G | G | G | G |
 
 **Key insight for SMC**: tempering rescues multimodal and funnel models by starting from the prior and gradually annealing. GMM_25 is GREEN under SMC+any inner kernel — this is the canonical use case. Neals_funnel also becomes accessible (Y, not R) because annealing from prior prevents the chain from falling into the funnel neck before adaptation occurs. Heavy tails (horseshoe) are also manageable via tempering.
 
@@ -417,14 +417,14 @@ The *SMC outer method* colour depends mainly on whether the model's likelihood f
 
 Now applying the outer-method distinction:
 
-| SMC Method | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **adaptive_tempered_smc** | G | G | G | G | G | G | G | G | G | G | G | G | G | Y |
-| **tempered_smc** | Y | Y | G | Y | G | Y | Y | G | Y | G | Y | Y | G | Y |
-| **adaptive_persistent_smc** | G | G | G | G | G | G | G | G | G | G | G | G | G | Y |
-| **persistent_sampling_smc** | Y | Y | G | Y | G | Y | Y | G | Y | G | Y | Y | G | Y |
-| **partial_posteriors_smc** | G | G | G | G | G | G | G | G | Y | Y | G | G | G | Y |
-| **inner_kernel_tuning** | G | G | G | G | G | G | G | G | G | G | G | G | G | Y |
+| SMC Method | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **adaptive_tempered_smc** | G | G | G | G | G | G | G | G | G | G | G | G | G | Y | Y | Y |
+| **tempered_smc** | Y | Y | G | Y | G | Y | Y | G | Y | G | Y | Y | G | Y | Y | Y |
+| **adaptive_persistent_smc** | G | G | G | G | G | G | G | G | G | G | G | G | G | Y | G | Y |
+| **persistent_sampling_smc** | Y | Y | G | Y | G | Y | Y | G | Y | G | Y | Y | G | Y | Y | Y |
+| **partial_posteriors_smc** | G | G | G | G | G | G | G | G | Y | Y | G | G | G | Y | Y | Y |
+| **inner_kernel_tuning** | G | G | G | G | G | G | G | G | G | G | G | G | G | Y | G | Y |
 
 **SMC outer method notes**:
 - adaptive_tempered/adaptive_persistent G for all unimodal + multimodal models: ESS-adaptive schedule automatically handles both easy and hard tempering schedules. The key advantage over the fixed-schedule variants.

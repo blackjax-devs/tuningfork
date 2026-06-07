@@ -42,7 +42,9 @@ from tuningfork.model.gmm_25 import ENTRY as _gmm_25
 from tuningfork.model.gp_regression import ENTRY as _gp_regression
 from tuningfork.model.horseshoe import ENTRY as _horseshoe
 from tuningfork.model.ill_cond_50 import ENTRY as _ill_cond_50
+from tuningfork.model.irt_1pl import ENTRY as _irt_1pl
 from tuningfork.model.irt_2pl import ENTRY as _irt_2pl
+from tuningfork.model.lgcp import ENTRY as _lgcp
 from tuningfork.model.logistic_synthetic import ENTRY as _logistic_synthetic
 from tuningfork.model.lotka_volterra import ENTRY as _lotka_volterra
 from tuningfork.model.mvn_10 import ENTRY as _mvn_10
@@ -61,8 +63,8 @@ __all__ = [
 MODELS_BY_FAMILY: dict[str, list[Posterior]] = {
     "gaussians": [_mvn_10, _ill_cond_50],
     "glm": [_logistic_synthetic, _german_credit, _horseshoe],
-    "hierarchical": [_eight_schools_ncp, _radon, _irt_2pl],
-    "latent_gaussian": [_gp_regression, _stoch_vol],
+    "hierarchical": [_eight_schools_ncp, _radon, _irt_2pl, _irt_1pl],
+    "latent_gaussian": [_gp_regression, _stoch_vol, _lgcp],
     "ode": [_lotka_volterra],
     "pathological": [_banana, _neals_funnel, _gmm_25],
 }

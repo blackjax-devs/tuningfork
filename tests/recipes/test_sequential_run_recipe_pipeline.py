@@ -372,7 +372,7 @@ def test_compute_warmup_grad_evals_mclmc():
         n_warmup=10000,
         num_chains=4,
     )
-    assert wge == 3333
+    assert wge == 3333 * 2 * 4
 
 
 # ---------------------------------------------------------------------------

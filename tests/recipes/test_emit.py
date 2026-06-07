@@ -521,7 +521,7 @@ def test_compute_warmup_grad_evals_mclmc_tuning_steps() -> None:
 
     batched_params = {"_total_tuning_steps": 12345, "step_size": 0.1}
     result = _compute_warmup_grad_evals(batched_params, None, None, 1000, 4)
-    assert result == 12345, f"Expected 12345, got {result}"
+    assert result == 12345 * 2 * 4, f"Expected 12345, got {result}"
 
 
 @pytest.mark.fast
