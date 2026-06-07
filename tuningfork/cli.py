@@ -47,7 +47,11 @@ def _cmd_reference(args: argparse.Namespace) -> int:
     # get_reference_draws production defaults (n_warmup=5000, n_chunks=4).
     nuts_kwargs: dict = {}
     if entry.reference_method.value == "nuts":
-        nuts_kwargs = {"n_warmup": args.n_warmup, "n_chunks": 4}
+        nuts_kwargs = {
+            "n_warmup": args.n_warmup,
+            "n_chunks": 4,
+            "target_acceptance": 0.90 if entry.name == "lgcp" else 0.80,
+        }
 
     t0 = time.monotonic()
     draws = get_reference_draws(
