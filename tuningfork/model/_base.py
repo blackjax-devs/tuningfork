@@ -131,6 +131,18 @@ class Posterior:
     each headline param (the default). See the 2026-05-18 decision doc
     appendix for ratified per-model values."""
 
+    # ---- per-model NUTS cert target acceptance ----
+    # NUTS target acceptance rate used when generating the reference draws for
+    # this model.  Default 0.80 matches Stan's default and is appropriate for
+    # smooth posteriors.  Models with sharper curvature (e.g. high-dimensional
+    # latent-GP priors) may benefit from a higher value (e.g. 0.90) to reduce
+    # step-size and ensure the leapfrog integrator stays stable.
+    #
+    # Setting this here (rather than hardcoding ``entry.name == "lgcp"`` in
+    # the CLI) keeps model-specific cert parameters co-located with the model
+    # definition, making it trivially grep-able and audit-able.
+    reference_target_acceptance: float = 0.80
+
     # When True, this model REQUIRES ``JAX_ENABLE_X64=1`` at cert time —
     # float32 cannot stably evaluate the model's log-density (e.g., dense
     # Cholesky on a high-d kernel matrix produces NaN at float32 precision).

@@ -124,3 +124,45 @@ class TestPosteriorConstruction:
     def test_reference_method_enum_values(self):
         assert ReferenceMethod.ANALYTIC == "analytic"
         assert ReferenceMethod.NUTS == "nuts"
+
+    def test_reference_target_acceptance_default(self):
+        """Default target acceptance is 0.80 (Stan default)."""
+        entry = Posterior(
+            name="dummy",
+            dim=1,
+            class_="gaussian",
+            numpyro_model=_dummy_model,
+        )
+        assert entry.reference_target_acceptance == 0.80
+
+    def test_reference_target_acceptance_custom(self):
+        """Models can override the default target acceptance."""
+        entry = Posterior(
+            name="lgcp_test",
+            dim=1600,
+            class_="latent_gaussian",
+            numpyro_model=_dummy_model,
+            reference_target_acceptance=0.90,
+        )
+        assert entry.reference_target_acceptance == 0.90
+
+
+class TestRegistryTargetAcceptance:
+    def test_lgcp_has_elevated_target_acceptance(self):
+        """lgcp ENTRY uses 0.90 to stabilise leapfrog across 1600 dims."""
+        from tuningfork.model import MODELS
+
+        assert MODELS["lgcp"].reference_target_acceptance == 0.90
+
+    def test_all_other_models_use_default_acceptance(self):
+        """Every model other than lgcp should use the 0.80 default."""
+        from tuningfork.model import MODELS
+
+        deviations = {
+            name: entry.reference_target_acceptance
+            for name, entry in MODELS.items()
+            if name != "lgcp" and entry.reference_target_acceptance != 0.80
+        }
+        assert (
+            deviations == {}
+        ), f"Unexpected non-default reference_target_acceptance: {deviations}"

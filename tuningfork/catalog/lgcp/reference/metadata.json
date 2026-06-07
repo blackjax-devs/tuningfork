@@ -1,0 +1,33 @@
+{
+  "name": "lgcp",
+  "tuningfork_version": "0.0.0.dev0",
+  "code_sha": "3eeb334282e20e541c02b5099ebbbc1c0c9bd058",
+  "generator": "nuts",
+  "num_samples": 80000,
+  "seed": 0,
+  "timestamp_utc": "2026-06-07T06:44:26Z",
+  "wall_time_seconds": 191.57606902101543,
+  "divergence_rate_tolerance_used": 0.001,
+  "warmup_wall_seconds": 14.25418680999428,
+  "sampling_wall_seconds": 162.29112498403993,
+  "sampling_seconds_per_draw": 0.002029,
+  "split_source": "measured",
+  "machine_info": {
+    "cpu_model": "x86_64",
+    "cpu_count_logical": 8,
+    "os": "Linux 6.8.0-117-generic",
+    "python_version": "3.13.13",
+    "jax_version": "0.10.1",
+    "blackjax_version": "1.6.dev87+g5549a0b9c",
+    "jax_x64_enabled": false,
+    "jax_default_device": "cpu",
+    "gpu_info": null
+  },
+  "certification": {
+    "passed": true,
+    "split_rhat_max": 1.0000373125076294,
+    "min_chunk_bulk_ess": 37201.47265625,
+    "num_divergences": 0,
+    "e_bfmi": 1.0021785497665405
+  }
+}
