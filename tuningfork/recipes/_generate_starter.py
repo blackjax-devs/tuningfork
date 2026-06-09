@@ -61,7 +61,7 @@ from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
 from tuningfork.recipes._base import Recipe
-from tuningfork.recipes.emit_mclmc_lrd import _emit_lrd_cert_sweep
+from tuningfork.recipes.emit_mclmc_lrd import _emit_mclmc_lrd_recipes_impl
 from tuningfork.warmup import WARMUPS
 
 # Starter model suite: 14 models covering different dimensionalities and geometry types.
@@ -302,124 +302,74 @@ def emit_mclmc_lrd_recipes(
 ) -> list[Path]:
     """Emit MCLMC-LRD candidate recipes using mclmc_lrd_tuning warmup.
 
-    ``calibrate=False`` (default): emit a single MEDIUM-effort stub recipe per
-    model — runs the LRD warmup pipeline once (NUTS pilot → rank-k SVD →
-    vmapped mclmc_find_L_and_step_size) with a deterministic per-recipe key
-    derived from ``seed``.
+    Thin delegate to
+    ``tuningfork.recipes.emit_mclmc_lrd._emit_mclmc_lrd_recipes_impl``.
+    This is the single documented public entry point for LRD recipe emission;
+    all implementation logic lives in that module.
 
-    ``calibrate=True``: delegate to the cert-sweep helper
-    ``_emit_lrd_cert_sweep`` — runs warmup + 4-chain sampling for each seed in
-    ``cert_seeds``, gates on R̂/ESS/div, and bakes the best PASS seed into a
-    LOW recipe.  Use this for official certification (phase (c) and beyond).
+    ``calibrate=False`` (default): emit a single MEDIUM-effort stub recipe per
+    model — one LRD warmup run (NUTS pilot → rank-k SVD →
+    ``mclmc_find_L_and_step_size``) with a deterministic per-recipe key.
+
+    ``calibrate=True``: run the full 3-seed cert sweep, gate on R̂/ESS/div,
+    bake the best PASS seed into a LOW recipe with LRD IMM sidecar.
 
     Idempotent: re-running overwrites existing files with fresh provenance.
 
     Parameters
     ----------
     seed
-        Base random seed for the ``calibrate=False`` stub path.
-        ``jax.random.fold_in`` derives per-recipe keys deterministically from
-        ``(model_name, method_name, "mclmc_lrd")``.  Ignored when
+        Base random seed for the ``calibrate=False`` stub path.  Ignored when
         ``calibrate=True`` (use ``cert_seeds`` instead).
     n_warmup
-        Number of LRD adaptation steps passed to the warmup runner.
-        Default 1000.
+        Number of LRD adaptation steps.  Default 1000.
     model_names
-        If set, restrict to this list of model names.  ``None`` = all
-        ``STARTER_MODEL_NAMES``.
+        Restrict to these models.  ``None`` = all ``STARTER_MODEL_NAMES``.
     sampler
-        If set, restrict to this single base-method name (e.g. ``"mclmc"``).
-        ``None`` = iterate all of ``MCLMC_LRD_METHOD_NAMES``.
+        Restrict to this base-method name (e.g. ``"mclmc"``).
+        ``None`` = all of ``MCLMC_LRD_METHOD_NAMES``.
     calibrate
-        If ``False`` (default), emit a single MEDIUM stub recipe per model.
-        If ``True``, run the full cert sweep via ``_emit_lrd_cert_sweep``.
+        ``False``: emit stub.  ``True``: run full cert sweep.
     cert_seeds
-        Random seeds for the certification sweep.  Used only when
-        ``calibrate=True``.  Default ``(11111, 22222, 33333)``.
+        Seeds for the cert sweep.  Used only when ``calibrate=True``.
+        Default ``(11111, 22222, 33333)``.
     n_samples
-        Post-warmup samples per chain for the gate check.  Used only when
-        ``calibrate=True``.  Default 1000.
+        Post-warmup samples per chain (``calibrate=True`` only).
     num_chains
-        Number of sampling chains for the gate check.  Used only when
-        ``calibrate=True``.  Default 4.
+        Chains for the gate check (``calibrate=True`` only).
     k_rank
         LRD approximation rank.  Default 40.
 
     Returns
     -------
-    List of Path objects pointing to written JSON files.
+    list[Path]
+        Paths of written recipe JSON files.
     """
     repo_root = Path(__file__).parent.parent.parent.parent
     names: list[str] = (
         list(model_names) if model_names is not None else list(STARTER_MODEL_NAMES)
     )
-
-    if calibrate:
-        # Sampler guard: cert sweep is always mclmc.
-        if sampler is not None and sampler not in MCLMC_LRD_METHOD_NAMES:
-            print(
-                f"  SKIP  mclmc_lrd_tuning(calibrate=True): "
-                f"sampler={sampler!r} not in MCLMC_LRD_METHOD_NAMES"
-            )
-            return []
-        paths = _emit_lrd_cert_sweep(
-            names,
-            cert_seeds=cert_seeds,
-            n_warmup=n_warmup,
-            n_samples=n_samples,
-            num_chains=num_chains,
-            k_rank=k_rank,
-            catalog_root=_CATALOG_ROOT,
-            tuningfork_version=_tuningfork_version,
-        )
-        for p in paths:
-            try:
-                pretty = p.relative_to(repo_root)
-            except ValueError:
-                pretty = p
-            print(f"  MCLMC_LRD(cal) {pretty}")
-        return paths
-
-    # calibrate=False stub: existing behavior (zero change).
-    mclmc_lrd_tuning = WARMUPS["mclmc_lrd_tuning"]
-    generated: list[Path] = []
-
-    for model_name in names:
-        posterior = MODELS[model_name]
-        for method_name in MCLMC_LRD_METHOD_NAMES:
-            if sampler is not None and method_name != sampler:
-                continue
-            base_method = BASE_METHODS[method_name]
-
-            # Check compatibility (always True for mclmc; guard for future additions).
-            if not mclmc_lrd_tuning.is_compatible(method_name):
-                print(
-                    f"  SKIP  {model_name}/{method_name}: "
-                    f"mclmc_lrd_tuning incompatible"
-                )
-                continue
-
-            # Derive a deterministic per-recipe key via fold_in.
-            hash_val = hash((model_name, method_name, "mclmc_lrd")) & 0xFFFFFFFF
-            key = jax.random.fold_in(jax.random.key(seed), hash_val)
-
-            recipe = Recipe.from_warmup_only(
-                posterior,
-                base_method,
-                mclmc_lrd_tuning,
-                n_warmup=n_warmup,
-                rng_key=key,
-                tuningfork_version=_tuningfork_version,
-            )
-            path = recipe.save(_CATALOG_ROOT)
-            generated.append(path)
-            try:
-                pretty = path.relative_to(repo_root)
-            except ValueError:
-                pretty = path
-            print(f"  MCLMC_LRD {pretty}")
-
-    return generated
+    paths = _emit_mclmc_lrd_recipes_impl(
+        names,
+        calibrate=calibrate,
+        seed=seed,
+        cert_seeds=cert_seeds,
+        n_warmup=n_warmup,
+        n_samples=n_samples,
+        num_chains=num_chains,
+        k_rank=k_rank,
+        sampler=sampler,
+        catalog_root=_CATALOG_ROOT,
+        tuningfork_version=_tuningfork_version,
+    )
+    label = "MCLMC_LRD(cal)" if calibrate else "MCLMC_LRD"
+    for p in paths:
+        try:
+            pretty = p.relative_to(repo_root)
+        except ValueError:
+            pretty = p
+        print(f"  {label} {pretty}")
+    return paths
 
 
 def emit_high_recipes(
@@ -590,6 +540,18 @@ def main() -> None:
             "Requires --warmup mclmc_lrd_tuning.  Default: emit stub recipe only."
         ),
     )
+    parser.add_argument(
+        "--cert-seeds",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="SEED",
+        help=(
+            "Space-separated integer seeds for the cert sweep "
+            "(e.g. --cert-seeds 11111 22222 33333).  "
+            "Used only with --calibrate.  Default: (11111, 22222, 33333)."
+        ),
+    )
     args = parser.parse_args()
 
     # ── Validation ──────────────────────────────────────────────────────────
@@ -653,8 +615,16 @@ def main() -> None:
             "\nEmitting candidates for warmup=mclmc_lrd_tuning "
             f"({'mclmc' if args.sampler is None else args.sampler})..."
         )
+        _cert_seeds = (
+            tuple(args.cert_seeds)
+            if args.cert_seeds is not None
+            else (11111, 22222, 33333)
+        )
         mclmc_lrd_paths = emit_mclmc_lrd_recipes(
-            model_names=names, sampler=args.sampler, calibrate=args.calibrate
+            model_names=names,
+            sampler=args.sampler,
+            calibrate=args.calibrate,
+            cert_seeds=_cert_seeds,
         )
 
     total = (

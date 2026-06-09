@@ -11,12 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Private helpers for MCLMC-LRD calibration sweeps.
+"""Single implementation module for MCLMC-LRD recipe emission.
 
-``_emit_lrd_cert_sweep`` is the internal cert-sweep implementation delegated
-to by ``tuningfork.recipes._generate_starter.emit_mclmc_lrd_recipes`` when
-``calibrate=True``.  Do not call directly — use
-``_generate_starter.emit_mclmc_lrd_recipes(calibrate=True)`` instead.
+Both the stub (``calibrate=False``) and cert-sweep (``calibrate=True``)
+paths live here.  The public entry point is
+``tuningfork.recipes._generate_starter.emit_mclmc_lrd_recipes`` — call that
+instead of the private helpers below.
+
+``_emit_mclmc_lrd_recipes_impl``
+    Dispatcher: stub path or cert-sweep path depending on ``calibrate``.
+
+``_emit_lrd_cert_sweep``
+    Cert-sweep implementation (delegated to by the above when
+    ``calibrate=True``).
+
+``_run_cert_seed``
+    Run one cert seed: warmup + 4-chain sampling → diagnostics dict.
+    Used by ``@statistician`` for phase (c) runs — call signature is
+    stable; do not rename without coordinating.
 """
 
 from __future__ import annotations
@@ -39,8 +51,124 @@ from tuningfork.recipes._sweep_runner import (
 )
 from tuningfork.warmup import WARMUPS
 
-# Default catalog root: tuningfork/catalog/ relative to this file.
-_DEFAULT_CATALOG_ROOT = Path(__file__).resolve().parents[2] / "catalog"
+# Default catalog root: tuningfork/tuningfork/catalog/ relative to this file.
+# parents[0] = recipes/, parents[1] = tuningfork/ (package), then /catalog.
+_DEFAULT_CATALOG_ROOT = Path(__file__).resolve().parents[1] / "catalog"
+
+# Methods eligible for MCLMC-LRD recipes — mirrors _generate_starter.MCLMC_LRD_METHOD_NAMES.
+_MCLMC_LRD_METHOD_NAMES: list[str] = ["mclmc"]
+
+
+def _emit_mclmc_lrd_recipes_impl(
+    model_names: list[str],
+    *,
+    calibrate: bool = False,
+    seed: int = 0,
+    cert_seeds: tuple[int, ...] = (11111, 22222, 33333),
+    n_warmup: int = 1000,
+    n_samples: int = 1000,
+    num_chains: int = 4,
+    k_rank: int = 40,
+    sampler: str | None = None,
+    catalog_root: Path | None = None,
+    variant_label: str = "mclmc_lrd",
+    effort: Effort = Effort.LOW,
+    tuningfork_version: str = "0.0.0.dev0",
+) -> list[Path]:
+    """Unified MCLMC-LRD recipe emitter — both stub and cert-sweep paths.
+
+    Called by ``tuningfork.recipes._generate_starter.emit_mclmc_lrd_recipes``.
+    Do not call directly.
+
+    Parameters
+    ----------
+    model_names
+        Models to emit recipes for.
+    calibrate
+        ``False`` (default): emit a MEDIUM stub recipe per model via a single
+        warmup run (deterministic key derived from ``seed``).
+        ``True``: run the full cert sweep (delegates to ``_emit_lrd_cert_sweep``).
+    seed
+        Base random seed for the ``calibrate=False`` stub path.
+        ``jax.random.fold_in`` derives per-recipe keys deterministically from
+        ``(model_name, method_name, "mclmc_lrd")``.  Ignored when
+        ``calibrate=True`` (use ``cert_seeds`` instead).
+    cert_seeds
+        Random seeds for the certification sweep.  Used only when
+        ``calibrate=True``.
+    n_warmup
+        LRD adaptation steps.
+    n_samples
+        Post-warmup samples per chain for the gate check (``calibrate=True`` only).
+    num_chains
+        Chains for the gate check (``calibrate=True`` only).
+    k_rank
+        LRD approximation rank.
+    sampler
+        If set, restrict to this base-method name.
+    catalog_root
+        Root directory for the catalog.  Defaults to ``_DEFAULT_CATALOG_ROOT``.
+    variant_label
+        Filename-stem label for emitted recipes.
+    effort
+        Effort tier for passing recipes (``calibrate=True`` only).
+    tuningfork_version
+        Version string for recipe provenance.
+
+    Returns
+    -------
+    list[Path]
+        Paths of written recipe JSON files.
+    """
+    root = Path(catalog_root) if catalog_root is not None else _DEFAULT_CATALOG_ROOT
+
+    if calibrate:
+        # Sampler guard: cert sweep is always mclmc.
+        if sampler is not None and sampler not in _MCLMC_LRD_METHOD_NAMES:
+            return []
+        return _emit_lrd_cert_sweep(
+            model_names,
+            cert_seeds=cert_seeds,
+            n_warmup=n_warmup,
+            n_samples=n_samples,
+            num_chains=num_chains,
+            k_rank=k_rank,
+            catalog_root=root,
+            variant_label=variant_label,
+            effort=effort,
+            tuningfork_version=tuningfork_version,
+        )
+
+    # calibrate=False stub: one warmup run per (model, method) with a
+    # deterministic per-recipe key derived from (model_name, method_name, "mclmc_lrd").
+    mclmc_lrd_tuning = WARMUPS["mclmc_lrd_tuning"]
+    generated: list[Path] = []
+
+    for model_name in model_names:
+        posterior = MODELS[model_name]
+        for method_name in _MCLMC_LRD_METHOD_NAMES:
+            if sampler is not None and method_name != sampler:
+                continue
+            base_method = BASE_METHODS[method_name]
+
+            if not mclmc_lrd_tuning.is_compatible(method_name):
+                continue
+
+            hash_val = hash((model_name, method_name, "mclmc_lrd")) & 0xFFFFFFFF
+            key = jax.random.fold_in(jax.random.key(seed), hash_val)
+
+            recipe = Recipe.from_warmup_only(
+                posterior,
+                base_method,
+                mclmc_lrd_tuning,
+                n_warmup=n_warmup,
+                rng_key=key,
+                tuningfork_version=tuningfork_version,
+            )
+            path = recipe.save(root)
+            generated.append(path)
+
+    return generated
 
 
 def _emit_lrd_cert_sweep(
