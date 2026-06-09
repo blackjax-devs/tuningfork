@@ -140,12 +140,21 @@ def squeeze_single_chain(
     for k, v in batched_params.items():
         if isinstance(v, (int, float, bool)):
             params[k] = v
+            continue
+        # Squeeze the leading length-1 chain axis per pytree leaf.  This handles
+        # both flat array params (single leaf) and structured params such as the
+        # LowRankInverseMassMatrix namedtuple (sigma, U, lam) whose leaves have
+        # different ranks — jnp.asarray on the whole value would try to
+        # concatenate those leaves and raise.  Only squeeze when EVERY leaf has a
+        # leading dim of exactly 1; otherwise return the value verbatim.
+        leaves = jax.tree.leaves(v)
+        if leaves and all(
+            hasattr(leaf, "shape") and leaf.shape and leaf.shape[0] == 1
+            for leaf in leaves
+        ):
+            params[k] = jax.tree.map(lambda leaf: leaf[0], v)
         else:
-            arr = jnp.asarray(v)
-            if arr.shape and arr.shape[0] == 1:
-                params[k] = arr[0]
-            else:
-                params[k] = v
+            params[k] = v
     return state, params
 
 

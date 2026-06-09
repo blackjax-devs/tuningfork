@@ -61,6 +61,7 @@ from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
 from tuningfork.recipes._base import Recipe
+from tuningfork.recipes.emit_mclmc_lrd import _emit_mclmc_lrd_recipes_impl
 from tuningfork.warmup import WARMUPS
 
 # Starter model suite: 14 models covering different dimensionalities and geometry types.
@@ -292,82 +293,83 @@ def emit_mclmc_lrd_recipes(
     n_warmup: int = 1000,
     model_names: list[str] | None = None,
     sampler: str | None = None,
+    *,
+    calibrate: bool = False,
+    cert_seeds: tuple[int, ...] = (11111, 22222, 33333),
+    n_samples: int = 1000,
+    num_chains: int = 4,
+    k_rank: int = 40,
 ) -> list[Path]:
-    """Emit MEDIUM-effort MCLMC-LRD candidate recipes using mclmc_lrd_tuning warmup.
+    """Emit MCLMC-LRD candidate recipes using mclmc_lrd_tuning warmup.
 
-    Runs the full LRD warmup pipeline per model/chain: NUTS pilot →
-    rank-k_rank SVD → vmapped mclmc_find_L_and_step_size.  Produces MEDIUM
-    recipes (``effort=Effort.MEDIUM``) for the ``mclmc`` base method paired
-    with ``mclmc_lrd_tuning``.
+    Thin delegate to
+    ``tuningfork.recipes.emit_mclmc_lrd._emit_mclmc_lrd_recipes_impl``.
+    This is the single documented public entry point for LRD recipe emission;
+    all implementation logic lives in that module.
 
-    Recipes are evaluated by the Statistician auto-gate to assess whether
-    LRD preconditioning improves sample quality over the diagonal
-    ``mclmc_tuning`` baseline — particularly for ill-conditioned targets
-    (ill_cond_50, horseshoe, high-dimensional regression models).
+    ``calibrate=False`` (default): emit a single MEDIUM-effort stub recipe per
+    model — one LRD warmup run (NUTS pilot → rank-k SVD →
+    ``mclmc_find_L_and_step_size``) with a deterministic per-recipe key.
 
-    Idempotent: re-running overwrites with deterministic content (same seed).
+    ``calibrate=True``: run the full 3-seed cert sweep, gate on R̂/ESS/div,
+    bake the best PASS seed into a LOW recipe with LRD IMM sidecar.
+
+    Idempotent: re-running overwrites existing files with fresh provenance.
 
     Parameters
     ----------
     seed
-        Base random seed; ``jax.random.fold_in`` derives per-recipe keys
-        deterministically from ``(model_name, method_name, "mclmc_lrd")``.
+        Base random seed for the ``calibrate=False`` stub path.  Ignored when
+        ``calibrate=True`` (use ``cert_seeds`` instead).
     n_warmup
-        Number of LRD adaptation steps (``mclmc_find_L_and_step_size``
-        ``num_steps``).  Separate from ``pilot_n_warmup`` / ``pilot_n_samples``
-        which use their ``mclmc_lrd_tuning`` defaults (1000 each).
-        Default 1000.
+        Number of LRD adaptation steps.  Default 1000.
     model_names
-        If set, restrict to this list of model names.  ``None`` = all
-        ``STARTER_MODEL_NAMES``.
+        Restrict to these models.  ``None`` = all ``STARTER_MODEL_NAMES``.
     sampler
-        If set, restrict to this single base-method name (e.g. ``"mclmc"``).
-        ``None`` = iterate all of ``MCLMC_LRD_METHOD_NAMES``.
+        Restrict to this base-method name (e.g. ``"mclmc"``).
+        ``None`` = all of ``MCLMC_LRD_METHOD_NAMES``.
+    calibrate
+        ``False``: emit stub.  ``True``: run full cert sweep.
+    cert_seeds
+        Seeds for the cert sweep.  Used only when ``calibrate=True``.
+        Default ``(11111, 22222, 33333)``.
+    n_samples
+        Post-warmup samples per chain (``calibrate=True`` only).
+    num_chains
+        Chains for the gate check (``calibrate=True`` only).
+    k_rank
+        LRD approximation rank.  Default 40.
 
     Returns
     -------
-    List of Path objects pointing to written JSON files.
+    list[Path]
+        Paths of written recipe JSON files.
     """
-    mclmc_lrd_tuning = WARMUPS["mclmc_lrd_tuning"]
-    generated: list[Path] = []
     repo_root = Path(__file__).parent.parent.parent.parent
-
-    for model_name in model_names or STARTER_MODEL_NAMES:
-        posterior = MODELS[model_name]
-        for method_name in MCLMC_LRD_METHOD_NAMES:
-            if sampler is not None and method_name != sampler:
-                continue
-            base_method = BASE_METHODS[method_name]
-
-            # Check compatibility (always True for mclmc; guard for future additions).
-            if not mclmc_lrd_tuning.is_compatible(method_name):
-                print(
-                    f"  SKIP  {model_name}/{method_name}: "
-                    f"mclmc_lrd_tuning incompatible"
-                )
-                continue
-
-            # Derive a deterministic per-recipe key via fold_in.
-            hash_val = hash((model_name, method_name, "mclmc_lrd")) & 0xFFFFFFFF
-            key = jax.random.fold_in(jax.random.key(seed), hash_val)
-
-            recipe = Recipe.from_warmup_only(
-                posterior,
-                base_method,
-                mclmc_lrd_tuning,
-                n_warmup=n_warmup,
-                rng_key=key,
-                tuningfork_version=_tuningfork_version,
-            )
-            path = recipe.save(_CATALOG_ROOT)
-            generated.append(path)
-            try:
-                pretty = path.relative_to(repo_root)
-            except ValueError:
-                pretty = path
-            print(f"  MCLMC_LRD {pretty}")
-
-    return generated
+    names: list[str] = (
+        list(model_names) if model_names is not None else list(STARTER_MODEL_NAMES)
+    )
+    paths = _emit_mclmc_lrd_recipes_impl(
+        names,
+        calibrate=calibrate,
+        seed=seed,
+        cert_seeds=cert_seeds,
+        n_warmup=n_warmup,
+        n_samples=n_samples,
+        num_chains=num_chains,
+        k_rank=k_rank,
+        sampler=sampler,
+        catalog_root=_CATALOG_ROOT,
+        tuningfork_version=_tuningfork_version,
+    )
+    label = "MCLMC_LRD(cal)" if calibrate else "MCLMC_LRD"
+    for p in paths:
+        try:
+            pretty = p.relative_to(repo_root)
+        except ValueError:
+            pretty = p
+        print(f"  {label} {pretty}")
+    return paths
 
 
 def emit_high_recipes(
@@ -528,6 +530,28 @@ def main() -> None:
             "{hmc, nuts, mala, barker, rwm, mclmc}."
         ),
     )
+    parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the full cert sweep when emitting mclmc_lrd_tuning recipes "
+            "(warmup + 4-chain sampling, R̂/ESS/div gate, bake best seed).  "
+            "Requires --warmup mclmc_lrd_tuning.  Default: emit stub recipe only."
+        ),
+    )
+    parser.add_argument(
+        "--cert-seeds",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="SEED",
+        help=(
+            "Space-separated integer seeds for the cert sweep "
+            "(e.g. --cert-seeds 11111 22222 33333).  "
+            "Used only with --calibrate.  Default: (11111, 22222, 33333)."
+        ),
+    )
     args = parser.parse_args()
 
     # ── Validation ──────────────────────────────────────────────────────────
@@ -559,6 +583,8 @@ def main() -> None:
         selection.append(f"warmup={args.warmup}")
     if args.sampler is not None:
         selection.append(f"sampler={args.sampler}")
+    if args.calibrate:
+        selection.append("calibrate=True")
     if selection:
         print(f"Emitting candidates filtered by: {', '.join(selection)}")
     else:
@@ -589,8 +615,16 @@ def main() -> None:
             "\nEmitting candidates for warmup=mclmc_lrd_tuning "
             f"({'mclmc' if args.sampler is None else args.sampler})..."
         )
+        _cert_seeds = (
+            tuple(args.cert_seeds)
+            if args.cert_seeds is not None
+            else (11111, 22222, 33333)
+        )
         mclmc_lrd_paths = emit_mclmc_lrd_recipes(
-            model_names=names, sampler=args.sampler
+            model_names=names,
+            sampler=args.sampler,
+            calibrate=args.calibrate,
+            cert_seeds=_cert_seeds,
         )
 
     total = (
