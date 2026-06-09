@@ -11,17 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Calibrated emission of MCLMC-LRD recipes.
+"""Private helpers for MCLMC-LRD calibration sweeps.
 
-``emit_mclmc_lrd_recipes`` drives the two-phase LRD emission pipeline:
-
-  calibrate=False  — MEDIUM stub: run warmup once (default seed), emit recipe.
-                     Byte-identical to the pre-calibration behavior.
-  calibrate=True   — Cert sweep: run warmup + 4-chain sampling for each cert
-                     seed; gate on R̂/ESS/div; bake the best PASS seed into a
-                     LOW recipe with ``bake_warmup=True``; save LRD IMM sidecar.
-
-Used by the statistician's phase (c) certification loop.
+``_emit_lrd_cert_sweep`` is the internal cert-sweep implementation delegated
+to by ``tuningfork.recipes._generate_starter.emit_mclmc_lrd_recipes`` when
+``calibrate=True``.  Do not call directly — use
+``_generate_starter.emit_mclmc_lrd_recipes(calibrate=True)`` instead.
 """
 
 from __future__ import annotations
@@ -44,16 +39,13 @@ from tuningfork.recipes._sweep_runner import (
 )
 from tuningfork.warmup import WARMUPS
 
-__all__ = ["emit_mclmc_lrd_recipes"]
-
 # Default catalog root: tuningfork/catalog/ relative to this file.
 _DEFAULT_CATALOG_ROOT = Path(__file__).resolve().parents[2] / "catalog"
 
 
-def emit_mclmc_lrd_recipes(
+def _emit_lrd_cert_sweep(
     model_names: list[str],
     *,
-    calibrate: bool = False,
     cert_seeds: tuple[int, ...] = (11111, 22222, 33333),
     n_warmup: int = 1000,
     n_samples: int = 1000,
@@ -64,45 +56,39 @@ def emit_mclmc_lrd_recipes(
     effort: Effort = Effort.LOW,
     tuningfork_version: str = "0.0.0.dev0",
 ) -> list[Path]:
-    """Emit calibrated MCLMC-LRD recipes for a list of models.
+    """Run the LRD cert-sweep for a list of models and emit calibrated recipes.
+
+    This is an internal helper — call
+    ``tuningfork.recipes._generate_starter.emit_mclmc_lrd_recipes(calibrate=True)``
+    instead of invoking this directly.
+
+    For each model: run warmup + 4-chain sampling for each seed in
+    ``cert_seeds``; gate on R̂/ESS/div (GATE_RHAT_PASS/GATE_ESS_PASS/
+    GATE_DIV_RATE_PASS from ``_sweep_runner``); if ≥ 2/3 PASS, bake the
+    best PASS seed into a LOW recipe with ``bake_warmup=True`` and save the
+    LRD IMM sidecar.
 
     Parameters
     ----------
     model_names
-        List of model registry names to emit recipes for (e.g.,
-        ``["ill_cond_50", "german_credit"]``).
-    calibrate
-        ``False`` (default): MEDIUM stub — run the LRD warmup once with
-        ``cert_seeds[0]``, emit a recipe with ``effort=Effort.MEDIUM`` and
-        ``bake_warmup=False``.  Byte-identical behavior to pre-calibration.
-        ``True``: cert sweep — run warmup + 4-chain sampling for each seed in
-        ``cert_seeds``; gate on R̂/ESS/div (GATE_RHAT_PASS/GATE_ESS_PASS/
-        GATE_DIV_RATE_PASS from ``_sweep_runner``); if ≥ 2/3 PASS, bake the
-        best PASS seed into a LOW recipe with ``bake_warmup=True``.
+        List of model registry names to sweep (e.g., ``["ill_cond_50"]``).
     cert_seeds
-        Random seeds for the certification sweep.  Only the first seed is used
-        when ``calibrate=False``.
+        Random seeds for the certification sweep.
     n_warmup
-        Number of steps for BOTH the pilot NUTS warmup and MCLMC tuning.
+        Number of steps for both the pilot NUTS warmup and MCLMC tuning.
     n_samples
-        Post-warmup samples per chain for the gate check (only used when
-        ``calibrate=True``).
+        Post-warmup samples per chain for the gate check.
     num_chains
-        Number of sampling chains for the gate check (only used when
-        ``calibrate=True``).  The warmup always uses ``num_chains=1`` (via
-        ``from_warmup_only``).
+        Number of sampling chains for the gate check.  The warmup always
+        uses ``num_chains=1`` (via ``from_warmup_only``).
     k_rank
         LRD approximation rank.
     catalog_root
-        Root directory for the catalog.  Defaults to
-        ``tuningfork/catalog/``.
+        Root directory for the catalog.  Defaults to ``tuningfork/catalog/``.
     variant_label
         Filename-stem label for the emitted recipes (default ``"mclmc_lrd"``).
-        Avoids collision with the diagonal MCLMC recipe.
     effort
-        Effort tier for the emitted recipe when ``calibrate=True``.  Defaults
-        to ``Effort.LOW``.  When ``calibrate=False``, the tier is always
-        ``Effort.MEDIUM``.
+        Effort tier for recipes that PASS (default ``Effort.LOW``).
     tuningfork_version
         Version string to embed in recipe provenance.
 
@@ -114,8 +100,8 @@ def emit_mclmc_lrd_recipes(
     Raises
     ------
     KeyError
-        If a model name is not in ``MODELS`` or if ``"mclmc"`` is not in
-        ``BASE_METHODS`` or ``"mclmc_lrd_tuning"`` is not in ``WARMUPS``.
+        If a model name is not in ``MODELS`` or if ``"mclmc"`` / ``"mclmc_lrd_tuning"``
+        are missing from ``BASE_METHODS`` / ``WARMUPS``.
     """
     root = Path(catalog_root) if catalog_root is not None else _DEFAULT_CATALOG_ROOT
     warmup = WARMUPS["mclmc_lrd_tuning"]
@@ -126,135 +112,118 @@ def emit_mclmc_lrd_recipes(
     for model_name in model_names:
         posterior = MODELS[model_name]
 
-        if not calibrate:
-            # ── MEDIUM stub ──────────────────────────────────────────────────
-            seed = cert_seeds[0]
-            rng_key = jax.random.key(seed)
+        # ── Cert sweep ───────────────────────────────────────────────────────
+        seed_results: list[dict[str, Any]] = []
+
+        for seed in cert_seeds:
+            _result = _run_cert_seed(
+                seed=seed,
+                posterior=posterior,
+                base_method=base_method,
+                warmup=warmup,
+                n_warmup=n_warmup,
+                n_samples=n_samples,
+                num_chains=num_chains,
+                k_rank=k_rank,
+                tuningfork_version=tuningfork_version,
+                variant_label=variant_label,
+            )
+            seed_results.append(_result)
+
+        # Count PASSing seeds.
+        passing = [r for r in seed_results if r["verdict"] == "PASS"]
+        pass_count = len(passing)
+        total = len(seed_results)
+
+        if pass_count >= (total + 1) // 2:  # ≥ ceil(total/2) = 2 out of 3
+            # Bake the best PASS seed (highest ESS/grad).
+            best = max(passing, key=lambda r: r["ess_per_grad"])
             recipe = Recipe.from_warmup_only(
                 posterior,
                 base_method,
                 warmup,
                 n_warmup=n_warmup,
-                rng_key=rng_key,
+                rng_key=jax.random.key(best["seed"]),
                 tuningfork_version=tuningfork_version,
-                effort=Effort.MEDIUM,
+                effort=effort,
+                headline_metric=best["ess_per_grad"],
+                bake_warmup=True,
+                attempted_configurations=[_result_to_dict(r) for r in seed_results],
+                notes=(
+                    f"LRD-MCLMC calibrated: {pass_count}/{total} seeds PASS. "
+                    f"Best seed {best['seed']}: ESS/grad={best['ess_per_grad']:.4f}, "
+                    f"R-hat={best['rhat_max']:.4f}, minESS={best['min_bulk_ess']:.0f}."
+                ),
                 variant_label=variant_label,
             )
+            # Patch gate_evidence with the best-seed diagnostics.
+            import dataclasses
+
+            gate_evidence = {
+                "auto": {
+                    "rhat_max": best["rhat_max"],
+                    "min_bulk_ess": best["min_bulk_ess"],
+                    "n_divergences": best["n_divergences"],
+                    "max_abs_mean_z": None,
+                    "verdict": "PASS",
+                    "ess_per_grad": best["ess_per_grad"],
+                    "total_grad_evals": best["total_grad_evals"],
+                    "seed": best["seed"],
+                    "margins": {},
+                },
+                "override": {
+                    "reason": "",
+                    "statistician_id": "",
+                    "decision": "",
+                },
+            }
+            recipe = dataclasses.replace(recipe, gate_evidence=gate_evidence)
             path = recipe.save(root, imm_sidecar="auto")
-            written_paths.append(path)
         else:
-            # ── Cert sweep ───────────────────────────────────────────────────
-            seed_results: list[dict[str, Any]] = []
+            # < 2/3 PASS: emit a FAILED recipe recording the attempted configs.
+            import dataclasses
 
-            for seed in cert_seeds:
-                _result = _run_cert_seed(
-                    seed=seed,
-                    posterior=posterior,
-                    base_method=base_method,
-                    warmup=warmup,
-                    n_warmup=n_warmup,
-                    n_samples=n_samples,
-                    num_chains=num_chains,
-                    k_rank=k_rank,
-                    tuningfork_version=tuningfork_version,
-                    variant_label=variant_label,
-                )
-                seed_results.append(_result)
+            from tuningfork.recipes._instructions import render_instructions
 
-            # Count PASSing seeds.
-            passing = [r for r in seed_results if r["verdict"] == "PASS"]
-            pass_count = len(passing)
-            total = len(seed_results)
-
-            if pass_count >= (total + 1) // 2:  # ≥ ceil(total/2) = 2 out of 3
-                # Bake the best PASS seed (highest ESS/grad).
-                best = max(passing, key=lambda r: r["ess_per_grad"])
-                recipe = Recipe.from_warmup_only(
-                    posterior,
-                    base_method,
-                    warmup,
-                    n_warmup=n_warmup,
-                    rng_key=jax.random.key(best["seed"]),
-                    tuningfork_version=tuningfork_version,
-                    effort=effort,
-                    headline_metric=best["ess_per_grad"],
-                    bake_warmup=True,
-                    attempted_configurations=[_result_to_dict(r) for r in seed_results],
-                    notes=(
-                        f"LRD-MCLMC calibrated: {pass_count}/{total} seeds PASS. "
-                        f"Best seed {best['seed']}: ESS/grad={best['ess_per_grad']:.4f}, "
-                        f"R-hat={best['rhat_max']:.4f}, minESS={best['min_bulk_ess']:.0f}."
+            recipe_kwargs: dict[str, Any] = dict(
+                model_name=posterior.name,
+                base_method_name=base_method.name,
+                warmup_name="mclmc_lrd_tuning",
+                effort=Effort.FAILED,
+                base_method_params={},
+                warmup_params={"n_warmup": n_warmup},
+                warmups=[
+                    {"name": "mclmc_lrd_tuning", "params": {"n_warmup": n_warmup}}
+                ],
+                headline_metric=None,
+                sample_quality=None,
+                calibration_budget={
+                    "trials": len(seed_results),
+                    "wall_seconds_estimate": sum(
+                        r.get("wall_seconds", 0.0) for r in seed_results
                     ),
-                    variant_label=variant_label,
-                )
-                # Patch gate_evidence with the best-seed diagnostics.
-                import dataclasses
+                    "n_warmup": n_warmup,
+                    "seed_evidence": [_result_to_dict(r) for r in seed_results],
+                },
+                difficulty=None,
+                instructions="",
+                notes=(
+                    f"LRD-MCLMC cert FAILED: {pass_count}/{total} seeds PASS "
+                    f"(need ≥{(total + 1) // 2}).  See calibration_budget.seed_evidence."
+                ),
+                variant_label=variant_label,
+                tuning_seed=cert_seeds[0],
+                tuningfork_version=tuningfork_version,
+                blackjax_version=_get_blackjax_version(),
+                jax_version=_get_jax_version(),
+                timestamp_utc=_now_utc_iso(),
+            )
+            provisional = Recipe(**recipe_kwargs)
+            recipe_kwargs["instructions"] = render_instructions(provisional)
+            recipe = Recipe(**recipe_kwargs)
+            path = recipe.save(root)
 
-                gate_evidence = {
-                    "auto": {
-                        "rhat_max": best["rhat_max"],
-                        "min_bulk_ess": best["min_bulk_ess"],
-                        "n_divergences": best["n_divergences"],
-                        "max_abs_mean_z": None,
-                        "verdict": "PASS",
-                        "ess_per_grad": best["ess_per_grad"],
-                        "total_grad_evals": best["total_grad_evals"],
-                        "seed": best["seed"],
-                        "margins": {},
-                    },
-                    "override": {
-                        "reason": "",
-                        "statistician_id": "",
-                        "decision": "",
-                    },
-                }
-                recipe = dataclasses.replace(recipe, gate_evidence=gate_evidence)
-                path = recipe.save(root, imm_sidecar="auto")
-            else:
-                # < 2/3 PASS: emit a FAILED recipe recording the attempted configs.
-                import dataclasses
-
-                from tuningfork.recipes._instructions import render_instructions
-
-                recipe_kwargs: dict[str, Any] = dict(
-                    model_name=posterior.name,
-                    base_method_name=base_method.name,
-                    warmup_name="mclmc_lrd_tuning",
-                    effort=Effort.FAILED,
-                    base_method_params={},
-                    warmup_params={"n_warmup": n_warmup},
-                    warmups=[
-                        {"name": "mclmc_lrd_tuning", "params": {"n_warmup": n_warmup}}
-                    ],
-                    headline_metric=None,
-                    sample_quality=None,
-                    calibration_budget={
-                        "trials": len(seed_results),
-                        "wall_seconds_estimate": sum(
-                            r.get("wall_seconds", 0.0) for r in seed_results
-                        ),
-                        "n_warmup": n_warmup,
-                        "seed_evidence": [_result_to_dict(r) for r in seed_results],
-                    },
-                    difficulty=None,
-                    instructions="",
-                    notes=(
-                        f"LRD-MCLMC cert FAILED: {pass_count}/{total} seeds PASS "
-                        f"(need ≥{(total + 1) // 2}).  See calibration_budget.seed_evidence."
-                    ),
-                    variant_label=variant_label,
-                    tuning_seed=cert_seeds[0],
-                    tuningfork_version=tuningfork_version,
-                    blackjax_version=_get_blackjax_version(),
-                    jax_version=_get_jax_version(),
-                    timestamp_utc=_now_utc_iso(),
-                )
-                provisional = Recipe(**recipe_kwargs)
-                recipe_kwargs["instructions"] = render_instructions(provisional)
-                recipe = Recipe(**recipe_kwargs)
-                path = recipe.save(root)
-
-            written_paths.append(path)
+        written_paths.append(path)
 
     return written_paths
 
