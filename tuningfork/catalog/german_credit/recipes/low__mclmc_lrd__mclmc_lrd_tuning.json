@@ -1,0 +1,117 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "mclmc",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 2.5788512229919434,
+    "L": 11.581623077392578,
+    "k_rank": 8
+  },
+  "warmup_name": "mclmc_lrd_tuning",
+  "warmup_params": {
+    "n_warmup": 2000,
+    "num_chains": 4,
+    "k_rank": 8,
+    "pilot_n_warmup": 1000,
+    "pilot_n_samples": 1000
+  },
+  "headline_metric": 0.11101748009315061,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 3,
+    "n_warmup": 2000,
+    "n_samples": 2000,
+    "num_chains": 4,
+    "pilot_n_warmup": 1000,
+    "pilot_n_samples": 1000,
+    "warmup_grad_evals": 16000,
+    "sampling_grad_evals": 16000
+  },
+  "difficulty": null,
+  "instructions": "LRD-preconditioned MCLMC on german_credit (26-D logistic regression).\nPipeline: (1) 1000-step NUTS pilot; (2) rank-8 SVD extraction via extract_lrd_from_samples; (3) mclmc_find_L_and_step_size with make_lrd_kernel binding the LowRankInverseMassMatrix.\nk=8 (not full-rank k=26; full-rank overfits the pilot \u2192 R-hat>1.01).\nIMM checkpoint at inverse_mass_matrix_path; load with np.load to skip re-extraction.\nWarmup uses @jax.vmap over mclmc_find_L_and_step_size (the Python-loop workaround in 3171b49 was solving a phantom bug; reverted in 92f8235).",
+  "notes": "Multi-seed hardening: seeds [42, 99, 777]. k=8 is the statistician-approved rank (full-rank k=26 was the R-hat culprit at prior attempt). See attempted_configurations for per-seed gate evidence.",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "mclmc_lrd_tuning",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 4,
+        "k_rank": 8,
+        "pilot_n_warmup": 1000,
+        "pilot_n_samples": 1000
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": 4,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": "recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0029516518476944,
+      "min_bulk_ess": 1776.2796814904098,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.5606290185346054,
+      "verdict": "PASS",
+      "ess_per_grad": 0.11101748009315061,
+      "total_grad_evals": 16000,
+      "seed": 42
+    },
+    "override": {
+      "decision": "",
+      "statistician_id": "",
+      "reason": ""
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": [
+    {
+      "seed": 42,
+      "k": 8,
+      "n_warmup": 2000,
+      "n_samples": 2000,
+      "num_chains": 4,
+      "outcome": "PASS",
+      "rhat_max": 1.002952,
+      "min_bulk_ess": 1776.28,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.5606,
+      "ess_per_grad": 0.111017,
+      "step_size": 2.578851,
+      "L": 11.581623
+    },
+    {
+      "seed": 99,
+      "k": 8,
+      "n_warmup": 2000,
+      "n_samples": 2000,
+      "num_chains": 4,
+      "outcome": "PASS",
+      "rhat_max": 1.004346,
+      "min_bulk_ess": 1746.79,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.2955,
+      "ess_per_grad": 0.109174,
+      "step_size": 2.506173,
+      "L": 12.739114
+    },
+    {
+      "seed": 777,
+      "k": 8,
+      "n_warmup": 2000,
+      "n_samples": 2000,
+      "num_chains": 4,
+      "outcome": "PASS",
+      "rhat_max": 1.002787,
+      "min_bulk_ess": 1749.34,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.0453,
+      "ess_per_grad": 0.109334,
+      "step_size": 2.535969,
+      "L": 11.210209
+    }
+  ],
+  "warmup_grad_evals": 16000
+}
