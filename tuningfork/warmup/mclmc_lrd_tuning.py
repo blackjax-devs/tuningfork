@@ -122,8 +122,10 @@ def _runner(
         run_pilot_nuts,
     )
 
-    # Split rng_key into 3 phases: pilot / chain-init / mclmc-tuning.
-    pilot_key, init_key, warmup_key = jax.random.split(rng_key, 3)
+    # Split rng_key into 2 phases: pilot / chain-init+tuning.
+    # (chain-init and mclmc-tuning keys are derived from init_key via a further
+    # 2*num_chains split below — no separate warmup_key needed.)
+    pilot_key, init_key = jax.random.split(rng_key, 2)
 
     # ── Phase 1: NUTS pilot ───────────────────────────────────────────────────
     pilot_positions = run_pilot_nuts(

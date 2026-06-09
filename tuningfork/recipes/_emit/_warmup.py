@@ -955,8 +955,8 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a(f"_lrd_num_chains = {num_chains}")
     a("")
     a(
-        "_lrd_pilot_key, _lrd_init_key, _lrd_tune_base_key = jax.random.split("
-        "jax.random.key(_lrd_tuning_seed), 3)"
+        "_lrd_pilot_key, _lrd_init_key = jax.random.split("
+        "jax.random.key(_lrd_tuning_seed), 2)"
     )
     a("")
     a("# ── Phase 1: NUTS pilot (inline run_pilot_nuts) ──────────────────────────")
@@ -1007,6 +1007,10 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("_lrd_V = _lrd_Vt.T")
     a("_lrd_N = _lrd_flat_std.shape[0]")
     a("_lrd_lam_all = (_lrd_S ** 2) / _lrd_N")
+    a("# Clamp k_rank to the number of available SVD modes: svd(full_matrices=False)")
+    a("# on a (pilot_n_samples, d) matrix yields min(pilot_n_samples, d) singular")
+    a("# values, so slicing [:k_rank] silently truncates when k_rank exceeds that.")
+    a("_lrd_k_rank = min(_lrd_k_rank, _lrd_lam_all.shape[0])")
     a("_lrd_sort_idx = jnp.argsort(jnp.abs(_lrd_lam_all - 1.0))[::-1]")
     a("_lrd_top_idx = _lrd_sort_idx[:_lrd_k_rank]")
     a("_lrd_lam = _lrd_lam_all[_lrd_top_idx]")
