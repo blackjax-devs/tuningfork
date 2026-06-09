@@ -85,6 +85,40 @@ as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
 - External LRD coordinate-whitening on NCP models: **FAIL** (breaks prior-centering).
   Fundamental incompatibility, not a tuning issue.
 
+## Recipe regen (stoch_vol LRD flat-init, NUTS-pilot path)
+
+**STATUS: DEFERRED** — LRD calibration track stopped per mission fallback (2026-06-10).
+Phase (c) Track 2: 0/3 cert seeds ERROR (mixed-rank pytree crash in `_run_cert_seed`
+before sampling completed). See `tuningfork/docs/phase_c_track2_failure_analysis_2026_06_09.md`.
+`scripts/calibrate_stoch_vol_lrd.py` is the sole provenance for the committed artifacts
+until @user authorises a retry.
+
+The committed artifacts are:
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.json` — golden recipe (k=30, 2-seed REVIEW, script-baked)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz` — rank-30 LRD IMM sidecar (from seed=42 pilot)
+
+**Note:** This is the flat-init NCP variant, NOT the registered `stoch_vol` model.
+The registered model uses stationary init (`h[0] = mu + (sigma/sqrt(1-phi^2)) * h_std[0]`);
+the flat-init variant uses `h[0] = mu + sigma * h_std[0]` to reduce phi coupling.
+
+**To regenerate** (once @user authorises retry and mixed-rank fix is on main):
+Re-run `scripts/calibrate_stoch_vol_lrd.py` with the same parameters, or if
+stoch_vol is registered, use:
+```bash
+uv run python -m tuningfork.recipes._generate_starter \
+    --warmup mclmc_lrd_tuning --only stoch_vol \
+    --calibrate --cert-seeds <seeds> --n-warmup 3000 --n-samples 2000 --k-rank 30
+```
+Statistician-approved config (2026-06-09):
+- k=30 (not full-rank k=50 — higher rank degrades R-hat on the funnel neck)
+- n_warmup=3000, n_samples=2000, num_chains=4
+- NUTS pilot: pilot_n_warmup=1000, pilot_n_samples=1000 (single chain)
+- Seeds [42, 99] (two-seed protocol)
+- Expected verdict: REVIEW (R-hat 1.01–1.05; funnel geometry limits mixing)
+
+The standard `mclmc_lrd_tuning` warmup path via the generator requires model
+registration. Until then, regeneration requires `scripts/calibrate_stoch_vol_lrd.py`.
+
 ## History
 
 The following case studies document the investigation path and distilled lessons:

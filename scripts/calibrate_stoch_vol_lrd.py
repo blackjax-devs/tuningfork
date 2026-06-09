@@ -1,3 +1,25 @@
+# DEFERRED — stoch_vol LRD calibration track stopped per mission fallback (2026-06-10).
+#
+# Phase (c) Track 2 result: 0/3 cert seeds ERROR before sampling completed.
+# Root cause: mixed-rank parameter pytree (h:(500,), phi/sigma/mu:()) triggers
+# TypeError in _run_cert_seed's rhat/ESS aggregation step.
+# Fix committed in blackjax feat/calibrated-emission (76e1dfd); see:
+#   tuningfork/docs/phase_c_track2_failure_analysis_2026_06_09.md
+#
+# Status: this script is the SOLE PROVENANCE for the committed stoch_vol LRD
+# artifacts until the mixed-rank pytree bug is verified fixed and the track
+# is re-opened by @user ruling. DO NOT DELETE — the catalog recipe was not
+# regenerated via library path this mission.
+#
+# When @user authorises retry:
+#   1. Verify fix 76e1dfd is on main.
+#   2. If stoch_vol is registered: use the standard generator CLI:
+#      uv run python -m tuningfork.recipes._generate_starter \
+#          --warmup mclmc_lrd_tuning --only stoch_vol \
+#          --calibrate --cert-seeds <seeds> --n-warmup 3000 --n-samples 2000 --k-rank 30
+#   3. If still unregistered (flat-init NCP variant): re-run this script.
+#      Restart the 3-attempt cert clock from zero.
+#
 """Calibrate stoch_vol LRD-MCLMC recipe (flat-init NCP experimental variant).
 
 Protocol (statistician-approved, 2026-06-09):

@@ -1451,7 +1451,11 @@ def test_round_trip_ill_cond_50_mclmc_lrd(tmp_path: Path) -> None:
     )
     assert recipe_path.exists(), (
         f"Golden ill_cond_50 LRD recipe not found at {recipe_path}. "
-        "Run scripts/emit_ill_cond_50_lrd_recipe.py to create it."
+        "Regenerate with: "
+        "uv run python -m tuningfork.recipes._generate_starter "
+        "--warmup mclmc_lrd_tuning --only ill_cond_50 "
+        "--calibrate --cert-seeds 77777 88888 99999 "
+        "(see tuningfork/catalog/ill_cond_50/lessons.md for full regen steps)."
     )
     recipe = Recipe.load(recipe_path)
     assert recipe.warmup_name == "mclmc_lrd_tuning", (

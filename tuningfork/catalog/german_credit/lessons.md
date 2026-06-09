@@ -47,6 +47,33 @@ pilot is required. See `catalog/mclmc-routing-taxonomy.md` §5.
 
 - `mclmc` + `mclmc_tuning` (diagonal): fails due to covariate collinearity.
 
+## Recipe regen (german_credit LRD, NUTS-pilot path)
+
+The committed artifacts are:
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (k=8, step_size≈3.009, L≈11.175, best seed=77777)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz` — rank-8 LRD IMM sidecar, shape sigma=(26,)/U=(26,8)/lam=(8,)
+
+**Standard regen command** (re-runs NUTS pilot + 3-seed cert sweep, deterministic):
+
+```bash
+uv run python -m tuningfork.recipes._generate_starter \
+    --warmup mclmc_lrd_tuning --only german_credit \
+    --calibrate --cert-seeds 77777 88888 99999 \
+    --n-warmup 2000 --n-samples 2000 --k-rank 8
+```
+
+Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1512–1951 (az.ess bulk basis),
+R-hat < 1.001. Gate uses az.ess(method="bulk") ≥ 400. k=8, n_warmup=2000, n_samples=2000.
+
+Note: old script-baked golden claimed minESS≈1776 via ArviZ on 4-chain warmup average;
+library-baked golden measures 1512–1951 via az.ess on 4 independent cert chains — same
+method, different chain aggregation. Divergence confirmed as chain-averaging vs per-chain
+difference (D1/D3 analysis, thread file 2026-06-10).
+
+**Why k=8 not k=26?** Full-rank (k=26 = d) LRD overfits the NUTS-pilot samples,
+inflating λ for directions with low pilot coverage. R-hat > 1.01 at k=26 is the
+signal. k=8 captures the dominant collinear axes without overfitting.
+
 ## History
 
 2026-06-09: MCLMC LRD integration experiment (tuningfork PR #176 / blackjax PR #936).
