@@ -29,14 +29,66 @@ Requires pytree_size(position) >= 2 (enforced by blackjax upstream).
 Adaptation: BlackJAX provides blackjax.mclmc_find_L_and_step_size as a
 dedicated warmup routine. BO tuning will dispatch to it based on
 BaseMethod.name. This module only declares the entry.
+
+LRD Preconditioning: ``make_lrd_kernel`` is the permanent production entry point
+for running MCLMC with a Low-Rank + Diagonal (LRD) inverse mass matrix.  It
+wraps the upstream blackjax kernel (whose isokinetic_mclachlan integrator
+dispatches natively on ``LowRankInverseMassMatrix`` since blackjax PR #936) and
+statically binds the LRD mass matrix so that
+``blackjax.mclmc_find_L_and_step_size`` (which uses ``diagonal_preconditioning=False``)
+always receives the correct geometry during warmup.
 """
+
+from collections.abc import Callable
+from typing import Any
 
 import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 
-__all__ = ["ENTRY"]
+__all__ = ["ENTRY", "make_lrd_kernel"]
+
+
+def make_lrd_kernel(lrd_imm: Any) -> Callable:
+    """Wrap the upstream blackjax mclmc kernel with a statically-bound LRD mass matrix.
+
+    Now that ``blackjax.mcmc.integrators.isokinetic_mclachlan`` dispatches natively on
+    ``LowRankInverseMassMatrix`` (landed in blackjax PR #936), this thin closure is the
+    only tuningfork-side wiring needed: it binds the LRD mass matrix so that
+    ``mclmc_find_L_and_step_size(..., diagonal_preconditioning=False)`` always sees the
+    correct geometry during warmup regardless of the placeholder IMM the warmup passes.
+
+    Parameters
+    ----------
+    lrd_imm
+        A ``blackjax.mcmc.metrics.LowRankInverseMassMatrix`` instance.
+
+    Returns
+    -------
+    kernel
+        A callable with the same signature as ``blackjax.mclmc.build_kernel()``'s output
+        but with ``lrd_imm`` baked in.
+
+    Example
+    -------
+    >>> from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+    >>> from tuningfork.base_method.mclmc import make_lrd_kernel
+    >>> lrd_imm = LowRankInverseMassMatrix(sigma=sigma, U=U, lam=lam)
+    >>> kernel = make_lrd_kernel(lrd_imm)
+    >>> adapted_state, params, _ = blackjax.mclmc_find_L_and_step_size(
+    ...     kernel, num_steps=1000, state=state, rng_key=key,
+    ...     logdensity_fn=logdensity_fn, diagonal_preconditioning=False)
+    """
+    base_kernel = blackjax.mclmc.build_kernel()
+
+    def kernel(rng_key, state, logdensity_fn, inverse_mass_matrix, L, step_size):
+        # Always route through lrd_imm; the warmup passes a placeholder diagonal
+        # when diagonal_preconditioning=False, which we deliberately override here.
+        return base_kernel(rng_key, state, logdensity_fn, lrd_imm, L, step_size)
+
+    return kernel
+
 
 ENTRY = BaseMethod(
     name="mclmc",
