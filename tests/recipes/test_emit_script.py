@@ -1799,3 +1799,76 @@ def test_emit_script_progress_bar_true_warns() -> None:
     # The emitted script should NOT contain jax.vmap (forced single-chain).
     # Verify the warning was triggered by checking the script was still emitted.
     assert isinstance(script, str) and len(script) > 0
+
+
+# ── C5 regression guard: unadjusted mclmc info-fields ────────────────────────
+
+
+@pytest.mark.fast
+def test_mclmc_unadjusted_info_diagnostics_no_acceptance_rate() -> None:
+    """C5: unadjusted mclmc emits NaN acceptance (not _infos.acceptance_rate).
+
+    MCLMCInfo._fields = (logdensity, kinetic_change, energy_change, nonans) —
+    no acceptance_rate.  _build_info_diagnostics_block must NOT emit
+    `_infos.acceptance_rate` for 'mclmc'.  adjusted_mclmc IS MH-adjusted and
+    MUST still have the acceptance_rate line.
+    """
+    from tuningfork.recipes._emit_script import (
+        _build_draws_ss_block,
+        _build_info_diagnostics_block,
+    )
+
+    # unadjusted mclmc — acceptance_rate absent in MCLMCInfo
+    mclmc_diag = _build_info_diagnostics_block("mclmc")
+    assert "acceptance_rate" not in mclmc_diag, (
+        "C5 regression: _build_info_diagnostics_block emitted acceptance_rate "
+        "for 'mclmc'. MCLMCInfo has no such field — this crashes at runtime."
+    )
+    assert (
+        '_acceptance = float("nan")' in mclmc_diag
+    ), "unadjusted mclmc must still initialise _acceptance to NaN."
+
+    mclmc_ss = _build_draws_ss_block("mclmc")
+    assert (
+        "acceptance_rate" not in mclmc_ss
+    ), "C5 regression: _build_draws_ss_block emitted acceptance_rate for 'mclmc'."
+
+    # adjusted_mclmc IS MH-adjusted — must retain acceptance_rate
+    adj_diag = _build_info_diagnostics_block("adjusted_mclmc")
+    assert (
+        "acceptance_rate" in adj_diag
+    ), "adjusted_mclmc must retain acceptance_rate in info-diagnostics block."
+
+    adj_ss = _build_draws_ss_block("adjusted_mclmc")
+    assert (
+        "acceptance_rate" in adj_ss
+    ), "adjusted_mclmc must retain acceptance_rate in draws-ss block."
+
+
+@pytest.mark.fast
+def test_mclmc_unadjusted_emitted_script_no_acceptance_rate() -> None:
+    """C5: end-to-end check — emitted script for mclmc × mclmc_tuning has no
+    _infos.acceptance_rate reference.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="mclmc",
+        warmup_name="mclmc_tuning",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "L": 1.0},
+        warmup_params={"n_warmup": 10, "num_chains": 2},
+        warmups=[{"name": "mclmc_tuning", "params": {"n_warmup": 10, "num_chains": 2}}],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_chains=2)
+    assert "_infos.acceptance_rate" not in script, (
+        "C5 regression: emitted mclmc script contains '_infos.acceptance_rate'. "
+        "MCLMCInfo has no such field — this crashes at runtime."
+    )

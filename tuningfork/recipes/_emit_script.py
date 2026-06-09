@@ -124,6 +124,11 @@ _SAMPLERS_WITH_IS_DIVERGENT = frozenset(
 )
 # acceptance_rate: all MCMC except VI; VI only has elbo.
 _VI_SAMPLER_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+# Unadjusted MCLMC has MCLMCInfo._fields=(logdensity,kinetic_change,energy_change,nonans)
+# — no acceptance_rate, no is_divergent, no is_accepted.  adjusted_mclmc /
+# adjusted_mclmc_dynamic ARE MH-adjusted and DO have acceptance_rate, so they stay
+# on the default path.
+_MCLMC_UNADJUSTED_NAMES = frozenset({"mclmc"})
 # is_accepted (in addition to acceptance_rate): HMC + MH-family except pure NUTS.
 # NUTS has acceptance_rate but not is_accepted.
 _SAMPLERS_WITH_IS_ACCEPTED = frozenset(
@@ -163,7 +168,10 @@ def _build_info_diagnostics_block(sampler_name: str) -> str:
     ]
     if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
         lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
-    if sampler_name not in _VI_SAMPLER_NAMES:
+    if (
+        sampler_name not in _VI_SAMPLER_NAMES
+        and sampler_name not in _MCLMC_UNADJUSTED_NAMES
+    ):
         lines.append("_acceptance = float(jnp.mean(_infos.acceptance_rate))")
     return "\n".join(lines)
 
@@ -184,7 +192,10 @@ def _build_draws_ss_block(sampler_name: str) -> str:
         fields.append("energy")
     if sampler_name in _SAMPLERS_WITH_NIS_STAT:
         fields.append("num_integration_steps")
-    fields.append("acceptance_rate")
+    # Unadjusted MCLMC (MCLMCInfo) has no acceptance_rate field.
+    # adjusted_mclmc / adjusted_mclmc_dynamic are MH-adjusted and DO have it.
+    if sampler_name not in _MCLMC_UNADJUSTED_NAMES:
+        fields.append("acceptance_rate")
     if sampler_name in _SAMPLERS_WITH_IS_ACCEPTED:
         fields.append("is_accepted")
 
