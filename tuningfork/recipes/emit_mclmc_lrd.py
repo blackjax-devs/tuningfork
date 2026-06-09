@@ -39,6 +39,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
@@ -283,6 +284,19 @@ def _emit_lrd_cert_sweep(
             clean_adapted = {
                 k: v for k, v in adapted_params.items() if not k.startswith("_")
             }
+            # De-broadcast LRD IMM: the certified runner stores the shared LRD as a
+            # (num_chains, d[, k]) batched namedtuple so jax.vmap can slice per chain.
+            # Goldens/sidecars use the unbatched (d,)/(d,k)/(k,) format — take leaf[0]
+            # (broadcast is lossless: all chains share the same extracted IMM).
+            if "inverse_mass_matrix" in clean_adapted:
+                imm_batched = clean_adapted["inverse_mass_matrix"]
+                if isinstance(imm_batched, LowRankInverseMassMatrix):
+                    clean_adapted = dict(clean_adapted)
+                    clean_adapted["inverse_mass_matrix"] = LowRankInverseMassMatrix(
+                        sigma=imm_batched.sigma[0],
+                        U=imm_batched.U[0],
+                        lam=imm_batched.lam[0],
+                    )
             # Merge with base-method defaults (adapted values win).
             base_params = {**default_params_for(base_method), **clean_adapted}
             # Coerce JAX arrays → Python scalars/lists; LRD namedtuple passes through.

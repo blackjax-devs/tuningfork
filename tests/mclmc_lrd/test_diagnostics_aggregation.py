@@ -90,10 +90,16 @@ def test_cert_sweep_bakes_from_adapted_params_exactly(tmp_path, monkeypatch):
     # floats that a re-run warmup would never accidentally reproduce.
     _sentinel_step_size = jnp.array(0.12345678)
     _sentinel_L = jnp.array(9.87654321)
+    # Use a BATCHED IMM (num_chains=2, d=5, k=3) matching the certified runner's
+    # output format.  The bake step must de-broadcast to (d,)/(d,k)/(k,) before
+    # writing the sidecar — this test verifies that slice [0] is taken correctly.
+    _sigma_row = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])  # sentinel row, shape (5,)
+    _U_row = jnp.eye(5, 3)  # sentinel U slice, shape (5, 3)
+    _lam_row = jnp.array([1.0, 0.5, 0.25])  # sentinel lam slice, shape (3,)
     _sentinel_imm = LowRankInverseMassMatrix(
-        sigma=jnp.ones(5),
-        U=jnp.eye(5, 3),
-        lam=jnp.array([1.0, 0.5, 0.25]),
+        sigma=jnp.stack([_sigma_row, _sigma_row * 2]),  # (2, 5) — two identical chains
+        U=jnp.stack([_U_row, _U_row]),  # (2, 5, 3)
+        lam=jnp.stack([_lam_row, _lam_row]),  # (2, 3)
     )
 
     fake_result = {
@@ -153,6 +159,26 @@ def test_cert_sweep_bakes_from_adapted_params_exactly(tmp_path, monkeypatch):
     assert (
         recipe.inverse_mass_matrix_path is not None
     ), "Expected LRD sidecar to be written for LowRankInverseMassMatrix"
+
+    # De-broadcast assertion: sidecar must contain UNBATCHED (d,)/(d,k)/(k,) arrays,
+    # NOT the (num_chains,d)/(num_chains,d,k)/(num_chains,k) form from adapted_params.
+    saved_imm = recipe.load_imm_sidecar(tmp_path)
+    assert saved_imm is not None, "load_imm_sidecar returned None after save"
+    assert saved_imm.sigma.shape == (5,), (
+        f"De-broadcast regression: expected sigma.shape=(5,), got {saved_imm.sigma.shape}. "
+        "Bake must take leaf[0] of the batched IMM before writing the sidecar."
+    )
+    assert saved_imm.U.shape == (
+        5,
+        3,
+    ), f"De-broadcast regression: expected U.shape=(5,3), got {saved_imm.U.shape}."
+    assert saved_imm.lam.shape == (
+        3,
+    ), f"De-broadcast regression: expected lam.shape=(3,), got {saved_imm.lam.shape}."
+    # Verify the de-broadcast took chain-0's values (not chain-1's which differ).
+    assert jnp.allclose(
+        saved_imm.sigma, _sigma_row
+    ), "De-broadcast: sigma values don't match chain-0 slice of batched IMM."
 
     # k_rank provenance must be in calibration_budget.baked_from.
     baked_from = recipe.calibration_budget.get("baked_from", {})

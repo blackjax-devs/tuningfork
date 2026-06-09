@@ -133,9 +133,11 @@ def test_mclmc_lrd_tuning_warmup_returns_lrd_imm():
 
     imm = adapted_params["inverse_mass_matrix"]
     assert isinstance(imm, LowRankInverseMassMatrix), type(imm)
-    assert imm.sigma.shape == (50,), imm.sigma.shape  # d=50 for ill_cond_50
-    assert imm.U.shape == (50, 10), imm.U.shape  # k=10
-    assert imm.lam.shape == (10,), imm.lam.shape
+    # Certified runner broadcasts the shared LRD IMM to a leading num_chains axis
+    # (mclmc_lrd_tuning.py:43-47) — with num_chains=1 the shapes are (1,d)/(1,d,k)/(1,k).
+    assert imm.sigma.shape == (1, 50), imm.sigma.shape  # (num_chains=1, d=50)
+    assert imm.U.shape == (1, 50, 10), imm.U.shape  # (num_chains=1, d=50, k=10)
+    assert imm.lam.shape == (1, 10), imm.lam.shape  # (num_chains=1, k=10)
 
     # step_size and L should have leading dim num_chains=1.
     assert adapted_params["step_size"].shape == (1,)
