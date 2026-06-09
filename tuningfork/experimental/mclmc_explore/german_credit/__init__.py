@@ -1,1 +1,0 @@
-# German credit package

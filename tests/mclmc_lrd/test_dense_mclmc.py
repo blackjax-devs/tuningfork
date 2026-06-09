@@ -11,14 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Test dense preconditioned (coordinate-whitened) MCLMC vs diagonal MCLMC on ill_cond_50."""
+"""Test dense preconditioned (coordinate-whitened) MCLMC vs diagonal MCLMC on ill_cond_50.
+
+Integrator ladder step 1: dense Cholesky oracle (O(d²) — baseline only).
+See catalog/mclmc-routing-taxonomy.md for the full ladder context.
+
+Run: python -m tests.mclmc_lrd.test_dense_mclmc
+"""
 
 import blackjax
 import jax
 import jax.numpy as jnp
 
+from tuningfork.base_method.mclmc_lrd_utils import run_dense_mclmc
 from tuningfork.calibration.statistician_gate import auto_gate
-from tuningfork.experimental.mclmc_explore.mclmc_advanced_tuning import run_dense_mclmc
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.model.ill_cond_50 import COV
@@ -52,7 +58,6 @@ def run_diagonal_mclmc(
         )
         return adapted_state, adaptation_state
 
-    # Replicate init_position across chains
     init_positions = jax.tree.map(
         lambda x: jnp.tile(x, (num_chains, *([1] * x.ndim))), init_position
     )
@@ -85,7 +90,6 @@ def run_diagonal_mclmc(
 
 
 def main():
-    # Force CPU backend for testing consistency
     jax.config.update("jax_platform_name", "cpu")
 
     print("Loading ill_cond_50 model and true covariance...")
@@ -105,7 +109,6 @@ def main():
     print(f"Diagonal MCLMC Verdict: {diag_gate_result.verdict}")
 
     print("\n--- Running Coordinate-Whitened (Dense) MCLMC ---")
-    # COV is the exact covariance of the ill_cond_50 target (dense inverse mass matrix)
     dense_samples, _ = run_dense_mclmc(
         logdensity_fn, init_position, COV, run_key, n_warmup=1000, n_samples=1000
     )
@@ -115,8 +118,6 @@ def main():
     print(f"Dense preconditioned MCLMC Verdict: {dense_gate_result.verdict}")
 
     print("\n--- Validation Assertion Checks ---")
-    # Coordinate-whitened MCLMC should pass or review with a very low R-hat (e.g. < 1.05 or < 1.01)
-    # whereas diagonal MCLMC on this highly ill-conditioned (rotated κ=1000) space typically fails completely.
     assert (
         dense_gate_result.rhat_max < 1.05
     ), f"Dense MCLMC failed to achieve low R-hat: {dense_gate_result.rhat_max:.4f}"
@@ -127,8 +128,6 @@ def main():
         "PASS",
         "REVIEW",
     ), f"Dense MCLMC verdict is FAIL: {dense_gate_result.verdict}"
-
-    # Verify standard diagonal MCLMC performed significantly worse (usually fails completely with R-hat > 1.1)
     assert (
         diag_gate_result.rhat_max > dense_gate_result.rhat_max
     ), "Dense preconditioning did not improve R-hat over diagonal!"

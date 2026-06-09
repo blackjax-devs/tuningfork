@@ -2,23 +2,67 @@
 
 ## TL;DR
 
-No significant sampling quirks documented — model has well-conditioned geometry or has not yet been extensively probed. Library defaults pass at LOW effort.
+NUTS PASS at LOW effort. `adjusted_mclmc` and `adjusted_mclmc_dynamic` PASS at MEDIUM
+effort (10k warmup). LRD preconditioning provides **no benefit** over diagonal on this
+model — the bottleneck is local sparsity funnel curvature (Cauchy tail transitions),
+not global correlation. MH correction is load-bearing for stability.
 
 ## Canonical recipe
 
-Placeholder: once recipes are generated, link to `recipes/low__nuts__window_adaptation_diag_imm.json` or the appropriate LOW-effort baseline.
+**NUTS** (default): `recipes/low__nuts__window_adaptation_diag_imm.json` — PASS.
+
+**MCLMC family**: `adjusted_mclmc_dynamic` at 10k warmup — REVIEW (gate-clearing),
+ESS=281.9. See `recipes/low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json`.
 
 ## Sampling quirks
 
-None documented yet. Early probes show the model samples cleanly at default NUTS + window-adaptation settings.
+### Dual pathology: heavy Cauchy tails + design matrix correlations
+The horseshoe model uses half-Cauchy priors for local and global shrinkage scales,
+creating:
+- Extremely flat, weak-gradient regions far from the sparsity funnel.
+- Strong linear correlations among coefficients from the design matrix structure.
+
+Despite this dual pathology, the **spherical ESH dynamics** of MCLMC are resilient to
+the Cauchy tails — the spherical integrator does not diverge in flat regions.
+
+### LRD preconditioning: no benefit (REVIEW, 2026-06-09)
+`adjusted_mclmc_dynamic` with LRD (k=50, NUTS-pilot extraction) achieves:
+- R-hat=1.0193, ESS=270.7, verdict REVIEW
+
+This is **equivalent to** the diagonal baseline (`adjusted_mclmc_dynamic` at the same
+warmup): R-hat=1.0160, ESS=281.9. LRD provides no ESS improvement.
+
+**Scientific conclusion:** The dominant bottleneck on horseshoe is the local funnel
+transition (coefficient to zero via the Cauchy shrinkage scale), not global correlation.
+A global linear LRD mass matrix cannot flatten position-dependent funnel curvature.
+The routing decision is: `adjusted_mclmc_dynamic` is the correct MCLMC variant for
+horseshoe; LRD is unnecessary overhead.
+
+The original experimental label "Outstanding Success!" was an overstatement. LRD
+performs equivalently to the diagonal baseline — a correct REVIEW result, not an
+outstanding one.
+
+### Step-size scaling for adjusted samplers (0.55× factor)
+`mclmc_find_L_and_step_size` (unadjusted warmup) adapts a large step_size optimized
+for rejection-free trajectories. When running `adjusted_mclmc_dynamic`, scale the
+adapted step_size by 0.55 to target ~94% acceptance probability. This is the
+empirically validated scaling for horseshoe; see `test_internal_lrd_horseshoe.py`.
+
+### Cauchy-tail resilience result (recipes/low__adjusted_mclmc__adjusted_mclmc_tuning.json)
+At 10k warmup, `adjusted_mclmc` achieves R-hat=1.0186, ESS=262.3 — the MH correction
+successfully stabilizes exploration of the flat Cauchy tails.
 
 ## Known-bad combinations
 
-None documented yet. R1+ will backfill FAILED recipes for hard-excluded cells in the recipe matrix (if any).
+None documented. `adjusted_mclmc` and `adjusted_mclmc_dynamic` both pass at MEDIUM effort.
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/horseshoe/`.
+2026-06-09: MCLMC LRD integration experiment (tuningfork PR #176 / blackjax PR #936).
+LRD equivalence-to-baseline finding recorded; routing lesson: route horseshoe to
+`adjusted_mclmc_dynamic` without LRD overhead.
+See `catalog/mclmc-routing-taxonomy.md` §3 (Category C routing).
+See `tests/mclmc_lrd/test_internal_lrd_horseshoe.py` for the runnable script.
 
 ## Citations
 

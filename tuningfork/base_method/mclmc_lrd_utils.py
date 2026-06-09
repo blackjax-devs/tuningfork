@@ -439,14 +439,10 @@ def run_internal_lrd_mclmc(
     warmup_keys = jax.random.split(warmup_key, num_chains)
     sampling_keys = jax.random.split(sampling_key, num_chains)
 
-    # Python loop over chains for warmup — mclmc_find_L_and_step_size contains
-    # a while_loop / FFT-based Welford step that is not safely vmappable (XLA
-    # C-level abort).  Same pattern as the window_adaptation vmap workaround.
-    # The sampling phase stays vmapped (jax.lax.scan only — no dynamic shapes).
+    @jax.vmap
     def _warmup_one_chain(k):
         init_k, tune_k = jax.random.split(k)
-        x_start = init_position  # same starting position for all chains
-        state = blackjax.mcmc.mclmc.init(x_start, logdensity_fn, init_k)
+        state = blackjax.mcmc.mclmc.init(init_position, logdensity_fn, init_k)
         kernel = make_lrd_kernel(lrd_imm)
         adapted_state, adaptation_state, _ = blackjax.mclmc_find_L_and_step_size(
             kernel,
@@ -458,12 +454,7 @@ def run_internal_lrd_mclmc(
         )
         return adapted_state, adaptation_state
 
-    per_chain = [_warmup_one_chain(warmup_keys[i]) for i in range(num_chains)]
-    # Stack into batched PyTrees: each leaf gets a leading num_chains axis.
-    adapted_states = jax.tree.map(lambda *xs: jnp.stack(xs), *[s for s, _ in per_chain])
-    adaptation_states = jax.tree.map(
-        lambda *xs: jnp.stack(xs), *[p for _, p in per_chain]
-    )
+    adapted_states, adaptation_states = _warmup_one_chain(warmup_keys)
 
     @jax.vmap
     def run_sampling_one(k, state, params):

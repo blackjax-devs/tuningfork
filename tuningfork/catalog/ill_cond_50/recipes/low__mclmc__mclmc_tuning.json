@@ -1,0 +1,51 @@
+{
+  "model_name": "ill_cond_50",
+  "base_method_name": "mclmc",
+  "effort": "low",
+  "base_method_params": {},
+  "warmup_name": "mclmc_tuning",
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4
+  },
+  "headline_metric": 0.2492,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 4,
+    "wall_seconds_estimate": 7.0,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "LRD-preconditioned mclmc on ill_cond_50 (kappa=1000 rotated Gaussian).\nPipeline: (1) 1000-step diagonal NUTS pilot; (2) rank-40 SVD extraction via\n`extract_lrd_from_samples`; (3) `mclmc_find_L_and_step_size` with `make_lrd_kernel`\nbinding the LowRankInverseMassMatrix.\nSee `tuningfork/catalog/mclmc-routing-taxonomy.md` for routing context.\nExpected ESS/grad: ~0.249 (426x over diagonal baseline at 0.0006).",
+  "notes": "LRD preconditioning (k=40, pilot NUTS extraction) is required — diagonal mclmc_tuning fails (see failed__mclmc__mclmc_tuning.json). This recipe documents the certified LRD outcome; the inverse_mass_matrix is extracted adaptively at runtime via a NUTS pilot run. Multi-seed hardening: seeds 11111/22222/33333 all PASS at ESS 1944-2030 (@statistician, 2026-06-09).",
+  "step_policy": null,
+  "warmups": [{"name": "mclmc_tuning", "params": {"n_warmup": 1000, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0039,
+      "min_bulk_ess": 1993.3,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "ess_per_grad": 0.2492,
+      "total_grad_evals": 16000,
+      "seed": 98765
+    },
+    "override": {
+      "decision": "PASS",
+      "statistician_id": "stat-2026-06-09",
+      "date": "2026-06-09",
+      "reason": "Independent reproduction confirmed. LRD k=40 (NUTS-pilot extracted) achieves R-hat=1.0039, ESS=1993.3, ESS/grad=0.2492 vs diagonal ESS/grad=0.0006 (426x improvement). Multi-seed hardening (seeds 11111/22222/33333) all PASS at ESS 1944-2030. diagonal mclmc_tuning is an honest FAIL on kappa=1000 at any practical warmup budget (see failed__mclmc__mclmc_tuning.json). LRD is the only viable mclmc path for this geometry."
+    }
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": [],
+  "warmup_grad_evals": null
+}

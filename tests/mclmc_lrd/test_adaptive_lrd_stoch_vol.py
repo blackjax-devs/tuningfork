@@ -11,24 +11,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Stress-test Adaptive LRD MCLMC on the high-dimensional stoch_vol (d=503) model."""
+"""Stress-test Adaptive (external) LRD MCLMC on stoch_vol (d=503).
+
+Expected result: FAIL — R-hat=2.0536, ESS=5.4.
+The external coordinate-whitening translates positions by the posterior mean,
+which breaks the prior-centered AR(1) structure and causes step-size collapse.
+This is a crucial negative result: use internal LRD for hierarchical models.
+
+See catalog/stoch_vol/lessons.md for full analysis of both variants.
+Run: python -m tests.mclmc_lrd.test_adaptive_lrd_stoch_vol
+"""
 
 import time
 
 import jax
 
-from tuningfork.calibration.statistician_gate import auto_gate
-from tuningfork.experimental.mclmc_explore.ill_cond_50.test_adaptive_lrd import (
+from tuningfork.base_method.mclmc_lrd_utils import (
     extract_lrd_from_samples,
     run_adaptive_low_rank_mclmc,
     run_pilot_nuts,
 )
+from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
 
 
 def main():
-    # Force CPU backend
     jax.config.update("jax_platform_name", "cpu")
 
     print("Loading stoch_vol model...")
@@ -38,7 +46,6 @@ def main():
     init_key, nuts_key, run_key = jax.random.split(master_key, 3)
     init_position, logdensity_fn, _ = build_logdensity_fn(init_key, entry)
 
-    # --- Step 1: Run NUTS Pilot Chain ---
     print(
         "\n[Pilot Run] Generating 1000 pilot samples using diagonal NUTS on stoch_vol (503-D)..."
     )
@@ -49,7 +56,6 @@ def main():
     t_pilot = time.perf_counter() - t0
     print(f"Pilot run completed in {t_pilot:.1f}s.")
 
-    # --- Step 2: Extract Adaptive LRD Geometry ---
     k = 50
     print(
         f"\n[LRD Extraction] SVD on pilot samples to extract top k={k} preconditioning..."
@@ -61,12 +67,11 @@ def main():
     print(f"Extracted eigenvectors U shape: {U_adap.shape}")
     print(f"Extracted eigenvalues lam shape: {lam_inv_adap.shape}")
 
-    # --- Step 3: Run Adaptive LRD MCLMC ---
     print(
-        f"\n[MCLMC Execution] Running Adaptive LRD MCLMC (k={k}) on stoch_vol (503-D)..."
+        f"\n[MCLMC Execution] Running Adaptive (external) LRD MCLMC (k={k}) on stoch_vol (503-D)..."
     )
     t0 = time.perf_counter()
-    adap_samples, sampling_infos = run_adaptive_low_rank_mclmc(
+    adap_samples, _ = run_adaptive_low_rank_mclmc(
         logdensity_fn,
         init_position,
         mean,
@@ -78,35 +83,21 @@ def main():
         n_samples=1000,
     )
     t_mclmc = time.perf_counter() - t0
-    print(f"Adaptive LRD MCLMC completed in {t_mclmc:.1f}s.")
+    print(f"Adaptive (external) LRD MCLMC completed in {t_mclmc:.1f}s.")
 
-    # Evaluate metrics
     gate_result = auto_gate(adap_samples)
 
-    print("\n--- Adaptive LRD MCLMC results on stoch_vol ---")
+    print("\n--- Adaptive (external) LRD MCLMC results on stoch_vol ---")
     print(f"Max R-hat: {gate_result.rhat_max:.4f}")
     print(f"Min Bulk ESS: {gate_result.min_bulk_ess:.1f}")
     print(f"Verdict: {gate_result.verdict}")
 
-    # Note the outcome and draw our scientific conclusion
-    print("\n--- Scientific Findings & Analysis ---")
+    print("\n--- Scientific Finding ---")
     print(
-        "stoch_vol features non-linear varying curvature (hierarchical funnels) between scale and latent parameters."
-    )
-    print(
-        "While our Adaptive LRD coordinate-whitening resolves linear correlation, it CANNOT flatten non-linear varying curvature."
-    )
-    print(
-        "This results in step-size collapse and non-convergence for unadjusted MCLMC (Max R-hat > 2.0)."
-    )
-    print(
-        "This perfectly validates the Statistician's curvature-routing hypothesis: targets with highly varying curvature"
-    )
-    print(
-        "must be routed AWAY from unadjusted MCLMC and toward NUTS or adjusted_mclmc."
-    )
-    print(
-        "\nSUCCESS: Adaptive Low-Rank preconditioned MCLMC successfully completed the 503-D stoch_vol stress test and provided crucial routing validation!"
+        "External coordinate-whitening applies spatial translation x = L(y) + mean. "
+        "This breaks the prior-centered coordinate structure of the stoch_vol AR(1) model, "
+        "causing step-size collapse and non-convergence (expected FAIL). "
+        "Use internal LRD for hierarchical models (see test_internal_lrd_stoch_vol.py)."
     )
 
 
