@@ -702,6 +702,21 @@ class Recipe:
                 )
                 d["base_method_params"].pop("inverse_mass_matrix", None)
                 d["inverse_mass_matrix_path"] = _sidecar_rel
+                # M1 fix: Recipe is frozen=True so we cannot assign self.x = v,
+                # but the in-memory object must stay consistent with the on-disk
+                # artifact.  object.__setattr__ bypasses the frozen guard — this
+                # is the standard pattern for "finalising" a frozen dataclass from
+                # inside one of its own methods.
+                object.__setattr__(self, "inverse_mass_matrix_path", _sidecar_rel)
+                object.__setattr__(
+                    self,
+                    "base_method_params",
+                    {
+                        k: v
+                        for k, v in self.base_method_params.items()
+                        if k != "inverse_mass_matrix"
+                    },
+                )
         target.write_text(json.dumps(d, indent=2, default=str) + "\n")
         return target
 

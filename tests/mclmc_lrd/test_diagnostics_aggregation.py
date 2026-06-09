@@ -153,3 +153,82 @@ def test_cert_sweep_bakes_from_adapted_params_exactly(tmp_path, monkeypatch):
     assert (
         recipe.inverse_mass_matrix_path is not None
     ), "Expected LRD sidecar to be written for LowRankInverseMassMatrix"
+
+    # k_rank provenance must be in calibration_budget.baked_from.
+    baked_from = recipe.calibration_budget.get("baked_from", {})
+    assert baked_from.get("k_rank") == 3, (
+        f"k_rank not recorded in calibration_budget.baked_from — got {baked_from!r}. "
+        "Provenance ruling: k_rank used during cert run must be stored so the golden "
+        "can be reproduced at the same rank."
+    )
+
+
+@pytest.mark.fast
+def test_save_updates_self_inverse_mass_matrix_path(tmp_path):
+    """M1 regression: save(imm_sidecar='auto') must update the in-memory Recipe.
+
+    Recipe is frozen=True.  The old save() wrote inverse_mass_matrix_path into the
+    JSON but left self.inverse_mass_matrix_path=None, so recipe.load_imm_sidecar()
+    would silently return None on the same object that just wrote the sidecar.
+
+    Fix (commit fixing M1): object.__setattr__ patches the frozen instance so the
+    in-memory recipe is consistent with the on-disk artifact after save().
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    lrd_imm = LowRankInverseMassMatrix(
+        sigma=jnp.ones(4),
+        U=jnp.eye(4, 2),
+        lam=jnp.array([2.0, 1.0]),
+    )
+    recipe = Recipe(
+        model_name="test_model",
+        base_method_name="mclmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "L": 1.0, "inverse_mass_matrix": lrd_imm},
+        warmup_params={},
+        warmups=[],
+        headline_metric=0.05,
+        sample_quality=None,
+        calibration_budget={},
+        difficulty=None,
+        instructions="",
+        notes="",
+        variant_label="mclmc_lrd",
+        gate_evidence={},
+        tuning_seed=42,
+        tuningfork_version="0.0.0",
+        blackjax_version="0.0.0",
+        jax_version="0.0.0",
+        timestamp_utc="2026-01-01T00:00:00Z",
+    )
+
+    assert (
+        recipe.inverse_mass_matrix_path is None
+    ), "Pre-condition: path unset before save"
+
+    recipe.save(tmp_path, imm_sidecar="auto")
+
+    # M1: in-memory recipe must now carry the sidecar relative path.
+    assert recipe.inverse_mass_matrix_path is not None, (
+        "M1 regression: save(imm_sidecar='auto') did not update self.inverse_mass_matrix_path. "
+        "The in-memory recipe is inconsistent with the on-disk artifact."
+    )
+    # The in-memory path must resolve to an existing sidecar file.
+    sidecar = tmp_path / recipe.inverse_mass_matrix_path
+    assert sidecar.exists(), f"Sidecar file missing at {sidecar}"
+
+    # The in-memory recipe should also no longer carry the raw IMM in base_method_params
+    # (it was extracted to the sidecar).
+    assert "inverse_mass_matrix" not in recipe.base_method_params, (
+        "M1: base_method_params still contains 'inverse_mass_matrix' after save — "
+        "should have been removed when the sidecar was written."
+    )
+
+    # Round-trip: load_imm_sidecar on the SAME in-memory object must work.
+    loaded_imm = recipe.load_imm_sidecar(tmp_path)
+    assert loaded_imm is not None, (
+        "M1: recipe.load_imm_sidecar() returned None on the in-memory recipe after save. "
+        "inverse_mass_matrix_path was not updated."
+    )
