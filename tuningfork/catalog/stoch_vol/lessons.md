@@ -33,9 +33,57 @@ Conclusions had been baked into the multipathfinder pin: do NOT raise n_paths ab
 
 **Historical init-range sweep null result (2026-05-18; obsoleted 2026-05-19)**. The natural follow-up — "would a *narrower* init range rescue diverse-init multipathfinder?" — was tested across 7 variants on the same 8 seeds (additive jitter on the broadcast init at σ ∈ {0.01, 0.03, 0.05, 0.1, 0.3}; clamped diverse with `phi_unc ∈ [−2, +2]` only; clamped diverse with full `(mu, phi, sigma)` bracketing). No variant cleared "≥6/8 pass AND zero crashes". Even σ=0.01 jitter (1 % of NumPyro's `init_to_uniform(radius=2)`) crashed ≥1 seed via float-overflow in the AR(1) recursion. Detailed forensics at [`worklog/lessons/case-studies/stoch_vol/2026-05-18-init-range-sweep-no-winner.md`](worklog/lessons/case-studies/stoch_vol/2026-05-18-init-range-sweep-no-winner.md). Like the 2×2 sweep, this result is now archival — bare `window_adaptation_diag_imm` post-PR-#27 sidesteps the question entirely.
 
+## MCLMC LRD experiment (2026-06-09)
+
+Two MCLMC LRD variants were stress-tested on stoch_vol (503-D). Both results are
+important and must be preserved together; they illuminate the prior-centering
+preservation principle.
+
+| Variant | Rank k | Max R-hat | Min ESS | Verdict |
+|---|---|---|---|---|
+| External LRD (whitening, mean-centred) | k=50 | **2.0536** | 5.4 | **FAIL** |
+| Internal LRD (native integrator) | k=50 | **1.0498** | 156.1 | **REVIEW** |
+
+### External whitening: FAIL (R-hat=2.0536)
+External coordinate-whitening applies the transformation x = L_LR(y) + mean, where
+`mean` is the posterior mean estimated from the NUTS pilot samples. This translation
+completely breaks the prior-centered AR(1) structure: the latents h_t are defined
+natively under h_t ~ N(φ h_{t-1}, σ²), and shifting them by their posterior mean
+disrupts the hierarchical prior coupling. The result is immediate step-size collapse
+and non-convergence.
+
+This is a crucial negative result: **external coordinate-whitening is structurally
+incompatible with prior-centered hierarchical models**. See
+`tests/mclmc_lrd/test_adaptive_lrd_stoch_vol.py`.
+
+### Internal LRD: REVIEW (R-hat=1.0498, partial improvement)
+The internal LRD integrator rescales and rotates **momentum/velocity vectors** only —
+it does NOT translate position coordinates. This preserves the prior-centered
+AR(1) structure, allowing the sampler to operate in the original coordinate frame
+while preconditioning the strong linear AR(1) correlations in momentum space.
+
+Result: partial improvement over diagonal MCLMC (baseline would FAIL; REVIEW is an
+improvement). However, non-linear varying curvature from the hierarchical funnel
+geometry limits mixing: the single global LRD mass matrix cannot adapt to the
+position-dependent curvature of the AR(1) funnel neck. REVIEW is the expected ceiling.
+
+The prior doc label "Successful Rescue!" overstated the result. Correct characterization:
+**partial improvement over diagonal; funnel geometry limits mixing.**
+
+### Prior-centering preservation principle
+Internal LRD momentum-only scaling preserves prior-centering; external position
+translation destroys it. For any hierarchical model with prior-centered parameterization
+(NCP), use internal LRD only. Even then, expect REVIEW (not PASS) when the
+hierarchical funnel geometry is the dominant bottleneck.
+
+### Routing rule for stoch_vol
+Route to **NUTS** (`window_adaptation_diag_imm`, PASS). MCLMC family is not viable
+as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
+
 ## Known-bad combinations
 
-None documented yet. FAILED recipes will be backfilled in R5 once the recipe matrix is populated.
+- External LRD coordinate-whitening on NCP models: **FAIL** (breaks prior-centering).
+  Fundamental incompatibility, not a tuning issue.
 
 ## History
 

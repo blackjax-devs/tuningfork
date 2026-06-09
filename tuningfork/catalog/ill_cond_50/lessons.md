@@ -2,23 +2,87 @@
 
 ## TL;DR
 
-No significant sampling quirks documented — model has well-conditioned geometry or has not yet been extensively probed. Library defaults pass at LOW effort.
+**Rotational ill-conditioning (κ=1000) is the defining geometry.** Diagonal mass
+matrices — whether NUTS or MCLMC — require careful treatment. NUTS with
+`window_adaptation_diag_imm` passes at LOW effort (the diagonal IMM effectively
+rescales the rotated axes during adaptation). Standard diagonal `mclmc` is an
+**honest FAIL** at any warmup budget; the diagonal mass matrix cannot capture the
+rotated correlation axes. The only viable MCLMC path is **LRD preconditioning**
+(k=40, NUTS-pilot extraction).
 
 ## Canonical recipe
 
-Placeholder: once recipes are generated, link to `recipes/low__nuts__window_adaptation_diag_imm.json` or the appropriate LOW-effort baseline.
+**NUTS** (default): `recipes/low__nuts__window_adaptation_diag_imm.json` — PASS,
+headline ESS/grad ≈ 0.0065.
+
+**MCLMC with LRD** (certified): `recipes/low__mclmc__mclmc_tuning.json` — PASS,
+headline ESS/grad ≈ 0.249 (426× over diagonal MCLMC baseline).
 
 ## Sampling quirks
 
-None documented yet. Early probes show the model samples cleanly at default NUTS + window-adaptation settings.
+### Rotational ill-conditioning (κ=1000)
+The covariance matrix is Σ = U Λ Uᵀ with eigenvalues logarithmically spaced from
+1 to 1000 and U a fixed random orthogonal matrix. The principal axes are **rotated
+relative to the coordinate axes**, so any diagonal mass matrix is misaligned.
+
+- NUTS `window_adaptation_diag_imm`: the adaptive diagonal IMM finds a diagonal
+  approximation to the rotated geometry during warmup, which is sufficient for PASS.
+- Diagonal MCLMC (`mclmc_tuning`): fails catastrophically at all warmup budgets.
+  The trajectory length L cannot compensate for the rotational mismatch.
+  Plateau confirmed at `n_warmup=100k`: R-hat oscillates 1.05–1.07, ESS≈135.
+  See `recipes/failed__mclmc__mclmc_tuning.json` for the full attempted-configurations
+  ladder.
+
+### LRD MCLMC pipeline (ill_cond_50, k=40)
+**NUTS pilot → SVD extraction → `make_lrd_kernel` → `mclmc_find_L_and_step_size`**
+
+1. Run 1000-step diagonal NUTS pilot (`run_pilot_nuts`)
+2. Compute empirical σ and top-40 eigenvectors/eigenvalues via SVD
+   (`extract_lrd_from_samples`)
+3. Construct `LowRankInverseMassMatrix(sigma, U, lam)`
+4. Bind with `make_lrd_kernel` and run `mclmc_find_L_and_step_size(diagonal_preconditioning=False)`
+
+Result: R-hat=1.0039, ESS=1993.3, ESS/grad=0.2492, PASS (statistician independent
+run, seed=98765). Multi-seed hardening at seeds 11111/22222/33333 all PASS
+(ESS 1944–2030). 426× ESS/grad improvement over the diagonal MCLMC baseline.
+
+### Integrator ladder (LRD geometry discovery)
+The following ladder was validated during the LRD integration experiment
+(see `tests/mclmc_lrd/` for runnable scripts):
+
+| Strategy | Rank k | Max R-hat | Min ESS | Verdict |
+|---|---|---|---|---|
+| Diagonal MCLMC | — | 1.4461 | 8.0 | FAIL |
+| External LRD (oracle) | k=10 | 1.0819 | 48.6 | FAIL |
+| External LRD (oracle) | k=20 | 1.0201 | 436.1 | REVIEW |
+| External LRD (oracle) | k=40 | 1.0038 | 1977.8 | PASS |
+| Adaptive LRD (NUTS pilot) | k=40 | 1.0034 | 1776.9 | PASS |
+| **Internal LRD** (production) | **k=40** | **1.0030** | **2079.5** | **PASS** |
+| Dense Cholesky (oracle) | full | 1.0027 | 2244.0 | PASS |
+
+Clean rank progression: k≥20 resolves enough of the κ=1000 spectrum to pass.
+k=40 captures ~92% of the Frobenius norm of Σ.
+
+### VI rank-collapse (negative result)
+`multipathfinder` (16 paths, 1000 samples) collapses to **Rank 6** on ill_cond_50.
+The L-BFGS history at MAP convergence cannot capture the global elongated typical
+set. A NUTS pilot run is the minimum viable geometry-discovery step. See
+`tests/mclmc_lrd/test_multipathfinder_lrd.py` and `catalog/mclmc-routing-taxonomy.md` §5.
 
 ## Known-bad combinations
 
-None documented yet. R1+ will backfill FAILED recipes for hard-excluded cells in the recipe matrix (if any).
+- `mclmc` + `mclmc_tuning` (any n_warmup): **FAIL** (honest null at κ=1000).
+  See `recipes/failed__mclmc__mclmc_tuning.json`.
+- `adjusted_mclmc` + `adjusted_mclmc_tuning`: **FAIL**.
+  See `recipes/failed__adjusted_mclmc__adjusted_mclmc_tuning.json`.
+- `adjusted_mclmc_dynamic` + `adjusted_mclmc_tuning`: **FAIL**.
+  See `recipes/failed__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json`.
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/ill_cond_50/`.
+2026-06-09: MCLMC LRD integration experiment (tuningfork PR #176 / blackjax PR #936).
+Full integrator ladder validated; internal LRD certified PASS at 426× ESS/grad.
+See `catalog/mclmc-routing-taxonomy.md` for routing taxonomy and scientific context.
 
 ## Citations
 

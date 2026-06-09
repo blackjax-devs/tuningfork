@@ -1,0 +1,114 @@
+{
+  "model_name": "stoch_vol",
+  "base_method_name": "mclmc",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 4.24166,
+    "L": 22.788521,
+    "k_rank": 30,
+    "ncp_variant": "stoch_vol_flatinit_ncp"
+  },
+  "warmup_name": "mclmc_lrd_tuning",
+  "warmup_params": {
+    "n_warmup": 3000,
+    "num_chains": 4,
+    "k_rank": 30,
+    "pilot_n_warmup": 1000,
+    "pilot_n_samples": 1000,
+    "ncp_variant": "stoch_vol_flatinit_ncp"
+  },
+  "headline_metric": 0.023369375404010801,
+  "headline_basis": {
+    "total_grad_evals": 16000,
+    "min_bulk_ess": 373.91,
+    "grad_count_convention": "2",
+    "is_lower_bound": false
+  },
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 2,
+    "n_warmup": 3000,
+    "n_samples": 2000,
+    "num_chains": 4,
+    "pilot_n_warmup": 1000,
+    "pilot_n_samples": 1000,
+    "warmup_grad_evals": 24000,
+    "sampling_grad_evals": 16000
+  },
+  "difficulty": null,
+  "instructions": "LRD-preconditioned MCLMC on stoch_vol (503-D AR(1) stochastic volatility).\nPARAMETERIZATION: stoch_vol_flatinit_ncp (EXPERIMENTAL \u2014 NOT the registered stoch_vol model).\n  Flat-init: h[0] = mu + sigma * h_std[0]  (drops sigma/sqrt(1-phi^2) coupling)\n  vs registered: h[0] = mu + (sigma/sqrt(1-phi^2)) * h_std[0]  (stationary)\nPipeline: (1) 1000-step flat-init NUTS pilot; (2) rank-30 SVD extraction via extract_lrd_from_samples; (3) mclmc_find_L_and_step_size with make_lrd_kernel binding the LowRankInverseMassMatrix.\nIMM checkpoint at inverse_mass_matrix_path; load with np.load to skip re-extraction.\n@statistician: NCP_VARIANT=True \u2192 use stoch_vol_flatinit_ncp logdensity.\nWarmup uses @jax.vmap over mclmc_find_L_and_step_size (the Python-loop workaround in 3171b49 was solving a phantom bug; reverted in 92f8235).",
+  "notes": "Multi-seed hardening: seeds [42, 99]. k=30 (not k=50). Flat-init NCP variant reduces phi-h[0] coupling near unit root. Hard-stop R-hat boundary: 1.02. Primary=seed-99 (best honest result: REVIEW). Seed-42 FAIL (rhat=1.169) documents high seed sensitivity. REVIEW is the documented ceiling — see failure_diagnosis.",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "mclmc_lrd_tuning",
+      "params": {
+        "n_warmup": 3000,
+        "num_chains": 4,
+        "k_rank": 30,
+        "pilot_n_warmup": 1000,
+        "pilot_n_samples": 1000,
+        "ncp_variant": "stoch_vol_flatinit_ncp"
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": [4],
+  "init_strategy": null,
+  "inverse_mass_matrix_path": "recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.01922,
+      "min_bulk_ess": 373.91,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "REVIEW",
+      "ess_per_grad": 0.023369,
+      "total_grad_evals": 16000,
+      "seed": 99,
+      "note": "Primary = seed-99 (best honest result). Seed-42 FAIL (rhat=1.169, ESS=18) in attempted_configurations."
+    },
+    "override": {
+      "decision": "",
+      "statistician_id": "",
+      "reason": ""
+    }
+  },
+  "failure_diagnosis": "REVIEW is the documented ceiling for LRD-MCLMC on stoch_vol (503-D AR(1)). Two seeds: seed-99 REVIEW (rhat=1.019, ESS=374), seed-42 FAIL (rhat=1.169, ESS=18). High seed-sensitivity indicates the flat-init NCP variant (h[0]=mu+sigma*h_std[0]) partially reduces the phi-h[0] coupling near the unit root but does NOT eliminate the fundamental difficulty. Root cause: sigma/sqrt(1-phi^2) blowup geometry at phi_con>0.99 creates position-dependent curvature that LRD (a constant O(dk) preconditioner) cannot adapt to at runtime. Further improvement requires per-step adaptive geometry (Riemannian MCLMC) or a prior that rules out phi_con>0.99 entirely. The stationary-init registered model has the same ceiling (see stoch_vol lessons.md). Emitting this recipe as an honest-null record with REVIEW verdict from best seed.",
+  "attempted_configurations": [
+    {
+      "seed": 42,
+      "k": 30,
+      "n_warmup": 3000,
+      "n_samples": 2000,
+      "num_chains": 4,
+      "ncp_variant": "stoch_vol_flatinit_ncp",
+      "outcome": "FAIL",
+      "rhat_max": 1.168712,
+      "min_bulk_ess": 17.85,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "ess_per_grad": 0.001116,
+      "step_size": 1.373782,
+      "L": 20.720352
+    },
+    {
+      "seed": 99,
+      "k": 30,
+      "n_warmup": 3000,
+      "n_samples": 2000,
+      "num_chains": 4,
+      "ncp_variant": "stoch_vol_flatinit_ncp",
+      "outcome": "REVIEW",
+      "rhat_max": 1.01922,
+      "min_bulk_ess": 373.91,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "ess_per_grad": 0.023369,
+      "step_size": 4.24166,
+      "L": 22.788521
+    }
+  ],
+  "warmup_grad_evals": 24000
+}
