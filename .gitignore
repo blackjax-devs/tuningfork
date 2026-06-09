@@ -78,6 +78,12 @@ tuningfork/reference/warmup_checkpoint/
 # These are workflow artifacts; regenerable at any time via the recipe.
 reproduce_*.py
 
+# Sweep/cert runner draw artifacts — *.draws.npz and *.chain_stats.npz files
+# written at the repo root (or any non-catalog location) during benchmark runs.
+# Catalog-committed draws live under catalog/<model>/groundtruth/ and are LFS-tracked.
+*.draws.npz
+*.chain_stats.npz
+
 # OS / editor
 .DS_Store
 *.bak

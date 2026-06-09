@@ -552,6 +552,18 @@ class Recipe:
     # per-site bounds are deferred to a future schema extension.
     init_strategy: dict[str, Any] | None = None
 
+    # ---- Variant label (filename-stem method slot) ----
+    # When multiple recipes share the same (model, base_method) pair but differ
+    # in preconditioner geometry (e.g., diagonal vs. LRD mclmc), ``variant_label``
+    # replaces ``base_method_name`` in the filename stem to avoid collision.
+    #
+    # ``None`` (default): stem uses ``base_method_name`` — backward-compat.
+    # ``"mclmc_lrd"``: stem becomes ``<effort>__mclmc_lrd__<warmup_name>``.
+    #
+    # Does NOT change ``base_method_name`` (the registry key).
+    # Absent from older recipes → ``load()`` calls ``setdefault("variant_label", None)``.
+    variant_label: str | None = None
+
     inverse_mass_matrix_path: str | None = None
     # Path (relative to the recipe JSON's directory) to a .npz sidecar holding the
     # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM
@@ -601,7 +613,13 @@ class Recipe:
 
     # ── persistence ──────────────────────────────────────────────────────────
 
-    def save(self, root: Path, *, filename_tag: str | None = None) -> Path:
+    def save(
+        self,
+        root: Path,
+        *,
+        filename_tag: str | None = None,
+        imm_sidecar: str | bool = "auto",
+    ) -> Path:
         """Write the recipe to its canonical location under ``root``.
 
         Per the catalog layout (post-R2, 2026-05-17):
@@ -636,7 +654,12 @@ class Recipe:
             filename = "groundtruth.json"
         else:
             target_dir = model_dir / "recipes"
-            stem = f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}"
+            _name_slot = (
+                self.variant_label
+                if self.variant_label is not None
+                else self.base_method_name
+            )
+            stem = f"{self.effort.value}__{_name_slot}__{self.warmup_name}"
             if filename_tag:
                 stem = f"{stem}__{filename_tag}"
             filename = f"{stem}.json"
@@ -661,6 +684,24 @@ class Recipe:
         # in Recipe.load) but must NOT be written to new JSON files.
         d.pop("warmup_name", None)
         d.pop("warmup_params", None)
+        # Auto-write LRD IMM sidecar when imm_sidecar="auto" and inverse_mass_matrix
+        # is a LowRankInverseMassMatrix namedtuple (not JSON-serialisable inline).
+        if imm_sidecar == "auto" or imm_sidecar is True:
+            _imm_in_params = d.get("base_method_params", {}).get("inverse_mass_matrix")
+            _is_lrd = (
+                _imm_in_params is not None
+                and hasattr(_imm_in_params, "_fields")
+                and "sigma" in getattr(_imm_in_params, "_fields", ())
+            )
+            if _is_lrd:
+                _sidecar_rel = self.save_imm_sidecar(
+                    root,
+                    _imm_in_params,
+                    filename_tag=filename_tag,
+                    model=self.model_name,
+                )
+                d["base_method_params"].pop("inverse_mass_matrix", None)
+                d["inverse_mass_matrix_path"] = _sidecar_rel
         target.write_text(json.dumps(d, indent=2, default=str) + "\n")
         return target
 
@@ -746,6 +787,8 @@ class Recipe:
         # None = backward-compat default (prior_sample behavior).
         d.setdefault("init_strategy", None)
         validate_init_strategy(d["init_strategy"])
+        # Schema extension: variant_label absent in pre-extension recipes.
+        d.setdefault("variant_label", None)
         # Schema extension: warmup_num_chains absent in pre-extension recipes.
         # None = backward-compat default (all phases use sampling num_chains,
         # i.e. the current vmap'd behavior).
@@ -872,6 +915,14 @@ class Recipe:
         n_warmup: int = 1000,
         rng_key: Any,  # jax.Array
         tuningfork_version: str = "0.0.0.dev0",
+        effort: Effort = Effort.MEDIUM,
+        headline_metric: float | None = None,
+        bake_warmup: bool = False,
+        attempted_configurations: list | None = None,
+        notes: str = "",
+        variant_label: str | None = None,
+        init_strategy: dict | None = None,
+        **warmup_kwargs: Any,
     ) -> Recipe:
         """Build a Recipe by running ONLY the warmup (no post-warmup sampler chain).
 
@@ -899,6 +950,9 @@ class Recipe:
             JAX random key for both model initialization and warmup.
         tuningfork_version
             Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
+        **warmup_kwargs
+            Extra keyword arguments forwarded verbatim to ``warmup.runner``
+            (e.g. ``k_rank=40`` for ``mclmc_lrd_tuning``).
 
         Returns
         -------
@@ -927,8 +981,17 @@ class Recipe:
                 f"compatible_methods = {warmup.compatible_methods}"
             )
 
+        # Validate init_strategy before doing any work.
+        validate_init_strategy(init_strategy)
+
         init_key, warmup_key = jax.random.split(rng_key, 2)
         init_position, logdensity_fn, _ = build_logdensity_fn(init_key, posterior)
+
+        # Apply init_strategy override (e.g. zero-init, uniform jitter).
+        if init_strategy is not None:
+            from tuningfork.recipes._recipe_runner import _apply_init_strategy
+
+            init_position = _apply_init_strategy(init_strategy, init_position, init_key)
 
         # MEDIUM recipes are single-chain by design: they capture one chain's
         # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
@@ -945,6 +1008,7 @@ class Recipe:
             base_method,
             logdensity_fn=logdensity_fn,
             num_chains=1,
+            **warmup_kwargs,
         )
         batched_state, batched_params = _base_warmup_result[0], _base_warmup_result[1]
         # SYNC: block until warmup compute completes before stamping wall time.
@@ -976,28 +1040,45 @@ class Recipe:
             "n_warmup": n_warmup,
             **metadata_jsonable,
         }
+        if attempted_configurations is not None:
+            calibration_budget["seed_evidence"] = attempted_configurations
 
         # Extract a stable int seed from the rng_key.  In JAX 0.10.0 the key is
         # a typed-key Array; jax.random.bits() is the portable extraction path.
         tuning_seed = int(jax.random.bits(rng_key, dtype="uint32"))
 
         _warmup_params_dict = {"n_warmup": n_warmup}
+
+        # bake_warmup: blank out warmup fields (runner-skip hint); provenance
+        # preserved under calibration_budget["baked_from"].
+        if bake_warmup:
+            _effective_warmup_name = ""
+            _effective_warmups: list[dict[str, Any]] = []
+            calibration_budget["baked_from"] = {
+                "warmup_name": warmup.name,
+                "n_warmup": n_warmup,
+                "tuning_seed": tuning_seed,
+            }
+        else:
+            _effective_warmup_name = warmup.name
+            _effective_warmups = [{"name": warmup.name, "params": _warmup_params_dict}]
+
         recipe_kwargs: dict[str, Any] = dict(
             model_name=posterior.name,
             base_method_name=base_method.name,
-            warmup_name=warmup.name,
-            effort=Effort.MEDIUM,
+            warmup_name=_effective_warmup_name,
+            effort=effort,
             base_method_params=base_params,
             warmup_params=_warmup_params_dict,
-            warmups=[{"name": warmup.name, "params": _warmup_params_dict}],
-            # headline_metric is None for MEDIUM: no post-warmup samples taken;
-            # May be filled later via a measurement run.
-            headline_metric=None,
+            warmups=_effective_warmups,
+            headline_metric=headline_metric,
             sample_quality=None,
             calibration_budget=calibration_budget,
             difficulty=None,
             instructions="",  # rendered below after provisional construction
-            notes="",
+            notes=notes,
+            variant_label=variant_label,
+            init_strategy=init_strategy,
             tuning_seed=tuning_seed,
             tuningfork_version=tuningfork_version,
             blackjax_version=_get_blackjax_version(),
@@ -1278,6 +1359,9 @@ class Recipe:
         imm: jax.Array,
         *,
         filename_tag: str | None = None,
+        model: str | None = None,
+        seed: int | None = None,
+        note: str = "",
     ) -> str:
         """Save an inverse mass matrix as a .npz sidecar next to this recipe.
 
@@ -1297,16 +1381,28 @@ class Recipe:
           or with ``filename_tag``:
           ``<root>/<model>/recipes/<effort>__<sampler>__<warmup>__<tag>.imm.npz``
 
+        ``LowRankInverseMassMatrix`` namedtuples are auto-detected and saved as
+        structured keys (sigma/U/lam/k) instead of a flat ``"imm"`` array.
+        The ``model``, ``seed``, and ``note`` kwargs add metadata fields to LRD
+        sidecars only (ignored for flat-array IMMs).
+
         Parameters
         ----------
         root
             Catalog root directory (e.g., ``tuningfork/catalog/``).
         imm
-            The inverse mass matrix to persist (any shape; saved under key
-            ``"imm"`` in the compressed npz).
+            The inverse mass matrix to persist.  Either a plain array (saved
+            under key ``"imm"``) or a ``LowRankInverseMassMatrix`` namedtuple
+            (saved as structured keys sigma/U/lam/k).
         filename_tag
             Optional tag appended to the sidecar filename stem (must match the
             tag passed to ``save()`` for the corresponding recipe JSON).
+        model
+            Model name metadata for LRD sidecars (e.g. ``"ill_cond_50"``).
+        seed
+            Tuning seed metadata for LRD sidecars.
+        note
+            Free-text provenance note for LRD sidecars.
 
         Returns
         -------
@@ -1317,18 +1413,42 @@ class Recipe:
         import numpy as np
 
         model_dir = root / self.model_name
+        _name_slot = (
+            self.variant_label
+            if self.variant_label is not None
+            else self.base_method_name
+        )
         if self.effort == Effort.GROUNDTRUTH:
             sidecar_dir = model_dir
             filename = "groundtruth.imm.npz"
         else:
             sidecar_dir = model_dir / "recipes"
-            stem = f"{self.effort.value}__{self.base_method_name}__{self.warmup_name}"
+            stem = f"{self.effort.value}__{_name_slot}__{self.warmup_name}"
             if filename_tag:
                 stem = f"{stem}__{filename_tag}"
             filename = f"{stem}.imm.npz"
         sidecar_dir.mkdir(parents=True, exist_ok=True)
         sidecar_path = sidecar_dir / filename
-        np.savez_compressed(sidecar_path, imm=np.asarray(imm))
+
+        # Detect LowRankInverseMassMatrix (namedtuple with sigma/U/lam fields).
+        _is_lrd = hasattr(imm, "_fields") and "sigma" in getattr(imm, "_fields", ())
+        if _is_lrd:
+            _save_kwargs: dict[str, Any] = {
+                "sigma": np.asarray(imm.sigma),
+                "U": np.asarray(imm.U),
+                "lam": np.asarray(imm.lam),
+                "k": int(np.asarray(imm.U).shape[1]),
+            }
+            if model is not None:
+                _save_kwargs["model"] = str(model)
+            if seed is not None:
+                _save_kwargs["seed"] = int(seed)
+            if note:
+                _save_kwargs["note"] = str(note)
+            np.savez_compressed(sidecar_path, **_save_kwargs)
+        else:
+            np.savez_compressed(sidecar_path, imm=np.asarray(imm))
+
         return str(sidecar_path.relative_to(root))
 
     def load_imm_sidecar(self, root: Path) -> jax.Array | None:
@@ -1351,8 +1471,19 @@ class Recipe:
         import numpy as np
 
         sidecar_path = root / self.inverse_mass_matrix_path
-        with np.load(sidecar_path) as data:
-            return jnp.asarray(data["imm"])
+        with np.load(sidecar_path, allow_pickle=False) as data:
+            if "sigma" in data and "U" in data and "lam" in data:
+                # LRD structured format — reconstruct LowRankInverseMassMatrix namedtuple.
+                from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+                return LowRankInverseMassMatrix(
+                    sigma=jnp.asarray(data["sigma"]),
+                    U=jnp.asarray(data["U"]),
+                    lam=jnp.asarray(data["lam"]),
+                )
+            else:
+                # Legacy flat format.
+                return jnp.asarray(data["imm"])
 
     def is_failed(self) -> bool:
         """Return True iff this recipe is FAILED (no gate-passing config found).
