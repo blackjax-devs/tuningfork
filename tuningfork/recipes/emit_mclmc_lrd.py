@@ -452,8 +452,15 @@ def _run_cert_seed(
         lambda x: effective_sample_size(x, chain_axis=0, sample_axis=1),
         positions_batched,
     )
-    rhat_max = float(jnp.max(jnp.array(jax.tree.leaves(rhat_tree))))
-    min_bulk_ess = float(jnp.min(jnp.array(jax.tree.leaves(ess_tree))))
+    # ravel each leaf before concatenating so mixed-shape params (e.g. stoch_vol
+    # where h: (500,) and phi/sigma/mu: ()) don't trigger JAX's
+    # "Cannot concatenate arrays with different numbers of dimensions" error.
+    rhat_max = float(
+        jnp.max(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(rhat_tree)]))
+    )
+    min_bulk_ess = float(
+        jnp.min(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(ess_tree)]))
+    )
 
     # Count divergences from MCLMCInfo.nonans (inverted: nonans=True means no NaN).
     # MCLMC doesn't have divergences in the HMC sense; use NaN-step indicator.
