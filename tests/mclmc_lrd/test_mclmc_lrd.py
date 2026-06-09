@@ -21,13 +21,13 @@ independently reproduced PASS target (statistician multi-seed, 2026-06-09).
 import jax
 import jax.numpy as jnp
 import pytest
+from blackjax.diagnostics import effective_sample_size, potential_scale_reduction
 from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 
-from tuningfork.base_method.mclmc_lrd_utils import (
+from tuningfork.base_method.mclmc import (
     decompose_covariance_low_rank,
     run_internal_lrd_mclmc,
 )
-from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.model.ill_cond_50 import COV
@@ -72,7 +72,12 @@ def test_lrd_mclmc_ill_cond_50():
         logdensity_fn, init_position, lrd_imm, run_key, n_warmup=1000, n_samples=1000
     )
 
-    gate = auto_gate(samples)
-    assert gate.rhat_max < 1.05, f"R-hat {gate.rhat_max:.4f} >= 1.05"
-    assert gate.min_bulk_ess >= 100.0, f"ESS {gate.min_bulk_ess:.1f} < 100"
-    assert gate.verdict in ("PASS", "REVIEW"), "verdict is FAIL"
+    # samples shape: (num_chains, n_samples, d) = (4, 1000, 50)
+    # Use pure-JAX diagnostics — no arviz dependency.
+    rhat = potential_scale_reduction(samples, chain_axis=0, sample_axis=1)
+    ess = effective_sample_size(samples, chain_axis=0, sample_axis=1)
+    rhat_max = float(jnp.max(rhat))
+    ess_min = float(jnp.min(ess))
+
+    assert rhat_max < 1.05, f"R-hat {rhat_max:.4f} >= 1.05"
+    assert ess_min >= 100.0, f"min ESS {ess_min:.1f} < 100"
