@@ -508,6 +508,484 @@ def test_load_imm_sidecar_returns_none_when_path_unset(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests for variant_label + bake_warmup + LRD IMM sidecar (phase-b schema)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_variant_label_default_none() -> None:
+    """variant_label defaults to None; stem uses base_method_name."""
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    assert recipe.variant_label is None
+
+
+@pytest.mark.fast
+def test_variant_label_save_uses_variant_in_stem(tmp_path: Path) -> None:
+    """save() uses variant_label in filename stem when set."""
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL, variant_label="mclmc_lrd")
+    path = recipe.save(tmp_path, imm_sidecar=False)
+    # stem should be low__mclmc_lrd__no_warmup.json, not low__nuts__no_warmup.json
+    assert path.name == "low__mclmc_lrd__no_warmup.json", path.name
+
+
+@pytest.mark.fast
+def test_variant_label_save_default_uses_base_method_name(tmp_path: Path) -> None:
+    """save() uses base_method_name in stem when variant_label=None."""
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    path = recipe.save(tmp_path, imm_sidecar=False)
+    assert path.name == "low__nuts__no_warmup.json", path.name
+
+
+@pytest.mark.fast
+def test_variant_label_roundtrip(tmp_path: Path) -> None:
+    """variant_label round-trips through save() / load()."""
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL, variant_label="mclmc_lrd")
+    path = recipe.save(tmp_path, imm_sidecar=False)
+    loaded = Recipe.load(path)
+    assert loaded.variant_label == "mclmc_lrd"
+
+
+@pytest.mark.fast
+def test_variant_label_load_setdefault_none_for_old_recipes(tmp_path: Path) -> None:
+    """load() sets variant_label=None for recipes written without the field."""
+    # Write a minimal recipe JSON without variant_label.
+    recipe_dict = {
+        "model_name": "mvn_10",
+        "base_method_name": "nuts",
+        "effort": "low",
+        "base_method_params": {"step_size": 0.1},
+        "warmup_name": "no_warmup",
+        "warmup_params": {},
+        "headline_metric": None,
+        "sample_quality": None,
+        "calibration_budget": {"trials": 0, "wall_seconds_estimate": 0.0},
+        "difficulty": None,
+        "instructions": "test",
+        "warmups": [{"name": "no_warmup", "params": {}}],
+    }
+    import json
+
+    p = tmp_path / "test_recipe.json"
+    p.write_text(json.dumps(recipe_dict) + "\n")
+    loaded = Recipe.load(p)
+    assert loaded.variant_label is None
+
+
+@pytest.mark.fast
+def test_save_imm_sidecar_lrd_structured_keys(tmp_path: Path) -> None:
+    """save_imm_sidecar with LowRankInverseMassMatrix saves sigma/U/lam/k keys."""
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    d, k = 10, 3
+    sigma = jnp.ones(d)
+    U = jnp.eye(d, k)
+    lam = jnp.array([2.0, 1.5, 1.2])
+    lrd_imm = LowRankInverseMassMatrix(sigma=sigma, U=U, lam=lam)
+
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    rel_path = recipe.save_imm_sidecar(tmp_path, lrd_imm)
+
+    sidecar = tmp_path / rel_path
+    assert sidecar.exists()
+
+    data = np.load(sidecar)
+    assert "sigma" in data
+    assert "U" in data
+    assert "lam" in data
+    assert "k" in data
+    assert int(data["k"]) == k
+    assert jnp.allclose(jnp.asarray(data["sigma"]), sigma)
+    assert jnp.allclose(jnp.asarray(data["U"]), U)
+    assert jnp.allclose(jnp.asarray(data["lam"]), lam)
+    # Flat "imm" key must NOT be present.
+    assert "imm" not in data
+
+
+@pytest.mark.fast
+def test_save_imm_sidecar_lrd_metadata_kwargs(tmp_path: Path) -> None:
+    """save_imm_sidecar with LRD stores model/seed/note metadata when provided."""
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    d, k = 5, 2
+    lrd_imm = LowRankInverseMassMatrix(
+        sigma=jnp.ones(d), U=jnp.eye(d, k), lam=jnp.ones(k)
+    )
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    rel_path = recipe.save_imm_sidecar(
+        tmp_path, lrd_imm, model="mvn_10", seed=42, note="test note"
+    )
+    data = np.load(tmp_path / rel_path)
+    assert str(data["model"]) == "mvn_10"
+    assert int(data["seed"]) == 42
+    assert str(data["note"]) == "test note"
+
+
+@pytest.mark.fast
+def test_load_imm_sidecar_lrd_roundtrip(tmp_path: Path) -> None:
+    """load_imm_sidecar reconstructs LowRankInverseMassMatrix from structured sidecar."""
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    d, k = 10, 3
+    sigma = jnp.ones(d) * 0.5
+    U = jnp.eye(d, k)
+    lam = jnp.array([3.0, 2.0, 1.1])
+    lrd_imm = LowRankInverseMassMatrix(sigma=sigma, U=U, lam=lam)
+
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL)
+    rel_path = recipe.save_imm_sidecar(tmp_path, lrd_imm)
+
+    recipe_with_sidecar = Recipe(
+        **_RECIPE_KWARGS_MINIMAL, inverse_mass_matrix_path=rel_path
+    )
+    loaded = recipe_with_sidecar.load_imm_sidecar(tmp_path)
+
+    assert isinstance(loaded, LowRankInverseMassMatrix), type(loaded)
+    assert jnp.allclose(loaded.sigma, sigma)
+    assert jnp.allclose(loaded.U, U)
+    assert jnp.allclose(loaded.lam, lam)
+
+
+@pytest.mark.fast
+def test_load_imm_sidecar_legacy_flat_array(tmp_path: Path) -> None:
+    """load_imm_sidecar loads legacy flat 'imm' key as a JAX array."""
+    # Write a legacy sidecar with only "imm" key.
+    imm_arr = jnp.array([0.1, 0.2, 0.3])
+    sidecar_dir = tmp_path / "mvn_10" / "recipes"
+    sidecar_dir.mkdir(parents=True)
+    sidecar_path = sidecar_dir / "low__nuts__no_warmup.imm.npz"
+    np.savez_compressed(str(sidecar_path), imm=np.array(imm_arr))
+
+    rel_path = str(Path("mvn_10") / "recipes" / "low__nuts__no_warmup.imm.npz")
+    recipe = Recipe(**_RECIPE_KWARGS_MINIMAL, inverse_mass_matrix_path=rel_path)
+    loaded = recipe.load_imm_sidecar(tmp_path)
+
+    assert not hasattr(loaded, "_fields"), "Should be a plain array, not LRD namedtuple"
+    assert jnp.allclose(loaded, imm_arr)
+
+
+@pytest.mark.fast
+def test_save_auto_lrd_sidecar_when_imm_in_base_params(tmp_path: Path) -> None:
+    """save(imm_sidecar='auto') auto-writes sidecar when base_method_params has LRD."""
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    d, k = 8, 2
+    lrd_imm = LowRankInverseMassMatrix(
+        sigma=jnp.ones(d), U=jnp.eye(d, k), lam=jnp.ones(k) * 1.5
+    )
+    _kwargs = {
+        **_RECIPE_KWARGS_MINIMAL,
+        "base_method_params": {
+            "step_size": 0.01,
+            "L": 1.5,
+            "inverse_mass_matrix": lrd_imm,
+        },
+        "variant_label": "mclmc_lrd",
+    }
+    recipe = Recipe(**_kwargs)
+    path = recipe.save(tmp_path, imm_sidecar="auto")
+
+    # JSON must NOT contain inverse_mass_matrix inline (it's in sidecar).
+    import json
+
+    saved_dict = json.loads(path.read_text())
+    assert "inverse_mass_matrix" not in saved_dict["base_method_params"]
+    # inverse_mass_matrix_path must be set.
+    assert saved_dict["inverse_mass_matrix_path"] is not None
+    sidecar = tmp_path / saved_dict["inverse_mass_matrix_path"]
+    assert sidecar.exists()
+    # Sidecar has LRD keys.
+    data = np.load(sidecar)
+    assert "sigma" in data and "U" in data and "lam" in data
+
+
+@pytest.mark.fast
+def test_save_false_imm_sidecar_does_not_auto_write(tmp_path: Path) -> None:
+    """save(imm_sidecar=False) does not auto-write sidecar even for LRD IMM."""
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    d, k = 4, 2
+    lrd_imm = LowRankInverseMassMatrix(
+        sigma=jnp.ones(d), U=jnp.eye(d, k), lam=jnp.ones(k)
+    )
+    _kwargs = {
+        **_RECIPE_KWARGS_MINIMAL,
+        "base_method_params": {"step_size": 0.1, "inverse_mass_matrix": lrd_imm},
+    }
+    recipe = Recipe(**_kwargs)
+    # Should not raise; LRD is serialised via default=str fallback.
+    path = recipe.save(tmp_path, imm_sidecar=False)
+    assert path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Tests for from_warmup_only new kwargs (bake_warmup, headline_metric, etc.)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_from_warmup_only_new_kwargs_zero_behavior_change() -> None:
+    """from_warmup_only with all-default new kwargs behaves exactly as before.
+
+    Calling with no new kwargs must produce the same recipe structure as the
+    original: effort=MEDIUM, warmup_name=warmup.name, headline_metric=None.
+    """
+    import jax
+
+    from tuningfork.warmup._base import Warmup
+
+    # Minimal no-op warmup that returns batched JAX pytree state + adapted params.
+    def _noop_runner(
+        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
+    ):
+        import jax.numpy as jnp
+
+        # Batch position leaves to (num_chains, ...) and return as fake state dict.
+        batched_pos = jax.tree.map(
+            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
+        )
+        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
+
+    fake_warmup = Warmup(
+        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
+    )
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["mclmc"]
+
+    recipe = Recipe.from_warmup_only(
+        posterior, base_method, fake_warmup, n_warmup=10, rng_key=jax.random.key(0)
+    )
+
+    assert recipe.effort == Effort.MEDIUM
+    assert recipe.warmup_name == "no_warmup"
+    assert recipe.headline_metric is None
+    assert recipe.notes == ""
+    assert recipe.variant_label is None
+    assert recipe.init_strategy is None
+
+
+@pytest.mark.fast
+def test_from_warmup_only_bake_warmup_clears_warmup_name() -> None:
+    """from_warmup_only with bake_warmup=True sets warmup_name='' and warmups=[]."""
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.warmup._base import Warmup
+
+    def _noop_runner(
+        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
+    ):
+        batched_pos = jax.tree.map(
+            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
+        )
+        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
+
+    fake_warmup = Warmup(
+        name="mclmc_lrd_tuning", runner=_noop_runner, compatible_methods=("*",)
+    )
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["mclmc"]
+
+    recipe = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        fake_warmup,
+        n_warmup=10,
+        rng_key=jax.random.key(1),
+        bake_warmup=True,
+    )
+
+    assert recipe.warmup_name == ""
+    assert recipe.warmups == []
+    # Provenance stored in calibration_budget.
+    assert "baked_from" in recipe.calibration_budget
+    assert recipe.calibration_budget["baked_from"]["warmup_name"] == "mclmc_lrd_tuning"
+    assert recipe.calibration_budget["baked_from"]["n_warmup"] == 10
+
+
+@pytest.mark.fast
+def test_from_warmup_only_effort_override() -> None:
+    """from_warmup_only with effort=Effort.LOW produces a LOW recipe."""
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.warmup._base import Warmup
+
+    def _noop_runner(
+        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
+    ):
+        batched_pos = jax.tree.map(
+            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
+        )
+        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
+
+    fake_warmup = Warmup(
+        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
+    )
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["mclmc"]
+
+    recipe = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        fake_warmup,
+        n_warmup=10,
+        rng_key=jax.random.key(2),
+        effort=Effort.LOW,
+        headline_metric=0.25,
+    )
+
+    assert recipe.effort == Effort.LOW
+    assert recipe.headline_metric == 0.25
+
+
+@pytest.mark.fast
+def test_from_warmup_only_attempted_configurations_in_calibration_budget() -> None:
+    """attempted_configurations kwarg is stored in calibration_budget.seed_evidence."""
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.warmup._base import Warmup
+
+    def _noop_runner(
+        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
+    ):
+        batched_pos = jax.tree.map(
+            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
+        )
+        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
+
+    fake_warmup = Warmup(
+        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
+    )
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["mclmc"]
+
+    evidence = [
+        {"seed": 11111, "verdict": "PASS", "ess_per_grad": 0.25},
+        {"seed": 22222, "verdict": "FAIL", "ess_per_grad": 0.1},
+    ]
+    recipe = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        fake_warmup,
+        n_warmup=10,
+        rng_key=jax.random.key(3),
+        attempted_configurations=evidence,
+    )
+
+    assert "seed_evidence" in recipe.calibration_budget
+    assert recipe.calibration_budget["seed_evidence"] == evidence
+
+
+@pytest.mark.fast
+def test_from_warmup_only_variant_label_and_notes() -> None:
+    """variant_label and notes kwargs are stored in the recipe."""
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.warmup._base import Warmup
+
+    def _noop_runner(
+        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
+    ):
+        batched_pos = jax.tree.map(
+            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
+        )
+        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
+
+    fake_warmup = Warmup(
+        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
+    )
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+
+    posterior = MODELS["mvn_10"]
+    base_method = BASE_METHODS["mclmc"]
+
+    recipe = Recipe.from_warmup_only(
+        posterior,
+        base_method,
+        fake_warmup,
+        n_warmup=10,
+        rng_key=jax.random.key(4),
+        variant_label="mclmc_lrd",
+        notes="test note",
+    )
+
+    assert recipe.variant_label == "mclmc_lrd"
+    assert recipe.notes == "test note"
+
+
+@pytest.mark.fast
+def test_mclmc_lrd_tuning_registered_in_warmups() -> None:
+    """mclmc_lrd_tuning is registered in the WARMUPS registry."""
+    from tuningfork.warmup import WARMUPS
+
+    assert "mclmc_lrd_tuning" in WARMUPS
+    entry = WARMUPS["mclmc_lrd_tuning"]
+    assert entry.name == "mclmc_lrd_tuning"
+    assert "mclmc" in entry.compatible_methods
+    assert entry.is_compatible("mclmc")
+    assert not entry.is_compatible("nuts")
+
+
+@pytest.mark.fast
+def test_squeeze_single_chain_lrd_passthrough() -> None:
+    """squeeze_single_chain passes LRD namedtuple through unchanged (per-leaf fix)."""
+    import jax.numpy as jnp
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    from tuningfork.warmup._base import squeeze_single_chain
+
+    d, k = 6, 2
+    lrd = LowRankInverseMassMatrix(
+        sigma=jnp.ones(d), U=jnp.eye(d, k), lam=jnp.ones(k) * 2.0
+    )
+    # Mimic num_chains=1 adapted_params: step_size shape (1,), LRD shared (not batched).
+    batched_params = {
+        "step_size": jnp.array([0.05]),
+        "L": jnp.array([1.5]),
+        "inverse_mass_matrix": lrd,
+    }
+    # Minimal fake batched_state with a (1, d) position leaf.
+    from unittest.mock import MagicMock
+
+    fake_state = MagicMock()
+    fake_state.__getitem__ = lambda self, idx: fake_state  # survive state[0]
+
+    _, params = squeeze_single_chain(fake_state, batched_params)
+
+    # step_size and L should be squeezed to scalars.
+    assert (
+        params["step_size"].shape == ()
+    ), f"Expected scalar, got {params['step_size'].shape}"
+    assert params["L"].shape == (), f"Expected scalar, got {params['L'].shape}"
+    # LRD should pass through verbatim (leaves are (d,) and (d,k) — not leading-1).
+    result_lrd = params["inverse_mass_matrix"]
+    assert isinstance(result_lrd, LowRankInverseMassMatrix)
+    assert result_lrd.sigma.shape == (d,)
+    assert result_lrd.U.shape == (d, k)
+    assert result_lrd.lam.shape == (k,)
+
+
+# ---------------------------------------------------------------------------
 # Tests for Effort.GROUNDTRUTH (Phase 0)
 # ---------------------------------------------------------------------------
 

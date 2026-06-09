@@ -90,3 +90,87 @@ def test_lrd_mclmc_ill_cond_50():
 
     assert rhat_max < 1.05, f"R-hat {rhat_max:.4f} >= 1.05"
     assert ess_min >= 100.0, f"min ESS {ess_min:.1f} < 100"
+
+
+def test_mclmc_lrd_tuning_warmup_returns_lrd_imm():
+    """mclmc_lrd_tuning warmup returns LowRankInverseMassMatrix in adapted_params.
+
+    Checks the mclmc_lrd_tuning Warmup runner returns adapted_params with:
+    - "step_size" shape (1,) for num_chains=1
+    - "L" shape (1,)
+    - "inverse_mass_matrix" is a LowRankInverseMassMatrix namedtuple
+    """
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+    from tuningfork.warmup import WARMUPS
+
+    entry = MODELS["ill_cond_50"]
+    key = jax.random.key(42)
+    init_key, warmup_key = jax.random.split(key)
+    init_position, logdensity_fn, _ = build_logdensity_fn(init_key, entry)
+
+    warmup = WARMUPS["mclmc_lrd_tuning"]
+    base_method = BASE_METHODS["mclmc"]
+
+    states, adapted_params = warmup.runner(
+        warmup_key,
+        init_position,
+        n_warmup=500,
+        base_method=base_method,
+        logdensity_fn=logdensity_fn,
+        num_chains=1,
+        k_rank=10,
+    )
+
+    assert "step_size" in adapted_params
+    assert "L" in adapted_params
+    assert "inverse_mass_matrix" in adapted_params
+
+    imm = adapted_params["inverse_mass_matrix"]
+    assert isinstance(imm, LowRankInverseMassMatrix), type(imm)
+    assert imm.sigma.shape == (50,), imm.sigma.shape  # d=50 for ill_cond_50
+    assert imm.U.shape == (50, 10), imm.U.shape  # k=10
+    assert imm.lam.shape == (10,), imm.lam.shape
+
+    # step_size and L should have leading dim num_chains=1.
+    assert adapted_params["step_size"].shape == (1,)
+    assert adapted_params["L"].shape == (1,)
+
+
+def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
+    """Recipe.from_warmup_only with mclmc_lrd_tuning squeezes step_size/L, preserves LRD.
+
+    After squeeze_single_chain, step_size and L become scalars while the
+    LowRankInverseMassMatrix passes through verbatim (per-leaf fix).
+    """
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.recipes import Effort, Recipe
+    from tuningfork.warmup import WARMUPS
+
+    entry = MODELS["ill_cond_50"]
+    warmup = WARMUPS["mclmc_lrd_tuning"]
+    base_method = BASE_METHODS["mclmc"]
+
+    recipe = Recipe.from_warmup_only(
+        entry,
+        base_method,
+        warmup,
+        n_warmup=300,
+        rng_key=jax.random.key(99),
+        k_rank=10,
+    )
+
+    assert recipe.effort == Effort.MEDIUM
+    # LRD IMM must be in base_method_params as a LowRankInverseMassMatrix.
+    imm = recipe.base_method_params.get("inverse_mass_matrix")
+    assert isinstance(
+        imm, LowRankInverseMassMatrix
+    ), f"Expected LowRankInverseMassMatrix, got {type(imm)}"
+    assert "step_size" in recipe.base_method_params
+    assert "L" in recipe.base_method_params
+    # step_size and L should be Python floats (squeezed scalars).
+    assert isinstance(
+        recipe.base_method_params["step_size"], float
+    ), f"step_size should be float, got {type(recipe.base_method_params['step_size'])}"

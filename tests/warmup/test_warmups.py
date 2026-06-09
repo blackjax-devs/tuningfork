@@ -1411,7 +1411,7 @@ class TestNoWarmupGuards:
                 num_chains=1,
             )
 
-    def test_no_warmup_raises_for_synthetic_extra_kwargs_entry(self) -> None:
+    def test_no_warmup_raises_for_synthetic_extra_kwargs_entry_guard(self) -> None:
         """Synthetic BaseMethod(extra_required_kwargs non-empty) → NotImplementedError."""
         from tuningfork.base_method._base import BaseMethod
         from tuningfork.warmup import WARMUPS
