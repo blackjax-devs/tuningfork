@@ -117,6 +117,8 @@ def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             body = _emit_rwm(base_method, ctx)
         elif name == "mala":
             body = _emit_mala(base_method, ctx)
+        elif name == "mclmc":
+            body = _emit_mclmc(base_method, ctx)
         else:
             # HMC family: nuts, hmc, mhmc, rmhmc, dynamic_hmc, dmhmc, ghmc, barker
             body = _emit_hmc_family(base_method, ctx)
@@ -785,5 +787,72 @@ def _emit_vi_sampler(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         f"position={vp}_init_pos, vi_state={vp}_final_vi_state"
         ")"
     )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MCLMC sampler
+# ---------------------------------------------------------------------------
+
+
+def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
+    """Emit sampler block for MCLMC (Microcanonical Langevin Monte Carlo).
+
+    Defines ``kernel_builder(step_size, imm, L)`` that instantiates
+    ``blackjax.mclmc`` with the per-chain L alongside step_size and imm.
+    The third positional argument L is required; the inference loop emitter
+    passes it when ``has_per_chain_L=True`` (mclmc_tuning / mclmc_lrd_tuning).
+
+    Produces no ``_state_reinit`` — ``MCLMCState`` from warmup is directly
+    usable for sampling.
+
+    Notes
+    -----
+    - MCLMCInfo does NOT carry ``num_integration_steps``; ``acceptance_rate``
+      and ``is_divergent`` are absent.  The postamble handles this via the
+      resolver in ``_build_info_diagnostics_block`` (mclmc is not in
+      ``_SAMPLERS_WITH_IS_DIVERGENT``).
+    - ``blackjax.mclmc.init`` requires an ``rng_key`` (to generate the initial
+      unit-vector momentum).  The warmup template handles init; the
+      ``kernel_builder`` here is for the *sampling* phase only.
+    """
+    lines: list[str] = []
+    a = lines.append
+
+    a("# === SAMPLER: mclmc ===")
+    a("# kernel_builder(step_size, imm, L) wraps blackjax.mclmc.")
+    a("# L is the third arg (per-chain trajectory length from mclmc_tuning warmup).")
+    a(
+        "# MCLMCInfo._fields = ('logdensity', 'kinetic_change', 'energy_change', 'nonans')"
+    )
+    a("# No is_divergent / acceptance_rate / num_integration_steps fields.")
+    a(
+        "import blackjax.mcmc.mclmc  # noqa: F401 (needed for init; sampler uses blackjax.mclmc)"
+    )
+    a("")
+    a("")
+    a("def kernel_builder(step_size, imm, L=None):")
+    a('    """Build an mclmc step function for the given (step_size, imm, L)."""')
+    a("    return blackjax.mclmc(")
+    a("        logdensity_fn,")
+    a("        step_size=step_size,")
+    a("        inverse_mass_matrix=imm,")
+    a("        L=L if L is not None else 1.0,")
+    a("    ).step")
+    a("")
+    a("")
+    a("try:")
+    a("    _state_post_warmup")
+    a("except NameError:")
+    a("    # no_warmup path: init from init_position with a fixed key.")
+    a("    _warmup_init_is_single_chain = True")
+    a("    _no_warmup_init_key = jax.random.key(0)")
+    a("    _state_post_warmup = blackjax.mclmc(")
+    a("        logdensity_fn,")
+    a("        step_size=1.0,")
+    a("        inverse_mass_matrix=1.0,")
+    a("        L=1.0,")
+    a("    ).init(init_position, _no_warmup_init_key)")
 
     return "\n".join(lines)

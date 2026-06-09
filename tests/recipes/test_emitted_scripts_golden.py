@@ -494,6 +494,19 @@ _COMBO_COVER = [
             "imm_shrinkage_to_previous": 20.0,
         },
     ),
+    # PR3-b: mclmc_lrd_tuning (LRD-preconditioned MCLMC warmup)
+    (
+        "mclmc_lrd_tuning",
+        "mclmc",
+        {"step_size": 0.5, "L": 1.0},
+        {
+            "n_warmup": 5,
+            "num_chains": 2,
+            "k_rank": 3,
+            "pilot_n_warmup": 5,
+            "pilot_n_samples": 5,
+        },
+    ),
 ]
 
 
@@ -1320,6 +1333,88 @@ def test_golden_execution_multipathfinder_window_adaptation_warmup(
     )
     assert result.returncode == 0, (
         f"Golden nuts+multipathfinder_window_adaptation script failed.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "DONE" in result.stdout
+
+
+@pytest.mark.slow
+def test_golden_execution_mclmc_lrd_tuning(tmp_path: Path) -> None:
+    """Execution smoke: mvn_10 × mclmc × mclmc_lrd_tuning prints DONE.
+
+    PR3-b emit gate: verifies the inlined run_pilot_nuts + extract_lrd_from_samples
+    + make_lrd_kernel pipeline assembles into a runnable script.
+
+    Key structural checks before subprocess:
+    - ``_lrd_kernel`` is present (inline make_lrd_kernel closure).
+    - ``LowRankInverseMassMatrix`` is present (LRD type from blackjax).
+    - D8: no ``tuningfork.base_method`` import in the emitted script.
+
+    Lightweight config: pilot_n_warmup=20, pilot_n_samples=20, n_warmup=10,
+    n_samples=5 for e2e speed.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="mclmc",
+        warmup_name="mclmc_lrd_tuning",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.5, "L": 1.0},
+        warmup_params={
+            "n_warmup": 10,
+            "num_chains": 2,
+            "k_rank": 3,
+            "pilot_n_warmup": 20,
+            "pilot_n_samples": 20,
+        },
+        warmups=[
+            {
+                "name": "mclmc_lrd_tuning",
+                "params": {
+                    "n_warmup": 10,
+                    "num_chains": 2,
+                    "k_rank": 3,
+                    "pilot_n_warmup": 20,
+                    "pilot_n_samples": 20,
+                },
+            }
+        ],
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 2},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=5, num_chains=2)
+
+    # D8 structural checks before execution.
+    assert "_lrd_kernel" in script, (
+        "mclmc_lrd warmup kernel closure not found in emitted script. "
+        "Expected inline make_lrd_kernel definition."
+    )
+    assert (
+        "LowRankInverseMassMatrix" in script
+    ), "LowRankInverseMassMatrix not found in emitted script (should come from blackjax)."
+    assert "tuningfork.base_method" not in script, (
+        "D8 violation: 'tuningfork.base_method' found in emitted script. "
+        "run_pilot_nuts / extract_lrd_from_samples / make_lrd_kernel must be inlined."
+    )
+
+    script_path = tmp_path / "golden_mclmc_lrd.py"
+    script_path.write_text(script)
+
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=str(tmp_path),
+        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
+    )
+    assert result.returncode == 0, (
+        f"Golden mclmc_lrd_tuning emitted script failed.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "DONE" in result.stdout
