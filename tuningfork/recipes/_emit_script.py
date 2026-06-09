@@ -124,6 +124,11 @@ _SAMPLERS_WITH_IS_DIVERGENT = frozenset(
 )
 # acceptance_rate: all MCMC except VI; VI only has elbo.
 _VI_SAMPLER_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+# Unadjusted MCLMC has MCLMCInfo._fields=(logdensity,kinetic_change,energy_change,nonans)
+# — no acceptance_rate, no is_divergent, no is_accepted.  adjusted_mclmc /
+# adjusted_mclmc_dynamic ARE MH-adjusted and DO have acceptance_rate, so they stay
+# on the default path.
+_MCLMC_UNADJUSTED_NAMES = frozenset({"mclmc"})
 # is_accepted (in addition to acceptance_rate): HMC + MH-family except pure NUTS.
 # NUTS has acceptance_rate but not is_accepted.
 _SAMPLERS_WITH_IS_ACCEPTED = frozenset(
@@ -163,7 +168,10 @@ def _build_info_diagnostics_block(sampler_name: str) -> str:
     ]
     if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
         lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
-    if sampler_name not in _VI_SAMPLER_NAMES:
+    if (
+        sampler_name not in _VI_SAMPLER_NAMES
+        and sampler_name not in _MCLMC_UNADJUSTED_NAMES
+    ):
         lines.append("_acceptance = float(jnp.mean(_infos.acceptance_rate))")
     return "\n".join(lines)
 
@@ -184,7 +192,10 @@ def _build_draws_ss_block(sampler_name: str) -> str:
         fields.append("energy")
     if sampler_name in _SAMPLERS_WITH_NIS_STAT:
         fields.append("num_integration_steps")
-    fields.append("acceptance_rate")
+    # Unadjusted MCLMC (MCLMCInfo) has no acceptance_rate field.
+    # adjusted_mclmc / adjusted_mclmc_dynamic are MH-adjusted and DO have it.
+    if sampler_name not in _MCLMC_UNADJUSTED_NAMES:
+        fields.append("acceptance_rate")
     if sampler_name in _SAMPLERS_WITH_IS_ACCEPTED:
         fields.append("is_accepted")
 
@@ -239,6 +250,7 @@ def _build_inference_loop(
     warmup_is_perchain: bool,
     warmup_init_is_single_chain: bool,
     needs_state_reinit: bool,
+    has_per_chain_L: bool = False,
 ) -> str:
     """Build straight-line inference loop code with all branches resolved at emit time.
 
@@ -247,6 +259,10 @@ def _build_inference_loop(
 
     Parameters
     ----------
+    has_per_chain_L : bool
+        When True (mclmc_tuning / mclmc_lrd_tuning warmups), also extract and
+        vmap over ``_adapted_params["L"]`` alongside step_size and imm.
+        ``kernel_builder`` receives a third positional argument ``L``.
     sampling_pb : bool
         If True → single-chain loop (progress_bar=True, io_callback safe).
         If False → multi-chain loop (scan + vmap, no progress bar).
@@ -302,6 +318,8 @@ def _build_inference_loop(
             # Per-chain warmup — use per-chain params, pick chain-0 for single-chain run
             a('_shared_step_size = _adapted_params["step_size"][0]')
             a('_shared_imm = _adapted_params["inverse_mass_matrix"][0]')
+            if has_per_chain_L:
+                a('_shared_L = _adapted_params["L"][0]')
         else:
             # Single-chain warmup → scalar params
             a('_shared_step_size = _adapted_params["step_size"]')
@@ -327,7 +345,13 @@ def _build_inference_loop(
             )
 
         a("")
-        a("_single_chain_step = kernel_builder(_shared_step_size, _shared_imm)")
+        if has_per_chain_L and warmup_is_perchain:
+            a(
+                "_single_chain_step = kernel_builder("
+                "_shared_step_size, _shared_imm, _shared_L)"
+            )
+        else:
+            a("_single_chain_step = kernel_builder(_shared_step_size, _shared_imm)")
         a(
             "_sc_alg = _SamplingAlgorithm(lambda *args, **kwargs: None,"
             " _single_chain_step)"
@@ -416,7 +440,25 @@ def _build_inference_loop(
         a("from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm")
         a("")
 
-        if warmup_is_perchain:
+        if warmup_is_perchain and has_per_chain_L:
+            # MCLMC per-chain warmup: each chain gets its own (step_size, imm, L).
+            a(
+                "# Per-chain warmup (mclmc): each chain gets its own (step_size, imm, L)."
+            )
+            a('_batched_step_size = _adapted_params["step_size"]')
+            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+            a('_batched_L = _adapted_params["L"]')
+            a("")
+            a("def _step_one_chain(state, key, step_size, imm, L):")
+            a("    return kernel_builder(step_size, imm, L)(key, state)")
+            a("")
+            a("def _vmapped_step(rng_key, states):")
+            a(f"    keys = jax.random.split(rng_key, {num_chains})")
+            a(
+                "    return jax.vmap(_step_one_chain)("
+                "states, keys, _batched_step_size, _batched_imm, _batched_L)"
+            )
+        elif warmup_is_perchain:
             a("# Per-chain warmup: each chain gets its own (step_size, imm).")
             a('_batched_step_size = _adapted_params["step_size"]')
             a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
@@ -1061,6 +1103,8 @@ def emit_script(
             "meanfield_vi",
             "fullrank_vi",
             "laplace_multiphase_warmup",
+            "mclmc_tuning",
+            "mclmc_lrd_tuning",
         }
     )
     _effective_warmup_name = (
@@ -1114,6 +1158,7 @@ def emit_script(
             "rwm",
             "meanfield_vi",
             "fullrank_vi",
+            "mclmc",
         }
     )
     if recipe.base_method_name in _EMIT_SAMPLER_NAMES:
@@ -1138,8 +1183,10 @@ def emit_script(
     _resolved_warmup_init_is_single_chain = recipe.warmup_name == "no_warmup"
 
     # _warmup_is_perchain: True iff the selected warmup template sets it True.
-    # Specifically: multichain window_adaptation templates + VI warmups.
+    # Specifically: multichain window_adaptation templates + VI warmups +
+    # mclmc_tuning / mclmc_lrd_tuning (always multi-chain per-chain warmup).
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
+    _MCLMC_WARMUP_NAMES = frozenset({"mclmc_tuning", "mclmc_lrd_tuning"})
     _uses_multichain_warmup_tmpl = (
         not _is_laplace
         and not _is_multiphase_warmup
@@ -1149,8 +1196,13 @@ def emit_script(
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
     )
     _resolved_warmup_is_perchain = (
-        _uses_multichain_warmup_tmpl or recipe.warmup_name in _VI_WARMUP_NAMES
+        _uses_multichain_warmup_tmpl
+        or recipe.warmup_name in _VI_WARMUP_NAMES
+        or recipe.warmup_name in _MCLMC_WARMUP_NAMES
     )
+    # mclmc warmups also return per-chain L — the inference loop needs a
+    # separate batched_L vmap axis alongside step_size and imm.
+    _resolved_has_per_chain_L = recipe.warmup_name in _MCLMC_WARMUP_NAMES
 
     # _needs_state_reinit: True iff sampler template defines _state_reinit.
     # ctx["_laplace_needs_warmup_state_reinit"] was already set before emit_sampler.
@@ -1177,6 +1229,7 @@ def emit_script(
         warmup_is_perchain=_resolved_warmup_is_perchain,
         warmup_init_is_single_chain=_resolved_warmup_init_is_single_chain,
         needs_state_reinit=_resolved_needs_state_reinit,
+        has_per_chain_L=_resolved_has_per_chain_L,
     )
 
     postamble = emit_postamble(ctx)

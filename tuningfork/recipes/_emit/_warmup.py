@@ -91,6 +91,10 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
         body = _emit_vi_warmup(ctx)
     elif warmup_name == "laplace_multiphase_warmup":
         body = _emit_laplace_multiphase_warmup(ctx)
+    elif warmup_name == "mclmc_tuning":
+        body = _emit_mclmc_tuning(ctx)
+    elif warmup_name == "mclmc_lrd_tuning":
+        body = _emit_mclmc_lrd_tuning(ctx)
     else:
         raise ValueError(
             f"emit_warmup: unsupported warmup_name {warmup_name!r}. "
@@ -819,5 +823,265 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("#                         broadcast to (num_chains,) leading axis")
     a('#   _adapted_params["step_size"]             scalar (shared across chains)')
     a('#   _adapted_params["inverse_mass_matrix"]   shape (phi_dim, phi_dim) [dense]')
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MCLMC tuning (diagonal preconditioning)
+# ---------------------------------------------------------------------------
+
+
+def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
+    """Emit mclmc_tuning (diagonal MCLMC adaptation) warmup section.
+
+    Runs ``blackjax.mclmc_find_L_and_step_size`` over ``num_chains`` chains
+    via ``jax.vmap``.  Returns per-chain L / step_size / diagonal IMM.
+
+    Parameters
+    ----------
+    ctx : dict
+        Required keys: n_warmup, tuning_seed, num_chains.
+    """
+    lines: list[str] = []
+    a = lines.append
+
+    n_warmup = ctx["n_warmup"]
+    tuning_seed = ctx["tuning_seed"]
+    num_chains = ctx["num_chains"]
+
+    a("# === WARMUP: mclmc_tuning (diagonal MCLMC adaptation) ===")
+    a("# blackjax.mclmc_find_L_and_step_size vmapped over num_chains chains.")
+    a("# Returns per-chain: L (num_chains,), step_size (num_chains,),")
+    a("# inverse_mass_matrix (num_chains, d).")
+    a(
+        f"_mclmc_warmup_keys = jax.random.split(jax.random.key({tuning_seed}), 2 * {num_chains})"
+    )
+    a(f"_mclmc_init_keys = _mclmc_warmup_keys[:{num_chains}]")
+    a(f"_mclmc_tune_keys = _mclmc_warmup_keys[{num_chains}:]")
+    a("_mclmc_init_positions = jax.tree.map(")
+    a(
+        f"    lambda x: jnp.broadcast_to(x[None], ({num_chains},) + x.shape), init_position"
+    )
+    a(")")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _mclmc_init_one(k, x0):")
+    a("    return blackjax.mcmc.mclmc.init(x0, logdensity_fn, k)")
+    a("")
+    a("")
+    a("_mclmc_init_states = _mclmc_init_one(_mclmc_init_keys, _mclmc_init_positions)")
+    a("_mclmc_kernel = blackjax.mclmc.build_kernel()")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _mclmc_tune_one(k, state):")
+    a("    s, adap, total = blackjax.mclmc_find_L_and_step_size(")
+    a("        _mclmc_kernel,")
+    a(f"        num_steps={n_warmup},")
+    a("        state=state,")
+    a("        rng_key=k,")
+    a("        logdensity_fn=logdensity_fn,")
+    a("        diagonal_preconditioning=True,")
+    a("    )")
+    a("    return s, adap")
+    a("")
+    a("")
+    a(
+        "_mclmc_states, _mclmc_adap = _mclmc_tune_one(_mclmc_tune_keys, _mclmc_init_states)"
+    )
+    a("_adapted_params = {")
+    a('    "L": _mclmc_adap.L,')
+    a('    "step_size": _mclmc_adap.step_size,')
+    a('    "inverse_mass_matrix": _mclmc_adap.inverse_mass_matrix,')
+    a("}")
+    a("_state_post_warmup = _mclmc_states")
+    a("_warmup_is_perchain = True")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MCLMC LRD tuning (Low-Rank + Diagonal preconditioning)
+# ---------------------------------------------------------------------------
+
+
+def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
+    """Emit mclmc_lrd_tuning (LRD MCLMC adaptation) warmup section.
+
+    Pipeline (all inlined — D8 compliant, zero tuningfork imports):
+    1. Single-chain NUTS pilot (pilot_n_warmup + pilot_n_samples steps).
+    2. Rank-k_rank SVD extraction (inline extract_lrd_from_samples logic).
+    3. Inline make_lrd_kernel closure + vmapped mclmc_find_L_and_step_size.
+
+    D8 note: run_pilot_nuts, extract_lrd_from_samples, and make_lrd_kernel
+    are inlined directly (only jax / blackjax imports, no tuningfork).
+
+    Parameters
+    ----------
+    ctx : dict
+        Required keys: n_warmup, tuning_seed, num_chains.
+        Optional (from wp_* spread): wp_k_rank, wp_pilot_n_warmup,
+        wp_pilot_n_samples.
+    """
+    lines: list[str] = []
+    a = lines.append
+
+    n_warmup = ctx["n_warmup"]
+    tuning_seed = ctx["tuning_seed"]
+    num_chains = ctx["num_chains"]
+    k_rank = ctx.get("wp_k_rank", ctx.get("bm_k_rank", 10))
+    pilot_n_warmup = ctx.get("wp_pilot_n_warmup", 1000)
+    pilot_n_samples = ctx.get("wp_pilot_n_samples", 1000)
+
+    a("# === WARMUP: mclmc_lrd_tuning (Low-Rank + Diagonal MCLMC adaptation) ===")
+    a(
+        "# Pipeline: NUTS pilot → rank-k SVD → LRD IMM → vmapped mclmc_find_L_and_step_size."
+    )
+    a("# The upstream isokinetic_mclachlan integrator dispatches natively on")
+    a("# LowRankInverseMassMatrix (blackjax PR #936) — no logdensity_fn wrapping.")
+    a("# D8: run_pilot_nuts / extract_lrd_from_samples / make_lrd_kernel inlined")
+    a("# (only jax + blackjax imports — zero tuningfork inference imports).")
+    a("import blackjax.mcmc.mclmc")
+    a("from blackjax.mcmc.metrics import LowRankInverseMassMatrix as _LRD")
+    a("from jax.flatten_util import ravel_pytree as _lrd_ravel")
+    a("")
+    a(f"_lrd_tuning_seed = {tuning_seed}")
+    a(f"_lrd_k_rank = {k_rank}")
+    a(f"_lrd_pilot_n_warmup = {pilot_n_warmup}")
+    a(f"_lrd_pilot_n_samples = {pilot_n_samples}")
+    a(f"_lrd_n_warmup = {n_warmup}")
+    a(f"_lrd_num_chains = {num_chains}")
+    a("")
+    a(
+        "_lrd_pilot_key, _lrd_init_key = jax.random.split("
+        "jax.random.key(_lrd_tuning_seed), 2)"
+    )
+    a("")
+    a("# ── Phase 1: NUTS pilot (inline run_pilot_nuts) ──────────────────────────")
+    a("# Single-chain window_adaptation(nuts) warmup → collect pilot positions.")
+    a("_lrd_warmup_key, _lrd_sampling_key = jax.random.split(_lrd_pilot_key)")
+    a("_lrd_nuts_warmup = blackjax.window_adaptation(blackjax.nuts, logdensity_fn)")
+    a("(_lrd_nuts_state, _lrd_nuts_params), _ = _lrd_nuts_warmup.run(")
+    a("    _lrd_warmup_key, init_position, _lrd_pilot_n_warmup")
+    a(")")
+    a("_lrd_step_size = (")
+    a('    _lrd_nuts_params["step_size"]')
+    a("    if isinstance(_lrd_nuts_params, dict)")
+    a('    else getattr(_lrd_nuts_params, "step_size")')
+    a(")")
+    a("_lrd_pilot_imm = (")
+    a('    _lrd_nuts_params["inverse_mass_matrix"]')
+    a("    if isinstance(_lrd_nuts_params, dict)")
+    a('    else getattr(_lrd_nuts_params, "inverse_mass_matrix")')
+    a(")")
+    a("_lrd_nuts_kernel = blackjax.nuts(")
+    a("    logdensity_fn, step_size=_lrd_step_size, inverse_mass_matrix=_lrd_pilot_imm")
+    a(")")
+    a("")
+    a("")
+    a("def _lrd_body_fn(state, key):")
+    a("    state, info = _lrd_nuts_kernel.step(key, state)")
+    a("    return state, state.position")
+    a("")
+    a("")
+    a("_, _lrd_pilot_positions = jax.lax.scan(")
+    a("    _lrd_body_fn,")
+    a("    _lrd_nuts_state,")
+    a("    jax.random.split(_lrd_sampling_key, _lrd_pilot_n_samples),")
+    a(")")
+    a("")
+    a("# ── Phase 2: LRD extraction (inline extract_lrd_from_samples) ────────────")
+    a("# SVD of standardised pilot samples → (sigma, U, lam) LRD components.")
+    a(
+        "_lrd_flat_positions = jax.vmap(lambda p: _lrd_ravel(p)[0])(_lrd_pilot_positions)"
+    )
+    a("_lrd_mean = jnp.mean(_lrd_flat_positions, axis=0)")
+    a("_lrd_sigma = jnp.std(_lrd_flat_positions, axis=0)")
+    a("_lrd_sigma = jnp.where(_lrd_sigma == 0.0, 1.0, _lrd_sigma)")
+    a(
+        "_lrd_flat_std = (_lrd_flat_positions - _lrd_mean[None, :]) / _lrd_sigma[None, :]"
+    )
+    a("_, _lrd_S, _lrd_Vt = jnp.linalg.svd(_lrd_flat_std, full_matrices=False)")
+    a("_lrd_V = _lrd_Vt.T")
+    a("_lrd_N = _lrd_flat_std.shape[0]")
+    a("_lrd_lam_all = (_lrd_S ** 2) / _lrd_N")
+    a("# Clamp k_rank to the number of available SVD modes: svd(full_matrices=False)")
+    a("# on a (pilot_n_samples, d) matrix yields min(pilot_n_samples, d) singular")
+    a("# values, so slicing [:k_rank] silently truncates when k_rank exceeds that.")
+    a("_lrd_k_rank = min(_lrd_k_rank, _lrd_lam_all.shape[0])")
+    a("_lrd_sort_idx = jnp.argsort(jnp.abs(_lrd_lam_all - 1.0))[::-1]")
+    a("_lrd_top_idx = _lrd_sort_idx[:_lrd_k_rank]")
+    a("_lrd_lam = _lrd_lam_all[_lrd_top_idx]")
+    a("_lrd_U = _lrd_V[:, _lrd_top_idx]")
+    a("_lrd_imm = _LRD(sigma=_lrd_sigma, U=_lrd_U, lam=_lrd_lam)")
+    a("")
+    a("# ── Phase 2b: build LRD kernel (inline make_lrd_kernel) ──────────────────")
+    a("# Closure over _lrd_imm — always routes through LRD geometry regardless")
+    a("# of the diagonal placeholder that mclmc_find_L_and_step_size passes.")
+    a("_lrd_base_kernel = blackjax.mclmc.build_kernel()")
+    a("")
+    a("")
+    a(
+        "def _lrd_kernel(rng_key, state, logdensity_fn, inverse_mass_matrix, L, step_size):"
+    )
+    a("    # Override warmup placeholder IMM with the bound LRD mass matrix.")
+    a(
+        "    return _lrd_base_kernel(rng_key, state, logdensity_fn, _lrd_imm, L, step_size)"
+    )
+    a("")
+    a("")
+    a("# ── Phase 3: vmapped mclmc_find_L_and_step_size ──────────────────────────")
+    a("_lrd_all_keys = jax.random.split(_lrd_init_key, 2 * _lrd_num_chains)")
+    a("_lrd_chain_init_keys = _lrd_all_keys[:_lrd_num_chains]")
+    a("_lrd_chain_tune_keys = _lrd_all_keys[_lrd_num_chains:]")
+    a("_lrd_init_positions = jax.tree.map(")
+    a(
+        "    lambda x: jnp.broadcast_to(x[None], (_lrd_num_chains,) + x.shape), init_position"
+    )
+    a(")")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _lrd_init_one(k, x0):")
+    a("    return blackjax.mcmc.mclmc.init(x0, logdensity_fn, k)")
+    a("")
+    a("")
+    a("_lrd_init_states = _lrd_init_one(_lrd_chain_init_keys, _lrd_init_positions)")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _lrd_tune_one(k, state):")
+    a("    s, adap, _ = blackjax.mclmc_find_L_and_step_size(")
+    a("        _lrd_kernel,")
+    a("        num_steps=_lrd_n_warmup,")
+    a("        state=state,")
+    a("        rng_key=k,")
+    a("        logdensity_fn=logdensity_fn,")
+    a("        diagonal_preconditioning=False,")
+    a("    )")
+    a("    return s, adap")
+    a("")
+    a("")
+    a("_lrd_states, _lrd_adap = _lrd_tune_one(_lrd_chain_tune_keys, _lrd_init_states)")
+    a("")
+    a("# Broadcast the single shared LRD IMM to (num_chains, ...) for per-chain vmap.")
+    a(
+        "_lrd_sigma_b = jnp.broadcast_to(_lrd_sigma[None], (_lrd_num_chains,) + _lrd_sigma.shape)"
+    )
+    a("_lrd_U_b = jnp.broadcast_to(_lrd_U[None], (_lrd_num_chains,) + _lrd_U.shape)")
+    a(
+        "_lrd_lam_b = jnp.broadcast_to(_lrd_lam[None], (_lrd_num_chains,) + _lrd_lam.shape)"
+    )
+    a("_lrd_imm_batched = _LRD(sigma=_lrd_sigma_b, U=_lrd_U_b, lam=_lrd_lam_b)")
+    a("")
+    a("_adapted_params = {")
+    a('    "L": _lrd_adap.L,')
+    a('    "step_size": _lrd_adap.step_size,')
+    a('    "inverse_mass_matrix": _lrd_imm_batched,')
+    a("}")
+    a("_state_post_warmup = _lrd_states")
+    a("_warmup_is_perchain = True")
 
     return "\n".join(lines)
