@@ -18,6 +18,8 @@ Core warmups:
   barker, mala.
 - ``mclmc_tuning``: blackjax.mclmc_find_L_and_step_size; compatible with
   mclmc and adjusted_mclmc variants.
+- ``mclmc_lrd_tuning``: pilot-NUTS → rank-k LRD extraction →
+  mclmc_find_L_and_step_size with LRD kernel; compatible with mclmc only.
 - ``no_warmup``: identity warmup returning default init state + empty params;
   compatible with all algorithms (sentinel ``"*"``).
 - ``chees``: Cholesky Eigen Exploration Sampling; compatible with dynamic_hmc.
