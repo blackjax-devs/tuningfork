@@ -85,8 +85,12 @@ def test_lrd_mclmc_ill_cond_50():
     ess_tree = jax.tree.map(
         lambda x: effective_sample_size(x, chain_axis=0, sample_axis=1), samples
     )
-    rhat_max = float(jnp.max(jnp.array(jax.tree.leaves(rhat_tree))))
-    ess_min = float(jnp.min(jnp.array(jax.tree.leaves(ess_tree))))
+    rhat_max = float(
+        jnp.max(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(rhat_tree)]))
+    )
+    ess_min = float(
+        jnp.min(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(ess_tree)]))
+    )
 
     assert rhat_max < 1.05, f"R-hat {rhat_max:.4f} >= 1.05"
     assert ess_min >= 100.0, f"min ESS {ess_min:.1f} < 100"
@@ -174,3 +178,50 @@ def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
     assert isinstance(
         recipe.base_method_params["step_size"], float
     ), f"step_size should be float, got {type(recipe.base_method_params['step_size'])}"
+
+
+def test_diagnostics_aggregation_mixed_shape_pytree():
+    """Regression: rhat/ESS leaf-aggregation must not crash on mixed-shape pytrees.
+
+    stoch_vol has h:(500,) + phi/sigma/mu:() — mixing ndim=1 and ndim=0 leaves.
+    The old pattern ``jnp.array(jax.tree.leaves(tree))`` raises
+    ``TypeError: Cannot concatenate arrays with different numbers of dimensions``
+    because JAX prepends a dim per element and then calls jnp.concatenate, which
+    requires uniform ndim.
+
+    Fix in emit_mclmc_lrd._run_cert_seed (commit 76e1dfd):
+    ``jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(tree)])`` ravels
+    every leaf to 1-D before concatenation regardless of original shape.
+
+    This test is pure-JAX (no sampling) — exercises the aggregation logic with
+    synthetic trees shaped like stoch_vol's parameter pytree.  It is fast and
+    must not be marked slow.
+    """
+    # Synthetic rhat_tree: h leaf is vector (500,), scalars are shape ()
+    rhat_tree = {
+        "h": jnp.full((500,), 1.02),  # vector — highest rhat
+        "mu": jnp.array(1.00),
+        "phi": jnp.array(1.01),
+        "sigma": jnp.array(1.005),
+    }
+    ess_tree = {
+        "h": jnp.full((500,), 150.0),  # vector
+        "mu": jnp.array(200.0),
+        "phi": jnp.array(180.0),
+        "sigma": jnp.array(120.0),  # scalar — lowest ESS
+    }
+
+    # Must not raise "Cannot concatenate arrays with different numbers of dimensions".
+    rhat_max = float(
+        jnp.max(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(rhat_tree)]))
+    )
+    min_bulk_ess = float(
+        jnp.min(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(ess_tree)]))
+    )
+
+    # h leaf provides the worst rhat (1.02); all scalar leaves are <= 1.02.
+    assert abs(rhat_max - 1.02) < 1e-5, f"rhat_max expected ≈1.02, got {rhat_max}"
+    # sigma scalar provides the lowest ESS (120.0).
+    assert (
+        abs(min_bulk_ess - 120.0) < 1e-3
+    ), f"min_bulk_ess expected ≈120.0, got {min_bulk_ess}"
