@@ -1,0 +1,47 @@
+{
+  "model_name": "neals_funnel",
+  "base_method_name": "adjusted_mclmc",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_name": "adjusted_mclmc_tuning",
+  "warmup_params": {
+    "n_warmup": 10000,
+    "num_chains": 4
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 1,
+    "wall_seconds_estimate": 15.0
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "",
+  "step_policy": null,
+  "warmups": [{"name": "adjusted_mclmc_tuning", "params": {"n_warmup": 10000, "num_chains": 4}}],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0821,
+      "min_bulk_ess": 33.1,
+      "n_divergences": 0,
+      "max_abs_mean_z": 2.435,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-06-08",
+      "date": "2026-06-08",
+      "reason": "MCLMC family structural failure on extreme funnel geometries. MH correction prevents divergence but sampler gets trapped rejecting proposals in the neck. Honest null."
+    }
+  },
+  "failure_diagnosis": "adjusted_mclmc gets trapped rejecting proposals in the funnel neck. R-hat 1.0821, ESS 33.1 at n_warmup=10000. Honest null.",
+  "attempted_configurations": [
+    {"n_warmup": 1000, "outcome": "FAIL", "rhat_max": 1.3889, "min_ess": 8.8},
+    {"n_warmup": 10000, "outcome": "FAIL", "rhat_max": 1.0821, "min_ess": 33.1}
+  ]
+}
