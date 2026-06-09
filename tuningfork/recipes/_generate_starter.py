@@ -103,6 +103,11 @@ ALL_METHOD_NAMES = ["hmc", "nuts", "mala", "barker", "rwm", "mclmc", "elliptical
 # _templates/samplers/rmhmc.py.tmpl (IMM→mass_matrix conversion inlined).
 MEDIUM_METHOD_NAMES = ["nuts", "hmc", "rmhmc"]
 
+# Methods eligible for MCLMC-LRD recipes (mclmc_lrd_tuning compatibility).
+# Only mclmc is compatible; listed as a sequence for symmetry with
+# MEDIUM_METHOD_NAMES and to support future additions.
+MCLMC_LRD_METHOD_NAMES = ["mclmc"]
+
 # ---------------------------------------------------------------------------
 # Conventional pairing map
 # ---------------------------------------------------------------------------
@@ -282,6 +287,89 @@ def emit_medium_recipes(
     return generated
 
 
+def emit_mclmc_lrd_recipes(
+    seed: int = 0,
+    n_warmup: int = 1000,
+    model_names: list[str] | None = None,
+    sampler: str | None = None,
+) -> list[Path]:
+    """Emit MEDIUM-effort MCLMC-LRD candidate recipes using mclmc_lrd_tuning warmup.
+
+    Runs the full LRD warmup pipeline per model/chain: NUTS pilot →
+    rank-k_rank SVD → vmapped mclmc_find_L_and_step_size.  Produces MEDIUM
+    recipes (``effort=Effort.MEDIUM``) for the ``mclmc`` base method paired
+    with ``mclmc_lrd_tuning``.
+
+    Recipes are evaluated by the Statistician auto-gate to assess whether
+    LRD preconditioning improves sample quality over the diagonal
+    ``mclmc_tuning`` baseline — particularly for ill-conditioned targets
+    (ill_cond_50, horseshoe, high-dimensional regression models).
+
+    Idempotent: re-running overwrites with deterministic content (same seed).
+
+    Parameters
+    ----------
+    seed
+        Base random seed; ``jax.random.fold_in`` derives per-recipe keys
+        deterministically from ``(model_name, method_name, "mclmc_lrd")``.
+    n_warmup
+        Number of LRD adaptation steps (``mclmc_find_L_and_step_size``
+        ``num_steps``).  Separate from ``pilot_n_warmup`` / ``pilot_n_samples``
+        which use their ``mclmc_lrd_tuning`` defaults (1000 each).
+        Default 1000.
+    model_names
+        If set, restrict to this list of model names.  ``None`` = all
+        ``STARTER_MODEL_NAMES``.
+    sampler
+        If set, restrict to this single base-method name (e.g. ``"mclmc"``).
+        ``None`` = iterate all of ``MCLMC_LRD_METHOD_NAMES``.
+
+    Returns
+    -------
+    List of Path objects pointing to written JSON files.
+    """
+    mclmc_lrd_tuning = WARMUPS["mclmc_lrd_tuning"]
+    generated: list[Path] = []
+    repo_root = Path(__file__).parent.parent.parent.parent
+
+    for model_name in model_names or STARTER_MODEL_NAMES:
+        posterior = MODELS[model_name]
+        for method_name in MCLMC_LRD_METHOD_NAMES:
+            if sampler is not None and method_name != sampler:
+                continue
+            base_method = BASE_METHODS[method_name]
+
+            # Check compatibility (always True for mclmc; guard for future additions).
+            if not mclmc_lrd_tuning.is_compatible(method_name):
+                print(
+                    f"  SKIP  {model_name}/{method_name}: "
+                    f"mclmc_lrd_tuning incompatible"
+                )
+                continue
+
+            # Derive a deterministic per-recipe key via fold_in.
+            hash_val = hash((model_name, method_name, "mclmc_lrd")) & 0xFFFFFFFF
+            key = jax.random.fold_in(jax.random.key(seed), hash_val)
+
+            recipe = Recipe.from_warmup_only(
+                posterior,
+                base_method,
+                mclmc_lrd_tuning,
+                n_warmup=n_warmup,
+                rng_key=key,
+                tuningfork_version=_tuningfork_version,
+            )
+            path = recipe.save(_CATALOG_ROOT)
+            generated.append(path)
+            try:
+                pretty = path.relative_to(repo_root)
+            except ValueError:
+                pretty = path
+            print(f"  MCLMC_LRD {pretty}")
+
+    return generated
+
+
 def emit_high_recipes(
     seed: int = 0,
     n_trials: int = 20,
@@ -390,7 +478,12 @@ def main() -> None:
     """
     import argparse
 
-    valid_warmups = {"no_warmup", "window_adaptation_diag_imm", "mclmc_tuning"}
+    valid_warmups = {
+        "no_warmup",
+        "window_adaptation_diag_imm",
+        "mclmc_tuning",
+        "mclmc_lrd_tuning",
+    }
     # MEDIUM_METHOD_NAMES (rmhmc) are not in ALL_METHOD_NAMES but must be
     # reachable via --sampler so emit_medium_recipes can be targeted directly.
     valid_samplers = set(ALL_METHOD_NAMES) | set(MEDIUM_METHOD_NAMES)
@@ -419,8 +512,11 @@ def main() -> None:
         help=(
             "Restrict to one warmup.  'no_warmup' applies to the LOW pass "
             "for samplers without trajectory adaptation; 'window_adaptation_diag_imm' "
-            "applies to NUTS/HMC and other window-compatible samplers.  "
-            "Default: all."
+            "applies to NUTS/HMC and other window-compatible samplers; "
+            "'mclmc_lrd_tuning' runs the LRD-preconditioned MCLMC warmup "
+            "(NUTS pilot + SVD + vmapped mclmc_find_L_and_step_size) for mclmc.  "
+            "Default: all (no_warmup + window_adaptation_diag_imm); "
+            "mclmc_lrd_tuning must be requested explicitly."
         ),
     )
     parser.add_argument(
@@ -443,14 +539,17 @@ def main() -> None:
 
     names: list[str] | None = [args.only] if args.only is not None else None
 
-    # The warmup filter selects which LOW pass to run.
-    # `no_warmup`   → emit_low_recipes   (no adaptation; identity warmup)
-    # `window_adaptation_diag_imm` → emit_medium_recipes (window adaptation; *as a LOW candidate*
-    #                                      under the new framing — this function
-    #                                      runs the default warmup and produces
-    #                                      candidate output for the gate)
+    # The warmup filter selects which pass to run.
+    # `no_warmup`                → emit_low_recipes   (no adaptation; identity warmup)
+    # `window_adaptation_diag_imm` → emit_medium_recipes (window adaptation)
+    # `mclmc_lrd_tuning`         → emit_mclmc_lrd_recipes (LRD MCLMC warmup;
+    #                                NOT included in the default run — must be
+    #                                requested explicitly via --warmup mclmc_lrd_tuning
+    #                                because the NUTS pilot makes it substantially
+    #                                more expensive than the window_adaptation pass)
     do_no_warmup = args.warmup in (None, "no_warmup")
     do_window_adaptation_diag_imm = args.warmup in (None, "window_adaptation_diag_imm")
+    do_mclmc_lrd_tuning = args.warmup == "mclmc_lrd_tuning"
 
     # ── Echo selection ──────────────────────────────────────────────────────
     selection = []
@@ -461,12 +560,13 @@ def main() -> None:
     if args.sampler is not None:
         selection.append(f"sampler={args.sampler}")
     if selection:
-        print(f"Emitting LOW candidates filtered by: {', '.join(selection)}")
+        print(f"Emitting candidates filtered by: {', '.join(selection)}")
     else:
-        print("Emitting ALL LOW candidates (no filters set).")
+        print("Emitting ALL default candidates (no filters set).")
 
     no_warmup_paths: list[Path] = []
     window_adaptation_diag_imm_paths: list[Path] = []
+    mclmc_lrd_paths: list[Path] = []
 
     if do_no_warmup:
         print(
@@ -484,10 +584,24 @@ def main() -> None:
             model_names=names, sampler=args.sampler
         )
 
-    total = len(no_warmup_paths) + len(window_adaptation_diag_imm_paths)
+    if do_mclmc_lrd_tuning:
+        print(
+            "\nEmitting candidates for warmup=mclmc_lrd_tuning "
+            f"({'mclmc' if args.sampler is None else args.sampler})..."
+        )
+        mclmc_lrd_paths = emit_mclmc_lrd_recipes(
+            model_names=names, sampler=args.sampler
+        )
+
+    total = (
+        len(no_warmup_paths)
+        + len(window_adaptation_diag_imm_paths)
+        + len(mclmc_lrd_paths)
+    )
     print(
         f"\n✓ Emitted {len(no_warmup_paths)} no_warmup + "
-        f"{len(window_adaptation_diag_imm_paths)} window_adaptation_diag_imm = {total} LOW candidates.  "
+        f"{len(window_adaptation_diag_imm_paths)} window_adaptation_diag_imm + "
+        f"{len(mclmc_lrd_paths)} mclmc_lrd = {total} candidates.  "
         f"Next: Statistician gate."
     )
 
