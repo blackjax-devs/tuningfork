@@ -51,6 +51,7 @@ from tuningfork.warmup._base import Warmup
 from tuningfork.warmup.adjusted_mclmc_tuning import ENTRY as _adjusted_mclmc_tuning
 from tuningfork.warmup.chees import ENTRY as _chees
 from tuningfork.warmup.fullrank_vi import ENTRY as _fullrank_vi
+from tuningfork.warmup.mclmc_lrd_tuning import ENTRY as _mclmc_lrd_tuning
 from tuningfork.warmup.mclmc_tuning import ENTRY as _mclmc_tuning
 from tuningfork.warmup.meads import ENTRY as _meads
 from tuningfork.warmup.meanfield_vi import ENTRY as _meanfield_vi
@@ -75,6 +76,7 @@ WARMUPS: dict[str, Warmup] = {
     _window_adaptation_dense_imm.name: _window_adaptation_dense_imm,
     _window_adaptation_low_rank_imm.name: _window_adaptation_low_rank_imm,
     _mclmc_tuning.name: _mclmc_tuning,
+    _mclmc_lrd_tuning.name: _mclmc_lrd_tuning,
     _adjusted_mclmc_tuning.name: _adjusted_mclmc_tuning,
     _no_warmup.name: _no_warmup,
     _pathfinder.name: _pathfinder,
