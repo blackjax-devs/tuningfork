@@ -77,12 +77,16 @@ def test_lrd_mclmc_ill_cond_50():
         logdensity_fn, init_position, lrd_imm, run_key, n_warmup=1000, n_samples=1000
     )
 
-    # samples shape: (num_chains, n_samples, d) = (4, 1000, 50)
-    # Use pure-JAX diagnostics — no arviz dependency.
-    rhat = potential_scale_reduction(samples, chain_axis=0, sample_axis=1)
-    ess = effective_sample_size(samples, chain_axis=0, sample_axis=1)
-    rhat_max = float(jnp.max(rhat))
-    ess_min = float(jnp.min(ess))
+    # samples is a PyTree (dict of arrays) with leading dims (num_chains, n_samples).
+    # Apply pure-JAX diagnostics per leaf, then reduce across leaves.
+    rhat_tree = jax.tree.map(
+        lambda x: potential_scale_reduction(x, chain_axis=0, sample_axis=1), samples
+    )
+    ess_tree = jax.tree.map(
+        lambda x: effective_sample_size(x, chain_axis=0, sample_axis=1), samples
+    )
+    rhat_max = float(jnp.max(jnp.array(jax.tree.leaves(rhat_tree))))
+    ess_min = float(jnp.min(jnp.array(jax.tree.leaves(ess_tree))))
 
     assert rhat_max < 1.05, f"R-hat {rhat_max:.4f} >= 1.05"
     assert ess_min >= 100.0, f"min ESS {ess_min:.1f} < 100"
