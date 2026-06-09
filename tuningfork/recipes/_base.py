@@ -659,7 +659,18 @@ class Recipe:
                 if self.variant_label is not None
                 else self.base_method_name
             )
-            stem = f"{self.effort.value}__{_name_slot}__{self.warmup_name}"
+            # When warmup_name is blank (baked recipes), fall back to the
+            # original warmup name stored in calibration_budget["baked_from"]
+            # so the filename reads <effort>__<method>__<warmup> rather than
+            # <effort>__<method>__ (dangling double-underscore).
+            _warmup_segment = self.warmup_name or (
+                (self.calibration_budget or {})
+                .get("baked_from", {})
+                .get("warmup_name", "")
+                if isinstance(self.calibration_budget, dict)
+                else ""
+            )
+            stem = f"{self.effort.value}__{_name_slot}__{_warmup_segment}"
             if filename_tag:
                 stem = f"{stem}__{filename_tag}"
             filename = f"{stem}.json"
@@ -1438,7 +1449,16 @@ class Recipe:
             filename = "groundtruth.imm.npz"
         else:
             sidecar_dir = model_dir / "recipes"
-            stem = f"{self.effort.value}__{_name_slot}__{self.warmup_name}"
+            # Mirror the save() fallback: baked recipes have warmup_name=""
+            # so read the original name from calibration_budget["baked_from"].
+            _warmup_segment = self.warmup_name or (
+                (self.calibration_budget or {})
+                .get("baked_from", {})
+                .get("warmup_name", "")
+                if isinstance(self.calibration_budget, dict)
+                else ""
+            )
+            stem = f"{self.effort.value}__{_name_slot}__{_warmup_segment}"
             if filename_tag:
                 stem = f"{stem}__{filename_tag}"
             filename = f"{stem}.imm.npz"

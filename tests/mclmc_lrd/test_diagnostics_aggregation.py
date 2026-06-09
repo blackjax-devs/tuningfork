@@ -344,3 +344,69 @@ def test_cert_sweep_bake_no_double_squeeze_when_imm_already_unbatched(
         "Double-squeeze bug: sigma values modified — de-broadcast applied to "
         "already-unbatched IMM."
     )
+
+
+@pytest.mark.fast
+def test_baked_recipe_filename_uses_baked_from_warmup_name(tmp_path):
+    """Filename regression: baked recipes must not produce a dangling __ in stem.
+
+    Baked recipes have warmup_name="" (blanked to signal bake semantics).
+    The old save() used self.warmup_name directly, producing stems like
+    ``low__mclmc_lrd__`` (trailing double-underscore).
+
+    Fix: save() falls back to calibration_budget["baked_from"]["warmup_name"]
+    when self.warmup_name is empty, so the stem is
+    ``low__mclmc_lrd__mclmc_lrd_tuning.json`` / ``.imm.npz``.
+    """
+    from tuningfork.recipes._base import Effort, Recipe
+
+    lrd_imm = LowRankInverseMassMatrix(
+        sigma=jnp.ones(4),
+        U=jnp.eye(4, 2),
+        lam=jnp.array([2.0, 1.0]),
+    )
+    recipe = Recipe(
+        model_name="test_model",
+        base_method_name="mclmc",
+        warmup_name="",  # baked: warmup_name is blank
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "L": 1.0, "inverse_mass_matrix": lrd_imm},
+        warmup_params={},
+        warmups=[],
+        headline_metric=0.05,
+        sample_quality=None,
+        calibration_budget={
+            "baked_from": {
+                "warmup_name": "mclmc_lrd_tuning",  # original warmup for filename
+                "n_warmup": 1000,
+                "k_rank": 40,
+                "tuning_seed": 99999,
+            }
+        },
+        difficulty=None,
+        instructions="",
+        notes="",
+        variant_label="mclmc_lrd",
+        gate_evidence={},
+        tuning_seed=99999,
+        tuningfork_version="0.0.0",
+        blackjax_version="0.0.0",
+        jax_version="0.0.0",
+        timestamp_utc="2026-01-01T00:00:00Z",
+    )
+
+    json_path = recipe.save(tmp_path, imm_sidecar="auto")
+
+    # Filename must NOT end with dangling __ — must use baked_from.warmup_name.
+    assert json_path.name == "low__mclmc_lrd__mclmc_lrd_tuning.json", (
+        f"Filename bug: expected 'low__mclmc_lrd__mclmc_lrd_tuning.json', "
+        f"got {json_path.name!r}. "
+        "save() must fall back to calibration_budget['baked_from']['warmup_name'] "
+        "when self.warmup_name is empty."
+    )
+    # Sidecar must also use the correct stem.
+    sidecar_path = tmp_path / recipe.inverse_mass_matrix_path
+    assert sidecar_path.name == "low__mclmc_lrd__mclmc_lrd_tuning.imm.npz", (
+        f"Sidecar filename bug: expected 'low__mclmc_lrd__mclmc_lrd_tuning.imm.npz', "
+        f"got {sidecar_path.name!r}."
+    )
