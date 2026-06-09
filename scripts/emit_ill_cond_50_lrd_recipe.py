@@ -6,8 +6,12 @@ and writes the completed recipe JSON to the catalog.
 
 Science is already settled (statistician multi-seed PASS, 2026-06-09 —
 gate_evidence already present in the recipe).  This script only adds:
-  - base_method_params: {step_size, L} (mean over chains)
+  - base_method_params: {step_size, L, k_rank} (mean step_size/L over chains)
   - inverse_mass_matrix_path: relative path to the saved .npz
+
+The oracle covariance (ill_cond_50.COV) is used directly for the LRD
+decomposition — no NUTS pilot required.  This is valid because the exact
+50-D covariance is known analytically for this benchmark.
 
 Run from repo root:
     uv run python scripts/emit_ill_cond_50_lrd_recipe.py
@@ -51,7 +55,7 @@ RECIPE_PATH = (
     / "catalog"
     / "ill_cond_50"
     / "recipes"
-    / "low__mclmc__mclmc_tuning.json"
+    / "low__mclmc_lrd__mclmc_lrd_tuning.json"
 )
 IMM_PATH = (
     REPO_ROOT
@@ -59,7 +63,7 @@ IMM_PATH = (
     / "catalog"
     / "ill_cond_50"
     / "recipes"
-    / "low__mclmc__mclmc_tuning.imm.npz"
+    / "low__mclmc_lrd__mclmc_lrd_tuning.imm.npz"
 )
 
 
@@ -86,7 +90,7 @@ def main():
         k=K_RANK,
         model="ill_cond_50",
         seed=SEED,
-        note="LRD k=40 decomposition of oracle COV; R-hat=1.0039, ESS=1993 @stat-2026-06-09",
+        note="LRD k=40 oracle COV decomposition; R-hat=1.0039, ESS=1993 @stat-2026-06-09",
     )
     print(f"    Saved {IMM_PATH.stat().st_size} bytes.")
 
@@ -136,10 +140,13 @@ def main():
     recipe["base_method_params"] = {
         "step_size": step_size_mean,
         "L": L_mean,
+        "k_rank": K_RANK,
         # IMM is too large for inline JSON; loaded from inverse_mass_matrix_path
     }
     # Relative path from catalog/ill_cond_50/ root
-    recipe["inverse_mass_matrix_path"] = "recipes/low__mclmc__mclmc_tuning.imm.npz"
+    recipe["inverse_mass_matrix_path"] = (
+        "recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz"
+    )
     recipe["warmup_grad_evals"] = 2 * N_WARMUP * NUM_CHAINS
 
     # Update calibration_budget with actual warmup cost
