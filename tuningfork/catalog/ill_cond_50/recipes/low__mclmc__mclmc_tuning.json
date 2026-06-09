@@ -9,6 +9,12 @@
     "num_chains": 4
   },
   "headline_metric": 0.2492,
+  "headline_basis": {
+    "total_grad_evals": 8000,
+    "min_bulk_ess": 1993.3,
+    "grad_count_convention": "2",
+    "is_lower_bound": false
+  },
   "sample_quality": null,
   "calibration_budget": {
     "trials": 4,

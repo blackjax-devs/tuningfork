@@ -18,6 +18,12 @@
     "ncp_variant": "stoch_vol_flatinit_ncp"
   },
   "headline_metric": 0.023369375404010801,
+  "headline_basis": {
+    "total_grad_evals": 16000,
+    "min_bulk_ess": 373.91,
+    "grad_count_convention": "2",
+    "is_lower_bound": false
+  },
   "sample_quality": null,
   "calibration_budget": {
     "trials": 2,
@@ -47,7 +53,7 @@
     }
   ],
   "warmup_inner_kernel": null,
-  "warmup_num_chains": 4,
+  "warmup_num_chains": [4],
   "init_strategy": null,
   "inverse_mass_matrix_path": "recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz",
   "workflow": "",
