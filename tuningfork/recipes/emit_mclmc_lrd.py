@@ -303,6 +303,9 @@ def _emit_lrd_cert_sweep(
             base_params = {**default_params_for(base_method), **clean_adapted}
             # Coerce JAX arrays → Python scalars/lists; LRD namedtuple passes through.
             base_params = _to_jsonable(base_params)
+            # Old-golden contract: base_method_params carries k_rank so consumers
+            # know which rank was used without parsing calibration_budget.
+            base_params["k_rank"] = k_rank
 
             calibration_budget_pass: dict[str, Any] = {
                 "trials": 0,
@@ -339,12 +342,33 @@ def _emit_lrd_cert_sweep(
             recipe_kwargs_pass: dict[str, Any] = dict(
                 model_name=posterior.name,
                 base_method_name=base_method.name,
-                warmup_name="",  # baked: warmup fields blanked
+                warmup_name="",  # baked: warmup fields blanked at runtime
                 effort=effort,
                 base_method_params=base_params,
                 warmup_params={"n_warmup": n_warmup},
-                warmups=[],  # baked: warmup list blanked
+                # Populate warmups so Recipe.load derives warmup_name="mclmc_lrd_tuning"
+                # from warmups[0]["name"] (line 796-799 of _base.py).  Without this,
+                # warmups=[] → load takes the legacy path → warmup_name="" →
+                # emit_script raises "No emit function for warmup ''".
+                warmups=[
+                    {
+                        "name": warmup.name,
+                        "params": {
+                            "n_warmup": n_warmup,
+                            "num_chains": num_chains,
+                            "k_rank": k_rank,
+                            "pilot_n_warmup": n_warmup,
+                            "pilot_n_samples": n_samples,
+                        },
+                    }
+                ],
                 headline_metric=best["ess_per_grad"],
+                headline_basis={
+                    "total_grad_evals": best["total_grad_evals"],
+                    "min_bulk_ess": best["min_bulk_ess"],
+                    "grad_count_convention": "2",
+                    "is_lower_bound": False,
+                },
                 sample_quality=None,
                 calibration_budget=calibration_budget_pass,
                 difficulty=None,

@@ -188,6 +188,38 @@ def test_cert_sweep_bakes_from_adapted_params_exactly(tmp_path, monkeypatch):
         "can be reproduced at the same rank."
     )
 
+    # B2: k_rank must also be in base_method_params (old-golden contract).
+    assert recipe.base_method_params.get("k_rank") == 3, (
+        f"B2 regression: k_rank missing from base_method_params — got {recipe.base_method_params!r}. "
+        "Old-golden contract: base_method_params = {{step_size, L, k_rank}}."
+    )
+
+    # B1: warmups must be populated so Recipe.load derives warmup_name="mclmc_lrd_tuning"
+    # (emit_script reads recipe.warmup_name — empty string raises FileNotFoundError).
+    assert (
+        recipe.warmups
+    ), "B1 regression: warmups list is empty — emit_script will crash."
+    assert recipe.warmups[0]["name"] == "mclmc_lrd_tuning", (
+        f"B1 regression: warmups[0]['name'] expected 'mclmc_lrd_tuning', "
+        f"got {recipe.warmups[0]['name']!r}."
+    )
+    assert recipe.warmup_name == "mclmc_lrd_tuning", (
+        f"B1 regression: recipe.warmup_name expected 'mclmc_lrd_tuning', "
+        f"got {recipe.warmup_name!r}. "
+        "Recipe.load must derive warmup_name from warmups[0]."
+    )
+
+    # headline_basis must be populated with sampling-basis accounting.
+    assert (
+        recipe.headline_basis is not None
+    ), "headline_basis must not be None for baked recipes."
+    assert (
+        recipe.headline_basis.get("total_grad_evals") == 5000
+    ), f"headline_basis.total_grad_evals expected 5000, got {recipe.headline_basis!r}."
+    assert (
+        recipe.headline_basis.get("grad_count_convention") == "2"
+    ), f"headline_basis.grad_count_convention expected '2', got {recipe.headline_basis!r}."
+
 
 @pytest.mark.fast
 def test_save_updates_self_inverse_mass_matrix_path(tmp_path):
