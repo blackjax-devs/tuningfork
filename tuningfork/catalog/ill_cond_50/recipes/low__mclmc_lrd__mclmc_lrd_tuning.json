@@ -26,7 +26,7 @@
   },
   "difficulty": null,
   "instructions": "LRD-preconditioned MCLMC on ill_cond_50 (kappa=1000 rotated Gaussian).\nPipeline: (1) oracle rank-40 COV decomposition via decompose_covariance_low_rank; (2) LRD IMM stored as .imm.npz sidecar; (3) mclmc_find_L_and_step_size with make_lrd_kernel binding the LowRankInverseMassMatrix.\nk=40 (oracle rank; NUTS-pilot extraction was not needed because the exact covariance is available via ill_cond_50.COV).\nIMM checkpoint at inverse_mass_matrix_path; load with np.load to skip re-extraction.\nThe emitted run-script uses mclmc_lrd_tuning (NUTS pilot path) for portability; the oracle-IMM path is for the catalog artifact only.",
-  "notes": "Multi-seed hardening: seeds [11111, 22222, 33333] all PASS at ESS 1944-2031, ratios 450x-479x over diagonal (@statistician, 2026-06-09). Oracle COV decomposition (k=40) bypasses NUTS pilot for the calibration run. See attempted_configurations for per-seed gate evidence.",
+  "notes": "Two evidence tracks verified by @statistician (2026-06-09):\n(1) ORACLE path (emit_ill_cond_50_lrd_recipe.py): seeds [98765, 11111, 22222, 33333] all PASS, ESS/grad 0.243-0.254, ratios 450x-479x over diagonal. Uses decompose_covariance_low_rank(COV, k=40) directly — exact preconditioning, no pilot overhead. warmup_grad_evals=8000.\n(2) PORTABLE/pilot path (emitted run-script — mclmc_lrd_tuning NUTS-pilot): seeds [44444, 55555, 66666] all PASS, ESS/grad 0.196-0.225 (81-93% of oracle; see attempted_configurations). Pilot adds ~4000 extra warmup grads → warmup_grad_evals≈12000 for portable path. headline_metric=0.2492 reflects oracle upper bound; portable path floor is ~0.20.",
   "step_policy": null,
   "warmups": [
     {
@@ -111,6 +111,57 @@
       "ess_per_grad": 0.2538,
       "step_size": null,
       "L": null
+    },
+    {
+      "seed": 44444,
+      "k": 40,
+      "n_warmup": 1000,
+      "n_samples": 1000,
+      "num_chains": 4,
+      "outcome": "PASS",
+      "rhat_max": 1.0055,
+      "min_bulk_ess": 1684.7,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "ess_per_grad": 0.21059,
+      "step_size": null,
+      "L": null,
+      "path": "pilot",
+      "note": "NUTS-pilot path (emitted run-script); warmup_grad_evals~12000 incl. pilot"
+    },
+    {
+      "seed": 55555,
+      "k": 40,
+      "n_warmup": 1000,
+      "n_samples": 1000,
+      "num_chains": 4,
+      "outcome": "PASS",
+      "rhat_max": 1.0052,
+      "min_bulk_ess": 1567.9,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "ess_per_grad": 0.19599,
+      "step_size": null,
+      "L": null,
+      "path": "pilot",
+      "note": "NUTS-pilot path (emitted run-script); warmup_grad_evals~12000 incl. pilot"
+    },
+    {
+      "seed": 66666,
+      "k": 40,
+      "n_warmup": 1000,
+      "n_samples": 1000,
+      "num_chains": 4,
+      "outcome": "PASS",
+      "rhat_max": 1.0035,
+      "min_bulk_ess": 1803.7,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "ess_per_grad": 0.22546,
+      "step_size": null,
+      "L": null,
+      "path": "pilot",
+      "note": "NUTS-pilot path (emitted run-script); warmup_grad_evals~12000 incl. pilot"
     }
   ],
   "warmup_grad_evals": 8000
