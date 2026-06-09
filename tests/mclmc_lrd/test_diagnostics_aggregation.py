@@ -258,3 +258,89 @@ def test_save_updates_self_inverse_mass_matrix_path(tmp_path):
         "M1: recipe.load_imm_sidecar() returned None on the in-memory recipe after save. "
         "inverse_mass_matrix_path was not updated."
     )
+
+
+@pytest.mark.fast
+def test_cert_sweep_bake_no_double_squeeze_when_imm_already_unbatched(
+    tmp_path, monkeypatch
+):
+    """De-broadcast guard regression: already-unbatched LRD IMM must not be re-indexed.
+
+    _run_cert_seed runs the warmup with num_chains=1 and then calls
+    squeeze_single_chain — so adapted_params["inverse_mass_matrix"] arrives at the
+    bake step with sigma shape (d,), NOT (1, d).  The old de-broadcast code did
+    ``sigma[0]`` unconditionally, which gives a scalar instead of (d,) and corrupts
+    the sidecar.
+
+    Fix (ndim > 1 guard): de-broadcast is skipped when sigma.ndim == 1 (already
+    unbatched).
+
+    This test provides an UNBATCHED sentinel (sigma shape (5,)) and asserts that the
+    saved sidecar carries the full (5,) vector — not a scalar or (k,) slice.
+    """
+    pytest.importorskip("numpyro")
+
+    _sigma = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])  # shape (5,) — already squeezed
+    _U = jnp.eye(5, 3)  # shape (5, 3)
+    _lam = jnp.array([1.0, 0.5, 0.25])  # shape (3,)
+    _unbatched_imm = LowRankInverseMassMatrix(sigma=_sigma, U=_U, lam=_lam)
+
+    fake_result = {
+        "seed": 77,
+        "verdict": "PASS",
+        "rhat_max": 1.001,
+        "min_bulk_ess": 500.0,
+        "n_divergences": 0,
+        "div_rate": 0.0,
+        "ess_per_grad": 0.1,
+        "total_grad_evals": 5000,
+        "wall_seconds": 0.5,
+        "adapted_params": {
+            "step_size": jnp.array(0.25),
+            "L": jnp.array(3.0),
+            "inverse_mass_matrix": _unbatched_imm,
+        },
+    }
+
+    import tuningfork.recipes.emit_mclmc_lrd as _mod
+
+    monkeypatch.setattr(_mod, "_run_cert_seed", lambda **_kw: fake_result)
+
+    from tuningfork.recipes.emit_mclmc_lrd import _emit_lrd_cert_sweep
+
+    written = _emit_lrd_cert_sweep(
+        ["ill_cond_50"],
+        cert_seeds=(77,),
+        n_warmup=100,
+        n_samples=10,
+        num_chains=1,
+        k_rank=3,
+        catalog_root=tmp_path,
+        variant_label="mclmc_lrd",
+    )
+
+    assert len(written) == 1
+
+    from tuningfork.recipes import Recipe
+
+    recipe = Recipe.load(written[0])
+    saved_imm = recipe.load_imm_sidecar(tmp_path)
+    assert saved_imm is not None
+
+    # Guard regression: sigma must still be (5,) — NOT scalar or first element.
+    assert saved_imm.sigma.shape == (5,), (
+        f"Double-squeeze bug: expected sigma.shape=(5,), got {saved_imm.sigma.shape}. "
+        "The ndim>1 guard on de-broadcast is missing or broken."
+    )
+    assert saved_imm.U.shape == (
+        5,
+        3,
+    ), f"Double-squeeze bug: expected U.shape=(5,3), got {saved_imm.U.shape}."
+    assert saved_imm.lam.shape == (
+        3,
+    ), f"Double-squeeze bug: expected lam.shape=(3,), got {saved_imm.lam.shape}."
+    # Values must be unchanged (no indexing applied).
+    assert jnp.allclose(saved_imm.sigma, _sigma), (
+        "Double-squeeze bug: sigma values modified — de-broadcast applied to "
+        "already-unbatched IMM."
+    )

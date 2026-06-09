@@ -284,18 +284,20 @@ def _emit_lrd_cert_sweep(
             clean_adapted = {
                 k: v for k, v in adapted_params.items() if not k.startswith("_")
             }
-            # De-broadcast LRD IMM: the certified runner stores the shared LRD as a
-            # (num_chains, d[, k]) batched namedtuple so jax.vmap can slice per chain.
-            # Goldens/sidecars use the unbatched (d,)/(d,k)/(k,) format — take leaf[0]
-            # (broadcast is lossless: all chains share the same extracted IMM).
+            # De-broadcast LRD IMM if needed: the certified runner broadcasts the
+            # single shared LRD to a (num_chains, d[, k]) namedtuple so jax.vmap
+            # can slice per chain.  Goldens/sidecars use the unbatched (d,)/(d,k)/(k,)
+            # format.  Guard on sigma.ndim > 1 so that callers who already squeezed
+            # (e.g. _run_cert_seed uses num_chains=1 + squeeze_single_chain) are not
+            # double-squeezed — sigma[0] on a (d,) array gives a scalar, not (d,).
             if "inverse_mass_matrix" in clean_adapted:
-                imm_batched = clean_adapted["inverse_mass_matrix"]
-                if isinstance(imm_batched, LowRankInverseMassMatrix):
+                imm = clean_adapted["inverse_mass_matrix"]
+                if isinstance(imm, LowRankInverseMassMatrix) and imm.sigma.ndim > 1:
                     clean_adapted = dict(clean_adapted)
                     clean_adapted["inverse_mass_matrix"] = LowRankInverseMassMatrix(
-                        sigma=imm_batched.sigma[0],
-                        U=imm_batched.U[0],
-                        lam=imm_batched.lam[0],
+                        sigma=imm.sigma[0],
+                        U=imm.U[0],
+                        lam=imm.lam[0],
                     )
             # Merge with base-method defaults (adapted values win).
             base_params = {**default_params_for(base_method), **clean_adapted}
