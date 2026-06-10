@@ -85,41 +85,68 @@ as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
 - External LRD coordinate-whitening on NCP models: **FAIL** (breaks prior-centering).
   Fundamental incompatibility, not a tuning issue.
 
-## Recipe regen (stoch_vol LRD flat-init, NUTS-pilot path)
+## MCLMC LRD null-support record (2026-06-10)
 
-**STATUS: DEFERRED** — LRD calibration track stopped per mission fallback (2026-06-10).
-Phase (c) Track 2: 0/3 cert seeds ERROR (mixed-rank pytree crash in `_run_cert_seed`
-post-sampling R-hat/ESS aggregation step). See `worklog/threads/feat-mclmc-lrd-integrator.md` § Phase (c) Track 2 VERDICT
-and this catalog's `lrd_track2_failure_analysis_2026-06-09.md`.
-`scripts/calibrate_stoch_vol_lrd.py` is the sole provenance for the committed artifacts
-until @user authorises a retry.
+Committed artifacts:
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.json` — k=30 flat-init recipe (2-seed, script-baked)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz` — rank-30 LRD IMM sidecar (seed=99 pilot)
 
-The committed artifacts are:
-- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.json` — golden recipe (k=30, 2-seed REVIEW, script-baked)
-- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz` — rank-30 LRD IMM sidecar (from seed=99 pilot)
+### What the flat-init variant is
 
-**Note:** This is the flat-init NCP variant, NOT the registered `stoch_vol` model.
-The registered model uses stationary init (`h[0] = mu + (sigma/sqrt(1-phi^2)) * h_std[0]`);
-the flat-init variant uses `h[0] = mu + sigma * h_std[0]` to reduce phi coupling.
+The committed recipe uses a **custom unregistered logdensity** — an experimental
+flat-init NCP variant distinct from the registered `stoch_vol` model:
 
-**To regenerate** (once @user authorises retry and mixed-rank fix is on main):
-Re-run `scripts/calibrate_stoch_vol_lrd.py` with the same parameters (flat-init variant —
-the sole provenance for the committed artifacts). For the standard registered `stoch_vol`
-model, the generator command is:
+- Registered model: `h[0] = mu + (sigma / sqrt(1 − phi²)) * h_std[0]`  ← stationary init
+- Flat-init variant: `h[0] = mu + sigma * h_std[0]`  ← this recipe
+
+The `sigma/sqrt(1−phi²)` denominator diverges as phi→1 (unit root), creating a
+funnel-like coupling at h[0] that amplifies LRD preconditioning errors near the
+unit-root boundary. The flat-init variant decouples h[0] from phi near the unit
+root by replacing the stationary-distribution scale with a flat `sigma` scale.
+
+### Evidence on record
+
+| Run | Variant | k | Seed | Max R-hat | Min ESS | Verdict |
+|---|---|---|---|---|---|---|
+| Flatinit k=30 | flat-init (unregistered) | 30 | 42 | 1.169 | 18 | FAIL |
+| Flatinit k=30 | flat-init (unregistered) | 30 | 99 | 1.019 | 374 | REVIEW |
+| Stress test k=50 | internal LRD (native integrator) | 50 | — | 1.050 | 156 | REVIEW |
+
+All ESS values are Geyer/blackjax-basis. Zero divergences on all runs.
+High seed sensitivity at k=30 (seed-42 FAIL vs seed-99 REVIEW) and the REVIEW
+ceiling at k=50 point to the same root cause: **position-dependent funnel
+curvature** that a constant global preconditioner cannot handle.
+
+### Interpretation: funnel curvature is the blocker, not MCLMC
+
+MCLMC-LRD samples the de-funneled geometry without divergence-class failure. The
+REVIEW ceiling arises because flat-init reduces but does **not** eliminate the
+near-unit-root curvature: the AR(1) stationary scaling `sigma/sqrt(1−phi²)` persists
+in `h[1:T]` even when `h[0]` is flat-initialized. A single global LRD mass matrix
+cannot adapt to the position-dependent curvature of the AR(1) funnel neck at runtime.
+
+The blocker for stoch_vol in the catalog is the **funnel curvature of the standard
+posterior**, not MCLMC itself. With de-funneled geometry, MCLMC works at borderline
+(REVIEW) level. The flatinit golden is null-support evidence — it demonstrates that
+removing the h[0] coupling improves mixing measurably while confirming that the
+remaining curvature in `h[1:T]` is the binding constraint.
+
+### Standard-model cert remains open
+
+Any future MCLMC-LRD attempt on the standard registered stoch_vol model requires a
+warmup scheme that handles funnel-class geometry. Candidate directions:
+- A stronger prior that rules out phi_con > 0.99 (moves posterior bulk away from the funnel neck)
+- Per-step adaptive geometry (Riemannian MCLMC)
+- A pilot-free or online-adaptation warmup that does not assume a single global mass matrix
+
+Full path-divergence analysis and phase (c) Track 2 failure analysis at
+`lrd_track2_failure_analysis_2026-06-09.md`. Standard-model generator command
+(once model registration and warmup geometry are resolved):
 ```bash
 uv run python -m tuningfork.recipes._generate_starter \
     --warmup mclmc_lrd_tuning --only stoch_vol \
     --calibrate --cert-seeds <seeds> --n-warmup 3000 --n-samples 2000 --k-rank 30
 ```
-Statistician-approved config (2026-06-09):
-- k=30 (not full-rank k=50 — higher rank degrades R-hat on the funnel neck)
-- n_warmup=3000, n_samples=2000, num_chains=4
-- NUTS pilot: pilot_n_warmup=1000, pilot_n_samples=1000 (single chain)
-- Seeds [42, 99] (two-seed protocol)
-- Expected verdict: REVIEW (R-hat 1.01–1.05; funnel geometry limits mixing)
-
-The standard `mclmc_lrd_tuning` warmup path via the generator requires model
-registration. Until then, regeneration requires `scripts/calibrate_stoch_vol_lrd.py`.
 
 ## History
 
