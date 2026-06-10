@@ -89,7 +89,6 @@ as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
 
 Committed artifacts:
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.json` — k=30 flat-init recipe (2-seed, script-baked)
-- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz` — rank-30 LRD IMM sidecar (seed=99 pilot)
 
 ### What the flat-init variant is
 
@@ -112,7 +111,9 @@ root by replacing the stationary-distribution scale with a flat `sigma` scale.
 | Flatinit k=30 | flat-init (unregistered) | 30 | 99 | 1.019 | 374 | REVIEW |
 | Stress test k=50 | internal LRD (native integrator) | 50 | — | 1.050 | 156 | REVIEW |
 
-All ESS values are Geyer/blackjax-basis. Zero divergences on all runs.
+ESS basis: rows 1–2 (k=30 runs, seeds 42/99) are az.ess(method="bulk") via
+auto_gate from the calibration script; row 3 (k=50 stress) is Geyer/blackjax-basis
+from the guardrail verifier. **Do not compare ESS values across rows.**
 High seed sensitivity at k=30 (seed-42 FAIL vs seed-99 REVIEW) and the REVIEW
 ceiling at k=50 point to the same root cause: **position-dependent funnel
 curvature** that a constant global preconditioner cannot handle.
@@ -120,16 +121,23 @@ curvature** that a constant global preconditioner cannot handle.
 ### Interpretation: funnel curvature is the blocker, not MCLMC
 
 MCLMC-LRD samples the de-funneled geometry without divergence-class failure. The
-REVIEW ceiling arises because flat-init reduces but does **not** eliminate the
-near-unit-root curvature: the AR(1) stationary scaling `sigma/sqrt(1−phi²)` persists
-in `h[1:T]` even when `h[0]` is flat-initialized. A single global LRD mass matrix
-cannot adapt to the position-dependent curvature of the AR(1) funnel neck at runtime.
+REVIEW ceiling arises because flat-init removes the h[0] singularity only; the
+AR(1) transition kernel's phi–sigma coupling (`h[t] = phi·h[t-1] + sigma·eps`) is
+unchanged, so the near-unit-root curvature persists through the bulk of the chain.
+A single global LRD mass matrix cannot adapt to the position-dependent curvature of
+the AR(1) transition at runtime.
 
+The best observed result is REVIEW (seed-99, k=30); the same k=30 config FAILed at
+seed-42, demonstrating high seed sensitivity. **REVIEW is the documented ceiling,
+not a reliable expectation.** The k=50 internal-LRD run on the standard posterior
+independently yielded REVIEW (R-hat=1.050, ESS=156; Geyer basis), consistent with the
+k=30 flatinit ceiling. The flatinit golden is null-support evidence — it demonstrates
+that removing the h[0] singularity improves mixing measurably, while the AR(1)
+transition kernel's unchanged phi–sigma coupling remains the binding constraint.
 The blocker for stoch_vol in the catalog is the **funnel curvature of the standard
-posterior**, not MCLMC itself. With de-funneled geometry, MCLMC works at borderline
-(REVIEW) level. The flatinit golden is null-support evidence — it demonstrates that
-removing the h[0] coupling improves mixing measurably while confirming that the
-remaining curvature in `h[1:T]` is the binding constraint.
+posterior**, not MCLMC itself. LRD-MCLMC is unproven on funnel-class geometry;
+stoch_vol re-enters scope only via the pilot-free warmup research or a
+registered-model reparameterization (user authority).
 
 ### Standard-model cert remains open
 
