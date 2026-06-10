@@ -89,7 +89,7 @@ as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
 
 **STATUS: DEFERRED** — LRD calibration track stopped per mission fallback (2026-06-10).
 Phase (c) Track 2: 0/3 cert seeds ERROR (mixed-rank pytree crash in `_run_cert_seed`
-before sampling completed). See `tuningfork/docs/phase_c_track2_failure_analysis_2026_06_09.md`.
+post-sampling aggregation). See `claude-config/project/worklog/threads/feat-mclmc-lrd-integrator.md` § Phase (c) Track 2 VERDICT.
 `scripts/calibrate_stoch_vol_lrd.py` is the sole provenance for the committed artifacts
 until @user authorises a retry.
 
