@@ -103,6 +103,11 @@ def test_mclmc_lrd_tuning_warmup_returns_lrd_imm():
     - "step_size" shape (1,) for num_chains=1
     - "L" shape (1,)
     - "inverse_mass_matrix" is a LowRankInverseMassMatrix namedtuple
+
+    Note: with a short pilot (pilot_n_samples=1000 on a 50-d ill_cond_50 model),
+    the upstream rank guard may clamp k_rank=10 → k_used=1 due to low pilot
+    n_eff.  The test accepts the clamping warning and verifies the batched shapes
+    are consistent with whatever k_used the rank guard selects.
     """
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
@@ -117,15 +122,18 @@ def test_mclmc_lrd_tuning_warmup_returns_lrd_imm():
     warmup = WARMUPS["mclmc_lrd_tuning"]
     base_method = BASE_METHODS["mclmc"]
 
-    states, adapted_params = warmup.runner(
-        warmup_key,
-        init_position,
-        n_warmup=500,
-        base_method=base_method,
-        logdensity_fn=logdensity_fn,
-        num_chains=1,
-        k_rank=10,
-    )
+    # The rank guard may fire for short pilots (k_rank=10 can exceed floor(n_eff/2)
+    # when the pilot has not yet mixed).  Accept the UserWarning explicitly.
+    with pytest.warns(UserWarning, match="rank-safety bound|Clamping"):
+        states, adapted_params = warmup.runner(
+            warmup_key,
+            init_position,
+            n_warmup=500,
+            base_method=base_method,
+            logdensity_fn=logdensity_fn,
+            num_chains=1,
+            k_rank=10,
+        )
 
     assert "step_size" in adapted_params
     assert "L" in adapted_params
@@ -133,11 +141,16 @@ def test_mclmc_lrd_tuning_warmup_returns_lrd_imm():
 
     imm = adapted_params["inverse_mass_matrix"]
     assert isinstance(imm, LowRankInverseMassMatrix), type(imm)
-    # Certified runner broadcasts the shared LRD IMM to a leading num_chains axis
-    # (mclmc_lrd_tuning.py:43-47) — with num_chains=1 the shapes are (1,d)/(1,d,k)/(1,k).
+
+    # The runner broadcasts the shared LRD IMM to a leading num_chains axis.
+    # With num_chains=1: sigma (1, d), U (1, d, k_used), lam (1, k_used).
+    # k_used may be < k_rank=10 if the rank guard clamped it — verify the
+    # broadcast contract holds for whatever k_used the guard selected.
+    k_used = imm.lam.shape[1]
     assert imm.sigma.shape == (1, 50), imm.sigma.shape  # (num_chains=1, d=50)
-    assert imm.U.shape == (1, 50, 10), imm.U.shape  # (num_chains=1, d=50, k=10)
-    assert imm.lam.shape == (1, 10), imm.lam.shape  # (num_chains=1, k=10)
+    assert imm.U.shape == (1, 50, k_used), imm.U.shape  # (num_chains=1, d=50, k_used)
+    assert imm.lam.shape == (1, k_used), imm.lam.shape  # (num_chains=1, k_used)
+    assert k_used >= 1, f"k_used={k_used} must be at least 1 (rank guard floor)"
 
     # step_size and L should have leading dim num_chains=1.
     assert adapted_params["step_size"].shape == (1,)
@@ -149,6 +162,9 @@ def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
 
     After squeeze_single_chain, step_size and L become scalars while the
     LowRankInverseMassMatrix passes through verbatim (per-leaf fix).
+
+    Note: with a short pilot the rank guard may clamp k_rank; the test accepts
+    that UserWarning and verifies the squeezed contract only.
     """
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
@@ -159,14 +175,16 @@ def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
     warmup = WARMUPS["mclmc_lrd_tuning"]
     base_method = BASE_METHODS["mclmc"]
 
-    recipe = Recipe.from_warmup_only(
-        entry,
-        base_method,
-        warmup,
-        n_warmup=300,
-        rng_key=jax.random.key(99),
-        k_rank=10,
-    )
+    # Accept rank-guard UserWarning for short-pilot tests.
+    with pytest.warns(UserWarning, match="rank-safety bound|Clamping"):
+        recipe = Recipe.from_warmup_only(
+            entry,
+            base_method,
+            warmup,
+            n_warmup=300,
+            rng_key=jax.random.key(99),
+            k_rank=10,
+        )
 
     assert recipe.effort == Effort.MEDIUM
     # LRD IMM must be in base_method_params as a LowRankInverseMassMatrix.

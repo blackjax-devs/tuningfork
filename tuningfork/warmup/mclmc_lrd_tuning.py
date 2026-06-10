@@ -11,18 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""MCLMC Low-Rank + Diagonal (LRD) warmup.
+"""MCLMC Low-Rank + Diagonal (LRD) warmup — thin delegate to blackjax.mclmc_lrd_warmup.
 
-Pipeline
---------
-1. Run a NUTS pilot chain to collect geometry samples
-   (``pilot_n_warmup`` + ``pilot_n_samples`` steps, single chain).
-2. Extract rank-k LRD components via ``extract_lrd_from_samples``
-   (SVD of standardised pilot samples).
-3. Build a ``LowRankInverseMassMatrix`` and bind it via ``make_lrd_kernel``.
-4. Run ``blackjax.mclmc_find_L_and_step_size`` per chain
-   (``jax.vmap`` over ``num_chains`` chains) with ``diagonal_preconditioning=False``
-   so the LRD geometry is preserved throughout adaptation.
+Delegates all geometry estimation, rank-guard logic, and inner-kernel dispatch
+to the upstream Scheme A implementation (``blackjax.mclmc_lrd_warmup``, landed
+in blackjax PR #937, SHA 359205da8b4c0f718662a64d6b9a2280fd8833b0).  This
+module enforces the tuningfork runner contract (per-chain broadcast LRD IMM,
+squeeze semantics, ``_total_tuning_steps``) and provides backward-compatible
+parameter-name mapping.
 
 Multi-chain contract (mirrors ``mclmc_tuning``)::
 
@@ -37,8 +33,10 @@ Multi-chain contract (mirrors ``mclmc_tuning``)::
 - ``"step_size"``             : (num_chains,) — adapted step sizes
 - ``"inverse_mass_matrix"``   : ``LowRankInverseMassMatrix`` with leading
                                 ``num_chains`` axis (vmappable per-chain)
-- ``"_total_tuning_steps"``   : int — grad evals in adaptation
-                                (summed across chains)
+- ``"_total_tuning_steps"``   : int — LRD adaptation steps per chain
+                                (= ``n_warmup``; pilot steps not counted, for
+                                historical continuity with calibration budget
+                                accounting in ``_recipe_runner.py``)
 
 The ``inverse_mass_matrix`` field is a ``LowRankInverseMassMatrix(sigma, U, lam)``
 where ``sigma.shape=(num_chains, d)``, ``U.shape=(num_chains, d, k)``,
@@ -60,9 +58,13 @@ import jax.numpy as jnp
 from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 
 from tuningfork.warmup._base import Warmup, _maybe_replicate
-from tuningfork.warmup._mclmc_common import _unpack_mclmc_adaptation
 
 __all__ = ["ENTRY"]
+
+# frac_tune1=0.5 is hardcoded in the upstream certified recipe for the adjusted
+# path (blackjax PR #937).  Accept this kwarg explicitly so callers that pass it
+# do not have it silently dropped; reject any value other than 0.5.
+_UPSTREAM_FRAC_TUNE1: float = 0.5
 
 
 def _runner(
@@ -76,122 +78,152 @@ def _runner(
     k_rank: int = 10,
     pilot_n_warmup: int = 1000,
     pilot_n_samples: int = 1000,
+    # Adjusted-path kwargs — forwarded explicitly to upstream.
+    inner_kernel: str = "mclmc",
+    l_init_floor_factor: float = 1.15,
+    adjusted_num_steps: int = 3000,
+    # frac_tune1: upstream hardcodes 0.5 (certified recipe); accept here so
+    # callers that pass it explicitly are never silently ignored.
+    frac_tune1: float = _UPSTREAM_FRAC_TUNE1,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
-    """Run the LRD-preconditioned MCLMC warmup pipeline.
+    """Run the LRD-preconditioned MCLMC warmup pipeline via blackjax.mclmc_lrd_warmup.
+
+    Delegates to the upstream Scheme A implementation.  The tuningfork contract
+    (batched LRD IMM, per-chain L/step arrays, ``_total_tuning_steps``) is
+    reconstructed from the upstream result.
 
     Parameters
     ----------
     rng_key
-        JAX random key; split internally for pilot / init / tuning phases.
+        JAX random key; split internally (upstream pipeline vs. state stubs).
     init_position
         Initial unconstrained parameter dict (single chain; replicated internally).
     n_warmup
-        LRD adaptation steps passed as ``num_steps`` to
-        ``mclmc_find_L_and_step_size``.
+        LRD adaptation steps passed as ``lrd_num_steps`` to the upstream.
     base_method
-        ``BaseMethod`` entry for MCLMC (carried for interface uniformity; the
-        LRD kernel overrides its factory via ``make_lrd_kernel``).
+        ``BaseMethod`` entry (carried for interface uniformity; not used by
+        this implementation — the upstream builds its own kernel internally).
     logdensity_fn
-        BlackJAX-compatible log-density function.  **Not wrapped or translated**
-        — preconditioning is purely via the LRD mass matrix.
+        BlackJAX-compatible log-density function.
     num_chains
         Number of parallel chains (default 4).
     k_rank
-        Rank of the LRD approximation (default 10).  Should be
-        ``k <= min(d, pilot_n_samples)``; typical range 8–40 depending on model
-        dimensionality and pilot sample quality.
+        Requested LRD rank (``k`` in the upstream).  Hard-clamped to
+        ``floor(n_eff / 2)`` if the pilot is under-mixed; see the upstream
+        rank-guard logic.
     pilot_n_warmup
-        Warmup steps for the single-chain NUTS pilot (default 1000).
+        Warmup steps for the diagonal MCLMC pilot (``pilot_num_warmup``
+        in the upstream).  Default 1000.
     pilot_n_samples
-        Post-warmup samples collected from the NUTS pilot (default 1000).
+        Post-warmup samples collected for the SVD geometry estimate
+        (``pilot_num_samples`` in the upstream).  Default 1000.
+    inner_kernel
+        Inner kernel for the final tuning phase: ``"mclmc"`` (default, stable)
+        or ``"adjusted_mclmc"`` (experimental).
+    l_init_floor_factor
+        L-init floor factor for the adjusted path (``floor_factor`` in the
+        upstream).  Default 1.15; certified 3/3 on german_credit.  For stiff
+        geometry where the oracle step exceeds the oracle L (e.g. ill_cond_50
+        κ=1000), raise to ~1.5 and set ``adjusted_num_steps≥5000``.  The DA-
+        ceiling ``UserWarning`` from the upstream is the runtime signal.
+    adjusted_num_steps
+        DA tuning steps for the adjusted phase-4 path (``adjusted_num_steps``
+        in the upstream).  Default 3000 (certified config: 3000 ×
+        ``frac_tune1=0.5`` = 1500 effective DA steps).
+    frac_tune1
+        Must equal 0.5 (the upstream certified value, hardcoded in the upstream
+        adjusted path).  Accept here so callers that pass it explicitly are not
+        silently ignored; raises ``ValueError`` for any other value.
     **kwargs
-        Ignored; present for interface uniformity.
+        No unexpected kwargs are accepted; raises ``TypeError`` if any are
+        present (prevents silent drops of mis-spelled or unsupported kwargs).
 
     Returns
     -------
     states
-        Post-adaptation ``MCLMCState``, batched over ``num_chains``.
+        Freshly initialised ``MCLMCState``, batched over ``num_chains``.
+        Most consumers discard these (``emit_mclmc_lrd._run_cert_seed`` assigns
+        to ``_state``); use ``adapted_params`` for post-warmup positions.
     adapted_params
         Dict with keys ``"L"``, ``"step_size"``, ``"inverse_mass_matrix"``
         (batched ``LowRankInverseMassMatrix``), ``"_total_tuning_steps"``.
     """
-    from tuningfork.base_method.mclmc import (
-        extract_lrd_from_samples,
-        make_lrd_kernel,
-        run_pilot_nuts,
-    )
+    # ── Kwarg guards ───────────────────────────────────────────────────────────
+    # Reject frac_tune1 values other than the upstream certified constant.
+    if frac_tune1 != _UPSTREAM_FRAC_TUNE1:
+        raise ValueError(
+            f"frac_tune1={frac_tune1!r} is not supported; the upstream "
+            f"mclmc_lrd_warmup hardcodes the certified value frac_tune1=0.5 "
+            "(blackjax PR #937). Remove this kwarg or pass frac_tune1=0.5."
+        )
 
-    # Split rng_key into 2 phases: pilot / chain-init+tuning.
-    # (chain-init and mclmc-tuning keys are derived from init_key via a further
-    # 2*num_chains split below — no separate warmup_key needed.)
-    pilot_key, init_key = jax.random.split(rng_key, 2)
+    # Reject any remaining unexpected kwargs — never silently swallow.
+    if kwargs:
+        raise TypeError(
+            "mclmc_lrd_tuning._runner received unexpected keyword arguments: "
+            f"{sorted(kwargs)!r}"
+        )
 
-    # ── Phase 1: NUTS pilot ───────────────────────────────────────────────────
-    pilot_positions = run_pilot_nuts(
+    # Split key: upstream pipeline gets a fresh sub-key; state stubs get another.
+    upstream_key, states_key = jax.random.split(rng_key)
+
+    # ── Delegate to upstream Scheme A ──────────────────────────────────────────
+    result = blackjax.mclmc_lrd_warmup(
         logdensity_fn,
         init_position,
-        pilot_key,
-        n_warmup=pilot_n_warmup,
-        n_samples=pilot_n_samples,
+        upstream_key,
+        k=k_rank,
+        pilot_num_warmup=pilot_n_warmup,
+        pilot_num_samples=pilot_n_samples,
+        lrd_num_steps=n_warmup,
+        num_chains=num_chains,
+        inner_kernel=inner_kernel,
+        floor_factor=l_init_floor_factor,
+        adjusted_num_steps=adjusted_num_steps,
     )
+    # result: MCLMCLRDAdaptationState(L, step_size, inverse_mass_matrix, diagnostics)
+    # L and step_size are scalars (mean over chains, computed inside upstream).
+    # inverse_mass_matrix is unbatched: sigma (d,), U (d,k), lam (k,).
 
-    # ── Phase 2: Extract LRD components ──────────────────────────────────────
-    _k = min(int(k_rank), int(pilot_n_samples))
-    _, sigma, U, lam = extract_lrd_from_samples(pilot_positions, k=_k)
-    lrd_imm = LowRankInverseMassMatrix(sigma=sigma, U=U, lam=lam)
+    # ── Reconstruct tuningfork runner contract ─────────────────────────────────
+    lrd_imm = result.inverse_mass_matrix
 
-    # ── Phase 3: MCLMC adaptation (vmapped over num_chains) ──────────────────
-    # Replicate init_position to (num_chains, ...).
+    # Broadcast unbatched LRD IMM → (num_chains, ...) for vmap sliceability.
+    sigma_b = jnp.broadcast_to(lrd_imm.sigma[None], (num_chains,) + lrd_imm.sigma.shape)
+    U_b = jnp.broadcast_to(lrd_imm.U[None], (num_chains,) + lrd_imm.U.shape)
+    lam_b = jnp.broadcast_to(lrd_imm.lam[None], (num_chains,) + lrd_imm.lam.shape)
+    lrd_imm_batched = LowRankInverseMassMatrix(sigma=sigma_b, U=U_b, lam=lam_b)
+
+    # Broadcast scalar L / step_size → (num_chains,).
+    L_arr = jnp.broadcast_to(result.L, (num_chains,))
+    step_size_arr = jnp.broadcast_to(result.step_size, (num_chains,))
+
+    adapted_params: dict[str, Any] = {
+        "L": L_arr,
+        "step_size": step_size_arr,
+        "inverse_mass_matrix": lrd_imm_batched,
+        # Per-chain LRD adaptation steps (= n_warmup).  Historical convention:
+        # _recipe_runner.py multiplies by 2 * num_chains to derive calibration
+        # budget; pilot steps are not included here (same as the pre-delegate
+        # implementation).
+        "_total_tuning_steps": int(n_warmup),
+    }
+
+    # ── Build state stubs ──────────────────────────────────────────────────────
+    # The upstream does not expose final chain states; fresh init states satisfy
+    # the runner contract.  Most consumers discard states entirely — only
+    # adapted_params carries the meaningful output.
+    init_keys = jax.random.split(states_key, num_chains)
     init_positions = _maybe_replicate(init_position, num_chains)
-
-    # Split keys: num_chains init keys + num_chains warmup keys.
-    all_keys = jax.random.split(init_key, 2 * num_chains)
-    chain_init_keys = all_keys[:num_chains]
-    chain_warmup_keys = all_keys[num_chains:]
-
-    # Bind LRD IMM into the kernel closure; mclmc_find_L_and_step_size receives
-    # the LRD geometry via make_lrd_kernel regardless of what diagonal placeholder
-    # the tuner passes (diagonal_preconditioning=False → identity placeholder).
-    lrd_kernel = make_lrd_kernel(lrd_imm)
 
     @jax.vmap
     def _init_one(k: jax.Array, x0: Any) -> Any:
         return blackjax.mcmc.mclmc.init(x0, logdensity_fn, k)
 
-    init_states = _init_one(chain_init_keys, init_positions)
+    states = _init_one(init_keys, init_positions)
 
-    @jax.vmap
-    def _tune_one(k: jax.Array, state: Any) -> tuple[Any, Any, Any]:
-        s, adaptation_state, total_steps = blackjax.mclmc_find_L_and_step_size(
-            lrd_kernel,
-            num_steps=n_warmup,
-            state=state,
-            rng_key=k,
-            logdensity_fn=logdensity_fn,
-            diagonal_preconditioning=False,
-        )
-        return s, adaptation_state, total_steps
-
-    states, adaptation_states, total_tuning_steps_per_chain = _tune_one(
-        chain_warmup_keys, init_states
-    )
-
-    # ── Phase 4: Broadcast LRD IMM to (num_chains, ...) ──────────────────────
-    # jax.vmap slices over the leading axis of each field in the NamedTuple, so
-    # broadcasting the single shared LRD IMM gives each chain its own slice.
-    sigma_b = jnp.broadcast_to(sigma[None], (num_chains,) + sigma.shape)
-    U_b = jnp.broadcast_to(U[None], (num_chains,) + U.shape)
-    lam_b = jnp.broadcast_to(lam[None], (num_chains,) + lam.shape)
-    lrd_imm_batched = LowRankInverseMassMatrix(sigma=sigma_b, U=U_b, lam=lam_b)
-
-    # ── Unpack and return ─────────────────────────────────────────────────────
-    states_out, adapted = _unpack_mclmc_adaptation(
-        states, adaptation_states, total_tuning_steps_per_chain
-    )
-    # Replace diagonal IMM from _unpack_mclmc_adaptation with the batched LRD IMM.
-    adapted["inverse_mass_matrix"] = lrd_imm_batched
-    return states_out, adapted
+    return states, adapted_params
 
 
 ENTRY = Warmup(
@@ -199,14 +231,16 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=("mclmc",),
     notes=(
-        "LRD-preconditioned MCLMC warmup.  Pipeline: "
-        "(1) single-chain NUTS pilot (pilot_n_warmup + pilot_n_samples steps); "
-        "(2) rank-k_rank SVD extraction via extract_lrd_from_samples; "
-        "(3) mclmc_find_L_and_step_size with make_lrd_kernel (LowRankInverseMassMatrix). "
-        "Dispatches natively on the upstream isokinetic_mclachlan integrator "
-        "(blackjax PR #936) — no logdensity_fn wrapping. "
-        "inverse_mass_matrix is a batched LowRankInverseMassMatrix with leading "
-        "num_chains axis so jax.vmap slices it per chain. "
-        "Recommended for ill-conditioned targets where diagonal mclmc_tuning fails."
+        "Scheme A pilot-free LRD-preconditioned MCLMC warmup — thin delegate to "
+        "blackjax.mclmc_lrd_warmup (upstream PR #937, SHA 359205da). "
+        "Pipeline: (1) single-chain diagonal MCLMC pilot; (2) rank-guard + SVD "
+        "extraction of LowRankInverseMassMatrix; (3) multi-chain unadjusted LRD "
+        "tuning (vmapped, L/step averaged); (4a) mclmc or (4b) adjusted_mclmc "
+        "inner-kernel dispatch. All geometry estimation and rank-guard logic live "
+        "in the upstream implementation; this wrapper enforces the tuningfork "
+        "runner contract (per-chain broadcast LRD IMM, squeeze semantics, "
+        "_total_tuning_steps) and provides backward-compatible parameter-name "
+        "mapping. Recommended for ill-conditioned targets where diagonal "
+        "mclmc_tuning fails."
     ),
 )
