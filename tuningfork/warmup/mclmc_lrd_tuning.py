@@ -267,7 +267,7 @@ def _runner(
     # independently with the shared (L, step_size, LRD IMM).
     settle_run_keys = jax.random.split(
         jax.random.fold_in(settle_key, 1), num_chains * _SETTLE_STEPS
-    ).reshape(num_chains, _SETTLE_STEPS, 2)
+    ).reshape(num_chains, _SETTLE_STEPS)
 
     @jax.vmap
     def _settle_chain(
