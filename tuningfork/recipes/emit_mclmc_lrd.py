@@ -284,23 +284,28 @@ def _emit_lrd_cert_sweep(
             clean_adapted = {
                 k: v for k, v in adapted_params.items() if not k.startswith("_")
             }
-            # De-broadcast LRD IMM: the certified runner stores the shared LRD as a
-            # (num_chains, d[, k]) batched namedtuple so jax.vmap can slice per chain.
-            # Goldens/sidecars use the unbatched (d,)/(d,k)/(k,) format — take leaf[0]
-            # (broadcast is lossless: all chains share the same extracted IMM).
+            # De-broadcast LRD IMM if needed: the certified runner broadcasts the
+            # single shared LRD to a (num_chains, d[, k]) namedtuple so jax.vmap
+            # can slice per chain.  Goldens/sidecars use the unbatched (d,)/(d,k)/(k,)
+            # format.  Guard on sigma.ndim > 1 so that callers who already squeezed
+            # (e.g. _run_cert_seed uses num_chains=1 + squeeze_single_chain) are not
+            # double-squeezed — sigma[0] on a (d,) array gives a scalar, not (d,).
             if "inverse_mass_matrix" in clean_adapted:
-                imm_batched = clean_adapted["inverse_mass_matrix"]
-                if isinstance(imm_batched, LowRankInverseMassMatrix):
+                imm = clean_adapted["inverse_mass_matrix"]
+                if isinstance(imm, LowRankInverseMassMatrix) and imm.sigma.ndim > 1:
                     clean_adapted = dict(clean_adapted)
                     clean_adapted["inverse_mass_matrix"] = LowRankInverseMassMatrix(
-                        sigma=imm_batched.sigma[0],
-                        U=imm_batched.U[0],
-                        lam=imm_batched.lam[0],
+                        sigma=imm.sigma[0],
+                        U=imm.U[0],
+                        lam=imm.lam[0],
                     )
             # Merge with base-method defaults (adapted values win).
             base_params = {**default_params_for(base_method), **clean_adapted}
             # Coerce JAX arrays → Python scalars/lists; LRD namedtuple passes through.
             base_params = _to_jsonable(base_params)
+            # Old-golden contract: base_method_params carries k_rank so consumers
+            # know which rank was used without parsing calibration_budget.
+            base_params["k_rank"] = k_rank
 
             calibration_budget_pass: dict[str, Any] = {
                 "trials": 0,
@@ -337,12 +342,33 @@ def _emit_lrd_cert_sweep(
             recipe_kwargs_pass: dict[str, Any] = dict(
                 model_name=posterior.name,
                 base_method_name=base_method.name,
-                warmup_name="",  # baked: warmup fields blanked
+                warmup_name="",  # baked: warmup fields blanked at runtime
                 effort=effort,
                 base_method_params=base_params,
                 warmup_params={"n_warmup": n_warmup},
-                warmups=[],  # baked: warmup list blanked
+                # Populate warmups so Recipe.load derives warmup_name="mclmc_lrd_tuning"
+                # from warmups[0]["name"] (line 796-799 of _base.py).  Without this,
+                # warmups=[] → load takes the legacy path → warmup_name="" →
+                # emit_script raises "No emit function for warmup ''".
+                warmups=[
+                    {
+                        "name": warmup.name,
+                        "params": {
+                            "n_warmup": n_warmup,
+                            "num_chains": num_chains,
+                            "k_rank": k_rank,
+                            "pilot_n_warmup": n_warmup,
+                            "pilot_n_samples": n_samples,
+                        },
+                    }
+                ],
                 headline_metric=best["ess_per_grad"],
+                headline_basis={
+                    "total_grad_evals": best["total_grad_evals"],
+                    "min_bulk_ess": best["min_bulk_ess"],
+                    "grad_count_convention": "2",
+                    "is_lower_bound": False,
+                },
                 sample_quality=None,
                 calibration_budget=calibration_budget_pass,
                 difficulty=None,
@@ -433,7 +459,8 @@ def _run_cert_seed(
         seed, verdict, rhat_max, min_bulk_ess, n_divergences, ess_per_grad,
         total_grad_evals, wall_seconds, adapted_params
     """
-    from blackjax.diagnostics import effective_sample_size, potential_scale_reduction
+    import numpy as np
+    from blackjax.diagnostics import effective_sample_size
 
     from tuningfork.warmup._base import squeeze_single_chain
 
@@ -499,21 +526,37 @@ def _run_cert_seed(
 
     # Compute diagnostics.
     # positions_batched: pytree with leading dims (num_chains, n_samples, ...)
-    rhat_tree = jax.tree.map(
-        lambda x: potential_scale_reduction(x, chain_axis=0, sample_axis=1),
-        positions_batched,
-    )
+    #
+    # GATE diagnostics: use ArviZ az.rhat + az.ess(method="bulk") — the same
+    # estimators as statistician_gate.auto_gate (calibrated to GATE_ESS_PASS=400).
+    # Using the BlackJAX estimator here caused a measurement mismatch: the BlackJAX
+    # ESS uses a different lag-autocorrelation formula than ArviZ's bulk-ESS, producing
+    # values 3–10× lower on models with slow mixing (e.g. german_credit minESS 88–104
+    # via blackjax vs 1750+ via az.ess).  The gate threshold was calibrated on the
+    # ArviZ basis, so the blackjax-basis gate was an invalid measurement.
+    #
+    # Headline ESS/grad: computed via blackjax.diagnostics.effective_sample_size
+    # (per headline.py contract — headline basis is blackjax by design).
+    import arviz as az
+
+    rhat_values: list[float] = []
+    ess_values_gate: list[float] = []
+    for leaf in jax.tree.leaves(positions_batched):
+        arr_np = np.asarray(leaf)  # shape (num_chains, n_samples, *event_shape)
+        rhat_arr = az.rhat(arr_np, chain_axis=0, draw_axis=1)
+        ess_arr = az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
+        rhat_values.append(float(np.max(np.asarray(rhat_arr))))
+        ess_values_gate.append(float(np.min(np.asarray(ess_arr))))
+
+    rhat_max = float(max(rhat_values))
+    min_bulk_ess = float(min(ess_values_gate))
+
+    # Headline ESS via blackjax estimator (blackjax basis — per headline.py contract).
     ess_tree = jax.tree.map(
         lambda x: effective_sample_size(x, chain_axis=0, sample_axis=1),
         positions_batched,
     )
-    # ravel each leaf before concatenating so mixed-shape params (e.g. stoch_vol
-    # where h: (500,) and phi/sigma/mu: ()) don't trigger JAX's
-    # "Cannot concatenate arrays with different numbers of dimensions" error.
-    rhat_max = float(
-        jnp.max(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(rhat_tree)]))
-    )
-    min_bulk_ess = float(
+    min_bulk_ess_headline = float(
         jnp.min(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(ess_tree)]))
     )
 
@@ -525,9 +568,9 @@ def _run_cert_seed(
     n_draws_total = num_chains * n_samples
     div_rate = n_divergences / max(n_draws_total, 1)
 
-    # ESS/grad: MCLMC costs 2 grads/step.
+    # ESS/grad: MCLMC costs 2 grads/step.  Use headline (blackjax) ESS per headline.py.
     total_grad_evals = 2 * n_samples * num_chains
-    ess_per_grad = min_bulk_ess / total_grad_evals
+    ess_per_grad = min_bulk_ess_headline / total_grad_evals
 
     # Gate.
     passes = (
@@ -547,6 +590,8 @@ def _run_cert_seed(
         "ess_per_grad": ess_per_grad,
         "total_grad_evals": total_grad_evals,
         "wall_seconds": wall_seconds,
+        "step_size": step_size,
+        "L": L,
         "adapted_params": adapted_params,  # carried for bake step
     }
 
@@ -563,6 +608,8 @@ def _result_to_dict(r: dict[str, Any]) -> dict[str, Any]:
         "ess_per_grad": r["ess_per_grad"],
         "total_grad_evals": r["total_grad_evals"],
         "wall_seconds": r["wall_seconds"],
+        "step_size": float(r["step_size"]) if "step_size" in r else None,
+        "L": float(r["L"]) if "L" in r else None,
     }
 
 

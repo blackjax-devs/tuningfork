@@ -552,6 +552,39 @@ def main() -> None:
             "Used only with --calibrate.  Default: (11111, 22222, 33333)."
         ),
     )
+    parser.add_argument(
+        "--n-warmup",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Number of warmup steps for the cert sweep (mclmc_lrd_tuning).  "
+            "Used only with --warmup mclmc_lrd_tuning.  "
+            "Default: 1000."
+        ),
+    )
+    parser.add_argument(
+        "--n-samples",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Number of post-warmup samples per chain for the gate check.  "
+            "Used only with --warmup mclmc_lrd_tuning --calibrate.  "
+            "Default: 1000."
+        ),
+    )
+    parser.add_argument(
+        "--k-rank",
+        type=int,
+        default=None,
+        metavar="K",
+        help=(
+            "LRD approximation rank.  "
+            "Used only with --warmup mclmc_lrd_tuning.  "
+            "Default: 40."
+        ),
+    )
     args = parser.parse_args()
 
     # ── Validation ──────────────────────────────────────────────────────────
@@ -620,11 +653,19 @@ def main() -> None:
             if args.cert_seeds is not None
             else (11111, 22222, 33333)
         )
+        _extra_kwargs: dict = {}
+        if args.n_warmup is not None:
+            _extra_kwargs["n_warmup"] = args.n_warmup
+        if args.n_samples is not None:
+            _extra_kwargs["n_samples"] = args.n_samples
+        if args.k_rank is not None:
+            _extra_kwargs["k_rank"] = args.k_rank
         mclmc_lrd_paths = emit_mclmc_lrd_recipes(
             model_names=names,
             sampler=args.sampler,
             calibrate=args.calibrate,
             cert_seeds=_cert_seeds,
+            **_extra_kwargs,
         )
 
     total = (

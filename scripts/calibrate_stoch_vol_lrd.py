@@ -1,3 +1,27 @@
+# DEFERRED — stoch_vol LRD calibration track stopped per mission fallback (2026-06-10).
+#
+# Phase (c) Track 2 result: 0/3 cert seeds ERROR in post-sampling R-hat/ESS aggregation.
+# Root cause: mixed-rank parameter pytree (h:(500,), phi/sigma/mu:()) triggers
+# TypeError in _run_cert_seed's rhat/ESS aggregation step. Sampling completed
+# on all 3 seeds; crash occurred during metric computation.
+# Fix committed in tuningfork main (PR #179, squash-merged as 7b586c2); see:
+#   claude-config/project/worklog/threads/feat-mclmc-lrd-integrator.md § Phase (c) Track 2 VERDICT
+#
+# Status: this script is the SOLE PROVENANCE for the committed stoch_vol LRD
+# artifacts until the mixed-rank pytree bug is verified fixed and the track
+# is re-opened by @user ruling. DO NOT DELETE — the catalog recipe was not
+# regenerated via library path this mission.
+#
+# When @user authorises retry:
+#   1. Verify PR #179 (7b586c2) is in the installed tuningfork version.
+#      (Precondition: the mixed-rank pytree fix is already on main.)
+#   2. If stoch_vol is registered: use the standard generator CLI:
+#      uv run python -m tuningfork.recipes._generate_starter \
+#          --warmup mclmc_lrd_tuning --only stoch_vol \
+#          --calibrate --cert-seeds <seeds> --n-warmup 3000 --n-samples 2000 --k-rank 30
+#   3. If still unregistered (flat-init NCP variant): re-run this script.
+#      Restart the 3-attempt cert clock from zero.
+#
 """Calibrate stoch_vol LRD-MCLMC recipe (flat-init NCP experimental variant).
 
 Protocol (statistician-approved, 2026-06-09):

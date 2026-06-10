@@ -78,6 +78,29 @@ set. A NUTS pilot run is the minimum viable geometry-discovery step. See
 - `adjusted_mclmc_dynamic` + `adjusted_mclmc_tuning`: **FAIL**.
   See `recipes/failed__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json`.
 
+## Recipe regen (ill_cond_50 LRD, pilot-path calibration)
+
+The committed artifacts are:
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (step_size≈7.883, L≈5.628, k=40, best seed=99999)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz` — rank-40 LRD IMM sidecar (NUTS-pilot path)
+
+**Standard regen command** (re-runs NUTS pilot + 3-seed cert sweep, deterministic):
+
+```bash
+uv run python -m tuningfork.recipes._generate_starter \
+    --warmup mclmc_lrd_tuning --only ill_cond_50 \
+    --calibrate --cert-seeds 77777 88888 99999
+```
+
+Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1607/1604/1787 (az.ess bulk basis, Geyer comparison: 1587/1599/1779),
+R-hat ≤ 1.0031 (max 1.0030, 1.0026, 1.0031). Gate uses az.ess(method="bulk") ≥ 400 (auto_gate basis). k=40, n_warmup=1000.
+
+**Why pilot and not oracle for the catalog artifact?** The oracle COV path (decompose
+`ill_cond_50.COV` directly) is the upper bound (ESS/grad≈0.249). The pilot path is
+portable to any model and is the standard library path. Both are documented in
+`attempted_configurations`. The pilot-path golden passed at ESS/grad≈0.198–0.222 (3/3 seeds, best seed 99999).
+The oracle 0.2492 is a reference ceiling in the thread file, not the committed artifact.
+
 ## History
 
 2026-06-09: MCLMC LRD integration experiment (tuningfork PR #176 / blackjax PR #936).
