@@ -37,6 +37,9 @@ Multi-chain contract (mirrors ``mclmc_tuning``)::
                                 (= ``n_warmup``; pilot steps not counted, for
                                 historical continuity with calibration budget
                                 accounting in ``_recipe_runner.py``)
+- ``"_settle_steps"``         : int — post-adaptation settle steps per chain
+                                run to produce warm-started return states.
+                                Does NOT contribute to ``_total_tuning_steps``.
 
 The ``inverse_mass_matrix`` field is a ``LowRankInverseMassMatrix(sigma, U, lam)``
 where ``sigma.shape=(num_chains, d)``, ``U.shape=(num_chains, d, k)``,
@@ -61,6 +64,11 @@ from tuningfork.warmup._base import Warmup, _maybe_replicate
 
 __all__ = ["ENTRY"]
 
+# Number of settle steps run per chain after adaptation to produce
+# warm-started return states.  Costs 2*_SETTLE_STEPS grads/chain
+# (≈ 1600 total for num_chains=4), negligible vs typical budgets.
+_SETTLE_STEPS: int = 200
+
 # frac_tune1=0.5 is hardcoded in the upstream certified recipe for the adjusted
 # path (blackjax PR #937).  Accept this kwarg explicitly so callers that pass it
 # do not have it silently dropped; reject any value other than 0.5.
@@ -82,6 +90,10 @@ def _runner(
     inner_kernel: str = "mclmc",
     l_init_floor_factor: float = 1.15,
     adjusted_num_steps: int = 3000,
+    # target_acceptance_rate: forwarded as adjusted_target for the adjusted
+    # path; documented-and-ignored for the unadjusted path (recipe runner
+    # passes it unconditionally).
+    target_acceptance_rate: float | None = None,
     # frac_tune1: upstream hardcodes 0.5 (certified recipe); accept here so
     # callers that pass it explicitly are never silently ignored.
     frac_tune1: float = _UPSTREAM_FRAC_TUNE1,
@@ -96,7 +108,7 @@ def _runner(
     Parameters
     ----------
     rng_key
-        JAX random key; split internally (upstream pipeline vs. state stubs).
+        JAX random key; split internally (upstream pipeline + settle keys).
     init_position
         Initial unconstrained parameter dict (single chain; replicated internally).
     n_warmup
@@ -114,23 +126,33 @@ def _runner(
         rank-guard logic.
     pilot_n_warmup
         Warmup steps for the diagonal MCLMC pilot (``pilot_num_warmup``
-        in the upstream).  Default 1000.
+        in the upstream).  Default 1000.  Certified configs use higher values:
+        german_credit 2000, ill_cond_50 10000.  The default here matches the
+        pre-delegate implementation for backward compatibility and is not a
+        recommendation for new certifications.
     pilot_n_samples
         Post-warmup samples collected for the SVD geometry estimate
-        (``pilot_num_samples`` in the upstream).  Default 1000.
+        (``pilot_num_samples`` in the upstream).  Default 1000.  Certified
+        configs: german_credit 2000, ill_cond_50 10000.
     inner_kernel
         Inner kernel for the final tuning phase: ``"mclmc"`` (default, stable)
         or ``"adjusted_mclmc"`` (experimental).
     l_init_floor_factor
-        L-init floor factor for the adjusted path (``floor_factor`` in the
-        upstream).  Default 1.15; certified 3/3 on german_credit.  For stiff
-        geometry where the oracle step exceeds the oracle L (e.g. ill_cond_50
-        κ=1000), raise to ~1.5 and set ``adjusted_num_steps≥5000``.  The DA-
-        ceiling ``UserWarning`` from the upstream is the runtime signal.
+        L-init floor factor for the adjusted path.  Default 1.15; certified
+        3/3 on german_credit.  For stiff geometry where the oracle step exceeds
+        the oracle L (e.g. ill_cond_50 κ=1000), raise to ~1.5 and set
+        ``adjusted_num_steps≥5000``.  The DA-ceiling ``UserWarning`` from the
+        upstream is the runtime signal.
     adjusted_num_steps
         DA tuning steps for the adjusted phase-4 path (``adjusted_num_steps``
         in the upstream).  Default 3000 (certified config: 3000 ×
         ``frac_tune1=0.5`` = 1500 effective DA steps).
+    target_acceptance_rate
+        Target acceptance rate.  For ``inner_kernel="adjusted_mclmc"`` this is
+        forwarded as ``adjusted_target`` to the upstream tuner.  For the
+        unadjusted path it is accepted but ignored (the recipe runner passes it
+        unconditionally; MCLMC is rejection-free so there is no acceptance rate
+        to target).
     frac_tune1
         Must equal 0.5 (the upstream certified value, hardcoded in the upstream
         adjusted path).  Accept here so callers that pass it explicitly are not
@@ -142,12 +164,14 @@ def _runner(
     Returns
     -------
     states
-        Freshly initialised ``MCLMCState``, batched over ``num_chains``.
-        Most consumers discard these (``emit_mclmc_lrd._run_cert_seed`` assigns
-        to ``_state``); use ``adapted_params`` for post-warmup positions.
+        Post-settle ``MCLMCState``, batched over ``num_chains``.  Each chain
+        has run ``_SETTLE_STEPS`` steps at the adapted (L, step_size, LRD IMM)
+        to produce warm-started positions — matching the provenance of the
+        certified goldens (which were generated from warmed-up starts).
     adapted_params
         Dict with keys ``"L"``, ``"step_size"``, ``"inverse_mass_matrix"``
-        (batched ``LowRankInverseMassMatrix``), ``"_total_tuning_steps"``.
+        (batched ``LowRankInverseMassMatrix``), ``"_total_tuning_steps"``,
+        ``"_settle_steps"``.
     """
     # ── Kwarg guards ───────────────────────────────────────────────────────────
     # Reject frac_tune1 values other than the upstream certified constant.
@@ -165,8 +189,14 @@ def _runner(
             f"{sorted(kwargs)!r}"
         )
 
-    # Split key: upstream pipeline gets a fresh sub-key; state stubs get another.
-    upstream_key, states_key = jax.random.split(rng_key)
+    # Split key: upstream pipeline + settle step keys.
+    upstream_key, settle_key = jax.random.split(rng_key)
+
+    # Resolve adjusted_target: use caller's target_acceptance_rate if provided;
+    # fall back to the upstream default (0.9 for adjusted path, ignored for mclmc).
+    upstream_kwargs: dict[str, Any] = {}
+    if inner_kernel == "adjusted_mclmc" and target_acceptance_rate is not None:
+        upstream_kwargs["adjusted_target"] = target_acceptance_rate
 
     # ── Delegate to upstream Scheme A ──────────────────────────────────────────
     result = blackjax.mclmc_lrd_warmup(
@@ -181,6 +211,7 @@ def _runner(
         inner_kernel=inner_kernel,
         floor_factor=l_init_floor_factor,
         adjusted_num_steps=adjusted_num_steps,
+        **upstream_kwargs,
     )
     # result: MCLMCLRDAdaptationState(L, step_size, inverse_mass_matrix, diagnostics)
     # L and step_size are scalars (mean over chains, computed inside upstream).
@@ -208,20 +239,57 @@ def _runner(
         # budget; pilot steps are not included here (same as the pre-delegate
         # implementation).
         "_total_tuning_steps": int(n_warmup),
+        # Settle steps run after adaptation — NOT folded into _total_tuning_steps
+        # so that golden budget accounting in _recipe_runner.py stays comparable.
+        "_settle_steps": _SETTLE_STEPS,
     }
 
-    # ── Build state stubs ──────────────────────────────────────────────────────
-    # The upstream does not expose final chain states; fresh init states satisfy
-    # the runner contract.  Most consumers discard states entirely — only
-    # adapted_params carries the meaningful output.
-    init_keys = jax.random.split(states_key, num_chains)
+    # ── Settle: run _SETTLE_STEPS LRD MCLMC steps per chain ──────────────────
+    # The upstream does not expose post-adaptation chain states.  Without a
+    # settle pass the returned states would be fresh inits at init_position —
+    # the sampling loop (reinit_state=False for mclmc) would then consume
+    # cold-start positions, silently changing the provenance of cert gate
+    # numbers relative to the committed goldens.  A 200-step settle at the
+    # adapted (L, step_size, LRD IMM) produces warm-started states at negligible
+    # extra cost (~1.6k grads vs 54k+ total for typical cert runs).
+
+    base_kernel = blackjax.mcmc.mclmc.build_kernel()
     init_positions = _maybe_replicate(init_position, num_chains)
+    settle_init_keys = jax.random.split(settle_key, num_chains)
 
     @jax.vmap
-    def _init_one(k: jax.Array, x0: Any) -> Any:
+    def _settle_init_one(k: jax.Array, x0: Any) -> Any:
         return blackjax.mcmc.mclmc.init(x0, logdensity_fn, k)
 
-    states = _init_one(init_keys, init_positions)
+    settle_states = _settle_init_one(settle_init_keys, init_positions)
+
+    # vmap a scan over chains: each chain gets its own key sequence and runs
+    # independently with the shared (L, step_size, LRD IMM).
+    settle_run_keys = jax.random.split(
+        jax.random.fold_in(settle_key, 1), num_chains * _SETTLE_STEPS
+    ).reshape(num_chains, _SETTLE_STEPS, 2)
+
+    @jax.vmap
+    def _settle_chain(
+        chain_keys: jax.Array, init_state: Any, L: jax.Array, step_size: jax.Array
+    ) -> Any:
+        """Run _SETTLE_STEPS MCLMC steps; return final state."""
+
+        def one_step(state: Any, rng_key: jax.Array) -> tuple[Any, None]:
+            new_state, _ = base_kernel(
+                rng_key=rng_key,
+                state=state,
+                logdensity_fn=logdensity_fn,
+                inverse_mass_matrix=lrd_imm,  # unbatched; shared across chains
+                L=L,
+                step_size=step_size,
+            )
+            return new_state, None
+
+        final_state, _ = jax.lax.scan(one_step, init_state, chain_keys)
+        return final_state
+
+    states = _settle_chain(settle_run_keys, settle_states, L_arr, step_size_arr)
 
     return states, adapted_params
 
