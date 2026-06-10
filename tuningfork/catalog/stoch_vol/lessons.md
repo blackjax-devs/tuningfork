@@ -120,7 +120,7 @@ curvature** that a constant global preconditioner cannot handle.
 
 ### Interpretation: funnel curvature is the blocker, not MCLMC
 
-MCLMC-LRD samples the de-funneled geometry without divergence-class failure. The
+MCLMC-LRD samples the de-funneled geometry at the k=50 config (1/1 REVIEW); at k=30 evidence is 1 REVIEW / 1 FAIL across 2 seeds. The
 REVIEW ceiling arises because the AR(1) recursion for `h[1:T]` maintains the same
 `phi`–`sigma` curvature coupling regardless of `h[0]` initialization — flat-init
 removes the singularity at `h[0]` only; the AR(1) transition kernel and its
@@ -130,8 +130,7 @@ the AR(1) transition at runtime.
 
 With de-funneled geometry, the best observed result is REVIEW (seed-99); evidence
 is seed-sensitive (seed-42 FAIL at the same k=30 config). REVIEW is the documented
-ceiling, not a reliable expectation. MCLMC-LRD samples the de-funneled geometry at
-the k=50 config (1/1 REVIEW); at k=30 evidence is 1 REVIEW / 1 FAIL across 2 seeds.
+ceiling, not a reliable expectation.
 The flatinit golden is null-support evidence — it demonstrates that removing the
 h[0] singularity improves mixing measurably, while the AR(1) transition kernel's
 unchanged phi–sigma coupling remains the binding constraint.
