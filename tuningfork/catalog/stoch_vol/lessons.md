@@ -103,8 +103,9 @@ The registered model uses stationary init (`h[0] = mu + (sigma/sqrt(1-phi^2)) * 
 the flat-init variant uses `h[0] = mu + sigma * h_std[0]` to reduce phi coupling.
 
 **To regenerate** (once @user authorises retry and mixed-rank fix is on main):
-Re-run `scripts/calibrate_stoch_vol_lrd.py` with the same parameters. Once stoch_vol is registered
-with LRD support in the generator, use:
+Re-run `scripts/calibrate_stoch_vol_lrd.py` with the same parameters (flat-init variant —
+the sole provenance for the committed artifacts). For the standard registered `stoch_vol`
+model, the generator command is:
 ```bash
 uv run python -m tuningfork.recipes._generate_starter \
     --warmup mclmc_lrd_tuning --only stoch_vol \
