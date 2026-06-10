@@ -3,39 +3,73 @@
   "base_method_name": "mclmc",
   "effort": "low",
   "base_method_params": {
-    "step_size": 2.5788512229919434,
-    "L": 11.581623077392578,
+    "step_size": 3.0091516971588135,
+    "L": 11.17486572265625,
     "k_rank": 8
   },
-  "warmup_name": "mclmc_lrd_tuning",
-  "warmup_params": {
+  "headline_metric": 0.029226760864257812,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 14.038829185068607,
     "n_warmup": 2000,
-    "num_chains": 4,
-    "k_rank": 8,
-    "pilot_n_warmup": 1000,
-    "pilot_n_samples": 1000
+    "seed_evidence": [
+      {
+        "seed": 77777,
+        "verdict": "PASS",
+        "rhat_max": 1.0037157176275084,
+        "min_bulk_ess": 1950.5090598959955,
+        "n_divergences": 0,
+        "div_rate": 0.0,
+        "ess_per_grad": 0.029226760864257812,
+        "total_grad_evals": 16000,
+        "wall_seconds": 14.038829185068607,
+        "step_size": 3.0091516971588135,
+        "L": 11.17486572265625
+      },
+      {
+        "seed": 88888,
+        "verdict": "PASS",
+        "rhat_max": 1.0040464218638696,
+        "min_bulk_ess": 1702.9697538573746,
+        "n_divergences": 0,
+        "div_rate": 0.0,
+        "ess_per_grad": 0.018955814361572267,
+        "total_grad_evals": 16000,
+        "wall_seconds": 4.32892143400386,
+        "step_size": 2.5722551345825195,
+        "L": 11.839132308959961
+      },
+      {
+        "seed": 99999,
+        "verdict": "PASS",
+        "rhat_max": 1.0044978795898345,
+        "min_bulk_ess": 1512.4174485894848,
+        "n_divergences": 0,
+        "div_rate": 0.0,
+        "ess_per_grad": 0.02428222846984863,
+        "total_grad_evals": 16000,
+        "wall_seconds": 4.071927327895537,
+        "step_size": 2.3770229816436768,
+        "L": 11.871281623840332
+      }
+    ],
+    "baked_from": {
+      "warmup_name": "mclmc_lrd_tuning",
+      "n_warmup": 2000,
+      "k_rank": 8,
+      "tuning_seed": 77777
+    }
   },
-  "headline_metric": 0.11101748009315061,
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 3.0091516971588135, 'L': 11.17486572265625, 'inverse_mass_matrix': LowRankInverseMassMatrix(sigma=Array([0.09036437, 0.10433538, 0.10902182, 0.09367061, 0.08647354,\n       0.09179079, 0.10805035, 0.08903763, 0.09047963, 0.09115345,\n       0.11330013, 0.18277863, 0.1217694 , 0.16900678, 0.09905889,\n       0.1154358 , 0.1270718 , 0.11822643, 0.12601651, 0.09838381,\n       0.08908026, 0.09730432, 0.08093055, 0.07948622, 0.09063789,\n       0.10279468], dtype=float32), U=Array([[-2.53690798e-02,  3.57730612e-02, -1.53939769e-01,\n         4.24225666e-02,  6.66400567e-02, -1.12270199e-01,\n         2.05609724e-01, -5.16115464e-02],\n       [ 2.88556470e-03,  1.95228755e-01, -4.23838735e-01,\n        -4.88721915e-02, -1.07341960e-01,  2.94905037e-01,\n         2.35563055e-01, -2.70426095e-01],\n       [ 1.44334892e-02, -2.44860336e-01,  4.87029791e-01,\n        -7.52007291e-02,  6.98551983e-02,  3.57743263e-01,\n         2.17192203e-01,  2.06845418e-01],\n       [ 3.40171554e-03, -1.34064749e-01,  3.97660971e-01,\n        -1.59676336e-02, -8.20873156e-02, -5.24250455e-02,\n        -1.20329089e-01,  6.79542422e-02],\n       [ 5.38535975e-02, -2.86052488e-02, -9.94532108e-02,\n        -5.25821038e-02,  1.04024950e-02,  6.71446472e-02,\n        -1.13432959e-01,  3.36618602e-01],\n       [-9.22805592e-02, -2.25836057e-02, -1.96686134e-01,\n        -9.10815597e-02, -1.78689063e-01,  9.20991451e-02,\n        -1.43238604e-01, -2.07416564e-01],\n       [ 1.93970114e-01, -2.34852135e-02,  2.71759797e-02,\n        -3.22259635e-01, -1.13337524e-01, -3.50778401e-02,\n         4.86820424e-03,  9.91277546e-02],\n       [-1.36863440e-01,  3.45322005e-02,  7.39571154e-02,\n        -1.54561028e-02, -1.43486887e-01,  5.15804142e-02,\n        -4.02247487e-03, -2.82008260e-01],\n       [-1.49550155e-01, -2.53211319e-01, -1.13596961e-01,\n         5.78954928e-02,  1.90716609e-01, -1.87793702e-01,\n         2.40190346e-02, -1.14704043e-01],\n       [-1.03007488e-01, -1.57070801e-01, -8.33882317e-02,\n         1.42638898e-02,  1.48436636e-01, -6.62156641e-02,\n        -5.48851269e-04,  2.51114890e-02],\n       [-1.06988288e-01, -2.11840391e-01, -2.75601864e-01,\n        -8.24577585e-02,  2.46421576e-01,  2.03498721e-01,\n        -2.01414481e-01, -1.51688382e-01],\n       [-4.83207703e-01,  1.08389273e-01,  4.66638803e-03,\n        -5.81422806e-01, -6.17023893e-02, -1.97746441e-01,\n        -4.31196094e-01,  8.60676542e-02],\n       [-4.57657605e-01,  1.02074265e-01,  5.40695153e-02,\n        -1.47279799e-01, -9.83748678e-03,  1.52621359e-01,\n         5.50225556e-01,  9.21592191e-02],\n       [-4.61196154e-01,  9.46083069e-02,  2.40711104e-02,\n         6.90946579e-01, -9.92796496e-02,  6.96443692e-02,\n        -2.90660471e-01,  1.60633996e-01],\n       [-4.38909113e-01,  8.43830481e-02,  4.17281501e-02,\n        -7.23911747e-02, -1.07071167e-02, -8.44015088e-03,\n         2.57241398e-01,  1.16708353e-01],\n       [ 7.94214904e-02,  3.85096282e-01,  1.60525292e-01,\n         2.41063582e-03,  2.33182237e-02,  8.93098041e-02,\n        -4.58316989e-02,  2.62270737e-02],\n       [ 1.15409337e-01,  4.78515953e-01,  6.99376613e-02,\n         2.57599913e-02, -7.48473359e-03, -5.17913997e-01,\n         1.45670995e-01,  5.41861653e-02],\n       [-2.03598524e-04,  2.80248255e-01, -8.59244447e-03,\n        -2.52421796e-02,  2.10020076e-02,  1.84092298e-02,\n        -8.22256207e-02,  7.97163546e-02],\n       [ 8.41627046e-02,  4.58183944e-01,  3.68940607e-02,\n        -1.10129034e-02, -1.13878434e-03,  4.61937398e-01,\n        -1.88360244e-01,  3.43108028e-02],\n       [-4.17352468e-02,  1.00786112e-01,  6.83087930e-02,\n        -1.68741997e-02,  4.55813289e-01,  5.98313473e-02,\n         6.41411170e-02, -7.83652142e-02],\n       [ 1.51120569e-03,  7.66070262e-02, -1.12809494e-01,\n         6.37413710e-02,  4.14041907e-01, -1.67560816e-01,\n         9.85699221e-02,  9.02193338e-02],\n       [-1.10002225e-02,  8.67470652e-02,  1.44371137e-01,\n        -7.03456029e-02,  5.18042564e-01,  9.73529220e-02,\n        -2.11229756e-01, -2.59407498e-02],\n       [-1.18491659e-02,  1.04371086e-01, -3.09029240e-02,\n        -3.34382849e-03,  3.43539774e-01,  9.95563716e-03,\n         1.25309462e-02, -4.34536077e-02],\n       [ 4.97590490e-02,  5.80534991e-03, -1.94273591e-01,\n         1.20465429e-02, -7.08241016e-02, -2.72137132e-02,\n         3.18243057e-02,  3.91069800e-01],\n       [ 3.99211654e-03, -8.37030485e-02, -1.98403478e-01,\n         5.68755418e-02,  3.73718180e-02, -1.49349600e-01,\n         3.61240730e-02,  3.26548457e-01],\n       [ 8.62763226e-02, -2.16563437e-02, -3.11569333e-01,\n        -8.88261721e-02,  3.00590079e-02,  2.24097401e-01,\n        -1.39730079e-02,  5.01423299e-01]], dtype=float32), lam=Array([3.2234871 , 2.6301768 , 1.9400661 , 0.1296541 , 1.8583634 ,\n       0.21750402, 0.27712566, 1.7106156 ], dtype=float32)), 'k_rank': 8})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0292.\nWall time to produce this recipe: ~14 s (machine-only).",
+  "notes": "LRD-MCLMC calibrated: 3/3 seeds PASS. Best seed 77777: ESS/grad=0.0292, R-hat=1.0037, minESS=1951.",
   "headline_basis": {
     "total_grad_evals": 16000,
-    "min_bulk_ess": 1776.2796814904098,
+    "min_bulk_ess": 1950.5090598959955,
     "grad_count_convention": "2",
     "is_lower_bound": false
   },
-  "sample_quality": null,
-  "calibration_budget": {
-    "trials": 3,
-    "n_warmup": 2000,
-    "n_samples": 2000,
-    "num_chains": 4,
-    "pilot_n_warmup": 1000,
-    "pilot_n_samples": 1000,
-    "warmup_grad_evals": 16000,
-    "sampling_grad_evals": 16000
-  },
-  "difficulty": null,
-  "instructions": "LRD-preconditioned MCLMC on german_credit (26-D logistic regression).\nPipeline: (1) 1000-step NUTS pilot; (2) rank-8 SVD extraction via extract_lrd_from_samples; (3) mclmc_find_L_and_step_size with make_lrd_kernel binding the LowRankInverseMassMatrix.\nk=8 (not full-rank k=26; full-rank overfits the pilot \u2192 R-hat>1.01).\nIMM checkpoint at inverse_mass_matrix_path; load with np.load to skip re-extraction.\nWarmup uses @jax.vmap over mclmc_find_L_and_step_size (the Python-loop workaround in 3171b49 was solving a phantom bug; reverted in 92f8235).",
-  "notes": "Multi-seed hardening: seeds [42, 99, 777]. k=8 is the statistician-approved rank (full-rank k=26 was the R-hat culprit at prior attempt). See attempted_configurations for per-seed gate evidence.",
   "step_policy": null,
   "warmups": [
     {
@@ -44,80 +78,40 @@
         "n_warmup": 2000,
         "num_chains": 4,
         "k_rank": 8,
-        "pilot_n_warmup": 1000,
-        "pilot_n_samples": 1000
+        "pilot_n_warmup": 2000,
+        "pilot_n_samples": 2000
       }
     }
   ],
   "warmup_inner_kernel": null,
-  "warmup_num_chains": [4],
+  "warmup_num_chains": null,
   "init_strategy": null,
-  "inverse_mass_matrix_path": "recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz",
+  "variant_label": "mclmc_lrd",
+  "inverse_mass_matrix_path": "german_credit/recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0029516518476944,
-      "min_bulk_ess": 1776.2796814904098,
+      "rhat_max": 1.0037157176275084,
+      "min_bulk_ess": 1950.5090598959955,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.5606290185346054,
+      "max_abs_mean_z": null,
       "verdict": "PASS",
-      "ess_per_grad": 0.11101748009315061,
+      "ess_per_grad": 0.029226760864257812,
       "total_grad_evals": 16000,
-      "seed": 42
+      "seed": 77777,
+      "margins": {}
     },
     "override": {
-      "decision": "",
+      "reason": "",
       "statistician_id": "",
-      "reason": ""
+      "decision": ""
     }
   },
+  "tuning_seed": 77777,
+  "tuningfork_version": "0.0.2.dev62+g7b586c234.d20260609",
+  "blackjax_version": "1.6.dev88+g838634723",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-09T23:36:53Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [
-    {
-      "seed": 42,
-      "k": 8,
-      "n_warmup": 2000,
-      "n_samples": 2000,
-      "num_chains": 4,
-      "outcome": "PASS",
-      "rhat_max": 1.002952,
-      "min_bulk_ess": 1776.28,
-      "n_divergences": 0,
-      "max_abs_mean_z": 1.5606,
-      "ess_per_grad": 0.111017,
-      "step_size": 2.578851,
-      "L": 11.581623
-    },
-    {
-      "seed": 99,
-      "k": 8,
-      "n_warmup": 2000,
-      "n_samples": 2000,
-      "num_chains": 4,
-      "outcome": "PASS",
-      "rhat_max": 1.004346,
-      "min_bulk_ess": 1746.79,
-      "n_divergences": 0,
-      "max_abs_mean_z": 1.2955,
-      "ess_per_grad": 0.109174,
-      "step_size": 2.506173,
-      "L": 12.739114
-    },
-    {
-      "seed": 777,
-      "k": 8,
-      "n_warmup": 2000,
-      "n_samples": 2000,
-      "num_chains": 4,
-      "outcome": "PASS",
-      "rhat_max": 1.002787,
-      "min_bulk_ess": 1749.34,
-      "n_divergences": 0,
-      "max_abs_mean_z": 1.0453,
-      "ess_per_grad": 0.109334,
-      "step_size": 2.535969,
-      "L": 11.210209
-    }
-  ],
-  "warmup_grad_evals": 16000
+  "attempted_configurations": []
 }
