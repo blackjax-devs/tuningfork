@@ -92,7 +92,7 @@ uv run python -m tuningfork.recipes._generate_starter \
     --calibrate --cert-seeds 77777 88888 99999
 ```
 
-Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1604/1603/1787 (az.ess bulk basis, Geyer comparison: 1604/1604/1787),
+Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1607/1604/1787 (az.ess bulk basis, Geyer comparison: 1587/1599/1779),
 R-hat ≤ 1.0031 (max 1.0030, 1.0026, 1.0031). Gate uses az.ess(method="bulk") ≥ 400 (auto_gate basis). k=40, n_warmup=1000.
 
 **Why pilot and not oracle for the catalog artifact?** The oracle COV path (decompose
