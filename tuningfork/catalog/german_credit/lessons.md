@@ -63,12 +63,13 @@ uv run python -m tuningfork.recipes._generate_starter \
 ```
 
 Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1512–1951 (az.ess bulk basis),
-R-hat < 1.001. Gate uses az.ess(method="bulk") ≥ 400. k=8, n_warmup=2000, n_samples=2000.
+R-hat max 1.0045 (≤ 1.005). Gate uses az.ess(method="bulk") ≥ 400. k=8, n_warmup=2000, n_samples=2000.
 
-Note: old script-baked golden claimed minESS≈1776 via ArviZ on 4-chain warmup average;
-library-baked golden measures 1512–1951 via az.ess on 4 independent cert chains — same
-method, different chain aggregation. Divergence confirmed as chain-averaging vs per-chain
-difference (D1/D3 analysis, thread file 2026-06-10).
+Note: old script-baked golden claimed minESS≈1776 (Geyer basis); library-baked golden measures
+1512–1951 (az.ess bulk basis on 4 independent cert chains). Both methods measure ESS,
+same range: chain-averaging hypothesis (D1) was refuted; the entire story is estimator method
+(D3: Geyer vs az-bulk on identical samples). On the az-bulk basis, library numbers reproduce
+old golden's range (~1776).
 
 **Why k=8 not k=26?** Full-rank (k=26 = d) LRD overfits the NUTS-pilot samples,
 inflating λ for directions with low pilot coverage. R-hat > 1.01 at k=26 is the

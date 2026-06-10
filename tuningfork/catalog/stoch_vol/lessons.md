@@ -89,21 +89,22 @@ as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
 
 **STATUS: DEFERRED** — LRD calibration track stopped per mission fallback (2026-06-10).
 Phase (c) Track 2: 0/3 cert seeds ERROR (mixed-rank pytree crash in `_run_cert_seed`
-post-sampling aggregation). See `claude-config/project/worklog/threads/feat-mclmc-lrd-integrator.md` § Phase (c) Track 2 VERDICT.
+post-sampling R-hat/ESS aggregation step). See `worklog/threads/feat-mclmc-lrd-integrator.md` § Phase (c) Track 2 VERDICT
+and this catalog's `lrd_track2_failure_analysis_2026-06-09.md`.
 `scripts/calibrate_stoch_vol_lrd.py` is the sole provenance for the committed artifacts
 until @user authorises a retry.
 
 The committed artifacts are:
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.json` — golden recipe (k=30, 2-seed REVIEW, script-baked)
-- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz` — rank-30 LRD IMM sidecar (from seed=42 pilot)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.imm.npz` — rank-30 LRD IMM sidecar (from seed=99 pilot)
 
 **Note:** This is the flat-init NCP variant, NOT the registered `stoch_vol` model.
 The registered model uses stationary init (`h[0] = mu + (sigma/sqrt(1-phi^2)) * h_std[0]`);
 the flat-init variant uses `h[0] = mu + sigma * h_std[0]` to reduce phi coupling.
 
 **To regenerate** (once @user authorises retry and mixed-rank fix is on main):
-Re-run `scripts/calibrate_stoch_vol_lrd.py` with the same parameters, or if
-stoch_vol is registered, use:
+Re-run `scripts/calibrate_stoch_vol_lrd.py` with the same parameters. Once stoch_vol is registered
+with LRD support in the generator, use:
 ```bash
 uv run python -m tuningfork.recipes._generate_starter \
     --warmup mclmc_lrd_tuning --only stoch_vol \
