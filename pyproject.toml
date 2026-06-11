@@ -29,7 +29,7 @@ notebook = [
 ]
 
 bench = [
-    "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@8386347237c2e3c369581076511f853dfa220421",
+    "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@359205da8b4c0f718662a64d6b9a2280fd8833b0",
     "aeppl",
     "aesara",
     "arviz",
