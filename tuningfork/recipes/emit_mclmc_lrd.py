@@ -332,6 +332,8 @@ def _emit_lrd_cert_sweep(
                     "warmup_name": warmup.name,
                     "n_warmup": n_warmup,
                     "k_rank": k_rank,  # provenance: LRD rank used during cert run
+                    "pilot_n_warmup": pilot_n_warmup,
+                    "pilot_n_samples": pilot_n_samples,
                     "tuning_seed": best["seed"],
                 },
             }
