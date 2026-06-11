@@ -299,6 +299,8 @@ def emit_mclmc_lrd_recipes(
     n_samples: int = 1000,
     num_chains: int = 4,
     k_rank: int = 40,
+    pilot_n_warmup: int = 1000,
+    pilot_n_samples: int = 1000,
 ) -> list[Path]:
     """Emit MCLMC-LRD candidate recipes using mclmc_lrd_tuning warmup.
 
@@ -322,7 +324,8 @@ def emit_mclmc_lrd_recipes(
         Base random seed for the ``calibrate=False`` stub path.  Ignored when
         ``calibrate=True`` (use ``cert_seeds`` instead).
     n_warmup
-        Number of LRD adaptation steps.  Default 1000.
+        Number of LRD adaptation steps (``lrd_num_steps`` in upstream).
+        Default 1000.
     model_names
         Restrict to these models.  ``None`` = all ``STARTER_MODEL_NAMES``.
     sampler
@@ -339,6 +342,13 @@ def emit_mclmc_lrd_recipes(
         Chains for the gate check (``calibrate=True`` only).
     k_rank
         LRD approximation rank.  Default 40.
+    pilot_n_warmup
+        Diagonal MCLMC pilot warmup steps (``pilot_num_warmup`` in upstream).
+        Default 1000.  Certified configs: german_credit 5000, ill_cond_50 1000.
+    pilot_n_samples
+        Pilot samples for SVD geometry estimation (``pilot_num_samples`` in
+        upstream).  Default 1000.  Certified configs: german_credit 5000,
+        ill_cond_50 10000.
 
     Returns
     -------
@@ -358,6 +368,8 @@ def emit_mclmc_lrd_recipes(
         n_samples=n_samples,
         num_chains=num_chains,
         k_rank=k_rank,
+        pilot_n_warmup=pilot_n_warmup,
+        pilot_n_samples=pilot_n_samples,
         sampler=sampler,
         catalog_root=_CATALOG_ROOT,
         tuningfork_version=_tuningfork_version,
@@ -585,6 +597,31 @@ def main() -> None:
             "Default: 40."
         ),
     )
+    parser.add_argument(
+        "--pilot-n-warmup",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Diagonal MCLMC pilot warmup steps (pilot_num_warmup in upstream).  "
+            "Used only with --warmup mclmc_lrd_tuning --calibrate.  "
+            "Default: 1000.  Certified configs: german_credit 5000, "
+            "ill_cond_50 1000."
+        ),
+    )
+    parser.add_argument(
+        "--pilot-n-samples",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Pilot samples for SVD geometry estimation "
+            "(pilot_num_samples in upstream).  "
+            "Used only with --warmup mclmc_lrd_tuning --calibrate.  "
+            "Default: 1000.  Certified configs: german_credit 5000, "
+            "ill_cond_50 10000."
+        ),
+    )
     args = parser.parse_args()
 
     # ── Validation ──────────────────────────────────────────────────────────
@@ -660,6 +697,10 @@ def main() -> None:
             _extra_kwargs["n_samples"] = args.n_samples
         if args.k_rank is not None:
             _extra_kwargs["k_rank"] = args.k_rank
+        if args.pilot_n_warmup is not None:
+            _extra_kwargs["pilot_n_warmup"] = args.pilot_n_warmup
+        if args.pilot_n_samples is not None:
+            _extra_kwargs["pilot_n_samples"] = args.pilot_n_samples
         mclmc_lrd_paths = emit_mclmc_lrd_recipes(
             model_names=names,
             sampler=args.sampler,
