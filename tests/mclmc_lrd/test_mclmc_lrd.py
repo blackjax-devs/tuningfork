@@ -412,3 +412,62 @@ def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
     assert isinstance(
         recipe.base_method_params["step_size"], float
     ), f"step_size should be float, got {type(recipe.base_method_params['step_size'])}"
+
+
+# ---------------------------------------------------------------------------
+# B-c hardening: dtype-agnostic settle-key reshape
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "make_key",
+    [
+        pytest.param(lambda: jax.random.key(0), id="typed-key"),
+        pytest.param(lambda: jax.random.PRNGKey(0), id="legacy-PRNGKey"),
+    ],
+)
+def test_settle_accepts_typed_and_legacy_keys(make_key):
+    """Settle pass must work for both jax.random.key (typed) and PRNGKey (legacy).
+
+    Regression guard for the settle-key reshape at mclmc_lrd_tuning.py — typed
+    keys produce ``jax.random.split`` output shape ``(N,)`` while legacy
+    ``PRNGKey`` produces ``(N, 2)``; the wrapper must not hard-code either shape.
+
+    Uses the same k_rank=10 / short-pilot config as
+    ``test_mclmc_lrd_tuning_warmup_returns_lrd_imm``, which reliably fires the
+    rank-guard UserWarning (n_eff < 20 → k_safe < k=10 for ill_cond_50).
+    The test's contract is "no crash + settle diagnostics key present", not the
+    warning per se.
+    """
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+    from tuningfork.warmup import WARMUPS
+
+    entry = MODELS["ill_cond_50"]
+    warmup = WARMUPS["mclmc_lrd_tuning"]
+    base_method = BASE_METHODS["mclmc"]
+
+    rng_key = make_key()
+    # Build init position using a typed key (build_logdensity_fn requires it).
+    # Use a fixed key independent of rng_key so both parametrize variants start
+    # from the same init_position.
+    init_position, logdensity_fn, _ = build_logdensity_fn(jax.random.key(99), entry)
+
+    # The rank guard fires for k_rank=10 on a short pilot (ill_cond_50 n_eff < 20).
+    with pytest.warns(UserWarning, match="rank-safety bound|Clamping"):
+        states, adapted_params = warmup.runner(
+            rng_key,
+            init_position,
+            n_warmup=500,
+            base_method=base_method,
+            logdensity_fn=logdensity_fn,
+            num_chains=1,
+            k_rank=10,
+        )
+
+    # Minimal contract: adapted_params has the expected keys, no crash.
+    assert "step_size" in adapted_params
+    assert "L" in adapted_params
+    assert "inverse_mass_matrix" in adapted_params
+    assert "_settle_steps" in adapted_params
