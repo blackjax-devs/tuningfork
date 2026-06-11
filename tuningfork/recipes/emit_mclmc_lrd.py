@@ -70,6 +70,8 @@ def _emit_mclmc_lrd_recipes_impl(
     n_samples: int = 1000,
     num_chains: int = 4,
     k_rank: int = 40,
+    pilot_n_warmup: int = 1000,
+    pilot_n_samples: int = 1000,
     sampler: str | None = None,
     catalog_root: Path | None = None,
     variant_label: str = "mclmc_lrd",
@@ -134,6 +136,8 @@ def _emit_mclmc_lrd_recipes_impl(
             n_samples=n_samples,
             num_chains=num_chains,
             k_rank=k_rank,
+            pilot_n_warmup=pilot_n_warmup,
+            pilot_n_samples=pilot_n_samples,
             catalog_root=root,
             variant_label=variant_label,
             effort=effort,
@@ -180,6 +184,8 @@ def _emit_lrd_cert_sweep(
     n_samples: int = 1000,
     num_chains: int = 4,
     k_rank: int = 40,
+    pilot_n_warmup: int = 1000,
+    pilot_n_samples: int = 1000,
     catalog_root: Path | None = None,
     variant_label: str = "mclmc_lrd",
     effort: Effort = Effort.LOW,
@@ -204,7 +210,8 @@ def _emit_lrd_cert_sweep(
     cert_seeds
         Random seeds for the certification sweep.
     n_warmup
-        Number of steps for both the pilot NUTS warmup and MCLMC tuning.
+        LRD adaptation steps (``lrd_num_steps`` in the upstream Scheme A
+        warmup).  Default 1000.
     n_samples
         Post-warmup samples per chain for the gate check.
     num_chains
@@ -212,6 +219,13 @@ def _emit_lrd_cert_sweep(
         uses ``num_chains=1`` (via ``from_warmup_only``).
     k_rank
         LRD approximation rank.
+    pilot_n_warmup
+        Diagonal MCLMC pilot warmup steps (``pilot_num_warmup`` in upstream).
+        Default 1000.  Certified configs: german_credit 5000, ill_cond_50 1000.
+    pilot_n_samples
+        Pilot samples for SVD geometry estimation (``pilot_num_samples`` in
+        upstream).  Default 1000.  Certified configs: german_credit 5000,
+        ill_cond_50 10000.
     catalog_root
         Root directory for the catalog.  Defaults to ``tuningfork/catalog/``.
     variant_label
@@ -254,6 +268,8 @@ def _emit_lrd_cert_sweep(
                 n_samples=n_samples,
                 num_chains=num_chains,
                 k_rank=k_rank,
+                pilot_n_warmup=pilot_n_warmup,
+                pilot_n_samples=pilot_n_samples,
                 tuningfork_version=tuningfork_version,
                 variant_label=variant_label,
             )
@@ -357,8 +373,8 @@ def _emit_lrd_cert_sweep(
                             "n_warmup": n_warmup,
                             "num_chains": num_chains,
                             "k_rank": k_rank,
-                            "pilot_n_warmup": n_warmup,
-                            "pilot_n_samples": n_samples,
+                            "pilot_n_warmup": pilot_n_warmup,
+                            "pilot_n_samples": pilot_n_samples,
                         },
                     }
                 ],
@@ -450,6 +466,8 @@ def _run_cert_seed(
     n_samples: int,
     num_chains: int,
     k_rank: int,
+    pilot_n_warmup: int,
+    pilot_n_samples: int,
     tuningfork_version: str,
     variant_label: str,
 ) -> dict[str, Any]:
@@ -481,6 +499,8 @@ def _run_cert_seed(
         logdensity_fn=logdensity_fn,
         num_chains=1,
         k_rank=k_rank,
+        pilot_n_warmup=pilot_n_warmup,
+        pilot_n_samples=pilot_n_samples,
     )
     batched_state, batched_params = warmup_result[0], warmup_result[1]
     jax.block_until_ready((batched_state, batched_params))
