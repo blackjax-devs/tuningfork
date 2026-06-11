@@ -265,9 +265,15 @@ def _runner(
 
     # vmap a scan over chains: each chain gets its own key sequence and runs
     # independently with the shared (L, step_size, LRD IMM).
-    settle_run_keys = jax.random.split(
+    _settle_keys = jax.random.split(
         jax.random.fold_in(settle_key, 1), num_chains * _SETTLE_STEPS
-    ).reshape(num_chains, _SETTLE_STEPS)
+    )
+    # Shape-agnostic reshape: typed keys have shape (N,), legacy keys (N, 2).
+    # Using keys.shape[1:] appends the trailing dtype dim when present so the
+    # reshape works with both jax.random.key() and jax.random.PRNGKey() callers.
+    settle_run_keys = _settle_keys.reshape(
+        (num_chains, _SETTLE_STEPS) + _settle_keys.shape[1:]
+    )
 
     @jax.vmap
     def _settle_chain(

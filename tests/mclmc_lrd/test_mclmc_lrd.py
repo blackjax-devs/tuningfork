@@ -412,3 +412,53 @@ def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
     assert isinstance(
         recipe.base_method_params["step_size"], float
     ), f"step_size should be float, got {type(recipe.base_method_params['step_size'])}"
+
+
+@pytest.mark.parametrize(
+    "make_key",
+    [
+        pytest.param(lambda seed: jax.random.key(seed), id="typed-key"),
+        pytest.param(lambda seed: jax.random.PRNGKey(seed), id="legacy-key"),
+    ],
+)
+def test_mclmc_lrd_tuning_accepts_typed_and_legacy_keys(make_key):
+    """Settle-key reshape must work for both typed (new-style) and legacy PRNG keys.
+
+    Regression guard for B-c: `.reshape(num_chains, _SETTLE_STEPS)` crashed on
+    legacy PRNGKey (split returns (N,2) not (N,)) because the trailing uint32
+    pair dimension was dropped.  The dtype-agnostic fix appends `keys.shape[1:]`
+    so legacy callers get `(num_chains, _SETTLE_STEPS, 2)` and typed callers
+    keep `(num_chains, _SETTLE_STEPS)` — both correct for jax.lax.scan.
+    """
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+    from tuningfork.warmup import WARMUPS
+
+    entry = MODELS["ill_cond_50"]
+    warmup = WARMUPS["mclmc_lrd_tuning"]
+    base_method = BASE_METHODS["mclmc"]
+
+    rng_key = make_key(42)
+    init_key, warmup_key = jax.random.split(rng_key)
+    init_position, logdensity_fn, _ = build_logdensity_fn(init_key, entry)
+
+    # At n_warmup=200 the pilot is short — rank guard may clamp k_rank=5 to k_used=1.
+    # Accept the UserWarning (it's expected under-warmed behaviour).
+    # The only purpose of this test is to verify no crash occurs with either key
+    # type — the shape-agnostic reshape is the B-c regression guard.
+    with pytest.warns(UserWarning):
+        states, adapted_params = warmup.runner(
+            warmup_key,
+            init_position,
+            n_warmup=200,
+            base_method=base_method,
+            logdensity_fn=logdensity_fn,
+            num_chains=2,
+            k_rank=5,
+        )
+
+    # Minimal contract: adapted_params has the expected structure, no crash.
+    assert "inverse_mass_matrix" in adapted_params
+    assert "step_size" in adapted_params
+    assert "_settle_steps" in adapted_params
