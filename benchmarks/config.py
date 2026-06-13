@@ -155,12 +155,12 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "low__nuts__window_adaptation_dense_imm.json",
         "calibrated",
     ),
-    # dmhmc × stoch_vol: high-d (16.2s e2e, 6.5s calibrated)
-    ("tier2", "stoch_vol", "low__dmhmc__window_adaptation_dense_imm.json", "e2e"),
+    # dmhmc × stoch_vol: high-d (16.2s e2e, 6.5s calibrated) — diag IMM
+    ("tier2", "stoch_vol", "low__dmhmc__window_adaptation_diag_imm.json", "e2e"),
     (
         "tier2",
         "stoch_vol",
-        "low__dmhmc__window_adaptation_dense_imm.json",
+        "low__dmhmc__window_adaptation_diag_imm.json",
         "calibrated",
     ),
     # mclmc × eight_schools: MCLMC on NCP (6.3s e2e only)
@@ -172,11 +172,11 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "low__hmc__window_adaptation_dense_imm__inner_nuts.json",
         "calibrated",
     ),
-    # horseshoe × dmhmc calibrated (31.2s — within 60s)
+    # horseshoe × dmhmc calibrated (31.2s — within 60s) — diag IMM
     (
         "tier2",
         "horseshoe",
-        "low__dmhmc__window_adaptation_dense_imm.json",
+        "low__dmhmc__window_adaptation_diag_imm.json",
         "calibrated",
     ),
     # ── Phase 8B.3: rmhmc MEDIUM recipes (R1–R4) ─────────────────────────
@@ -223,8 +223,8 @@ SLOW_CELLS: list[tuple[str, str, str, str]] = [
         "low__hmc__window_adaptation_dense_imm__inner_nuts.json",
         "e2e",
     ),
-    # horseshoe × dmhmc e2e: extreme geometry, full warmup (75s in CI)
-    ("tier2", "horseshoe", "low__dmhmc__window_adaptation_dense_imm.json", "e2e"),
+    # horseshoe × dmhmc e2e: extreme geometry, full warmup (75s in CI) — diag IMM
+    ("tier2", "horseshoe", "low__dmhmc__window_adaptation_diag_imm.json", "e2e"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -271,10 +271,10 @@ def _bench_id(cell: tuple[str, str, str, str]) -> str:
 #   eight_schools_ncp NCP funnel) — quick baseline for per-sampler regression.
 #
 # Added 6 (tier2, nightly budget unlocked):
-#   horseshoe-dmhmc-calibrated   : extreme geometry, dense IMM (expK: ~31s, free seed)
+#   horseshoe-dmhmc-calibrated   : extreme geometry, diag IMM (expK: ~31s, free seed)
 #   lotka_volterra-hmc-e2e       : stiff ODE full warmup (expK: ~204s, free seed)
 #                                  *** lives in SLOW_CELLS — filter uses ALL_CELLS ***
-#   stoch_vol-dmhmc-e2e          : high-d AR(1), dense IMM (expK: ~16s, free seed)
+#   stoch_vol-dmhmc-e2e          : high-d AR(1), diag IMM (expK: ~16s, free seed)
 #   stoch_vol-nuts-e2e           : high-d AR(1), diag IMM (expK: ~18s, PIN 20260601)
 #   lotka_volterra-hmc-calibrated: stiff ODE, skip_warmup (expK: ~14s, free seed)
 #   ill_cond_50-nuts-e2e         : κ=1000 (expK: ~5s, PIN 20260602)
@@ -297,13 +297,13 @@ _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
         # eight_schools_ncp — hierarchical NCP topology diversity
         "tier2-eight_schools_ncp-low__nuts__window_adaptation_diag_imm-e2e",
         # ── Added 6 (#139): heavier tier2 cells, nightly budget ──────────────
-        # horseshoe × dmhmc calibrated — extreme geometry, dense IMM (free seed)
-        "tier2-horseshoe-low__dmhmc__window_adaptation_dense_imm-calibrated",
+        # horseshoe × dmhmc calibrated — extreme geometry, diag IMM (free seed)
+        "tier2-horseshoe-low__dmhmc__window_adaptation_diag_imm-calibrated",
         # lotka_volterra × hmc e2e — REMOVED 2026-06-13: step-collapse 4/5 seeds;
         # 4.20× wall swing causes false 200% Speed-lite alerts. Quarantined via
         # XFAIL_CELLS; excluded from timing axis. Calibrated variant kept below.
-        # stoch_vol × dmhmc e2e — high-d AR(1), dense IMM (free seed)
-        "tier2-stoch_vol-low__dmhmc__window_adaptation_dense_imm-e2e",
+        # stoch_vol × dmhmc e2e — high-d AR(1), diag IMM (free seed)
+        "tier2-stoch_vol-low__dmhmc__window_adaptation_diag_imm-e2e",
         # stoch_vol × nuts e2e — high-d AR(1), diag IMM (PIN 20260601)
         # expK phase_b: 20260601=17.85s, 20260602=18.72s, 20260603=16.06s (anomalous low)
         "tier2-stoch_vol-low__nuts__window_adaptation_diag_imm-e2e",

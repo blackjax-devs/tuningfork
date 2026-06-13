@@ -16,7 +16,7 @@
 These cells run the full warmup + sampling pipeline for models where the
 e2e wall time exceeds 60s per CI run (from round-4 CI timings):
   - lotka_volterra × hmc × inner_nuts e2e:  204s (stiff ODE, full warmup)
-  - horseshoe × dmhmc × dense_imm e2e:       75s (extreme geometry)
+  - horseshoe × dmhmc × diag_imm e2e:        75s (extreme geometry)
 
 Runs via:
     make benchmark    # fast + e2e (full nightly suite)
