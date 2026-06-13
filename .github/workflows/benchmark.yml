@@ -65,21 +65,38 @@ jobs:
         # mutate uv.lock on disk; hashFiles('uv.lock') is evaluated at step-run
         # time, so the key changed nearly every run → guaranteed miss.
         #
-        # Fix:
+        # Fix (original):
         #   1. Step moved here (pre-install) so hashFiles reads the committed lock.
         #   2. restore-keys uses a hash-INDEPENDENT prefix so a new primary key
         #      still restores the most-recent jax-compile cache entry (XLA artifacts
         #      are forward-compatible within a JAX minor version; worst case a small
         #      incremental recompile, not a cold 30-min rebuild).
         #
+        # 2026-06-13 finding: actions/cache@v4 performs the cache SAVE in a
+        # post-step. GitHub SKIPS post-steps when the job fails. This nightly has
+        # been failing on a GT-correctness assertion since 2026-06-09, so the save
+        # is skipped every night → the cache is never refreshed → run stays cold.
+        # Observed: "Post Restore JAX persistent compilation cache → skipped" on
+        # every failed nightly from 06-09 through 06-13 (4 consecutive nights).
+        # The stale 06-04 blob (8 MB — implausibly small for a warm 34-cell cache)
+        # is re-loaded each night via the restore-keys fallback, but never saved.
+        #
+        # Fix (2026-06-13): split into restore@v4 (this step) + save@v4 with
+        # if: always() near the end of the job — mirrors the pattern that
+        # speed_benchmark.yml already uses for its trend cache. The save key uses
+        # github.run_id as a unique suffix so the save always writes a NEW entry
+        # (cache-hit no-op is avoided). restore-keys picks up the most-recent
+        # prior entry via the hash-prefix fallback below.
+        #
         # JAX's persistent cache survives jax.clear_caches() (in-memory only).
         # Saves ~58 min/night on lotka_volterra + horseshoe e2e cells starting
         # night 2 (night 1 cold, ~155 min, builds the cache).
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/jax-compile-cache
-          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04
+          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ github.run_id }}
           restore-keys: |
+            jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-
             jax-compile-
 
       - name: Install bench-perf deps (from locked uv.lock)
@@ -158,6 +175,25 @@ jobs:
           name: benchmark-results-${{ github.sha }}
           path: ${{ steps.bench.outputs.all_results_dir }}
           retention-days: 90
+
+      - name: Save JAX persistent compilation cache
+        # Always save — even when the benchmark or regression step fails — so the
+        # next night starts with a warm compile cache rather than the cold stale
+        # blob from 2026-06-04.
+        #
+        # Key uses github.run_id so each nightly writes a UNIQUE entry (avoids
+        # the cache-hit no-op that would skip the save on a key collision).
+        # restore-keys in the Restore step above picks up the most-recent matching
+        # entry via prefix fallback — exact key first, then hash-prefix, then bare
+        # prefix — so the next night always inherits the freshest available cache.
+        #
+        # Mirrors the pattern speed_benchmark.yml uses for its trend cache
+        # (restore@v4 + save@v4 with if: always()).
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/jax-compile-cache
+          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ github.run_id }}
 
       - name: Verify nightly cron fired (informational)
         if: github.event_name == 'schedule'
