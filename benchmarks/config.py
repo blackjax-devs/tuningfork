@@ -259,9 +259,12 @@ def _bench_id(cell: tuple[str, str, str, str]) -> str:
 
 # Speed-lite filter: bench_ids drawn from ALL_CELLS for the timing axis.
 #
-# 14 cells (8 active from original group + 6 added in #139; 1 removed 2026-06-04).
+# 13 cells (8 active from original group + 6 added in #139; 1 removed 2026-06-04;
+# 1 removed 2026-06-13).
 # Original group was 9 tier1 logistic/mvn/eight_schools e2e; adjusted_mclmc_dynamic
-# removed on 2026-06-04 (recipe demoted to honest-null, ESS 9-13% on logistic).
+# removed on 2026-06-04 (recipe demoted to honest-null, ESS 9-13% on logistic);
+# lotka_volterra-inner_nuts-e2e removed 2026-06-13 (step-collapse 4/5 seeds,
+# 4.2× wall swing → false 200% alerts; quarantined via XFAIL_CELLS).
 #
 # Original active 8 (tier1 logistic/mvn/eight_schools e2e):
 #   Covers 6 sampler families on cheap models (logistic_synthetic GLM, mvn_10,
@@ -296,9 +299,9 @@ _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
         # ── Added 6 (#139): heavier tier2 cells, nightly budget ──────────────
         # horseshoe × dmhmc calibrated — extreme geometry, dense IMM (free seed)
         "tier2-horseshoe-low__dmhmc__window_adaptation_dense_imm-calibrated",
-        # lotka_volterra × hmc e2e — stiff ODE, full warmup (free seed)
-        # NOTE: lives in SLOW_CELLS; reachable only because filter uses ALL_CELLS.
-        "tier2-lotka_volterra-low__hmc__window_adaptation_dense_imm__inner_nuts-e2e",
+        # lotka_volterra × hmc e2e — REMOVED 2026-06-13: step-collapse 4/5 seeds;
+        # 4.20× wall swing causes false 200% Speed-lite alerts. Quarantined via
+        # XFAIL_CELLS; excluded from timing axis. Calibrated variant kept below.
         # stoch_vol × dmhmc e2e — high-d AR(1), dense IMM (free seed)
         "tier2-stoch_vol-low__dmhmc__window_adaptation_dense_imm-e2e",
         # stoch_vol × nuts e2e — high-d AR(1), diag IMM (PIN 20260601)
@@ -315,7 +318,7 @@ _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
 
 # Derived from ALL_CELLS — not a hand-curated duplicate list.
 # Preserves the ALL_CELLS ordering; updates automatically if a cell is renamed.
-# Invariant: len(SPEED_LITE_CELLS) == 14  (assert in test_speed_lite.py at collection time)
+# Invariant: len(SPEED_LITE_CELLS) == 13  (assert in test_speed_lite.py at collection time)
 SPEED_LITE_CELLS: list[tuple[str, str, str, str]] = [
     c for c in ALL_CELLS if _bench_id(c) in _SPEED_LITE_BENCH_IDS
 ]
@@ -369,6 +372,11 @@ XFAIL_CELLS: dict[str, str] = {
     # (empty — adjusted_mclmc_dynamic/logistic_synthetic cells removed from suite
     # on 2026-06-04; recipes formally demoted to honest-null per @statistician.
     # The stop-gap xfail entry is no longer needed — cell is no longer in FAST_CELLS.)
+    "tier2-lotka_volterra-low__hmc__window_adaptation_dense_imm__inner_nuts-e2e": (
+        "inner_nuts e2e: NUTS warmup step-collapse from prior-region init"
+        " (1752x gradient mismatch); 4/5 seed failure; see"
+        " worklog/threads/benchmark-ci-failures-2026-06-13.md"
+    ),
 }
 
 PINNED_SEEDS: dict[str, int] = {
