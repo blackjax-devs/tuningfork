@@ -148,7 +148,16 @@ jobs:
           # clear_caches() (between cells, prevents OOM) doesn't force a cold recompile.
           # JAX's persistent cache is NOT cleared by jax.clear_caches() — each cell's
           # Step 1 compile-warmup loads from disk starting night 2.
-          JAX_PLATFORM_NAME=cpu JAX_COMPILATION_CACHE_DIR="${{ runner.temp }}/jax-compile-cache" uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
+          #
+          # JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0: required for CPU workloads.
+          # JAX's default (1.0s) gates out all CPU XLA compilations (typically 50–200ms)
+          # → cache stays empty → every night cold-compiles → 180-min timeout.
+          # Set to 0 so ALL compilations are written.  Belt-and-suspenders with the
+          # jax.config.update() in benchmarks/conftest.py (which catches local runs too).
+          JAX_PLATFORM_NAME=cpu \
+          JAX_COMPILATION_CACHE_DIR="${{ runner.temp }}/jax-compile-cache" \
+          JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0 \
+          uv run --python 3.13 pytest ${{ steps.suite.outputs.files }} \
             -m benchmark \
             --benchmark-json="${all_results_dir}/bench_results.json" \
             --benchmark-disable-gc \

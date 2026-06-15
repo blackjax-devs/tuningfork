@@ -7,9 +7,32 @@ Runs once for the entire session — all 3 date-derived seeds run warm.
 
 from __future__ import annotations
 
+import jax
 import pytest
 
 from benchmarks._benchmark_helpers import run_jit_warmup
+
+# ---------------------------------------------------------------------------
+# JAX persistent-cache gate: allow all CPU compilations to be cached
+#
+# JAX's default ``jax_persistent_cache_min_compile_time_secs=1.0`` silently
+# gates out CPU-mode XLA compilations (typically 50–200ms on CI runners and
+# local machines).  The result: ``JAX_COMPILATION_CACHE_DIR`` is set but the
+# cache stays at ~4 KB (empty) — confirmed locally: a representative compile
+# took 76ms, well below the 1.0s threshold.
+#
+# Effect on the nightly: every night runs cold → all 31 fast + 2 slow cells
+# compile from scratch → wall time blows past the 180-min cap.  The
+# restore+save split added in PR #185 could not help while the writes were
+# being suppressed.
+#
+# Note: ``jax.clear_caches()`` (called in ``clear_xla_caches_between_cells``
+# below) is in-memory only — it does NOT touch the on-disk persistent cache
+# (confirmed from JAX 0.10.1 source).  So setting min_compile_time_secs=0
+# here is sufficient: compilations hit disk, survive per-cell clear_caches(),
+# and are restored the following night via the CI cache step.
+# ---------------------------------------------------------------------------
+jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
 
 # ---------------------------------------------------------------------------
 # Known crashers: SIGABRT (exit 134) in 7-run mode.
