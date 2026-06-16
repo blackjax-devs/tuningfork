@@ -13,6 +13,11 @@ investigation conducted 2026-06-08/09 (tuningfork PR #176, blackjax PR #936).  I
 consolidates four experimental files that were deleted from `experimental/` when PR #176
 landed on main.
 
+**Companion:** [`mclmc-scaling-laws.md`](mclmc-scaling-laws.md) — the empirical warmup
+scaling laws (`step ≈ 1.22·√d`) and the **EEVPD diagnostic that makes the §4 routing
+automatic and NUTS-free** (detects the smooth-vs-funnel boundary from the pilot's own
+energy error, dissolving the "you don't know it's a funnel until you sample" problem).
+
 For model-specific findings see the individual `catalog/<model>/lessons.md` files.
 For the LRD utility API see `tuningfork/base_method/mclmc.py` and
 `tuningfork/base_method/mclmc_lrd_utils.py`.
