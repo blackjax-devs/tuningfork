@@ -372,11 +372,11 @@ XFAIL_CELLS: dict[str, str] = {
     # (empty — adjusted_mclmc_dynamic/logistic_synthetic cells removed from suite
     # on 2026-06-04; recipes formally demoted to honest-null per @statistician.
     # The stop-gap xfail entry is no longer needed — cell is no longer in FAST_CELLS.)
-    "tier2-lotka_volterra-low__hmc__window_adaptation_dense_imm__inner_nuts-e2e": (
-        "inner_nuts e2e: NUTS warmup step-collapse from prior-region init"
-        " (1752x gradient mismatch); 4/5 seed failure; see"
-        " worklog/threads/benchmark-ci-failures-2026-06-13.md"
-    ),
+    #
+    # 2026-06-16: lotka_volterra-hmc-dense_imm-inner_nuts-e2e xfail REMOVED.
+    # Root cause was _recipe_runner.py omitting is_mass_matrix_diagonal at the
+    # inner-kernel call sites → NUTS step collapsed (1752× gradient mismatch).
+    # Fixed in fix/imm-diagonal-inner-kernel; z=3.033 (3/3 seeds PASS).
 }
 
 PINNED_SEEDS: dict[str, int] = {

@@ -1278,6 +1278,7 @@ def emit_low_recipe_for_cell(
                     warmup_inner_kernel_name=warmup_inner_kernel,
                     num_chains=num_chains,
                     target_acceptance=target_acceptance,
+                    is_mass_matrix_diagonal="dense" not in warmup_name,
                 )
             )
         else:
@@ -2502,6 +2503,7 @@ def run_recipe_to_idata(
                 warmup_inner_kernel_name=recipe.warmup_inner_kernel,
                 num_chains=_single_W,
                 target_acceptance=target_acceptance,
+                is_mass_matrix_diagonal="dense" not in recipe.warmup_name,
             )
         )
         if _single_W != num_chains:
