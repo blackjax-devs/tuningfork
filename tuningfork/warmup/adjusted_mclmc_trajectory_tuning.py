@@ -150,22 +150,39 @@ def _pilot_ess_per_grad(
         return positions, nsteps
 
     # vmap over chains
-    pilot_positions, pilot_nsteps = jax.vmap(run_one_chain)(
+    pilot_positions_tree, pilot_nsteps = jax.vmap(run_one_chain)(
         jax.random.split(rng_key, num_chains),
         states,
         step_sizes,
         inverse_mass_matrices,
     )
-    # pilot_positions: (num_chains, n_pilot, d)
-    # pilot_nsteps:   (num_chains, n_pilot)
+    # pilot_positions_tree: pytree with leaves (num_chains, n_pilot, ...)
+    # pilot_nsteps:         (num_chains, n_pilot)
 
     # Block to ensure computation is complete before host-side logic.
-    jax.block_until_ready((pilot_positions, pilot_nsteps))
+    jax.block_until_ready((pilot_positions_tree, pilot_nsteps))
+
+    # Flatten pytree positions to (num_chains, n_pilot, d_flat) for ESS computation.
+    # Position may be a dict (numpyro models) or a flat array — handle both.
+    # ravel_pytree flattens a single-sample pytree; apply via vmap over (chains, draws).
+    pos_leaves = jax.tree.leaves(pilot_positions_tree)
+    if len(pos_leaves) == 1 and len(pos_leaves[0].shape) == 3:
+        # Already a flat array: (num_chains, n_pilot, d)
+        flat_positions = pos_leaves[0]
+    else:
+        # Dict or structured pytree: concatenate all leaves along last axis.
+        # Each leaf has shape (num_chains, n_pilot, *leaf_shape).
+        # Flatten each leaf to (num_chains, n_pilot, -1) and concatenate.
+        flat_leaves = [
+            leaf.reshape(leaf.shape[0], leaf.shape[1], -1) for leaf in pos_leaves
+        ]
+        flat_positions = jnp.concatenate(flat_leaves, axis=-1)
+    # flat_positions: (num_chains, n_pilot, d_flat)
 
     # ESS: use blackjax.diagnostics.effective_sample_size
     # Input shape: (chains, draws, d) → ESS per dimension, then take min.
     ess_per_dim = blackjax.diagnostics.effective_sample_size(
-        pilot_positions, chain_axis=0, sample_axis=1
+        flat_positions, chain_axis=0, sample_axis=1
     )
     # ess_per_dim: (d,) after the chain/sample dims are squeezed.
     min_ess = float(jnp.min(ess_per_dim))
