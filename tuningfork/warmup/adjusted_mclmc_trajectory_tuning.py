@@ -382,7 +382,10 @@ ENTRY = Warmup(
         "_total_tuning_steps (warmup + pilot grads). "
         "Only compatible with adjusted_mclmc_dynamic (not static adjusted_mclmc). "
         "Canonical target acceptance rate: 0.9. "
-        "Validated: avg_star≈2 gives ess/grad ~1.2–1.45× the MALA (avg=1) baseline "
-        "on mvn_10 + ill_cond_50."
+        "Validated (n_warmup=500, n_pilot=500, 4 chains): escapes MALA where a longer "
+        "trajectory helps — mvn_10 picks avg=2 (2.9× the avg=1 ess/grad), german_credit "
+        "picks avg=4 (8.3×). On ill_cond_50 the diagonal IMM cannot whiten the rotated "
+        "kappa=1000 geometry, so avg=1 is correctly selected (pair with an LRD/dense IMM "
+        "warmup to benefit from longer trajectories)."
     ),
 )
