@@ -26,11 +26,11 @@ Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 s
 
 | avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | acceptance | verdict |
 |---|---|---|---|---|---|---|---|
-| 2 | 2.0 | 37 | 1.162 | 0.310 | 0.188 | 0.988 | **loud-fail** |
-| 6 | 6.0 | 207 | 1.023 | 0.214 | 0.075 | 0.965 | **loud-fail** |
-| 18 | 18.1 | 715 | 1.003 | 0.083 | 0.034 | 0.915 | **PASS** |
-| 54 | 54.2 | 1017 | 1.003 | 0.102 | 0.056 | 0.816 | **borderline (in-window)** |
-| 108 | 108.4 | 977 | 1.004 | 0.122 | 0.036 | 0.727 | **overshoot onset** |
+| 2 | 2.0 | 40 | 1.095 | 0.275 | 0.189 | 0.988 | **loud-fail** |
+| 6 | 6.0 | 214 | 1.014 | 0.214 | 0.077 | 0.966 | **loud-fail** |
+| 18 | 18.0 | 703 | 1.003 | 0.086 | 0.035 | 0.914 | **PASS** |
+| 54 | 54.2 | 1023 | 1.002 | 0.107 | 0.063 | 0.817 | **borderline (in-window)** |
+| 108 | 108.3 | 1033 | 1.002 | 0.112 | 0.030 | 0.726 | **overshoot onset** |
 
 **Lesson:** Clean PASS window avg=18–54 (Rhat ~1.003, bias <0.1, ESS efficient). At avg=108, acceptance erodes
 and ESS stops climbing (diminishing returns / trajectory saturation), not a silent bias. A new medium__ `adjusted_mclmc`
