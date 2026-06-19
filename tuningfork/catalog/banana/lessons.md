@@ -20,6 +20,25 @@ None documented yet. R1+ will backfill FAILED recipes for hard-excluded cells in
 
 No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/banana/`.
 
+## Dynamic-L Sweep (avg ladder)
+
+Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds
+
+| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | acceptance | verdict |
+|---|---|---|---|---|---|---|---|
+| 2 | 2.0 | 37 | 1.162 | 0.310 | 0.188 | 0.988 | **loud-fail** |
+| 6 | 6.0 | 207 | 1.023 | 0.214 | 0.075 | 0.965 | **loud-fail** |
+| 18 | 18.1 | 715 | 1.003 | 0.083 | 0.034 | 0.915 | **PASS** |
+| 54 | 54.2 | 1017 | 1.003 | 0.102 | 0.056 | 0.816 | **borderline (in-window)** |
+| 108 | 108.4 | 977 | 1.004 | 0.122 | 0.036 | 0.727 | **overshoot onset** |
+
+**Lesson:** Clean PASS window avg=18–54 (Rhat ~1.003, bias <0.1, ESS efficient). At avg=108, acceptance erodes
+and ESS stops climbing (diminishing returns / trajectory saturation), not a silent bias. A new medium__ `adjusted_mclmc`
+recipe targets avg~18 and offers an MCLMC alternative to NUTS in this efficiency window (see catalog recipes).
+
+See `catalog/mclmc-scaling-laws.md` §3 for generalized principles (geometry-opposite optima, why bigger L is not always
+better, etc.).
+
 ## Citations
 
 **Synthetic baseline** — no external reference. Standard test model for sampler validation.

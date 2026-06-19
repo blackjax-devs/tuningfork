@@ -107,6 +107,24 @@ The oracle 0.2492 is a reference ceiling in the thread file, not the committed a
 Full integrator ladder validated; internal LRD certified PASS at 426× ESS/grad.
 See `catalog/mclmc-routing-taxonomy.md` for routing taxonomy and scientific context.
 
+## Dynamic-L Sweep (avg ladder)
+
+Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds
+
+| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | trend |
+|---|---|---|---|---|---|---|
+| 2 | 2.0 | 1937 | 1.014 | 0.183 | 0.054 | **OPTIMAL** |
+| 6 | 6.0 | 1662 | 1.012 | 0.184 | 0.073 | degrading |
+| 18 | 18.1 | 1221 | 1.013 | 0.508 | 0.069 | *monotone worse* |
+| 54 | 54.2 | 582 | 1.017 | 0.757 | 0.106 | ↓ |
+| 108 | 108.4 | 428 | 1.016 | 1.016 | 0.142 | **worst** |
+
+**Lesson:** avg=2 is optimal. Every step increasing avg monotonically degrades ESS and inflates 2nd-moment bias
+(0.183 → 1.016), both bias and mbias_sd rising systematically across seeds. Longer trajectories overshoot the
+rotated-but-not-funnel geometry; the avg=2 default is tuned correctly for LRD-MCLMC on this model.
+
+See `catalog/mclmc-scaling-laws.md` §3 for generalized principles (why stiff/rotated models want SHORT L, etc.).
+
 ## Citations
 
 **Synthetic baseline** — no external reference. Standard test model for sampler validation.

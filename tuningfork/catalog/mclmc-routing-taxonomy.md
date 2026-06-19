@@ -117,7 +117,87 @@ Based on empirical stress-testing across the full catalog:
 
 ---
 
-## 5. The VI Rank-Collapse Finding (negative result)
+## 5. Automatic Classification During Warmup (Exploratory)
+
+For models not in the known catalog, the five-category routing table (§4) is unavailable.
+This section describes an exploratory **warmup-time pilot signal** that can automatically
+classify a new model into one of these categories, NUTS-free.
+
+**Status**: heuristic, not yet validated on the full catalog. Use as a routing *suggestion*
+for unknown models; verify against the per-model `catalog/<model>/lessons.md` once sampling completes.
+
+### The EEVPD Diagnostic
+
+Run a cheap diagonal-MCLMC pilot with the energy-variance tuner (`desired_energy_var=5e-4`).
+The achieved EEVPD at convergence **classifies the geometry**:
+
+| EEVPD outcome | step / (1.22√d) | Geometry class | Suggested route |
+|---|---|---|---|
+| **≈ 5e-4** (target hit) | ≈ 1.0 | Smooth / well-correlated | Category A or B (Diagonal or LRD-MCLMC) |
+| **≫ 5e-4** (e.g., 9e-3–0.1) | ≪ 1 (collapses) | Funnel / heavy-tail / position-dependent | Category C or D (adjusted_mclmc_dynamic or NUTS) |
+
+**Why it works**: On smooth targets, the energy-variance tuner can reach its 5e-4 target
+with a global step ≈ 1.22√d. On funnels, the step needed to survive position-dependent
+curvature (the narrow neck) is too small for the flat regions (the mouth), so the tuner
+cannot reach 5e-4 with any global step — it shrinks the step and the achieved EEVPD
+stalls well above the target.
+
+### Caveats
+
+- Requires no oracle knowledge or post-hoc reference (runs during cheapest phase)
+- But: the threshold (5e-4) is calibrated on smooth/moderately-conditioned targets; very
+  high-dimensional or multimodal targets may need tuning
+- Use this to *suggest* a route, not to *commit* to one; recheck diagnostics once
+  sampling is underway
+
+### Implementation Pseudocode
+
+```python
+# Warmup-phase classifier
+def classify_geometry(model_logdensity, initial_position, d):
+    # Run diagonal MCLMC warmup, target EEVPD=5e-4
+    kernel = mclmc(diagonal_preconditioning=True)
+    step_size, L, _ = mclmc_find_L_and_step_size(
+        kernel, model_logdensity, initial_position,
+        desired_energy_var=5e-4, num_steps=1000
+    )
+
+    # Compare achieved EEVPD to target
+    realized_eevpd = ...  # computed during warmup
+    predicted_step = 1.22 * np.sqrt(d)
+    step_ratio = step_size / predicted_step
+
+    if realized_eevpd < 2e-3 and step_ratio > 0.7:
+        return "smooth", "try_mclmc"
+    elif realized_eevpd > 1e-2 and step_ratio < 0.5:
+        return "funnel", "try_adjusted_mclmc"
+    else:
+        return "unclear", "review_diagnostics"
+```
+
+### Relationship to the Known-Model Taxonomy (§4)
+
+- **Curated table (§4)**: Ground-truth category assignments for models we've studied.
+  Use these when available — they reflect high-confidence routing decisions backed by
+  multi-seed validation and per-model reference diagnostics.
+
+- **EEVPD pilot (§5, this section)**: Automatic suggestion for new or unseen models.
+  Trade-off: cheaper (no NUTS pilot needed), but exploratory; should be validated
+  against per-model diagnostics and `catalog/<model>/lessons.md` references.
+
+### Best Practice Workflow
+
+For a new model:
+1. Run the EEVPD pilot first (O(1k) steps).
+2. It suggests a route in one of the five categories.
+3. Commit to sampling with the suggested handler.
+4. Verify diagnostics post-hoc against the per-model `lessons.md` reference (if available).
+5. If the 2nd-moment-bias gate (see `mclmc-scaling-laws.md` §4) flags issues, escalate
+   to the next-higher handler (e.g., diagonal MCLMC → LRD-MCLMC → adjusted_mclmc_dynamic → NUTS).
+
+---
+
+## 6. The VI Rank-Collapse Finding (negative result)
 
 Tested whether `multipathfinder` could replace the NUTS pilot run for cheap geometry
 discovery.
@@ -145,7 +225,7 @@ See `tests/mclmc_lrd/test_multipathfinder_lrd.py` for the runnable script.
 
 ---
 
-## 6. Prior-Centering Preservation Principle
+## 7. Prior-Centering Preservation Principle
 
 Validated on `stoch_vol` (503-D NCP AR(1)):
 
@@ -163,7 +243,7 @@ funnel curvature is the dominant bottleneck.
 
 ---
 
-## 7. Key Parameter Notes
+## 8. Key Parameter Notes
 
 ### LRD mass matrix construction
 From a NUTS pilot (1000 steps) via `run_pilot_nuts` + `extract_lrd_from_samples`:
