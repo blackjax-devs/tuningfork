@@ -65,7 +65,7 @@
       "rhat_max": 1.0010723762106366,
       "min_bulk_ess": 6191.263631501678,
       "n_divergences": 0,
-      "max_abs_mean_z": null,
+      "max_abs_mean_z": 3.736365805232391,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
@@ -92,7 +92,7 @@
           "review_lo": 6,
           "review_hi": 40
         },
-        "max_abs_mean_z": null
+        "max_abs_mean_z": 3.736365805232391
       },
       "gt_cert_coverage": "full_posterior"
     },
