@@ -99,7 +99,7 @@
     "vmap_parity": {
       "source": "experiments/mclmc_scaling/cert25_banana_vmap_results.json",
       "git_head": "8937e088bd034ed72e83522fa578df9bc4f3b439",
-      "path": "VMAP_FORCED",
+      "path": "VMAP",
       "A_micro": 3.7192471324942744e-15,
       "A_keys_identical": true,
       "B_dacc": 0.008133583691986912,
