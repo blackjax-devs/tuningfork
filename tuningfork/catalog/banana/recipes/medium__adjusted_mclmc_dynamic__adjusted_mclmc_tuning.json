@@ -1,0 +1,139 @@
+{
+  "model_name": "banana",
+  "base_method_name": "adjusted_mclmc_dynamic",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.21125994255157865,
+    "L": 5.070238621237888,
+    "inverse_mass_matrix": [
+      8.0,
+      9.0
+    ]
+  },
+  "headline_metric": 0.006386973266329,
+  "sample_quality": {
+    "mae_vs_reference": null,
+    "q05_error": null,
+    "q95_error": null,
+    "std_ratio_max_dev": null
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 6.905,
+    "n_warmup": 5000,
+    "n_samples": 5000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 4.814,
+    "sampling_wall_seconds": 2.091,
+    "sampling_seconds_per_draw": 0.000105,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-124-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev94+g8937e088",
+      "jax_x64_enabled": true,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": 3000
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (Statistician-certified `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` on banana; params PINNED from production cert at avg=24).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 0.21125994255157865, 'L': 5.070238621237888, 'inverse_mass_matrix': [8.0, 9.0]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0064.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "medium__ banana recipe for adjusted_mclmc_dynamic (dynamic trajectory length). step_size=0.21125994255157865 PINNED from median of cert25 VMAP seeds 10–15 (spread 0.117–0.222); do NOT re-tune per run (warmup EEVPD step is noisy on banana's curved geometry). L=5.070238621237888 = median_step × 24 (avg_window best point from grid search: 18→4/6, 24→5/6, 36→6/6, 54→5/6; avg=24 chosen as robust plateau entry point). IMM=[8,9] is the analytic diagonal marginal covariance (Cov(x1,x2)=0). 5/6 seeds PASS medium gate at avg=24; seed13 sole FAIL (2mbias=0.113 > 0.10 gate). The pre-existing failed__adjusted_mclmc__adjusted_mclmc_tuning.json (non-dynamic, warmup avg=2 cap) is a SEPARATE method and stays failed__. Source: experiments/mclmc_scaling/cert25_banana_vmap_results.json (path VMAP_FORCED). See #25 / #191 / L-override #22.",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "adjusted_mclmc_tuning",
+      "params": {
+        "n_warmup": 5000,
+        "num_chains": 4,
+        "target_acceptance": 0.9
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0010723762106366,
+      "min_bulk_ess": 6191.263631501678,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0010723762106366,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 6191.263631501678,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": null
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "vmap_parity": {
+      "source": "experiments/mclmc_scaling/cert25_banana_vmap_results.json",
+      "git_head": "8937e088bd034ed72e83522fa578df9bc4f3b439",
+      "path": "VMAP_FORCED",
+      "A_micro": 3.7192471324942744e-15,
+      "A_keys_identical": true,
+      "B_dacc": 0.008133583691986912,
+      "B_acc_tol": 0.014481593071663452,
+      "B_se_acc": 0.003620398267915863,
+      "B_dnsteps": 0.0,
+      "B_ddiv": 0.0,
+      "B_ks": [
+        [0.0135, 0.45956581875892777],
+        [0.018875, 0.11565287587877886]
+      ],
+      "gate_A": true,
+      "gate_B": true,
+      "verdict": "VMAP_OK"
+    },
+    "override": {
+      "decision": "PASS",
+      "tier": "medium",
+      "statistician_id": "stat-2026-06-19",
+      "date": "2026-06-19",
+      "reason": "Production-budget VMAP cert of adjusted_mclmc_dynamic at PINNED avg=24 (L=24*step). 5/6 seeds PASS medium gate (2mbias<0.1 & mbias_sd<0.06 & rhat<1.01 & minESS>100/ch & div=0): med 2mbias 0.043 (max 0.113 — seed13 sole FAIL), max mbias_sd 0.038, median ESS 8442 (min ESS 6191), rhat<=1.001, 0 div. Seeds {10–15}, path VMAP_FORCED, git_head 8937e088. avg=24 is the robust plateau center (18→4/6, 24→5/6, 36→6/6 only 6/6 cell, 54→5/6); avg=24 filed as lowest-cost passing cell. Vmap parity gate PASS: A_micro=3.72e-15, B_dacc=0.00813<0.01448(4·SE), nsteps/div exact, KS OK. Distinct from non-dynamic failed__adjusted_mclmc recipe (warmup avg=2), which genuinely fails to mix and remains failed__. See #25 / #191 / L-override #22."
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev75+g53482b646",
+  "blackjax_version": "1.6.dev94+g8937e088",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-19T15:00:00Z",
+  "headline_basis": {
+    "total_grad_evals": 969358,
+    "min_bulk_ess": 6191.263631501678,
+    "grad_count_convention": "2 × realized_avg(min-ESS seed) × n_samples × n_chains",
+    "is_lower_bound": false
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

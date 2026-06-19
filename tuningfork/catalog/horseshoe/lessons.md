@@ -64,6 +64,24 @@ LRD equivalence-to-baseline finding recorded; routing lesson: route horseshoe to
 See `catalog/mclmc-routing-taxonomy.md` §3 (Category C routing).
 See `tests/mclmc_lrd/test_internal_lrd_horseshoe.py` for the runnable script.
 
+## Dynamic-L Sweep (avg ladder)
+
+Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds
+
+| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | trend |
+|---|---|---|---|---|---|---|
+| 2 | 2.0 | 5 | 2.699 | 0.953 | 0.618 | **loud-fail** |
+| 6 | 6.0 | 6 | 2.071 | 1.420 | 0.800 | loud-fail |
+| 18 | 18.1 | 11 | 1.384 | 0.851 | 0.487 | loud-fail |
+| 54 | 54.2 | 229 | 1.275 | 0.395 | 0.114 | **REVIEW-plateau** |
+| 108 | 108.4 | 734 | 1.177 | 0.330 | 0.082 | **REVIEW-plateau** |
+
+**Lesson:** Longer L improves monotonically (ESS 5→734, bias 0.95→0.33) but asymptotes at REVIEW tier (Rhat ~1.2).
+This is a geometry-hard limit: funnel curvature is position-dependent, so a single affine preconditioning + longer L
+cannot resolve it. Adaptive/position-dependent methods or reparameterization (NCP) would be needed to improve further.
+
+See `catalog/mclmc-scaling-laws.md` §3 for generalized principles (why funnels show LONGEST-available plateaus, etc.).
+
 ## Citations
 
 **Real-data model**: Horseshoe prior on regression coefficients; real dataset
