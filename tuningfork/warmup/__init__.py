@@ -50,6 +50,9 @@ Usage::
 """
 
 from tuningfork.warmup._base import Warmup
+from tuningfork.warmup.adjusted_mclmc_trajectory_tuning import (
+    ENTRY as _adjusted_mclmc_trajectory_tuning,
+)
 from tuningfork.warmup.adjusted_mclmc_tuning import ENTRY as _adjusted_mclmc_tuning
 from tuningfork.warmup.chees import ENTRY as _chees
 from tuningfork.warmup.fullrank_vi import ENTRY as _fullrank_vi
@@ -80,6 +83,7 @@ WARMUPS: dict[str, Warmup] = {
     _mclmc_tuning.name: _mclmc_tuning,
     _mclmc_lrd_tuning.name: _mclmc_lrd_tuning,
     _adjusted_mclmc_tuning.name: _adjusted_mclmc_tuning,
+    _adjusted_mclmc_trajectory_tuning.name: _adjusted_mclmc_trajectory_tuning,
     _no_warmup.name: _no_warmup,
     _pathfinder.name: _pathfinder,
     _multipathfinder.name: _multipathfinder,

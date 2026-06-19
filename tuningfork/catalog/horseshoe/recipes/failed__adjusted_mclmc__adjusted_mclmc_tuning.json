@@ -1,0 +1,54 @@
+{
+  "model_name": "horseshoe",
+  "base_method_name": "adjusted_mclmc",
+  "warmup_name": "adjusted_mclmc_tuning",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_params": {
+    "n_warmup": 10000,
+    "num_chains": 4
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "failure_diagnosis": "hard_direction",
+  "revisit_as": null,
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 4.1552,
+      "min_bulk_ess": 4.3,
+      "n_divergences": 0,
+      "max_abs_mean_z": 7.406,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "stat-2026-06-19",
+      "date": "2026-06-19",
+      "reason": "avg=2 trajectory-tuning: bias-clean globally but mixing degrades on stiff/curved geometry (warmup-invariant: rhat unchanged 1k→10k); see #191 / L-override follow-up."
+    }
+  },
+  "attempted_configurations": [
+    {
+      "base_method_params": {},
+      "warmup_params": {"n_warmup": 10000, "num_chains": 4},
+      "seed": 682737,
+      "gate_verdict": "FAIL",
+      "wall_seconds": 36.1,
+      "note": "rhat=4.155, ess=4.3, n_div=0, max_z=7.406 at n_warmup=10000, seed=682737"
+    }
+  ],
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 36.1,
+    "n_warmup": 10000,
+    "n_samples": 1000,
+    "num_chains": 4
+  },
+  "difficulty": null,
+  "instructions": "[No template for effort=<Effort.FAILED: 'failed'>]",
+  "notes": "avg=2 cap limits trajectory length on horseshoe's stiff geometry. Catastrophic non-mixing (rhat=4.16, ess=4.3). Stale pre-#941 low__ recipe demoted to failed__ per #191 batch. Follow-up: per-model L-override to allow L>2·step.",
+  "tuningfork_version": "0.0.2.dev75+g8fe46111f.d20260619",
+  "blackjax_version": "1.6.dev93+g3430f0a2c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-19T08:51:52Z"
+}
