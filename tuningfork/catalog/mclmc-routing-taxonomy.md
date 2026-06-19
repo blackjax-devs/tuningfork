@@ -64,7 +64,7 @@ correct geometry during warmup.
 
 **Certified PASS**: `ill_cond_50` with internal LRD k=40.  Statistician multi-seed
 hardening: seeds 11111/22222/33333 all PASS at ESS 1944–2030 (2026-06-09).
-See `catalog/ill_cond_50/recipes/low__mclmc__mclmc_tuning.json`.
+See `catalog/ill_cond_50/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json`.
 
 ---
 

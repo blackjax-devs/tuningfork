@@ -15,7 +15,7 @@ rotated correlation axes. The only viable MCLMC path is **LRD preconditioning**
 **NUTS** (default): `recipes/low__nuts__window_adaptation_diag_imm.json` — PASS,
 headline ESS/grad ≈ 0.0065.
 
-**MCLMC with LRD** (certified): `recipes/low__mclmc__mclmc_tuning.json` — PASS,
+**MCLMC with LRD** (certified): `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — PASS,
 headline ESS/grad ≈ 0.249 (426× over diagonal MCLMC baseline).
 
 ## Sampling quirks
