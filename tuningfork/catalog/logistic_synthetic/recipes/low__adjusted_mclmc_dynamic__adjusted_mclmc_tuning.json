@@ -3,50 +3,50 @@
   "base_method_name": "adjusted_mclmc_dynamic",
   "effort": "low",
   "base_method_params": {
-    "step_size": 1.5745915174484253,
-    "L": 1.7320507764816284,
+    "step_size": 1.3903353214263916,
+    "L": 2.780670642852783,
     "inverse_mass_matrix": [
-      0.7224339246749878,
-      0.9691308736801147,
-      1.5847969055175781
+      0.7255532741546631,
+      0.9156759977340698,
+      1.4976081848144531
     ]
   },
-  "headline_metric": 0.05218377709388733,
+  "headline_metric": 0.0970059186220169,
   "sample_quality": {
-    "mae_vs_reference": 0.012947573974733102,
-    "q05_error": null,
-    "q95_error": null,
-    "std_ratio_max_dev": null
+    "mae_vs_reference": 0.04642267467668018,
+    "q05_error": 0.0655359033459702,
+    "q95_error": 0.09035521690620726,
+    "std_ratio_max_dev": 0.010990015287819066
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 11.022103680006694,
+    "wall_seconds_estimate": 2.2577996930340305,
     "n_warmup": 10000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 6.129,
-    "sampling_wall_seconds": 1.194,
-    "sampling_seconds_per_draw": 0.000299,
+    "warmup_wall_seconds": 1.528,
+    "sampling_wall_seconds": 0.685,
+    "sampling_seconds_per_draw": 0.000171,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "x86_64",
       "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
+      "os": "Linux 6.8.0-124-generic",
       "python_version": "3.13.13",
       "jax_version": "0.10.1",
-      "blackjax_version": "1.6.dev84+g0ef2f578a",
+      "blackjax_version": "1.6.dev93+g3430f0a2c",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
     },
-    "warmup_grad_evals": 3383
+    "warmup_grad_evals": 33600
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 1.5745915174484253, 'L': 1.7320507764816284, 'inverse_mass_matrix': [0.7224339246749878, 0.9691308736801147, 1.5847969055175781]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0522.\nWall time to produce this recipe: ~11 s (machine-only).",
-  "notes": "HONEST-NULL CELL (demoted 2026-06-04 per @statistician). adjusted_mclmc(_dynamic) achieves correct L/\u03b5 adaptation (L=1.73, \u03b5=1.57, L/\u03b5\u22481.1) but produces low ESS (~9-13%) on this model. Diagnosis: (1) the logistic posterior's off-diagonal correlations (driven by the design matrix X\u1d40WX) are not captured by the diagonal inverse-mass-matrix, leaving correlated geometry MCLMC's microcanonical dynamics can't efficiently explore; (2) the logistic likelihood's anharmonic curvature (non-quadratic potential) causes systematic mismatch in the microcanonical stationary distribution. Neither effect is present on isotropic-Gaussian targets (mvn_10 at d=10: ESS\u2248100%). For logistic regression, use NUTS or HMC.",
+  "instructions": "**Low-effort recipe** (conventional `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 1.3903353214263916, 'L': 2.780670642852783, 'inverse_mass_matrix': [0.7255532741546631, 0.9156759977340698, 1.4976081848144531]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0970.\nWall time to produce this recipe: ~2 s (machine-only).",
+  "notes": "",
   "headline_basis": {
-    "total_grad_evals": 8898,
-    "min_bulk_ess": 464.33124858140945,
+    "total_grad_evals": 16162,
+    "min_bulk_ess": 1567.8096567690372,
     "grad_count_convention": "2 \u00d7 info.num_integration_steps",
     "is_lower_bound": false
   },
@@ -57,25 +57,26 @@
       "params": {
         "n_warmup": 10000,
         "num_chains": 4,
-        "target_acceptance": 0.8
+        "target_acceptance": 0.9
       }
     }
   ],
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0073026976048554,
-      "min_bulk_ess": 509.7576267877046,
+      "rhat_max": 1.0014756440628738,
+      "min_bulk_ess": 1700.911121441892,
       "n_divergences": 0,
-      "max_abs_mean_z": 0.7037111977189883,
-      "verdict": "FAIL",
+      "max_abs_mean_z": 2.1238986013068146,
+      "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.0073026976048554,
+          "value": 1.0014756440628738,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -83,7 +84,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 509.7576267877046,
+          "value": 1700.911121441892,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -99,28 +100,28 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 0.7037111977189883,
-          "band": "PASS",
+          "value": 2.1238986013068146,
+          "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 2.0,
           "review_lo": 2.0,
           "review_hi": 4.0,
-          "frac_z2": 0.0
+          "frac_z2": 0.3333333333333333
         }
       },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "HONEST-NULL CELL (demoted 2026-06-04 per @statistician). adjusted_mclmc(_dynamic) achieves correct L/\u03b5 adaptation (L=1.73, \u03b5=1.57, L/\u03b5\u22481.1) but produces low ESS (~9-13%) on this model. Diagnosis: (1) the logistic posterior's off-diagonal correlations (driven by the design matrix X\u1d40WX) are not captured by the diagonal inverse-mass-matrix, leaving correlated geometry MCLMC's microcanonical dynamics can't efficiently explore; (2) the logistic likelihood's anharmonic curvature (non-quadratic potential) causes systematic mismatch in the microcanonical stationary distribution. Neither effect is present on isotropic-Gaussian targets (mvn_10 at d=10: ESS\u2248100%). For logistic regression, use NUTS or HMC.",
-      "statistician_id": "statistician",
-      "decision": "DEMOTE"
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
     }
   },
-  "tuning_seed": 682737,
-  "tuningfork_version": "0.1.dev433+g0edd988a3",
-  "blackjax_version": "1.6.dev84+g0ef2f578a",
+  "tuning_seed": 4089912102,
+  "tuningfork_version": "0.0.2.dev75+g8fe46111f.d20260619",
+  "blackjax_version": "1.6.dev93+g3430f0a2c",
   "jax_version": "0.10.1",
-  "timestamp_utc": "2026-05-30T16:19:13Z",
+  "timestamp_utc": "2026-06-19T07:57:25Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
