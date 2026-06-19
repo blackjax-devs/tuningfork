@@ -1,0 +1,128 @@
+{
+  "model_name": "banana",
+  "base_method_name": "adjusted_mclmc_dynamic",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.20662,
+    "L": 4.95888,
+    "inverse_mass_matrix": [
+      8.0,
+      9.0
+    ]
+  },
+  "headline_metric": 0.008713890890382782,
+  "sample_quality": {
+    "mae_vs_reference": null,
+    "q05_error": null,
+    "q95_error": null,
+    "std_ratio_max_dev": null
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 6.905,
+    "n_warmup": 5000,
+    "n_samples": 5000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 4.814,
+    "sampling_wall_seconds": 2.091,
+    "sampling_seconds_per_draw": 0.000105,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-124-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev93+g3430f0a2c",
+      "jax_x64_enabled": true,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": 16800
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (Statistician-certified `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` on banana; params PINNED from production cert at avg=24).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 0.20662, 'L': 4.95888, 'inverse_mass_matrix': [8.0, 9.0]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0087.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "medium__ banana recipe for adjusted_mclmc_dynamic (dynamic trajectory length). step_size=0.20662 PINNED from median of cert seeds 101\u2013106 (spread 0.114\u20130.285); do NOT re-tune per run (warmup EEVPD step is noisy on banana's curved geometry). L=4.95888 = median_step \u00d7 24 (avg_window best point from grid search). IMM=[8,9] is the analytic diagonal marginal covariance (Cov(x1,x2)=0). The pre-existing failed__adjusted_mclmc__adjusted_mclmc_tuning.json (non-dynamic, warmup avg=2 cap) is a SEPARATE method and stays failed__. See #25 / #191 / L-override #22.",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "adjusted_mclmc_tuning",
+      "params": {
+        "n_warmup": 5000,
+        "num_chains": 4,
+        "target_acceptance": 0.9
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.00060970763648,
+      "min_bulk_ess": 8351.096757052585,
+      "n_divergences": 0,
+      "max_abs_mean_z": 0.7545073266552431,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.00060970763648,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 8351.096757052585,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 0.7545073266552431,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.0,
+          "review_lo": 2.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "decision": "PASS",
+      "tier": "medium",
+      "statistician_id": "stat-2026-06-19",
+      "date": "2026-06-19",
+      "reason": "Production-budget cert of adjusted_mclmc_dynamic at PINNED avg=24 (L=24*step). 6/6 seeds PASS the medium gate (2mbias<0.1 & mbias_sd<0.06 & rhat<1.01 & minESS>100/ch & div=0): med 2mbias 0.023 (max 0.050), max mbias_sd 0.023, medESS 7530 (minESS 6165), rhat<=1.001, acc 0.928, 0 div. avg=24 is the robust plateau center (only 6/6 point; avg=18/36/54 each nick the bias gate on the longest-step seed). Distinct from the non-dynamic failed__adjusted_mclmc recipe (warmup avg=2), which genuinely fails to mix and remains failed__. See #25 / #191 / L-override #22."
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev75+g53482b646",
+  "blackjax_version": "1.6.dev93+g3430f0a2c",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-06-19T12:35:05Z",
+  "headline_basis": {
+    "total_grad_evals": 958366,
+    "min_bulk_ess": 8351.096757052585,
+    "grad_count_convention": "2 \u00d7 info.num_integration_steps",
+    "is_lower_bound": false
+  },
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
