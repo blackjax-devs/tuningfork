@@ -1,0 +1,47 @@
+git_head OK: 8937e088bd034ed72e83522fa578df9bc4f3b439
+PARITY CHECK: vmap vs sequential loop (banana, avg=18, n=300, 4 chains)...
+  positions max|loop-vmap| = 1.478e+01 | div 0.000000/0.000000 acc 0.995564/0.994826 nsteps 17.7692/17.7692
+  !! PARITY FAILED (max|d|=1.478e+01) -> FALLING BACK to sequential loop
+
+cert_banana_medium18 | path=LOOP | n=5000/chain x 4ch x seeds [101, 102, 103, 104, 105, 106] | window=[18, 24, 36, 54] | n_warmup=5000
+GATE @medium__: 2mbias<0.1 & mbias_sd<0.06 & rhat<1.01 & minESS>100/ch & div=0, in >=5/6 seeds
+
+per-seed EEVPD step: 101:0.1143, 102:0.2155, 103:0.2043, 104:0.2846, 105:0.2090, 106:0.1888
+step median=0.20662  (min=0.11433 max=0.28456)
+
+   avg  L_med  seed realAvg  2mbias mbias_sd  minESS    Rhat    div    acc  seedPASS
+    18   3.72   101    18.1   0.056    0.024    3826   1.001  0.000  0.995      PASS
+    18   3.72   102    18.0   0.059    0.013    7242   1.001  0.000  0.940      PASS
+    18   3.72   103    18.0   0.082    0.019    7399   1.001  0.000  0.951      PASS
+    18   3.72   104    18.1   0.126    0.020    4581   1.001  0.000  0.857      fail
+    18   3.72   105    18.1   0.080    0.018    7047   1.000  0.000  0.946      PASS
+    18   3.72   106    18.0   0.032    0.027    6498   1.001  0.000  0.963      PASS
+  -> avg=18: 5/6 seeds PASS => PASS | med2mbias=0.070 maxMbSd=0.027 medESS=6773 maxRhat=1.001
+
+    24   4.96   101    24.1   0.007    0.009    6165   1.001  0.000  0.994      PASS
+    24   4.96   102    24.0   0.027    0.005    8536   1.000  0.000  0.926      PASS
+    24   4.96   103    24.0   0.012    0.009    7921   1.000  0.000  0.938      PASS
+    24   4.96   104    24.1   0.050    0.013    6549   1.001  0.000  0.828      PASS
+    24   4.96   105    24.1   0.020    0.016    7659   1.001  0.000  0.931      PASS
+    24   4.96   106    24.0   0.031    0.023    7400   1.001  0.000  0.953      PASS
+  -> avg=24: 6/6 seeds PASS => PASS | med2mbias=0.023 maxMbSd=0.023 medESS=7530 maxRhat=1.001
+
+    36   7.44   101    36.1   0.020    0.002    8593   1.000  0.000  0.991      PASS
+    36   7.44   102    36.0   0.030    0.009   10131   1.000  0.000  0.903      PASS
+    36   7.44   103    36.0   0.100    0.018    9833   1.000  0.000  0.917      fail
+    36   7.44   104    36.1   0.046    0.016    6434   1.001  0.000  0.782      PASS
+    36   7.44   105    36.2   0.049    0.014    9251   1.000  0.000  0.910      PASS
+    36   7.44   106    36.0   0.036    0.011   10879   1.000  0.000  0.936      PASS
+  -> avg=36: 5/6 seeds PASS => PASS | med2mbias=0.041 maxMbSd=0.018 medESS=9542 maxRhat=1.001
+
+    54  11.16   101    54.2   0.087    0.009   10270   1.001  0.000  0.988      PASS
+    54  11.16   102    54.0   0.023    0.020   11901   1.001  0.000  0.873      PASS
+    54  11.16   103    54.0   0.143    0.028   10428   1.000  0.000  0.889      fail
+    54  11.16   104    54.2   0.056    0.014    6472   1.001  0.000  0.722      PASS
+    54  11.16   105    54.2   0.008    0.004   11722   1.000  0.000  0.882      PASS
+    54  11.16   106    54.0   0.041    0.010   12251   1.000  0.000  0.917      PASS
+  -> avg=54: 5/6 seeds PASS => PASS | med2mbias=0.049 maxMbSd=0.028 medESS=11075 maxRhat=1.001
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/cert_banana_medium18_results.json (24 rows) | path=LOOP | parity=1.478e+01
+RECOMMENDED_FILING_AVG=24
+DONE_CERT_BANANA18

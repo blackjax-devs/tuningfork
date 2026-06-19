@@ -1,0 +1,31 @@
+git_head OK: 8937e088bd034ed72e83522fa578df9bc4f3b439
+sweep_stiff_k | IMM=GT-dense | budget=20000 grads/chain | 4 chains
+classify: pass (bias<0.1, rhat<1.01, minESS>100/chain) | loud-fail (bias high AND rhat>1.01 or div>0.01) | silent-fail (bias high, no flag)
+
+==================================================================================================
+banana (d=2) | ref_step=0.241 | budget=20000 seeds=[0, 1, 2]
+  strategy      avg      N  2mbias mbias_sd  minESS   Rhat    div    acc      verdict
+  S0_mala       1.0  10000   0.254    0.061      97  1.065  0.000  0.991    loud-fail
+  S_short       2.0   5008   0.094    0.069     258  1.015  0.000  0.983     marginal
+  S_long        8.0   1247   0.207    0.060     896  1.004  0.000  0.956  SILENT-FAIL
+  S_search      8.0   1247   0.207    0.060     896  1.004  0.000  0.956  SILENT-FAIL
+  S_smallstep   8.0   1247   0.128    0.088     248  1.040  0.000  0.997    loud-fail
+
+==================================================================================================
+horseshoe (d=204) | ref_step=0.287 | budget=3000 seeds=[0, 1]
+  strategy      avg      N  2mbias mbias_sd  minESS   Rhat    div    acc      verdict
+  S0_mala       1.0   1500   0.967    0.717       5  2.768  0.000  0.930    loud-fail
+  S_short       2.0    748   0.940    0.825       5  2.785  0.000  0.846    loud-fail
+  S_long        8.0    186   0.937    0.508       5  2.591  0.000  0.460    loud-fail
+  S_search      1.0   1500   0.967    0.717       5  2.768  0.000  0.930    loud-fail
+  S_smallstep   8.0    186   0.908    0.855       5  2.885  0.000  0.986    loud-fail
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_stiff_k_results.json  (35 rows)
+==================================================================================================
+SCOREBOARD (verdict per strategy)
+  S0_mala      banana=loud-fail  horseshoe=loud-fail
+  S_short      banana=marginal  horseshoe=loud-fail
+  S_long       banana=SILENT-FAIL  horseshoe=loud-fail
+  S_search     banana=SILENT-FAIL  horseshoe=loud-fail
+  S_smallstep  banana=loud-fail  horseshoe=loud-fail
+DONE_SWEEP_STIFF_K

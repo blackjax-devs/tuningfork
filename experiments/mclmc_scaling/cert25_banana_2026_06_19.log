@@ -1,0 +1,56 @@
+git_head OK: 8937e088bd034ed72e83522fa578df9bc4f3b439
+PARITY CHECK: vmap vs sequential loop (banana, avg=18, n=200, 4 chains)...
+  positions max|loop-vmap| = 1.363e+01 | div 0.000000/0.000000 acc 0.971653/0.973375 nsteps 18.0813/18.0813
+  !! PARITY FAILED (max|d|=1.363e+01) -> FALLING BACK to sequential loop
+
+cert25_banana_medium | path=LOOP | n=5000/ch x 4ch x seeds [10, 11, 12, 13, 14, 15] | nw=5000 | avg grid=[18, 24, 36, 54]
+gate PASS@medium__: 2mbias<0.1 AND mbias_sd<0.06 AND rhat<1.01 AND minESS>100/ch AND div==0, holding >=5/6 seeds
+
+per-seed warmup step_size: s10=0.2132, s11=0.2182, s12=0.1969, s13=0.2220, s14=0.2094, s15=0.1171
+  median step = 0.2113
+
+   avg  seed   step realAvg  2mbias mbias_sd  minESS    Rhat   div    acc   pass
+    18    10 0.2132    18.0   0.124    0.034    5405   1.000  0.00  0.942     no
+    18    11 0.2182    17.9   0.010    0.005    6608   1.000  0.00  0.938    YES
+    18    12 0.1969    18.0   0.064    0.007    6537   1.001  0.00  0.956    YES
+    18    13 0.2220    17.9   0.159    0.021    6279   1.001  0.00  0.931     no
+    18    14 0.2094    17.9   0.057    0.015    7073   1.000  0.00  0.946    YES
+    18    15 0.1171    18.2   0.060    0.014    3252   1.001  0.00  0.994    YES
+  -> avg=18: 4/6 seeds PASS => cell-fail
+
+    24    10 0.2132    24.0   0.004    0.009    8014   1.001  0.00  0.929    YES
+    24    11 0.2182    23.9   0.017    0.012    7991   1.000  0.00  0.925    YES
+    24    12 0.1969    24.0   0.036    0.012    8074   1.001  0.00  0.946    YES
+    24    13 0.2220    23.8   0.013    0.006    7687   1.000  0.00  0.920    YES
+    24    14 0.2094    23.9   0.012    0.017    8122   1.000  0.00  0.931    YES
+    24    15 0.1171    24.2   0.158    0.035    5333   1.000  0.00  0.993     no
+  -> avg=24: 5/6 seeds PASS => CELL-PASS
+
+    36    10 0.2132    36.0   0.013    0.011   10253   1.001  0.00  0.907    YES
+    36    11 0.2182    35.8   0.047    0.007    9870   1.000  0.00  0.898    YES
+    36    12 0.1969    35.9   0.004    0.006   10080   1.000  0.00  0.927    YES
+    36    13 0.2220    35.7   0.077    0.018    9739   1.001  0.00  0.893    YES
+    36    14 0.2094    35.8   0.075    0.015   10242   1.001  0.00  0.914    YES
+    36    15 0.1171    36.4   0.020    0.010    8563   1.000  0.00  0.991    YES
+  -> avg=36: 6/6 seeds PASS => CELL-PASS
+
+    54    10 0.2132    54.1   0.070    0.012   11856   1.000  0.00  0.877    YES
+    54    11 0.2182    53.7   0.005    0.005   11780   1.000  0.00  0.866    YES
+    54    12 0.1969    53.9   0.004    0.002   12253   1.000  0.00  0.905    YES
+    54    13 0.2220    53.6   0.015    0.011   10734   1.000  0.00  0.861    YES
+    54    14 0.2094    53.7   0.009    0.012   11234   1.000  0.00  0.884    YES
+    54    15 0.1171    54.5   0.049    0.016   11130   1.000  0.00  0.986    YES
+  -> avg=54: 6/6 seeds PASS => CELL-PASS
+
+==========================================================================================
+FILING SUMMARY
+  avg= 18: 4/6 pass | cell-fail
+  avg= 24: 5/6 pass | CELL-PASS
+  avg= 36: 6/6 pass | CELL-PASS
+  avg= 54: 6/6 pass | CELL-PASS
+  passing avgs: [24, 36, 54]
+  recommended filing avg: 24
+  RECIPE: avg=24, step(median)=0.2113, L=5.0702, IMM diag=[8,9], golden mean=[0,2] var=[8,9]
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/cert25_banana_medium_results.json (24 rows) | path=LOOP | parity_max_abs=1.363e+01
+DONE_CERT25_BANANA

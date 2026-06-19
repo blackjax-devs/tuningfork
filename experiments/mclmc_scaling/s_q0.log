@@ -1,0 +1,82 @@
+FULL SWEEP: models=['mvn_10', 'ill_cond_50', 'german_credit', 'irt_1pl'], n_warmup=[50, 100, 200, 500, 1000, 2000], n_samples=3000, num_chains=4
+
+======================================================================
+Model: mvn_10
+======================================================================
+  d=10, sqrt(d)=3.16, warm_start: step=3.858, L=2.688
+  GT IMM loaded in 2.4s
+  n_w=  50 | default: step=3.294 L=1.885 epg=0.20361 ess=4968.1 bias=0.0575 (12.3s) | warm:    step=3.586 L=2.052 epg=0.24660 ess=6017.1 bias=0.0587 (7.0s)
+  n_w= 100 | default: step=3.603 L=1.998 epg=0.23231 ess=5761.2 bias=0.0436 (9.7s) | warm:    step=3.846 L=2.010 epg=0.26856 ess=6660.4 bias=0.0447 (7.3s)
+  n_w= 200 | default: step=3.381 L=2.293 epg=0.22900 ess=5862.4 bias=0.0571 (9.5s) | warm:    step=3.559 L=2.257 epg=0.24196 ess=6194.2 bias=0.0603 (7.3s)
+  n_w= 500 | default: step=3.650 L=2.529 epg=0.23360 ess=6540.7 bias=0.0461 (9.8s) | warm:    step=3.664 L=2.526 epg=0.23465 ess=6570.1 bias=0.0462 (7.5s)
+  n_w=1000 | default: step=3.511 L=2.746 epg=0.19572 ess=6263.1 bias=0.0399 (9.5s) | warm:    step=3.528 L=2.743 epg=0.19670 ess=6294.5 bias=0.0401 (7.1s)
+  n_w=2000 | default: step=3.540 L=2.602 epg=0.15819 ess=6327.6 bias=0.0428 (9.8s) | warm:    step=3.552 L=2.601 epg=0.15895 ess=6357.9 bias=0.0429 (7.2s)
+
+======================================================================
+Model: ill_cond_50
+======================================================================
+  d=50, sqrt(d)=7.07, warm_start: step=8.627, L=6.010
+  GT IMM loaded in 0.0s
+  n_w=  50 | default: step=6.365 L=3.656 epg=0.14558 ess=3552.2 bias=0.0544 (11.8s) | warm:    step=8.070 L=4.626 epg=0.25801 ess=6295.5 bias=0.0496 (7.7s)
+  n_w= 100 | default: step=7.068 L=4.741 epg=0.20357 ess=5048.6 bias=0.0344 (10.4s) | warm:    step=8.405 L=4.773 epg=0.27018 ess=6700.5 bias=0.0423 (7.6s)
+  n_w= 200 | default: step=7.381 L=5.461 epg=0.22179 ess=5677.8 bias=0.0412 (10.3s) | warm:    step=8.135 L=5.363 epg=0.25290 ess=6474.1 bias=0.0442 (7.9s)
+  n_w= 500 | default: step=8.394 L=5.648 epg=0.24126 ess=6755.3 bias=0.0417 (10.4s) | warm:    step=8.608 L=5.619 epg=0.24899 ess=6971.8 bias=0.0415 (8.2s)
+  n_w=1000 | default: step=8.593 L=5.781 epg=0.21625 ess=6920.1 bias=0.0570 (10.0s) | warm:    step=8.683 L=5.760 epg=0.21915 ess=7012.9 bias=0.0576 (7.8s)
+  n_w=2000 | default: step=8.683 L=5.745 epg=0.17733 ess=7093.2 bias=0.0578 (10.5s) | warm:    step=8.680 L=5.746 epg=0.17726 ess=7090.4 bias=0.0578 (8.0s)
+
+======================================================================
+Model: german_credit
+======================================================================
+  d=26, sqrt(d)=5.10, warm_start: step=6.221, L=4.334
+  GT IMM loaded in 5.0s
+  n_w=  50 | default: step=4.913 L=2.812 epg=0.17261 ess=4211.7 bias=0.0345 (14.5s) | warm:    step=5.347 L=3.061 epg=0.21125 ess=5154.6 bias=0.0311 (9.6s)
+  n_w= 100 | default: step=5.304 L=2.870 epg=0.19847 ess=4922.1 bias=0.0429 (11.9s) | warm:    step=6.182 L=3.020 epg=0.27264 ess=6761.4 bias=0.0455 (9.6s)
+  n_w= 200 | default: step=5.783 L=4.060 epg=0.24828 ess=6355.9 bias=0.0467 (11.8s) | warm:    step=6.201 L=3.947 epg=0.26918 ess=6891.1 bias=0.0519 (9.6s)
+  n_w= 500 | default: step=5.715 L=5.001 epg=0.22476 ess=6293.4 bias=0.0521 (12.8s) | warm:    step=5.888 L=4.846 epg=0.23205 ess=6497.3 bias=0.0532 (10.0s)
+  n_w=1000 | default: step=5.819 L=5.659 epg=0.20016 ess=6405.2 bias=0.0499 (12.3s) | warm:    step=5.840 L=5.633 epg=0.20097 ess=6430.9 bias=0.0499 (9.6s)
+  n_w=2000 | default: step=6.132 L=5.838 epg=0.16943 ess=6777.1 bias=0.0559 (12.3s) | warm:    step=6.153 L=5.809 epg=0.17014 ess=6805.4 bias=0.0559 (9.8s)
+
+======================================================================
+Model: irt_1pl
+======================================================================
+  d=500, sqrt(d)=22.36, warm_start: step=27.280, L=19.007
+  GT IMM loaded in 6.7s
+  n_w=  50 | default: step=9.402 L=5.385 epg=0.02005 ess=489.3 bias=25.1977 (34.0s) | warm:    step=11.448 L=6.556 epg=0.03167 ess=772.7 bias=25.0473 (27.5s)
+  n_w= 100 | default: step=10.571 L=8.256 epg=0.02993 ess=742.2 bias=24.3566 (30.1s) | warm:    step=12.163 L=9.160 epg=0.03945 ess=978.4 bias=24.3687 (27.0s)
+  n_w= 200 | default: step=12.101 L=15.718 epg=0.06659 ess=1704.7 bias=24.4774 (30.7s) | warm:    step=14.456 L=16.630 epg=0.08554 ess=2189.8 bias=24.4591 (27.9s)
+  n_w= 500 | default: step=15.184 L=23.141 epg=0.10203 ess=2856.8 bias=24.6296 (29.5s) | warm:    step=18.113 L=22.490 epg=0.12403 ess=3472.8 bias=24.6065 (28.6s)
+  n_w=1000 | default: step=19.712 L=23.736 epg=0.12336 ess=3947.5 bias=24.4076 (30.1s) | warm:    step=22.651 L=22.206 epg=0.14942 ess=4781.5 bias=24.3946 (27.3s)
+  n_w=2000 | default: step=26.103 L=20.344 epg=0.14393 ess=5757.3 bias=24.5278 (30.6s) | warm:    step=27.090 L=19.818 epg=0.14717 ess=5886.8 bias=24.5290 (28.2s)
+
+======================================================================
+Sweep complete. 24 rows.
+Results written to: /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/results_q0.jsonl
+
+======================================================================
+SUMMARY TABLE (ess/grad ratio warm/default)
+Model               n_w    def_epg   warm_epg   ratio
+---------------- ------ ---------- ---------- -------
+mvn_10               50    0.20361    0.24660   1.211
+mvn_10              100    0.23231    0.26856   1.156
+mvn_10              200    0.22900    0.24196   1.057
+mvn_10              500    0.23360    0.23465   1.004
+mvn_10             1000    0.19572    0.19670   1.005
+mvn_10             2000    0.15819    0.15895   1.005
+ill_cond_50          50    0.14558    0.25801   1.772
+ill_cond_50         100    0.20357    0.27018   1.327
+ill_cond_50         200    0.22179    0.25290   1.140
+ill_cond_50         500    0.24126    0.24899   1.032
+ill_cond_50        1000    0.21625    0.21915   1.013
+ill_cond_50        2000    0.17733    0.17726   1.000
+german_credit        50    0.17261    0.21125   1.224
+german_credit       100    0.19847    0.27264   1.374
+german_credit       200    0.24828    0.26918   1.084
+german_credit       500    0.22476    0.23205   1.032
+german_credit      1000    0.20016    0.20097   1.004
+german_credit      2000    0.16943    0.17014   1.004
+irt_1pl              50    0.02005    0.03167   1.579
+irt_1pl             100    0.02993    0.03945   1.318
+irt_1pl             200    0.06659    0.08554   1.285
+irt_1pl             500    0.10203    0.12403   1.216
+irt_1pl            1000    0.12336    0.14942   1.211
+irt_1pl            2000    0.14393    0.14717   1.022

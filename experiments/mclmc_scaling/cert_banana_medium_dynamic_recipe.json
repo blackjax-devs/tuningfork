@@ -1,0 +1,49 @@
+{
+  "model_name": "banana",
+  "base_method_name": "adjusted_mclmc_dynamic",
+  "warmup_name": "adjusted_mclmc_tuning",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.20662,
+    "L": 4.95888,
+    "inverse_mass_matrix": [8.0, 9.0]
+  },
+  "_avg_implied": "L / step_size = 4.95888 / 0.20662 = 24.0 (the cert'd pinned trajectory length)",
+  "sample_quality": {
+    "max_2mom_bias": 0.050,
+    "max_mean_bias_sd": 0.023,
+    "med_2mom_bias": 0.023
+  },
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.001,
+      "min_bulk_ess": 6165.0,
+      "n_divergences": 0,
+      "note": "max_abs_mean_z to be computed canonically by SWE's gate harness; statistician cert used analytic-moment bias gate (2mbias/mbias_sd vs analytic banana moments)."
+    },
+    "override": {
+      "decision": "PASS",
+      "tier": "medium",
+      "statistician_id": "stat-2026-06-19",
+      "date": "2026-06-19",
+      "reason": "Production-budget cert of adjusted_mclmc_dynamic at PINNED avg=24 (L=24*step). 6/6 seeds PASS the medium gate (2mbias<0.1 & mbias_sd<0.06 & rhat<1.01 & minESS>100/ch & div=0): med 2mbias 0.023 (max 0.050), max mbias_sd 0.023, medESS 7530 (minESS 6165), rhat<=1.001, acc 0.928, 0 div. avg=24 is the robust plateau center of the 18-54 grid-search window (only 6/6 point; avg=18/36/54 each nick the bias gate on the longest-step seed). Distinct from the non-dynamic failed__adjusted_mclmc recipe (warmup avg=2), which genuinely fails to mix and remains failed__. See #25 / #191 / L-override #22."
+    }
+  },
+  "cert_provenance": {
+    "task": "#25",
+    "kernel": "adjusted_mclmc_dynamic",
+    "avg_pinned": 24,
+    "n_samples": 5000,
+    "num_chains": 4,
+    "n_warmup": 5000,
+    "seeds": [101, 102, 103, 104, 105, 106],
+    "path": "LOOP (VMAP parity fell back on banana's chaotic curved geometry; aggregate moments unaffected)",
+    "step_per_seed": {"101": 0.1143, "102": 0.2155, "103": 0.2043, "104": 0.2846, "105": 0.2090, "106": 0.1888},
+    "step_filed": "median = 0.20662 (spread 0.114-0.285; warmup step is noisy on banana -> pin step directly, do not re-tune per run)",
+    "golden_moments": {"mean": [0.0, 2.0], "var": [8.0, 9.0], "basis": "analytic (Cov(x1,x2)=0)"},
+    "gate": {"tau_2mbias": 0.10, "tau_mbias_sd": 0.06, "rhat": 1.01, "ess_min_per_chain": 100, "seed_quorum": "5/6"},
+    "results_json": "experiments/mclmc_scaling/cert_banana_medium18_results.json",
+    "git_head": "8937e088bd034ed72e83522fa578df9bc4f3b439"
+  },
+  "notes": "medium__ banana recipe for the DYNAMIC kernel. The dynamic kernel realizes the trajectory length via L = avg*step, so the pinned (step_size=0.20662, L=4.95888) => avg~=24. IMM is the analytic diagonal marginal cov [8,9]. The pre-existing failed__adjusted_mclmc__adjusted_mclmc_tuning.json (non-dynamic, warmup avg=2) is a SEPARATE method and stays failed__ -- this recipe does not replace it; it adds the medium__ dynamic entry. SWE: regenerate tooling-owned fields (headline_metric, calibration_budget, machine_info, *_version, timestamp_utc, max_abs_mean_z) via the standard recipe-emit/gate harness; the statistician-owned fields above (base_method_params, gate_evidence.override, cert_provenance) are the cert deliverable."
+}

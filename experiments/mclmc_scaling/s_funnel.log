@@ -1,0 +1,52 @@
+sweep_funnel | smoke=False | n_warmup=2000 n_samples=3000 num_chains=4 seed=20260616
+Panel: ['neals_funnel', 'eight_schools_ncp', 'irt_2pl', 'stoch_vol', 'horseshoe']
+
+Variants: unadjusted MCLMC (mclmc) vs adjusted_mclmc_dynamic (adj_dyn)
+Both run at GT-dense IMM (k=d from GT draws).
+adj_dyn: unadjusted step x0.55 init (§7 rule), frac_tune2=0, target_accept=0.9, real is_divergent flag.
+
+model                  variant          d     step        L  max_bias mean_bias  min_ess   ess/grad    acc  div_rate      eevpd   wall
+--------------------------------------------------------------------------------------------------------------------------------------
+neals_funnel           mclmc           10    0.029    0.210    0.9990    0.9266      7.2   0.000181    nan    0.0000   9.35e-02   13.0s
+neals_funnel           adj_dyn         10    0.165    0.210    0.9697    0.7782      7.4   0.000132  0.818    0.0000        nan   11.3s
+
+eight_schools_ncp      mclmc           10    1.332    3.094    0.0612    0.0269   1966.0   0.049149    nan    0.0000   1.83e-03    8.0s
+eight_schools_ncp      adj_dyn         10    2.465    3.094    0.0416    0.0168   2453.1   0.043806  0.933    0.0000        nan   10.9s
+
+irt_2pl                mclmc          144    3.941   17.662    0.1668    0.0318    261.9   0.006547    nan    0.0000   8.90e-03   16.9s
+irt_2pl                adj_dyn        144    3.790   17.662    0.0734    0.0214    741.4   0.004878  0.917    0.0000        nan   31.2s
+
+stoch_vol              mclmc          503   11.523   22.691    0.2204    0.0215   1321.3   0.033033    nan    0.0000   9.57e-02   35.5s
+stoch_vol              adj_dyn        503   10.705   22.691    0.1298    0.0204   1510.2   0.018877  0.914    0.0000        nan   74.5s
+
+horseshoe              mclmc          204    0.400    7.700    1.8702    0.1562     18.5   0.000463    nan    0.0000   1.34e-02   20.3s
+horseshoe              adj_dyn        204    0.360    7.700    0.2977    0.0569    330.2   0.000616  0.883    0.0000        nan  124.0s
+
+======================================================================================================================================
+FUNNEL SWEEP SUMMARY
+  bias: |Var_mcmc - gt_var| / gt_var  (lower = more accurate)
+  div_rate: NaN proxy (mclmc) or is_divergent (adj_dyn)
+  eevpd nan = adjusted sampler (metric not meaningful)
+
+  neals_funnel:
+    mclmc         max_bias=0.9990  min_ess=7.2  ess/grad=1.8112e-04  acc=nan  div=0.0000 [HIGH-EEVPD,HIGH-BIAS]
+    adj_dyn       max_bias=0.9697  min_ess=7.4  ess/grad=1.3176e-04  acc=0.818  div=0.0000 [HIGH-BIAS]
+
+  eight_schools_ncp:
+    mclmc         max_bias=0.0612  min_ess=1966.0  ess/grad=4.9149e-02  acc=nan  div=0.0000
+    adj_dyn       max_bias=0.0416  min_ess=2453.1  ess/grad=4.3806e-02  acc=0.933  div=0.0000
+
+  irt_2pl:
+    mclmc         max_bias=0.1668  min_ess=261.9  ess/grad=6.5470e-03  acc=nan  div=0.0000 [HIGH-EEVPD,HIGH-BIAS]
+    adj_dyn       max_bias=0.0734  min_ess=741.4  ess/grad=4.8780e-03  acc=0.917  div=0.0000
+
+  stoch_vol:
+    mclmc         max_bias=0.2204  min_ess=1321.3  ess/grad=3.3033e-02  acc=nan  div=0.0000 [HIGH-EEVPD,HIGH-BIAS]
+    adj_dyn       max_bias=0.1298  min_ess=1510.2  ess/grad=1.8877e-02  acc=0.914  div=0.0000 [HIGH-BIAS]
+
+  horseshoe:
+    mclmc         max_bias=1.8702  min_ess=18.5  ess/grad=4.6286e-04  acc=nan  div=0.0000 [HIGH-EEVPD,HIGH-BIAS]
+    adj_dyn       max_bias=0.2977  min_ess=330.2  ess/grad=6.1613e-04  acc=0.883  div=0.0000 [HIGH-BIAS]
+
+
+FULL FUNNEL PANEL COMPLETE. TL adds NUTS reference.

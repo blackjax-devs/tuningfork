@@ -1,0 +1,52 @@
+git_head: 8937e088bd034ed72e83522fa578df9bc4f3b439
+jax x64 enabled: True
+banana ref_step(seed101) = 0.11433
+
+==========================================================================================
+PART 3 -- RNG KEY IDENTITY (loop vs vmap)
+  per-chain key_data identical (loop vs stacked, incl. 50-way split): [True, True, True, True]
+  ==> ALL KEYS IDENTICAL: True  (rules out key-broadcast as a cause)
+
+==========================================================================================
+PART 1 -- fp-ORDERING DIVERGENCE CURVE (float64), chain 0, seed 101
+
+  avg=1, n=400:
+    |Delta| at sample 1   = 1.000e-300   (machine-eps scale expected)
+    |Delta| at sample 5   = 1.110e-16
+    |Delta| at sample 20  = 3.331e-16
+    |Delta| at sample 100 = 1.000e-300
+    |Delta| at sample 399 = 1.110e-15
+    saturation (>1e-2) first at sample = 400
+    exp-growth fit lambda (per sample, over growth region [0:400]) = 0.6509
+    chain-0 per-step acc max|loop-vmap| = 1.665e-15; nsteps max|d| = 0.000e+00
+    curve[sample:|Delta|]: 0:1.00e-300 20:3.33e-16 40:5.97e-16 60:2.22e-16 80:5.55e-17 100:1.00e-300 120:1.00e-300 140:1.00e-300 160:4.44e-16 180:1.00e-300 200:1.00e-300 220:1.11e-16 240:4.44e-16 260:8.88e-16 280:4.44e-16 300:1.78e-15 320:1.78e-15 340:1.44e-15 360:1.31e-15 380:1.39e-15
+
+  avg=18, n=400:
+    |Delta| at sample 1   = 2.665e-15   (machine-eps scale expected)
+    |Delta| at sample 5   = 7.994e-15
+    |Delta| at sample 20  = 3.491e-06
+    |Delta| at sample 100 = 4.789e-01
+    |Delta| at sample 399 = 2.166e+00
+    saturation (>1e-2) first at sample = 98
+    exp-growth fit lambda (per sample, over growth region [0:98]) = 0.1691
+    chain-0 per-step acc max|loop-vmap| = 2.324e-01; nsteps max|d| = 0.000e+00
+    curve[sample:|Delta|]: 0:2.66e-15 20:3.49e-06 40:4.82e-08 60:1.53e-08 80:8.60e-06 100:4.79e-01 120:1.38e+00 140:7.04e-01 160:1.59e-01 180:4.58e+00 200:1.11e+00 220:8.09e-01 240:3.87e+00 260:1.34e-01 280:1.25e+00 300:4.99e+00 320:5.18e+00 340:8.96e-01 360:1.33e+00 380:1.85e+00
+
+==========================================================================================
+PART 2 -- STATISTICAL EQUIVALENCE (loop vs vmap), avg=18, n=2000
+   seed  path            2mbias_pc              minESS_pc     acc  nsteps
+    101  loop [0.281, 0.12, 0.253, 0.118]   [448, 310, 602, 217]  0.9952  18.109
+    101  vmap [0.445, 0.264, 0.243, 0.151]   [650, 548, 364, 424]  0.9958  18.109
+        KS x1: D=0.0176 p=0.167 | KS x2: D=0.0152 p=0.310 | acc|d|=6.70e-04 nsteps|d|=0.00e+00 div: 0.000/0.000
+    102  loop [0.66, 0.17, 0.136, 0.306]   [179, 324, 394, 531]  0.9948  18.050
+    102  vmap [0.197, 0.148, 0.043, 0.12]   [352, 448, 411, 385]  0.9957  18.050
+        KS x1: D=0.0116 p=0.652 | KS x2: D=0.0155 p=0.292 | acc|d|=9.49e-04 nsteps|d|=0.00e+00 div: 0.000/0.000
+    103  loop [0.174, 0.444, 0.241, 0.224]   [410, 314, 308, 496]  0.9951  18.019
+    103  vmap [0.051, 0.147, 0.02, 0.114]   [401, 303, 398, 452]  0.9950  18.019
+        KS x1: D=0.0149 p=0.339 | KS x2: D=0.0139 p=0.425 | acc|d|=1.60e-04 nsteps|d|=0.00e+00 div: 0.000/0.000
+
+  KS across all seeds/marginals: max D = 0.0176, min p = 0.167
+  (large p / small D => loop & vmap ensembles are the SAME distribution)
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/diag_vmap_parity_results.json
+DONE_DIAG_VMAP

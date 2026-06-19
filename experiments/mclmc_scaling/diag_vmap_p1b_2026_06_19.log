@@ -1,0 +1,45 @@
+git_head: 8937e088bd034ed72e83522fa578df9bc4f3b439 | x64: True
+
+==============================================================================
+A1b: fp SEED — batched (vmap) grad over 4 DIFFERENT positions vs scalar-per-position
+==============================================================================
+  lane 0: |Δld| = 0.000e+00   max|Δgrad| = 0.000e+00
+  lane 1: |Δld| = 0.000e+00   max|Δgrad| = 0.000e+00
+  lane 2: |Δld| = 0.000e+00   max|Δgrad| = 0.000e+00
+  lane 3: |Δld| = 0.000e+00   max|Δgrad| = 0.000e+00
+  => max fp discrepancy (batched vs scalar, distinct inputs) = 0.000e+00  (fp64 eps ~2.2e-16)
+
+==============================================================================
+A2: REAL sampler chain-0 divergence curve | avg=1, seed=10, step=0.21126
+==============================================================================
+    sample    0: max|Δ| = 1.110e-16
+    sample    1: max|Δ| = 1.665e-16
+    sample    2: max|Δ| = 2.220e-16
+    sample    3: max|Δ| = 2.220e-16
+    sample    5: max|Δ| = 1.249e-16
+    sample   10: max|Δ| = 1.110e-16
+    sample   20: max|Δ| = 0.000e+00
+    sample   50: max|Δ| = 2.220e-16
+    sample  100: max|Δ| = 8.882e-16
+    sample  200: max|Δ| = 4.441e-16
+    sample  299: max|Δ| = 3.553e-15
+  growth-region log-slope λ = 0.0087 /sample; reaches 0.5·sat(1.50) at sample None; saturates ~3.00
+
+==============================================================================
+A2: REAL sampler chain-0 divergence curve | avg=18, seed=10, step=0.21126
+==============================================================================
+    sample    0: max|Δ| = 1.776e-15
+    sample    1: max|Δ| = 1.776e-15
+    sample    2: max|Δ| = 3.997e-15
+    sample    3: max|Δ| = 4.907e-14
+    sample    5: max|Δ| = 3.704e-13
+    sample   10: max|Δ| = 6.149e-12
+    sample   20: max|Δ| = 5.164e-07
+    sample   50: max|Δ| = 9.359e+00
+    sample  100: max|Δ| = 2.536e+00
+    sample  200: max|Δ| = 4.384e+00
+    sample  299: max|Δ| = 6.874e-01
+  growth-region log-slope λ = 0.1059 /sample; reaches 0.5·sat(1.50) at sample 41; saturates ~3.00
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/diag_vmap_banana_p1b_results.json
+DONE_DIAG_P1B

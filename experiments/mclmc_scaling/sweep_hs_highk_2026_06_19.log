@@ -1,0 +1,9 @@
+git_head OK: 8937e088bd034ed72e83522fa578df9bc4f3b439
+horseshoe high-k probe | d=204 | ref_step=0.287 | fixed n=500/chain x 4 chains x seeds [0, 1]
+     k realAvg  2mbias mbias_sd  minESS    Rhat    div    acc  grads/ch
+     8     8.1   2.644    0.877       6   1.933  0.000  0.727      8059
+    16    16.1   0.822    0.506      13   1.334  0.000  0.849     16116
+    32    32.3   0.411    0.275      49   1.312  0.000  0.792     32250
+    64    64.5   0.333    0.128     309   1.224  0.000  0.815     64497
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_horseshoe_highk_results.json (12 rows)
+DONE_HIGHK_PROBE

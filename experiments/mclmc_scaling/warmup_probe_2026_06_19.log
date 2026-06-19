@@ -1,0 +1,16 @@
+git_head OK: 8937e088bd034ed72e83522fa578df9bc4f3b439
+
+   seed      step  tune_steps  grad_evals
+     10   0.21316        1500        3000
+     11   0.21817        1500        3000
+     12   0.19693        1500        3000
+     13   0.22201        1500        3000
+     14   0.20936        1500        3000
+     15   0.11713        1500        3000
+
+  distinct tune_integration_steps across seeds: [1500] -> SEED-INDEPENDENT (deterministic)
+  warmup_grad_evals = 2 * tune_steps = [3000]
+  EXCLUDED from headline_metric (re-runner pays no warmup); provenance field only.
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/warmup_gradevals_probe_results.json
+DONE_WARMUP_PROBE

@@ -1,0 +1,19 @@
+{
+  "step": 0.19870453313343764,
+  "struct_tol": 1e-10,
+  "cases": {
+    "correct": {
+      "sample1_abs": 1.199040866595169e-14,
+      "verdict": "VMAP_OK"
+    },
+    "shift": {
+      "sample1_abs": 3.6337968749549816,
+      "verdict": "BLOCK_BUG"
+    },
+    "transpose": {
+      "sample1_abs": 2.1405717944201132,
+      "verdict": "BLOCK_BUG"
+    }
+  },
+  "discriminates": true
+}

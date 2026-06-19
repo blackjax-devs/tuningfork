@@ -1,0 +1,24 @@
+S3-real | smoke=False | n_warmup=2000 n_samples=3000 num_chains=4 seed=20260616
+Law: step ≈ 1.22·√d,  L ≈ 0.85·√d  (from isotropic S3)
+
+model                      d     step        L  max_bias  min_ess   ess/grad      eevpd   div  step/1.22√d   L/0.85√d   wall
+----------------------------------------------------------------------------------------------------------------------------
+german_credit             26    6.056    5.454    0.0408   6748.0   0.168700   5.85e-04 0.000        0.973      1.258   21.0s
+logistic_synthetic         3    0.722    2.248    0.0261   2100.2   0.052506   1.01e-03 0.000        0.342      1.527   14.3s
+eight_schools_ncp         10    1.332    3.094    0.0612   1966.0   0.049149   1.83e-03 0.000        0.345      1.151   15.8s
+irt_2pl                  144    3.941   17.662    0.1668    261.9   0.006547   8.90e-03 0.000        0.269      1.732   23.3s
+irt_1pl                  500   25.814   20.538   24.4273   5655.1   0.141377   3.48e-04 0.000        0.946      1.081   37.7s
+stoch_vol                503   11.523   22.691    0.2204   1321.3   0.033033   9.57e-02 0.000        0.421      1.190   44.9s
+horseshoe                204    0.400    7.700    1.8702     18.5   0.000463   1.34e-02 0.000        0.023      0.634   25.1s
+
+============================================================================================================================
+SUMMARY: step/(1.22√d) and L/(0.85√d) ≈ 1.0 means the law holds.
+  german_credit           step_res=0.973  L_res=1.258  ess/grad=1.6870e-01
+  logistic_synthetic      step_res=0.342  L_res=1.527  ess/grad=5.2506e-02
+  eight_schools_ncp       step_res=0.345  L_res=1.151  ess/grad=4.9149e-02
+  irt_2pl                 step_res=0.269  L_res=1.732  ess/grad=6.5470e-03 [HIGH-EEVPD] [HIGH-BIAS]
+  irt_1pl                 step_res=0.946  L_res=1.081  ess/grad=1.4138e-01 [HIGH-BIAS]
+  stoch_vol               step_res=0.421  L_res=1.190  ess/grad=3.3033e-02 [HIGH-EEVPD] [HIGH-BIAS]
+  horseshoe               step_res=0.023  L_res=0.634  ess/grad=4.6286e-04 [HIGH-EEVPD] [HIGH-BIAS]
+
+FULL PANEL COMPLETE.

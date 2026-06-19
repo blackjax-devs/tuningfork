@@ -1,0 +1,46 @@
+FULL SWEEP: models=['mvn_10', 'ill_cond_50', 'german_credit', 'irt_1pl'], budgets per model={'mvn_10': [(200, 200), (500, 500), (1000, 1000), (2000, 2000)], 'ill_cond_50': [(2000, 2000), (5000, 5000), (10000, 10000)], 'german_credit': [(200, 200), (500, 500), (1000, 1000), (2000, 2000)], 'irt_1pl': [(200, 200), (500, 500), (1000, 1000), (2000, 2000)]}
+
+=== MODEL: mvn_10 ===
+  Computing gold reference (baseline at 2000/2000)...
+  Gold: step=3.5882  L=2.7645
+  Budget 200/200:
+  [baseline] step=3.559  L=3.203  k_used=10  kappa_eff_imm=3.54  ess/grad=0.19121
+  [enhanced] step=3.531  L=3.021  k_used=1  kappa_eff_imm=2.20  ess/grad=0.19814  e1=Y(keff=2.7)
+  Budget 500/500:
+  [baseline] step=3.502  L=2.834  k_used=10  kappa_eff_imm=1.94  ess/grad=0.23375
+  [enhanced] step=3.544  L=2.783  k_used=1  kappa_eff_imm=1.46  ess/grad=0.23848  e1=Y(keff=1.7)
+  Budget 1000/1000:
+  [baseline] step=3.563  L=2.809  k_used=10  kappa_eff_imm=1.63  ess/grad=0.24302
+  [enhanced] step=3.598  L=2.824  k_used=1  kappa_eff_imm=1.50  ess/grad=0.23904  e1=Y(keff=1.4)
+  Budget 2000/2000:
+  [baseline] step=3.588  L=2.764  k_used=10  kappa_eff_imm=1.27  ess/grad=0.25082
+  [enhanced] step=3.611  L=2.794  k_used=1  kappa_eff_imm=1.22  ess/grad=0.24858  e1=Y(keff=1.2)
+
+=== MODEL: ill_cond_50 ===
+  Computing gold reference (baseline at 10000/10000)...
+  Gold: step=8.5399  L=5.9143
+  Budget 2000/2000:
+  [baseline] step=1.139  L=4.648  k_used=3  kappa_eff_imm=869.95  ess/grad=0.00281
+  [enhanced] step=1.139  L=4.648  k_used=3  kappa_eff_imm=869.95  ess/grad=0.00281  e1=N(keff=601.3)
+  Budget 5000/5000:
+  [baseline] step=2.777  L=5.089  k_used=23  kappa_eff_imm=61.67  ess/grad=0.04403
+  [enhanced] step=2.777  L=5.089  k_used=23  kappa_eff_imm=61.67  ess/grad=0.04403  e1=N(keff=34.2)
+  Budget 10000/10000:
+  [baseline] step=8.540  L=5.914  k_used=49  kappa_eff_imm=2.27  ess/grad=0.22949
+  [enhanced] step=7.303  L=5.742  k_used=38  kappa_eff_imm=5.41  ess/grad=0.16576  e1=Y(keff=4.5)
+
+=== MODEL: german_credit ===
+  Computing gold reference (baseline at 2000/2000)...
+Traceback (most recent call last):
+  File "/home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_warmup_compare.py", line 489, in <module>
+    main()
+    ~~~~^^
+  File "/home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_warmup_compare.py", line 484, in main
+    results = run_sweep(models, budget_map, outfile)
+  File "/home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_warmup_compare.py", line 361, in run_sweep
+    _get_model_logdensity_and_gt(model_name, seed=SEED)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_warmup_compare.py", line 133, in _get_model_logdensity_and_gt
+    _init_key = jax.random.key(seed)
+                ^^^
+UnboundLocalError: cannot access local variable 'jax' where it is not associated with a value

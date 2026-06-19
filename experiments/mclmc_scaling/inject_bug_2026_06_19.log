@@ -1,0 +1,14 @@
+git_head: 8937e088bd034ed72e83522fa578df9bc4f3b439
+
+gate config: n_ref=2000, avg=18, K_SE=4.0, micro_tol=1e-10, step=0.1743
+
+injected                             expect        got  caught_by  result
+CLEAN (no bug)                      VMAP_OK    VMAP_OK          -  PASS
+step x1.05                        BLOCK_BUG  BLOCK_BUG    A.micro  PASS
+IMM x1.5                          BLOCK_BUG  BLOCK_BUG    A.micro  PASS
+wrong key (seed+1)                BLOCK_BUG  BLOCK_BUG      A.key  PASS
+nsteps off (avg+1)                BLOCK_BUG  BLOCK_BUG    A.micro  PASS
+gradient sign flip (ld -> -ld)    BLOCK_BUG  BLOCK_BUG    A.micro  PASS
+
+ALL_GATE_TESTS_PASS
+DONE_INJECT_BUG

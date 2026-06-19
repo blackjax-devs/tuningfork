@@ -1,0 +1,46 @@
+git_head OK: 8937e088bd034ed72e83522fa578df9bc4f3b439
+PARITY CHECK: vmap vs sequential loop (mvn_10, avg=2, n=200, 4 chains)...
+  positions max|loop-vmap| = 1.155e-14 | div 0.000000/0.000000 acc 0.970715/0.970715 nsteps 2.0000/2.0000
+  PARITY OK -> using vmap (fast path)
+
+sweep_dynl_variety | path=VMAP | n=500/chain x 4ch x seeds [0, 1, 2] | ladder=[2, 6, 18, 54, 108]
+gate: 2nd-moment bias vs independent reference (TAU_BIAS=0.1); NOT ess/grad
+
+====================================================================================================
+banana (d=2) | ref_step=0.241
+   avg realAvg  2mbias mbias_sd  minESS    Rhat    div    acc      verdict
+     2     2.0   0.345    0.186      34   1.228  0.000  0.988    loud-fail
+     6     6.0   0.213    0.073     201   1.031  0.000  0.964    loud-fail
+    18    18.1   0.079    0.033     726   1.003  0.000  0.915         PASS
+    54    54.2   0.097    0.049    1011   1.003  0.000  0.816         PASS
+   108   108.5   0.132    0.042     921   1.006  0.000  0.728  SILENT-FAIL
+
+====================================================================================================
+mvn_10 (d=10) | ref_step=3.598
+   avg realAvg  2mbias mbias_sd  minESS    Rhat    div    acc      verdict
+     2     2.0   0.108    0.040    2686   1.009  0.000  0.971  SILENT-FAIL
+     6     6.0   0.272    0.043    1624   1.006  0.000  0.969  SILENT-FAIL
+    18    18.1   0.343    0.057    1502   1.012  0.000  0.959    loud-fail
+    54    54.2   0.306    0.060    1405   1.009  0.000  0.941  SILENT-FAIL
+   108   108.5   0.187    0.043    1630   1.060  0.000  0.909    loud-fail
+
+====================================================================================================
+ill_cond_50 (d=50) | ref_step=7.623
+   avg realAvg  2mbias mbias_sd  minESS    Rhat    div    acc      verdict
+     2     2.0   0.190    0.053    1947   1.014  0.000  0.943    loud-fail
+     6     6.0   0.189    0.072    1648   1.013  0.000  0.956    loud-fail
+    18    18.1   0.504    0.068    1201   1.016  0.000  0.948    loud-fail
+    54    54.2   0.924    0.120     605   1.021  0.000  0.935    loud-fail
+   108   108.5   1.024    0.138     475   1.016  0.000  0.928    loud-fail
+
+====================================================================================================
+horseshoe (d=204) | ref_step=0.287
+   avg realAvg  2mbias mbias_sd  minESS    Rhat    div    acc      verdict
+     2     2.0   0.953    0.612       5   2.809  0.000  0.798    loud-fail
+     6     6.0   1.830    0.833       6   2.174  0.000  0.805    loud-fail
+    18    18.1   0.833    0.481      11   1.455  0.000  0.833    loud-fail
+    54    54.2   0.400    0.114     225   1.401  0.000  0.765    loud-fail
+   108   108.5   0.324    0.080     735   1.230  0.000  0.801    loud-fail
+
+wrote /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_dynl_variety_results.json (80 rows) | path=VMAP | parity_max_abs=1.155e-14
+DONE_DYNL_VARIETY

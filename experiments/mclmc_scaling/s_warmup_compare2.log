@@ -1,0 +1,50 @@
+FULL SWEEP: models=['german_credit', 'irt_1pl'], budgets per model={'german_credit': [(200, 200), (500, 500), (1000, 1000), (2000, 2000)], 'irt_1pl': [(200, 200), (500, 500), (1000, 1000), (2000, 2000)]}
+
+=== MODEL: german_credit ===
+  Computing gold reference (baseline at 2000/2000)...
+  Gold: step=5.8499  L=5.4315
+  Budget 200/200:
+  [baseline] step=2.653  L=6.374  k_used=3  kappa_eff_imm=32.70  ess/grad=0.08251
+  [enhanced] step=2.653  L=6.374  k_used=3  kappa_eff_imm=32.70  ess/grad=0.08251  e1=N(keff=39.4)
+  Budget 500/500:
+  [baseline] step=5.636  L=5.956  k_used=20  kappa_eff_imm=3.97  ess/grad=0.22615
+  [enhanced] step=4.933  L=6.160  k_used=8  kappa_eff_imm=5.73  ess/grad=0.18325  e1=Y(keff=4.7)
+  Budget 1000/1000:
+  [baseline] step=5.925  L=5.488  k_used=20  kappa_eff_imm=2.49  ess/grad=0.24549
+  [enhanced] step=4.594  L=6.146  k_used=7  kappa_eff_imm=6.23  ess/grad=0.19091  e1=Y(keff=5.0)
+  Budget 2000/2000:
+  [baseline] step=5.850  L=5.431  k_used=20  kappa_eff_imm=2.08  ess/grad=0.25301
+  [enhanced] step=4.735  L=5.894  k_used=8  kappa_eff_imm=4.79  ess/grad=0.21037  e1=Y(keff=4.6)
+
+=== MODEL: irt_1pl ===
+  Computing gold reference (baseline at 2000/2000)...
+  Gold: step=24.5971  L=19.8281
+  Budget 200/200:
+  [baseline] step=11.301  L=21.089  k_used=1  kappa_eff_imm=50.82  ess/grad=0.03077
+  [enhanced] step=11.301  L=21.089  k_used=1  kappa_eff_imm=50.82  ess/grad=0.03077  e1=N(keff=32883655419159812.0)
+  Budget 500/500:
+  [baseline] step=16.948  L=21.771  k_used=27  kappa_eff_imm=11.84  ess/grad=0.13177
+  [enhanced] step=16.948  L=21.771  k_used=27  kappa_eff_imm=11.84  ess/grad=0.13177  e1=N(keff=59102619.1)
+  Budget 1000/1000:
+  [baseline] step=21.859  L=19.674  k_used=100  kappa_eff_imm=62.20  ess/grad=0.10329
+  [enhanced] step=21.859  L=19.674  k_used=100  kappa_eff_imm=62.20  ess/grad=0.10329  e1=N(keff=19.7)
+  Budget 2000/2000:
+  [baseline] step=24.597  L=19.828  k_used=100  kappa_eff_imm=13.39  ess/grad=0.23785
+  [enhanced] step=24.597  L=19.828  k_used=100  kappa_eff_imm=13.39  ess/grad=0.23785  e1=N(keff=5.8)
+
+Results saved to: /home/jp/blackjax-devs/tuningfork/experiments/mclmc_scaling/sweep_warmup_compare_results.json
+
+==========================================================================================
+SUMMARY — baseline vs enhanced warmup comparison
+==========================================================================================
+model                budget    b_step   e_step      b_L     e_L    b_keff   e_keff     b_ess/g    e_ess/g
+------------------------------------------------------------------------------------------
+german_credit       200/200     2.653    2.653    6.374   6.374     32.70    32.70     0.08251    0.08251
+german_credit       500/500     5.636    4.933    5.956   6.160      3.97     5.73     0.22615    0.18325
+german_credit     1000/1000     5.925    4.594    5.488   6.146      2.49     6.23     0.24549    0.19091
+german_credit     2000/2000     5.850    4.735    5.431   5.894      2.08     4.79     0.25301    0.21037
+irt_1pl             200/200    11.301   11.301   21.089  21.089     50.82    50.82     0.03077    0.03077
+irt_1pl             500/500    16.948   16.948   21.771  21.771     11.84    11.84     0.13177    0.13177
+irt_1pl           1000/1000    21.859   21.859   19.674  19.674     62.20    62.20     0.10329    0.10329
+irt_1pl           2000/2000    24.597   24.597   19.828  19.828     13.39    13.39     0.23785    0.23785
+==========================================================================================

@@ -1,0 +1,65 @@
+{
+  "git_head": "8937e088bd034ed72e83522fa578df9bc4f3b439",
+  "n_warmup": 5000,
+  "frac_tune": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "diagonal_preconditioning": false,
+  "grad_per_step": 2,
+  "model": "banana",
+  "seeds": [
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "tune_integration_steps": [
+    1500
+  ],
+  "warmup_grad_evals": [
+    3000
+  ],
+  "seed_independent": true,
+  "rows": [
+    {
+      "seed": 10,
+      "step_size": 0.21315964960919145,
+      "tune_integration_steps": 1500,
+      "warmup_grad_evals": 3000
+    },
+    {
+      "seed": 11,
+      "step_size": 0.21816698957090083,
+      "tune_integration_steps": 1500,
+      "warmup_grad_evals": 3000
+    },
+    {
+      "seed": 12,
+      "step_size": 0.19692653512480268,
+      "tune_integration_steps": 1500,
+      "warmup_grad_evals": 3000
+    },
+    {
+      "seed": 13,
+      "step_size": 0.2220082827266748,
+      "tune_integration_steps": 1500,
+      "warmup_grad_evals": 3000
+    },
+    {
+      "seed": 14,
+      "step_size": 0.20936023549396587,
+      "tune_integration_steps": 1500,
+      "warmup_grad_evals": 3000
+    },
+    {
+      "seed": 15,
+      "step_size": 0.11712712533301083,
+      "tune_integration_steps": 1500,
+      "warmup_grad_evals": 3000
+    }
+  ]
+}
