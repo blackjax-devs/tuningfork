@@ -100,6 +100,17 @@ _LAPLACE_OPTIMIZER_KWARG_NAMES: tuple[str, ...] = (
     "maxls",
 )
 
+# Keys stored in base_method_params for recipe-provenance only — they describe
+# how the recipe was produced (e.g. LRD rank, model variant tag) but must NEVER
+# be forwarded to kernel factories (blackjax.mclmc / etc. reject unknown kwargs).
+# Extend here when new provenance fields are baked in by emit_*.py helpers.
+_RECIPE_PROVENANCE_KEYS: frozenset[str] = frozenset(
+    {
+        "k_rank",  # LRD SVD rank (emit_mclmc_lrd.py "old-golden contract")
+        "ncp_variant",  # stoch_vol NCP model variant tag
+    }
+)
+
 
 def _extract_laplace_optimizer_kwargs(
     primary: dict[str, Any], fallback: dict[str, Any] | None = None
@@ -681,7 +692,12 @@ def _build_shared_kwargs(
         )
 
     # Apply caller-specific overrides (emit: sampler_kwargs_override; rerun: recipe params).
-    _EXCLUDE = frozenset(("step_size", "inverse_mass_matrix", "integration_steps_fn"))
+    # _RECIPE_PROVENANCE_KEYS are baked into base_method_params for consumers but must
+    # never reach the kernel factory (blackjax.mclmc rejects unknown kwargs).
+    _EXCLUDE = (
+        frozenset(("step_size", "inverse_mass_matrix", "integration_steps_fn"))
+        | _RECIPE_PROVENANCE_KEYS
+    )
     if params_override:
         for _k, _v in params_override.items():
             if _k not in _EXCLUDE:
@@ -2302,10 +2318,13 @@ def run_recipe_to_idata(
         # num_integration_steps for hmc/mhmc).  Mirror the non-skip-warmup
         # recipe_params injection (lines ~1889-1894) so that hmc/mhmc kernels
         # receive all required positional kwargs at init time.
+        # _RECIPE_PROVENANCE_KEYS (k_rank, ncp_variant, …) are stripped: they are
+        # stored in base_method_params for consumers but are not valid kernel args.
         _skip_extra_kwargs: dict[str, Any] = {
             k: v
             for k, v in recipe.base_method_params.items()
             if k not in ("step_size", "inverse_mass_matrix", "integration_steps_fn")
+            and k not in _RECIPE_PROVENANCE_KEYS
         }
 
         # Build kernel (step_size/IMM don't affect .init; only used to instantiate)
