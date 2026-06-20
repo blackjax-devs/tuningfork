@@ -68,13 +68,13 @@ See `tests/mclmc_lrd/test_internal_lrd_horseshoe.py` for the runnable script.
 
 Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds
 
-| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | trend |
-|---|---|---|---|---|---|---|
-| 2 | 2.0 | 5 | 2.590 | 0.953 | 0.624 | **loud-fail** |
-| 6 | 6.0 | 6 | 1.968 | 1.010 | 0.768 | loud-fail |
-| 18 | 18.0 | 11 | 1.314 | 0.870 | 0.493 | loud-fail |
-| 54 | 54.2 | 234 | 1.148 | 0.391 | 0.113 | **REVIEW-plateau** |
-| 108 | 108.3 | 732 | 1.124 | 0.335 | 0.085 | **REVIEW-plateau** |
+| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | acceptance | trend |
+|---|---|---|---|---|---|---|---|
+| 2 | 2.0 | 5 | 2.590 | 0.953 | 0.624 | 0.799 | **loud-fail** |
+| 6 | 6.0 | 6 | 1.968 | 1.010 | 0.768 | 0.820 | loud-fail |
+| 18 | 18.0 | 11 | 1.314 | 0.870 | 0.493 | 0.829 | loud-fail |
+| 54 | 54.2 | 234 | 1.148 | 0.391 | 0.113 | 0.773 | **REVIEW-plateau** |
+| 108 | 108.3 | 732 | 1.124 | 0.335 | 0.085 | 0.811 | **REVIEW-plateau** |
 
 **Lesson:** Longer L improves monotonically (ESS 5→734, bias 0.95→0.33) but asymptotes at REVIEW tier (Rhat ~1.2).
 This is a geometry-hard limit: funnel curvature is position-dependent, so a single affine preconditioning + longer L

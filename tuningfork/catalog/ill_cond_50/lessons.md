@@ -111,13 +111,13 @@ See `catalog/mclmc-routing-taxonomy.md` for routing taxonomy and scientific cont
 
 Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds
 
-| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | trend |
-|---|---|---|---|---|---|---|
-| 2 | 2.0 | 1928 | 1.014 | 0.177 | 0.055 | **OPTIMAL** |
-| 6 | 6.0 | 1675 | 1.011 | 0.179 | 0.075 | degrading |
-| 18 | 18.0 | 1241 | 1.011 | 0.511 | 0.070 | *monotone worse* |
-| 54 | 54.2 | 559 | 1.013 | 0.590 | 0.092 | ↓ |
-| 108 | 108.3 | 382 | 1.015 | 1.008 | 0.145 | **worst** |
+| avg | realized_avg | ESS | Rhat | 2nd-mom bias | mbias_sd | acceptance | trend |
+|---|---|---|---|---|---|---|---|
+| 2 | 2.0 | 1928 | 1.014 | 0.177 | 0.055 | 0.942 | **OPTIMAL** |
+| 6 | 6.0 | 1675 | 1.011 | 0.179 | 0.075 | 0.957 | degrading |
+| 18 | 18.0 | 1241 | 1.011 | 0.511 | 0.070 | 0.950 | *monotone worse* |
+| 54 | 54.2 | 559 | 1.013 | 0.590 | 0.092 | 0.934 | ↓ |
+| 108 | 108.3 | 382 | 1.015 | 1.008 | 0.145 | 0.928 | **worst** |
 
 **Lesson:** avg=2 is optimal. Every step increasing avg monotonically degrades ESS and inflates 2nd-moment bias
 (0.183 → 1.016), both bias and mbias_sd rising systematically across seeds. Longer trajectories overshoot the
