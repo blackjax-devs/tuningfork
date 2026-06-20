@@ -46,6 +46,8 @@ Result: R-hat=1.0039, ESS=1993.3, ESS/grad=0.2492, PASS (statistician independen
 run, seed=98765). Multi-seed hardening at seeds 11111/22222/33333 all PASS
 (ESS 1944–2030). 426× ESS/grad improvement over the diagonal MCLMC baseline.
 
+**Headroom note (k=40 truncation).** This certified PASS is the lowest-headroom PASS in the catalog. Rank k=40 captures ~92% of the Frobenius norm of Σ, leaving the lowest-eigenvalue rotated axes under-preconditioned — so visually subpar mixing along the stiff axes is consistent with the truncation, **not** a regression. The integrator ladder below shows the gap explicitly: k=40 internal LRD minESS 2079 vs dense Cholesky oracle minESS 2244. The lever to close it is **richer preconditioning (higher LRD rank k)**, NOT longer trajectory length — ill_cond_50 is the geometry-opposite case that wants SHORT L (avg=2). Quantifying the k=50/60→dense headroom is the open #22 Lever-2 probe.
+
 ### Integrator ladder (LRD geometry discovery)
 The following ladder was validated during the LRD integration experiment
 (see `tests/mclmc_lrd/` for runnable scripts):
