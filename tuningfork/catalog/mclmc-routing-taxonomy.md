@@ -56,19 +56,24 @@ correct geometry during warmup.
 
 For the empirical √d scaling laws and geometric-stiffness degradation baseline, see
 [mclmc-scaling-laws.md §1–2](mclmc-scaling-laws.md#1-the-d-law-smooth-targets).
-The table below shows recipe-specific results after LRD application:
+Recipe-level verdicts (full result numbers in each model's `lessons.md`):
 
-| Model | Geometry | Variant | k | Max R-hat | Min ESS | ESS/grad | Verdict |
-|---|---|---|---|---|---|---|---|
-| `ill_cond_50` | Rotated κ=1000 | Internal LRD mclmc | 40 | **1.0030** | **2079.5** | **0.249** | **PASS** |
-| `german_credit` | 26-D GLM | Internal LRD mclmc | 26 | 1.0126 | 520.6 | — | REVIEW |
-| `stoch_vol` | 503-D Funnel+AR(1) | Internal LRD mclmc | 50 | 1.0498 | 156.1 | — | REVIEW |
-| `stoch_vol` | 503-D Funnel+AR(1) | External LRD mclmc | 50 | 2.0536 | 5.4 | — | FAIL |
-| `horseshoe` | 204-D Cauchy heavy tails | Internal LRD adj_mclmc_dyn | 50 | 1.0193 | 270.7 | — | REVIEW |
+- **PASS** — `ill_cond_50` (rotated κ=1000, 50-D), internal LRD k=40 →
+  [`catalog/ill_cond_50/lessons.md`](ill_cond_50/lessons.md) and
+  [`low__mclmc_lrd__mclmc_lrd_tuning.json`](ill_cond_50/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json)
+- **REVIEW** — `german_credit` (26-D GLM), internal LRD k=26 →
+  [`catalog/german_credit/lessons.md`](german_credit/lessons.md)
+- **REVIEW** — `stoch_vol` (503-D Funnel+AR(1)), internal LRD k=50 →
+  [`catalog/stoch_vol/lessons.md`](stoch_vol/lessons.md)
+- **FAIL** — `stoch_vol` (503-D Funnel+AR(1)), external LRD k=50 →
+  [`catalog/stoch_vol/lessons.md`](stoch_vol/lessons.md)
+- **REVIEW** — `horseshoe` (204-D Cauchy heavy tails), adj_mclmc_dyn LRD k=50 →
+  [`catalog/horseshoe/lessons.md`](horseshoe/lessons.md)
 
-**Certified PASS**: `ill_cond_50` with internal LRD k=40.  Statistician multi-seed
-hardening: seeds 11111/22222/33333 all PASS at ESS 1944–2030 (2026-06-09).
-See `catalog/ill_cond_50/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json`.
+**Certified PASS**: `ill_cond_50` with internal LRD k=40. Multi-seed hardening
+(seeds 11111/22222/33333) confirmed by statistician — see
+[`catalog/ill_cond_50/lessons.md`](ill_cond_50/lessons.md) for full numbers.
+Recipe: `catalog/ill_cond_50/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json`.
 
 ---
 
