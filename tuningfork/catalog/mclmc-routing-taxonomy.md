@@ -52,7 +52,11 @@ correct geometry during warmup.
 
 ---
 
-## 2. Validated LRD Results (by model)
+## 2. Validated LRD Recipe Results
+
+For the empirical √d scaling laws and geometric-stiffness degradation baseline, see
+[mclmc-scaling-laws.md §1–2](mclmc-scaling-laws.md#1-the-d-law-smooth-targets).
+The table below shows recipe-specific results after LRD application:
 
 | Model | Geometry | Variant | k | Max R-hat | Min ESS | ESS/grad | Verdict |
 |---|---|---|---|---|---|---|---|
@@ -87,7 +91,8 @@ boundary effects during logdensity calls.
 
 ## 4. The Five-Category Routing Architecture
 
-Based on empirical stress-testing across the full catalog:
+Based on empirical stress-testing across the full catalog and validated against the
+[geometric-stiffness degradation law](mclmc-scaling-laws.md#2-geometric-stiffness--mixing-degradation-avg2-fixed-l):
 
 **Category A — Isotropic / Weakly-Correlated High-D** (e.g., `lgcp` 1600-D, `irt_1pl` 500-D)
 - Route to: `mclmc` (diagonal preconditioning)
@@ -106,9 +111,10 @@ Based on empirical stress-testing across the full catalog:
 
 **Category D — Hierarchical Funnels** (e.g., `neals_funnel`, `radon`, `irt_2pl`)
 - Route to: **NUTS** (MCLMC family is an honest null)
-- Why: A global affine IMM transformation cannot resolve position-dependent curvature.
-  Unadjusted MCLMC diverges in funnel necks; adjusted variants fail safely but are
-  stuck. Any model with funnel-like geometry must use NUTS or Riemannian methods.
+- Why: Position-dependent curvature requires different step sizes in different regions.
+  A global affine IMM transformation cannot resolve this.
+  [See mclmc-scaling-laws.md §5 for empirical failure modes](mclmc-scaling-laws.md#5-why-funnels-break-mclmc-all-variants).
+  Unadjusted MCLMC diverges in funnel necks; adjusted variants fail safely but plateau.
 
 **Category E — Multimodal / Stiff ODEs** (e.g., `gmm_25`, `lotka_volterra`)
 - Route to: **SMC** or **NUTS** (MCLMC family is an honest null)
@@ -128,7 +134,8 @@ for unknown models; verify against the per-model `catalog/<model>/lessons.md` on
 
 ### The EEVPD Diagnostic
 
-Run a cheap diagonal-MCLMC pilot with the energy-variance tuner (`desired_energy_var=5e-4`).
+Run a cheap diagonal-MCLMC pilot with the energy-variance tuner
+([target `desired_energy_var=5e-4`, validated in mclmc-scaling-laws.md §1](mclmc-scaling-laws.md#1-the-d-law-smooth-targets)).
 The achieved EEVPD at convergence **classifies the geometry**:
 
 | EEVPD outcome | step / (1.22√d) | Geometry class | Suggested route |
@@ -192,8 +199,9 @@ For a new model:
 2. It suggests a route in one of the five categories.
 3. Commit to sampling with the suggested handler.
 4. Verify diagnostics post-hoc against the per-model `lessons.md` reference (if available).
-5. If the 2nd-moment-bias gate (see `mclmc-scaling-laws.md` §4) flags issues, escalate
-   to the next-higher handler (e.g., diagonal MCLMC → LRD-MCLMC → adjusted_mclmc_dynamic → NUTS).
+5. If the [2nd-moment-bias gate](mclmc-scaling-laws.md#4-auto-tuning-ess-only-is-unsafe-2nd-moment-bias-gate-required)
+   (see `mclmc-scaling-laws.md` §4) flags issues, escalate to the next-higher handler
+   (e.g., diagonal MCLMC → LRD-MCLMC → adjusted_mclmc_dynamic → NUTS).
 
 ---
 
