@@ -74,7 +74,7 @@ seeds show 2nd-moment bias ≈0.28 (above 0.1 gate); aggregated 0.207 (seed2 alo
 below the 0.1 gate — the bias does not reproduce in all seeds). **The crucial reproducible fact:
 S_search (mixing-only minimization) selects exactly this avg≈8 in all 3/3 seeds** — including the seed
 where bias happens to pass the gate — deterministically walking into the trap region regardless of
-per-seed bias outcome. Per-seed bias swings (0.278, 0.288, 0.056) are high-variance, but that the search
+per-seed bias outcome. Per-seed bias swings (0.278, 0.288, 0.055) are high-variance, but that the search
 lands here seed-robustly is the failure mode.
 
 **Safe protocol:** L-selection must gate on independent 2nd-moment bias verification:
