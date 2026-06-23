@@ -58,8 +58,12 @@ jobs:
 
       - name: Install blackjax@main (explicit, on top of lockfile)
         # Track HEAD so speed regressions from blackjax changes surface nightly.
+        # --no-deps: blackjax's transitive deps are already pinned in uv.lock;
+        # without this flag uv pip re-resolves them against PyPI latest and can
+        # silently upgrade a transitive dep, breaking the benchmark at fixture
+        # setup (2026-06-22 incident).  See benchmark.yml comment for details.
         run: |
-          uv pip install "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
+          uv pip install --no-deps "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax:', blackjax.__version__)"
 
       - name: Run speed-lite benchmarks (5 warm rounds each)

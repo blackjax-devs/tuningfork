@@ -107,4 +107,14 @@ write_to = "tuningfork/_version.py"
 profile = "black"
 
 [tool.pytest.ini_options]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # When all benchmark cells error at fixture setup, pytest-benchmark fires
+    # "Not saving anything, no benchmarks have been run!" via PytestBenchmarkWarning
+    # (a subclass of PytestWarning).  With filterwarnings=error this crashes
+    # sessionfinish BEFORE pytest prints the per-cell ERRORS tracebacks — making
+    # the root cause invisible in CI logs (2026-06-22 masking incident).
+    # Ignoring this specific warning lets pytest reach the ERRORS section so the
+    # actual fixture exception is visible.
+    "ignore:.*no benchmarks have been run.*:pytest.PytestWarning",
+]
