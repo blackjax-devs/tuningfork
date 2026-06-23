@@ -100,18 +100,22 @@ jobs:
             jax-compile-
 
       - name: Install bench-perf deps (from locked uv.lock)
-        # DO NOT call uv update — use the checked-in lockfile exactly.
+        # --frozen: refuse to re-resolve; install exactly what uv.lock pins.
+        # Without --frozen, uv sync silently re-resolves uncapped deps against
+        # the current PyPI index (e.g. probdiffeq 0.8.2 → 0.9.2 breaking the
+        # ivpsolvers import in lotka_volterra; jax 0.10.1 → 0.10.2) — root
+        # cause of the 2026-06-22/23 nightly failure (all 34 cells ERROREd in
+        # <1s at fixture setup).  probdiffeq is also capped at <0.9 in
+        # pyproject.toml as a defence-in-depth measure.
         # blackjax@main is installed explicitly below to track HEAD.
-        run: uv sync --group bench-perf --python 3.13
+        run: uv sync --frozen --group bench-perf --python 3.13
 
       - name: Install blackjax@main (explicit, on top of lockfile)
         # --no-deps: blackjax's transitive deps (jax, jaxlib, etc.) are already
-        # pinned in uv.lock via "uv sync --group bench-perf" above.  Without
-        # --no-deps, "uv pip install git+...@main" re-resolves blackjax's
-        # range-pinned deps (jax>=0.9.0) against the *current* PyPI index and
-        # can silently upgrade a transitive dep to a version the lockfile does
-        # not pin — breaking the benchmark at fixture setup (2026-06-22 incident:
-        # numpyro/tfp-nightly upgrade caused all 34 cells to ERROR in <1s).
+        # pinned in uv.lock via "uv sync --frozen --group bench-perf" above.
+        # Without --no-deps, "uv pip install git+...@main" would re-resolve
+        # blackjax's range-pinned deps against PyPI latest — defense-in-depth
+        # on top of the --frozen fix.
         run: |
           uv pip install --no-deps "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax version:', blackjax.__version__)"
