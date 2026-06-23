@@ -229,7 +229,13 @@ def _solve_lv(
     # solution.u is IsotropicNormal; .mean/.std are lists of Taylor coefficients
     # Index 0 = position (zeroth-order) coefficient
     u_mean = jnp.array(solution.u.mean[0])  # shape (T, 2)
-    u_std = jnp.array(solution.u.std[0])[:, None]  # shape (T, 1) — isotropic
+    u_std_raw = jnp.array(solution.u.std[0])[:, None]  # shape (T, 1) — isotropic
+    # stop_gradient: IsotropicNormal.std has NaN autodiff under JAX 0.10.1 +
+    # probdiffeq 0.9.2 (hypot accumulator in solver_mle.step starts at 0 → 0/0
+    # in the backward pass). In 0.8.2 this path returned 0.0 grad (same intent).
+    # Semantic justification: u_std is the solver's MLE uncertainty estimate —
+    # it must not carry gradient back to the ODE parameters.
+    u_std = jax.lax.stop_gradient(u_std_raw)
     return u_mean, u_std
 
 

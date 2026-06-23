@@ -157,7 +157,11 @@ def solve_lv_fixed_grid(
     # Index 0 = position (zeroth-order) coefficient.
     # Shape change vs 0.8: std is now (T,) isotropic scalar, not (T, 2).
     u_mean = jnp.array(solution.u.mean[0])  # shape (T, 2)
-    u_std = jnp.array(solution.u.std[0])  # shape (T,) — isotropic scalar
+    # stop_gradient mirrors the model fix: IsotropicNormal.std has NaN autodiff
+    # under JAX 0.10.1 + probdiffeq 0.9.2; u_std must not carry grad to ODE params.
+    u_std = jax.lax.stop_gradient(
+        jnp.array(solution.u.std[0])  # shape (T,) — isotropic scalar
+    )
     return u_mean, u_std
 
 
