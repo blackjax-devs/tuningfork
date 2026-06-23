@@ -45,7 +45,8 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import numpy as np
-from probdiffeq import ivpsolve, ivpsolvers, taylor
+from probdiffeq import ivpsolve
+from probdiffeq import probdiffeq as _pdq
 
 # Ground-truth parameters (Statistician verdict: stable limit-cycle with ~3 oscillations)
 ALPHA_TRUE: float = 0.5
@@ -134,25 +135,29 @@ def solve_lv_fixed_grid(
         Solver-estimated standard deviation at each observation time.
     """
     u_init = jnp.array([u0, v0])
-    vf = ft.partial(lotka_volterra_vf, alpha=alpha, beta=beta, gamma=gamma, delta=delta)
-    # Taylor coefficients require an autonomous call (no t kwarg)
-    vf_autonomous = ft.partial(vf, t=0.0)
-    tcoeffs = taylor.odejet_padded_scan(vf_autonomous, (u_init,), num=2)
-    init, discretize, ssm = ivpsolvers.prior_wiener_integrated(
-        tcoeffs, ssm_fact="isotropic"
+    # Autonomous vector field (no time kwarg) required by probdiffeq 0.9
+    vf_autonomous = ft.partial(
+        lotka_volterra_vf, alpha=alpha, beta=beta, gamma=gamma, delta=delta, t=0.0
     )
-    strategy = ivpsolvers.strategy_filter(ssm=ssm)
-    correction = ivpsolvers.correction_ts0(vf, ssm=ssm)
-    slvr = ivpsolvers.solver_mle(
-        strategy, correction=correction, prior=discretize, ssm=ssm
-    )
-    solution = ivpsolve.solve_fixed_grid(
-        init, grid=observation_times, solver=slvr, ssm=ssm
-    )
-    # solution.u / solution.u_std are lists [pos_coeff, vel_coeff, acc_coeff]
-    # each of shape (T, 2). Take index 0 for the position (state) mean/std.
-    u_mean = jnp.array(solution.u)[0]  # shape (T, 2)
-    u_std = jnp.array(solution.u_std)[0]  # shape (T, 2)
+    # Wrap as a probdiffeq 0.9 JetOdeAutonomous for Taylor expansion
+    ode = _pdq.ode_autonomous(vf_autonomous)
+    # Compute 2nd-order Taylor coefficients at t0
+    expand = _pdq.jetexpand_ode_padded_scan(num=2)
+    tcoeffs, _ = expand(ode, [u_init], t=observation_times[0])
+    # Build isotropic SSM, prior, strategy, and TS0 correction
+    ssm = _pdq.state_space_model_isotropic()
+    prior = ssm.prior_wiener_integrated(tcoeffs)
+    strategy = _pdq.strategy_filter()
+    constraint = ssm.constraint_ode_ts0(ode)
+    slvr = _pdq.solver_mle(constraint=constraint, strategy=strategy)
+    # Build and run the fixed-grid solve (0.9 returns a callable)
+    solve_fn = ivpsolve.solve_fixed_grid(solver=slvr)
+    solution = solve_fn(prior, grid=observation_times)
+    # solution.u is IsotropicNormal; .mean/.std are lists of Taylor coefficients.
+    # Index 0 = position (zeroth-order) coefficient.
+    # Shape change vs 0.8: std is now (T,) isotropic scalar, not (T, 2).
+    u_mean = jnp.array(solution.u.mean[0])  # shape (T, 2)
+    u_std = jnp.array(solution.u.std[0])  # shape (T,) — isotropic scalar
     return u_mean, u_std
 
 
