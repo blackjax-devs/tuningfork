@@ -1136,6 +1136,46 @@ class TestMeadsMultiChain:
         ), f"Missing _meads_num_folds sidecar; got: {list(params)}"
         assert params["_meads_num_folds"] == 4
 
+    def test_broadcast_init_no_longer_nan(self) -> None:
+        """HARD-KEEP regression guard: broadcast (non-pre-batched) init must not NaN.
+
+        Bug 1: _maybe_replicate broadcasts a bit-identical init across all
+        chains; MEADS's first adaptation iteration computes cross-chain
+        std(axis=1) PER FOLD on the raw pre-step positions -- exactly 0 for
+        identical starts -> 0/0 in maximum_eigenvalue -> NaN. Uses
+        num_chains=16/num_folds=4 (n_per_fold=4) so there IS real cross-chain
+        dispersion to estimate once jittered -- at the DEFAULT num_chains=4
+        (n_per_fold=1), std of a single sample is 0 regardless of jitter;
+        that is a distinct (out-of-scope, HP-tuning-level) small-fold-size
+        degeneracy, not the identical-init bug this test guards.
+        """
+        states, params, *_ = self._run(6007, num_chains=16, num_folds=4)
+        for key_name in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
+            arr = jnp.asarray(params[key_name])
+            assert bool(
+                jnp.all(jnp.isfinite(arr))
+            ), f"{key_name} contains NaN/Inf with default (broadcast) init: {arr}"
+        pos_leaves = jax.tree.leaves(states.position)
+        assert bool(jnp.all(jnp.isfinite(pos_leaves[0]))), "states.position has NaN/Inf"
+
+    def test_init_jitter_scale_zero_reproduces_the_bug(self) -> None:
+        """Mechanism check: init_jitter_scale=0.0 reproduces the pre-fix NaN.
+
+        Confirms the jitter is actually load-bearing (not a no-op) by
+        disabling it explicitly and observing the documented 0/0 NaN
+        mechanism at n_per_fold=4 (the same shape that test_broadcast_init_
+        no_longer_nan shows is clean at the default jitter scale).
+        """
+        _, params, *_ = self._run(
+            6008, num_chains=16, num_folds=4, init_jitter_scale=0.0
+        )
+        ss = jnp.asarray(params["step_size"])
+        assert bool(jnp.any(jnp.isnan(ss))), (
+            "Expected NaN step_size with init_jitter_scale=0.0 (bit-identical "
+            f"broadcast init); got {ss}. If this now passes, either the upstream "
+            "MEADS 0/0 mechanism changed or the jitter default silently leaked in."
+        )
+
 
 # ---------------------------------------------------------------------------
 # 15. CHEES multi-chain warmup — SLOW

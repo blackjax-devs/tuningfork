@@ -104,6 +104,50 @@ _DEFAULT_CHEES_MAX_LEAPFROG_STEPS: int = 1000
 _DEFAULT_CHEES_OPTIM_LR: float = 0.01
 _DEFAULT_CHEES_STEP_SIZE: float = 0.5
 
+# Salt for deriving the init-jitter key from the caller's rng_key via fold_in,
+# keeping it independent of whatever sub-keys chees_adaptation.run() itself
+# splits off the SAME rng_key it is handed unchanged (see _runner below).
+_INIT_JITTER_SALT = 0xC4EE5717
+_DEFAULT_INIT_JITTER_SCALE: float = 0.5
+
+
+def _replicate_with_init_jitter(
+    position: Any, num_chains: int, rng_key: jax.Array, jitter_scale: float
+) -> Any:
+    """Replicate ``position`` to ``(num_chains, ...)``, jittering a bit-identical broadcast.
+
+    Defensive symmetry with ``warmup/meads.py``'s helper of the same name:
+    MEADS's first adaptation iteration provably divides by 0 on a
+    bit-identical cross-chain broadcast (see meads.py docstring).  CHEES does
+    not have that specific 0/0 pathology (each chain draws independent HMC
+    momentum from step 1, so chains diverge immediately even from identical
+    starts), but ensemble-adaptation warmups are exactly the class of routine
+    where a silent identical-chains degeneracy is easy to introduce upstream
+    without tuningfork noticing (no chain-count study has ever exercised
+    this warmup end-to-end).  Jittering broadcast inits here costs nothing
+    and keeps both ensemble-warmup wrappers behaviourally consistent.
+
+    Only jitters when the caller did NOT pre-batch: if ``position`` already
+    has a leading dim of ``num_chains`` (per ``_maybe_replicate``'s own
+    detection), it is trusted to already carry meaningful per-chain
+    dispersion and is passed through via ``_maybe_replicate`` unchanged.
+    """
+    leaves = jax.tree.leaves(position)
+    is_pre_batched = (
+        bool(leaves) and bool(leaves[0].shape) and (leaves[0].shape[0] == num_chains)
+    )
+    replicated = _maybe_replicate(position, num_chains)
+    if is_pre_batched:
+        return replicated
+
+    rep_leaves, rep_treedef = jax.tree.flatten(replicated)
+    leaf_keys = jax.random.split(rng_key, len(rep_leaves))
+    jittered_leaves = [
+        leaf + jitter_scale * jax.random.normal(k, leaf.shape, dtype=leaf.dtype)
+        for leaf, k in zip(rep_leaves, leaf_keys)
+    ]
+    return jax.tree.unflatten(rep_treedef, jittered_leaves)
+
 
 def _runner(
     rng_key: jax.Array,
@@ -117,6 +161,7 @@ def _runner(
     target_acceptance_rate: float | None = _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE,
     max_leapfrog_steps: int = _DEFAULT_CHEES_MAX_LEAPFROG_STEPS,
     optim_learning_rate: float = _DEFAULT_CHEES_OPTIM_LR,
+    init_jitter_scale: float = _DEFAULT_INIT_JITTER_SCALE,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
     """Run ``blackjax.chees_adaptation`` over ``num_chains`` chains jointly.
@@ -213,7 +258,12 @@ def _runner(
     )
 
     # Replicate init_position to (num_chains, *leaf.shape); pass-through if pre-batched.
-    init_positions = _maybe_replicate(init_position, num_chains)
+    # A broadcast (non-pre-batched) init is additionally jittered per chain — see
+    # _replicate_with_init_jitter docstring (defensive symmetry with meads.py).
+    _jitter_key = jax.random.fold_in(rng_key, _INIT_JITTER_SALT)
+    init_positions = _replicate_with_init_jitter(
+        init_position, num_chains, _jitter_key, init_jitter_scale
+    )
 
     # Build optax optimizer for trajectory-length adaptation (standard CHEES default).
     optim = optax.adam(learning_rate=optim_learning_rate)
