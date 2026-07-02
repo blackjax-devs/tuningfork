@@ -84,6 +84,20 @@ as the primary sampler on stoch_vol due to the AR(1) funnel geometry.
 
 - External LRD coordinate-whitening on NCP models: **FAIL** (breaks prior-centering).
   Fundamental incompatibility, not a tuning issue.
+- `hmc` + any IMM (no_warmup, diag, dense, low_rank): **FAIL** at d=503.
+  Fixed-L HMC cannot traverse the AR(1) funnel at any default integration step count.
+  See `recipes/failed__hmc__no_warmup.json`, `failed__hmc__window_adaptation_diag_imm.json`,
+  `failed__hmc__window_adaptation_dense_imm.json`, `failed__hmc__window_adaptation_low_rank_imm.json`.
+  [boundary: all 4 hmc cells fail; use dmhmc/dynamic_hmc/nuts instead]
+- `mhmc` + `window_adaptation_dense_imm` (n_warmup=2000): **FAIL** (dense IMM not viable at d=503).
+  See `recipes/failed__mhmc__window_adaptation_dense_imm.json`.
+- `mhmc` + `window_adaptation_low_rank_imm` (n_warmup=2000): **FAIL** (OOM-killed during JAX JIT).
+  See `recipes/failed__mhmc__window_adaptation_low_rank_imm.json`.
+- `nuts` + `window_adaptation_low_rank_imm` (n_warmup=2000): **FAIL** (low_rank IMM not viable at d=503).
+  See `recipes/failed__nuts__window_adaptation_low_rank_imm.json`.
+  [boundary: dense/low_rank IMM failures at d=503 are underdetermined-Welford failures, same class as irt_2pl at d=144 but more severe; diag IMM PASS for NUTS on stoch_vol]
+
+Recorded FAILs not discussed above: all 7 failed recipes (hmc×4, mhmc×2, nuts×1) are now covered above.
 
 ## MCLMC LRD null-support record (2026-06-10)
 
