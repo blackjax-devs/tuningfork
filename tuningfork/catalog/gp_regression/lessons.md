@@ -3,6 +3,7 @@
 ## TL;DR
 
 203-D latent-GP regression requires high target_acceptance (0.99) and float64 + jitter ≥1e-4 to avoid silent Cholesky precision failure; posterior has +0.737 correlation between log_lengthscale and log_kernel_scale (identifiability ridge) that diagonal-IMM cannot capture.
+[boundary: HIGH-effort NUTS+dense_imm+inner_laplace_hmc PASS at n_warmup=5000, target_acceptance=0.99; elliptical_slice FAIL (hard_direction); meanfield_vi out_of_scope; dense/low_rank IMM not yet tested at MEDIUM; laplace family vmap compile blowup documented elsewhere]
 
 ## Canonical recipe
 
@@ -14,7 +15,12 @@ Dense RBF kernel matrix (`200 × 200` points on [0,1]) with float32 + JITTER=1e-
 
 ## Known-bad combinations
 
-No detailed investigations recorded yet. If sampling pathologies emerge as recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/gp_regression/`.
+- `elliptical_slice` + `no_warmup`: **FAIL** (hard_direction — requires Gaussian likelihood matching, which the RBF-GP posterior does not satisfy after conditioning on data). See `recipes/failed__elliptical_slice__no_warmup.json`.
+- `meanfield_vi` + `no_warmup`: **FAIL** (out_of_scope — mean-field VI cannot capture the +0.737 lengthscale/kernel-scale correlation). See `recipes/failed__meanfield_vi__no_warmup.json`.
+
+Recorded FAILs not discussed above: all 2 failed recipes are now documented above.
+
+If sampling pathologies emerge as recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/gp_regression/`.
 
 ## History
 

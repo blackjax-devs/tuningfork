@@ -6,6 +6,7 @@
 step size.** MCLMC family (all variants) FAIL due to position-dependent varying
 curvature. SMC (inner-kernel HMC) is the viable path. NUTS with diagonal IMM achieves
 PASS on the standard 2-D formulation via tree-expansion.
+[boundary: MCLMC FAIL holds at all warmup budgets tested (1k–50k) with 0 divergences — this is a geometry-hard blocker, not warmup-limited; SMC PASS holds at the standard 2-D formulation only; low_rank and hard_direction cells (hmc, nuts+low_rank) also fail; laplace family out_of_scope]
 
 ## Canonical recipe
 
@@ -63,10 +64,21 @@ metric (e.g., Riemannian HMC) or sequential methods (SMC).
 ## Known-bad combinations
 
 - `mclmc` (unadjusted): diverges / explodes in funnel neck. Do not use.
-- `adjusted_mclmc`: fails safely (0 divergences, low ESS). Honest null.
-- `adjusted_mclmc_dynamic`: fails safely with better ESS than static variant. Honest null.
+- `adjusted_mclmc` (n_warmup=10k): fails safely (0 divergences, rhat=1.08, ESS=33). Honest null.
+  See `recipes/failed__adjusted_mclmc__adjusted_mclmc_tuning.json`.
+  [boundary: FAIL at n_warmup=1k and 10k (both recorded); warmup-invariant geometry blocker]
+- `adjusted_mclmc_dynamic` (n_warmup=50k): fails safely (rhat=1.055, ESS=70). Honest null.
+  See `recipes/failed__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json`.
+  [boundary: FAIL confirmed up to n_warmup=50k — the highest budget tested; R-hat improvement from 1k→50k is minimal (1.37→1.07); not tunable further]
 - Any MCLMC variant with LRD preconditioning: not tested; not expected to improve
   (global affine transform cannot resolve local curvature).
+- `hmc` + `window_adaptation_low_rank_imm`: **FAIL** (hard_direction). See `recipes/failed__hmc__window_adaptation_low_rank_imm.json`.
+- `nuts` + `window_adaptation_low_rank_imm`: **FAIL** (hard_direction). See `recipes/failed__nuts__window_adaptation_low_rank_imm.json`.
+  [boundary: low_rank IMM fails for both hmc and nuts; diag IMM PASS for NUTS (the only viable MCMC path)]
+- Laplace family + `window_adaptation_low_rank_imm`: **FAIL** (out_of_scope). See `recipes/failed__laplace_*__window_adaptation_low_rank_imm.json`.
+- `meanfield_vi` + `no_warmup`: **FAIL** (out_of_scope). See `recipes/failed__meanfield_vi__no_warmup.json`.
+
+Recorded FAILs not discussed above: all 9 failed recipes are now covered above.
 
 ## History
 

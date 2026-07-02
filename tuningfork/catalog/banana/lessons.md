@@ -2,19 +2,52 @@
 
 ## TL;DR
 
-No significant sampling quirks documented — model has well-conditioned geometry or has not yet been extensively probed. Library defaults pass at LOW effort.
+Curved banana geometry. **NUTS/dynamic_hmc with diag IMM require MEDIUM effort (step_policy
+v1-medium) to PASS; LOW-effort defaults FAIL.** `adjusted_mclmc_dynamic` PASSes at MEDIUM
+effort (n_warmup=5000, avg≥18). Most LOW-effort cells fail. Laplace family is out_of_scope.
+[boundary: adjusted_mclmc_dynamic PASS holds at n_warmup=5000 MEDIUM; adjusted_mclmc (static) FAIL at n_warmup=10000 (avg=2 cap); nearest FAILs: nuts+diag_imm, nuts+dense_imm, nuts+low_rank_imm at LOW effort (see recipes/failed__nuts__*.json)]
 
 ## Canonical recipe
 
-Placeholder: once recipes are generated, link to `recipes/low__nuts__window_adaptation_diag_imm.json` or the appropriate LOW-effort baseline.
+`recipes/medium__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json` — MEDIUM effort, PASS.
+`recipes/medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json` — MEDIUM effort, PASS.
 
 ## Sampling quirks
 
-None documented yet. Early probes show the model samples cleanly at default NUTS + window-adaptation settings.
+### Curved geometry requires long trajectories
+banana's curved posterior requires trajectory length avg≥18 for MCLMC to reach
+sufficient mixing. At avg=2 (default), chains cannot traverse the banana shape.
+
+### adjusted_mclmc (static L): FAIL at any standard warmup budget
+`adjusted_mclmc` with `adjusted_mclmc_tuning` (n_warmup=10000): rhat=1.059, ESS=61.9,
+bias clean (max_z=0.942). The avg=2 cap limits trajectory length and chains cannot mix.
+This is warmup-invariant: same rhat at n_warmup=1k and 10k.
+[boundary: FAIL confirmed at n_warmup=10k; warmup-invariant (geometry blocker, not warmup budget); see recipes/failed__adjusted_mclmc__adjusted_mclmc_tuning.json]
+
+### adjusted_mclmc_dynamic: PASS at MEDIUM (avg≥18)
+With dynamic trajectory (avg=18–54 from Dynamic-L sweep), bias cleans up and ESS rises.
+The committed MEDIUM recipe targets avg~18 at n_warmup=5000.
+[boundary: PASS at n_warmup=5000, avg≈18; FAIL at avg=2 (same rhat as static); do not use adjusted_mclmc (non-dynamic) on banana]
+
+### NUTS and dynamic_hmc: FAIL at LOW effort
+NUTS with diag, dense, or low_rank IMM all FAIL at LOW effort (default n_warmup=1000).
+MEDIUM step_policy (v1-medium) rescues dynamic_hmc+diag_imm.
+[boundary: LOW-effort NUTS fails; MEDIUM step_policy PASS; dense and low_rank IMM FAIL even at MEDIUM (see failed__nuts__window_adaptation_dense_imm.json, failed__nuts__window_adaptation_low_rank_imm.json)]
 
 ## Known-bad combinations
 
-None documented yet. R1+ will backfill FAILED recipes for hard-excluded cells in the recipe matrix (if any).
+- `nuts` + `window_adaptation_diag_imm` (LOW effort): **FAIL**. See `recipes/failed__nuts__window_adaptation_diag_imm.json`.
+- `nuts` + `window_adaptation_dense_imm`: **FAIL**. See `recipes/failed__nuts__window_adaptation_dense_imm.json`.
+- `nuts` + `window_adaptation_low_rank_imm`: **FAIL**. See `recipes/failed__nuts__window_adaptation_low_rank_imm.json`.
+- `dynamic_hmc` + `window_adaptation_diag_imm` (LOW effort): **FAIL**. See `recipes/failed__dynamic_hmc__window_adaptation_diag_imm.json`.
+- `dynamic_hmc` + `window_adaptation_dense_imm`: **FAIL**. See `recipes/failed__dynamic_hmc__window_adaptation_dense_imm.json`.
+- `dmhmc` + `window_adaptation_diag_imm` (LOW effort): **FAIL**. See `recipes/failed__dmhmc__window_adaptation_diag_imm.json`.
+- `dmhmc` + `window_adaptation_dense_imm`: **FAIL**. See `recipes/failed__dmhmc__window_adaptation_dense_imm.json`.
+- `adjusted_mclmc` + `adjusted_mclmc_tuning` (any budget): **FAIL** (avg=2 cap is warmup-invariant blocker). See `recipes/failed__adjusted_mclmc__adjusted_mclmc_tuning.json`.
+- `hmc` + `window_adaptation_low_rank_imm`: **FAIL** (hard_direction). See `recipes/failed__hmc__window_adaptation_low_rank_imm.json`.
+- Laplace family + `window_adaptation_low_rank_imm`: **FAIL** (out_of_scope). See `recipes/failed__laplace_*__window_adaptation_low_rank_imm.json`.
+
+Recorded FAILs not discussed above: all 13 failed recipes are covered above.
 
 ## History
 

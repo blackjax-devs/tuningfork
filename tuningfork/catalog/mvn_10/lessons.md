@@ -2,19 +2,36 @@
 
 ## TL;DR
 
-No significant sampling quirks documented — model has well-conditioned geometry or has not yet been extensively probed. Library defaults pass at LOW effort.
+Well-conditioned 10-D MVN. NUTS, MCLMC, dmhmc, dynamic_hmc, VI all PASS at LOW effort.
+Optimal MCLMC trajectory is avg=2 (smooth diagonal geometry). Several laplace and
+structural cells are out-of-scope (require model change).
+[boundary: PASS applies at LOW effort (n_warmup=1000); hmc+low_rank_imm FAIL (fixed-L hard_direction); laplace family out_of_scope (no separable log-joint in mvn_10)]
 
 ## Canonical recipe
 
-Placeholder: once recipes are generated, link to `recipes/low__nuts__window_adaptation_diag_imm.json` or the appropriate LOW-effort baseline.
+`recipes/low__nuts__window_adaptation_diag_imm.json` — LOW effort, PASS.
+`recipes/low__mclmc__mclmc_tuning.json` — LOW effort, PASS (avg=2 optimal for smooth diagonal geometry).
 
 ## Sampling quirks
 
-None documented yet. Early probes show the model samples cleanly at default NUTS + window-adaptation settings.
+None significant. mvn_10 is a smooth, well-conditioned diagonal model used as a
+structural baseline. Behaves bias-indifferent across the avg ladder (see Dynamic-L
+sweep below); optimal at avg=2 for mixing efficiency.
 
 ## Known-bad combinations
 
-None documented yet. R1+ will backfill FAILED recipes for hard-excluded cells in the recipe matrix (if any).
+- `hmc` + `window_adaptation_low_rank_imm`: **FAIL** (hard_direction). Fixed-L HMC
+  with low_rank IMM cannot traverse the 10-D geometry with default integration steps.
+  See `recipes/failed__hmc__window_adaptation_low_rank_imm.json`.
+  [boundary: hmc+diag_imm and hmc+dense_imm PASS (see low__hmc__window_adaptation_low_rank_imm__inner_nuts.json for the inner_nuts workaround)]
+- `elliptical_slice` + `no_warmup`: **FAIL** (requires_model_change — needs Gaussian prior).
+  See `recipes/failed__elliptical_slice__no_warmup.json`.
+- `laplace_hmc` + `no_warmup`: **FAIL** (requires_model_change — laplace needs separable log-joint).
+  See `recipes/failed__laplace_hmc__no_warmup.json`.
+- `laplace_*` + `window_adaptation_low_rank_imm` (dhmc, dmhmc, hmc, mhmc): **FAIL** (out_of_scope).
+  See `recipes/failed__laplace_dhmc__window_adaptation_low_rank_imm.json` etc.
+
+Recorded FAILs not discussed above: all 7 failed recipes are covered above.
 
 ## History
 

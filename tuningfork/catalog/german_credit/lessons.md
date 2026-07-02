@@ -7,6 +7,7 @@ fails due to covariate collinearity in the GLM design matrix. LRD preconditionin
 (k=26, full-rank for d=26) achieves REVIEW (gate-clearing), rescuing MCLMC from
 the correlation barrier — though ESS remains ~5× below the NUTS baseline at equal
 warmup budget.
+[boundary: diagonal MCLMC FAIL due to collinearity (not warmup-limited); LRD PASS at k=8, n_warmup=2000 (pilot-free); nearest FAIL: hmc+dense_imm (n_warmup=1000), hmc+low_rank_imm (hard_direction); see recipes/failed__hmc__window_adaptation_dense_imm.json]
 
 ## Canonical recipe
 
@@ -37,6 +38,7 @@ axes, causing isotropic MCLMC to be highly inefficient.
 - ESS/grad: ~520/8000 ≈ 0.065, vs NUTS baseline ~2798/≫10000 ≈ 0.0065. MCLMC
   sampling efficiency per grad is ~10× higher than NUTS at equal draw count.
 - Pipeline: pilot run ~1.9s, LRD MCLMC sampling ~14.3s.
+  [boundary: REVIEW (not PASS) at k=26 full-rank; committed catalog artifact uses k=8, which achieves 3/3 PASS at n_warmup=2000; full-rank k=26 is documented as upper-bound validation only]
 
 ### VI rank-collapse (negative result)
 `multipathfinder` collapses to **Rank 1** on german_credit (26-D). All 16 L-BFGS
@@ -46,6 +48,16 @@ pilot is required. See `catalog/mclmc-routing-taxonomy.md` §5.
 ## Known-bad combinations
 
 - `mclmc` + `mclmc_tuning` (diagonal): fails due to covariate collinearity.
+  [boundary: collinearity is the geometry blocker; LRD (k=8) rescues MCLMC — see MCLMC-LRD section above]
+- `hmc` + `window_adaptation_dense_imm` (n_warmup=1000): **FAIL** (non-reproducible at practical n_warmup).
+  See `recipes/failed__hmc__window_adaptation_dense_imm.json`.
+  [boundary: dense Welford for d=26 is marginally reproducible at n_warmup=1000; not a d>100 failure, but still fragile — prefer diag IMM for hmc on german_credit]
+- `hmc` + `window_adaptation_low_rank_imm`: **FAIL** (hard_direction).
+  See `recipes/failed__hmc__window_adaptation_low_rank_imm.json`.
+- `laplace_*` + `window_adaptation_low_rank_imm`: **FAIL** (out_of_scope — german_credit logistic GLM lacks separable log-joint).
+  See `recipes/failed__laplace_hmc__window_adaptation_low_rank_imm.json` etc.
+
+Recorded FAILs not discussed above: all 6 failed recipes are covered above.
 
 ## Recipe regen (german_credit LRD, NUTS-pilot path)
 

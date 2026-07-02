@@ -6,6 +6,7 @@
 unequal coordinate scales from heterogeneous county sample sizes. NCP partially
 resolves funnel geometry but residual scale mismatch remains. NUTS adaptive diagonal
 IMM compensates for coordinate-scale heterogeneity; isotropic MCLMC cannot.
+[boundary: NUTS+diag_imm PASS at n_warmup=1000 (REVIEW gate-clearing); dynamic_hmc+diag_imm FAIL at n_warmup=2000 with V7 oracle (V7 miscalibrated for radon, use MEDIUM step policy v1-medium instead); all MCLMC variants FAIL regardless of n_warmup]
 
 ## Canonical recipe
 
@@ -54,6 +55,15 @@ a natural future experiment.
 - `mclmc` (isotropic, 1k warmup): R-hat=4.14. Complete stagnation.
 - `adjusted_mclmc` / `adjusted_mclmc_dynamic` (10k warmup): R-hat 1.10–1.15.
   Honest null with MH safety net.
+- `dynamic_hmc` + `window_adaptation_diag_imm` (n_warmup=2000, V7 oracle): **FAIL** (rhat=1.059, ESS=64.9).
+  V7 auto-oracle miscalibrated for radon at ta=0.8 — adapts step_size=0.22, far too large for d=390.
+  Use MEDIUM step_policy v1-medium instead (see `recipes/medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json`).
+  See `recipes/failed__dynamic_hmc__window_adaptation_diag_imm.json`.
+  [boundary: V7 oracle FAIL is specific to ta=0.8 + d=390; v1-medium PASSES the same cell]
+- `nuts` + `fullrank_vi` warmup: **FAIL** (requires_model_change — fullrank VI not feasible at d=390).
+  See `recipes/failed__nuts__fullrank_vi.json`.
+
+Recorded FAILs not discussed above: all MCLMC variants are covered in "All MCLMC variants" section above; all recipe FAILs now documented.
 
 ## History
 

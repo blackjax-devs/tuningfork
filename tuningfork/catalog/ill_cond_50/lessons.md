@@ -9,6 +9,7 @@ rescales the rotated axes during adaptation). Standard diagonal `mclmc` is an
 **honest FAIL** at any warmup budget; the diagonal mass matrix cannot capture the
 rotated correlation axes. The only viable MCLMC path is **LRD preconditioning**
 (k=40, NUTS-pilot extraction).
+[boundary: NUTS+diag_imm PASS holds at n_warmup=1000; LRD PASS holds at k=40, n_warmup=1000; dense IMM PASS for NUTS/dmhmc/dynamic_hmc at n_warmup=1000 but FAIL for fixed-L hmc (resonance); nearest FAIL: hmc+dense_imm (see recipes/failed__hmc__window_adaptation_dense_imm.json)]
 
 ## Canonical recipe
 
@@ -27,11 +28,13 @@ relative to the coordinate axes**, so any diagonal mass matrix is misaligned.
 
 - NUTS `window_adaptation_diag_imm`: the adaptive diagonal IMM finds a diagonal
   approximation to the rotated geometry during warmup, which is sufficient for PASS.
+  [boundary: PASS at n_warmup=1000; dense/low_rank IMM also PASS for NUTS at n_warmup=1000]
 - Diagonal MCLMC (`mclmc_tuning`): fails catastrophically at all warmup budgets.
   The trajectory length L cannot compensate for the rotational mismatch.
   Plateau confirmed at `n_warmup=100k`: R-hat oscillates 1.05–1.07, ESS≈135.
   See `recipes/failed__mclmc__mclmc_tuning.json` for the full attempted-configurations
   ladder.
+  [boundary: FAIL confirmed up to n_warmup=100k; no warmup budget recovers this — geometry is the blocker]
 
 ### LRD MCLMC pipeline (ill_cond_50, k=40)
 **NUTS pilot → SVD extraction → `make_lrd_kernel` → `mclmc_find_L_and_step_size`**
@@ -45,6 +48,7 @@ relative to the coordinate axes**, so any diagonal mass matrix is misaligned.
 Result: R-hat=1.0039, ESS=1993.3, ESS/grad=0.2492, PASS (statistician independent
 run, seed=98765). Multi-seed hardening at seeds 11111/22222/33333 all PASS
 (ESS 1944–2030). 426× ESS/grad improvement over the diagonal MCLMC baseline.
+[boundary: PASS holds at k=40, n_warmup=1000 (pilot), avg=2; FAIL at k=10/20 (see integrator ladder); nearest FAIL: k=20 is REVIEW, k=10 is FAIL; this is the lowest-headroom PASS in the catalog]
 
 **Headroom note (k=40 truncation).** This certified PASS is the lowest-headroom PASS in the catalog. Rank k=40 captures ~92% of the Frobenius norm of Σ, leaving the lowest-eigenvalue rotated axes under-preconditioned — so visually subpar mixing along the stiff axes is consistent with the truncation, **not** a regression. The integrator ladder below shows the gap explicitly: k=40 internal LRD minESS 2079 vs dense Cholesky oracle minESS 2244. The lever to close it is **richer preconditioning (higher LRD rank k)**, NOT longer trajectory length — ill_cond_50 is the geometry-opposite case that wants SHORT L (avg=2). Quantifying the k=50/60→dense headroom is the open #22 Lever-2 probe.
 
@@ -79,6 +83,16 @@ set. A NUTS pilot run is the minimum viable geometry-discovery step. See
   See `recipes/failed__adjusted_mclmc__adjusted_mclmc_tuning.json`.
 - `adjusted_mclmc_dynamic` + `adjusted_mclmc_tuning`: **FAIL**.
   See `recipes/failed__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json`.
+- `hmc` + any IMM (dense, diag, low_rank): **FAIL** (fixed-L resonance trap: L×ε≈2π kills mixing).
+  See `recipes/failed__hmc__window_adaptation_dense_imm.json`, `failed__hmc__window_adaptation_diag_imm.json`, `failed__hmc__window_adaptation_low_rank_imm.json`.
+- `dynamic_hmc` + `window_adaptation_diag_imm`: **FAIL** (diag IMM misaligned to rotated axes).
+  See `recipes/failed__dynamic_hmc__window_adaptation_diag_imm.json`.
+- `dmhmc` + `window_adaptation_diag_imm`: **FAIL** (same root cause as dynamic_hmc+diag).
+  See `recipes/failed__dmhmc__window_adaptation_diag_imm.json`.
+- `laplace_*` + `window_adaptation_low_rank_imm`: **FAIL** (all four laplace variants).
+  See `recipes/failed__laplace_hmc__window_adaptation_low_rank_imm.json` etc.
+
+Recorded FAILs not discussed above: failed__dmhmc__window_adaptation_dense_imm.json (old Phase 3c/4 attempt; a later n_warmup=1000 attempt PASSes as low__dmhmc__window_adaptation_dense_imm.json), failed__dynamic_hmc__window_adaptation_dense_imm.json (old attempt; later PASS exists as low__dynamic_hmc__window_adaptation_dense_imm.json).
 
 ## Recipe regen (ill_cond_50 LRD, pilot-path calibration)
 
@@ -124,6 +138,7 @@ Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 s
 **Lesson:** avg=2 is optimal. Every step increasing avg monotonically degrades ESS and inflates 2nd-moment bias
 (0.183 → 1.016), both bias and mbias_sd rising systematically across seeds. Longer trajectories overshoot the
 rotated-but-not-funnel geometry; the avg=2 default is tuned correctly for LRD-MCLMC on this model.
+[boundary: avg=2 optimality holds for LRD-MCLMC (k=40) on ill_cond_50; banana geometry-opposite: requires avg≥18 to PASS; do not transfer this rule to curved/funnel models]
 
 See `catalog/mclmc-scaling-laws.md` §3 for generalized principles (why stiff/rotated models want SHORT L, etc.).
 
