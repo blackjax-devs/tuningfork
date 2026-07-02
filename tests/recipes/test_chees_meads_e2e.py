@@ -30,9 +30,13 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.e2e
+# Not a blanket module-level pytestmark: the emit_low_recipe_for_cell tests
+# are phase-level gates (warmup + sampling + auto-gate, >10s) -> e2e; the
+# _reduce_and_broadcast_warmup_output unit test is pure array math (<100ms)
+# -> fast. Marked individually below.
 
 
+@pytest.mark.e2e
 def test_chees_dynamic_hmc_e2e_no_crash(tmp_path: Path) -> None:
     """emit_low_recipe_for_cell(mvn_10, chees, dynamic_hmc) runs to completion.
 
@@ -67,3 +71,144 @@ def test_chees_dynamic_hmc_e2e_no_crash(tmp_path: Path) -> None:
         assert "Error" not in (
             result.note or ""
         ), f"FAIL note looks crash-derived, not gate-derived: {result.note}"
+
+
+@pytest.mark.e2e
+def test_meads_ghmc_e2e_no_crash(tmp_path: Path) -> None:
+    """emit_low_recipe_for_cell(mvn_10, meads, ghmc) runs to completion.
+
+    Regression guard for bug 1 (MEADS identical-init NaN, see
+    warmup/meads.py's _replicate_with_init_jitter) and for the GHMC
+    momentum_inverse_scale/inverse_mass_matrix kwarg-name mismatch:
+    blackjax.ghmc.as_top_level_api has no inverse_mass_matrix parameter at
+    all (no **kwargs catch-all either) -- the generic dispatch
+    (_build_vmapped_inference) unconditionally called
+    base_method.factory(..., inverse_mass_matrix=imm, ...) for every
+    sampler, which TypeErrors immediately for ghmc. MEADS's adapted_params
+    also uses the key "momentum_inverse_scale", not "inverse_mass_matrix",
+    so batched_params.get("inverse_mass_matrix") returned None before the
+    kwarg-name TypeError was even reached. Both defects are independent of
+    the 5 statistician-diagnosed items and block MEADS+GHMC unconditionally
+    (any warmup paired with ghmc would hit the kwarg-name mismatch).
+
+    Uses num_chains=16 (not the recipe-runner default of 4): MEADS requires
+    num_chains // num_folds >= 2 to have any within-fold cross-chain
+    dispersion to estimate (see warmup/meads.py ENTRY.notes) -- an honest
+    reflection of the algorithm's structural requirement, not gate-gaming.
+    """
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    result = emit_low_recipe_for_cell(
+        "mvn_10",
+        "meads",
+        "ghmc",
+        n_warmup=50,
+        n_samples=50,
+        num_chains=16,
+        catalog_root=tmp_path,
+        verbose=False,
+    )
+    assert result.verdict in ("PASS", "REVIEW", "FAIL"), (
+        f"Expected an honest gate verdict, got {result.verdict!r} "
+        f"(note={result.note!r})"
+    )
+    if result.verdict == "FAIL":
+        assert "NaN" not in (result.note or "") and "Error" not in (
+            result.note or ""
+        ), f"FAIL note looks crash/NaN-derived, not gate-derived: {result.note}"
+
+
+@pytest.mark.e2e
+def test_meads_recipe_pins_inverse_mass_matrix(tmp_path: Path) -> None:
+    """A PASS/REVIEW MEADS recipe must pin a real (non-null) inverse_mass_matrix.
+
+    Regression guard for the momentum_inverse_scale -> inverse_mass_matrix
+    alias: the recipe-schema emission code
+    (imm_raw = batched_params.get("inverse_mass_matrix", None)) reads the
+    canonical key. Before the alias, this returned None for MEADS -- any
+    emitted MEADS recipe would have silently pinned a NULL mass matrix.
+    Runs at a generous n_warmup so the cell has a realistic chance to reach
+    PASS/REVIEW (where a recipe is actually emitted); skips the pin
+    assertion on FAIL since no recipe is written in that case.
+    """
+    import json
+
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    result = emit_low_recipe_for_cell(
+        "mvn_10",
+        "meads",
+        "ghmc",
+        n_warmup=1000,
+        n_samples=1000,
+        num_chains=64,
+        catalog_root=tmp_path,
+        verbose=False,
+    )
+    if result.verdict == "FAIL":
+        pytest.skip(
+            f"Gate FAIL at this seed/config ({result.note}); no recipe emitted "
+            "to check -- tuning for PASS is a later statistician pass, not "
+            "this wiring test's job."
+        )
+    recipe_path = tmp_path / "mvn_10" / "recipes" / "low__ghmc__meads.json"
+    assert recipe_path.exists(), f"Expected recipe at {recipe_path}"
+    recipe = json.loads(recipe_path.read_text())
+    imm = recipe["base_method_params"].get("inverse_mass_matrix")
+    assert imm is not None, (
+        "MEADS recipe pinned a null inverse_mass_matrix -- the "
+        "momentum_inverse_scale alias regressed."
+    )
+
+
+@pytest.mark.fast
+def test_reduce_and_broadcast_key_name_aware_for_meads() -> None:
+    """HARD-KEEP regression guard for bug 5: reduce-broadcast is key-name-aware.
+
+    _reduce_and_broadcast_warmup_output (used by run_recipe_to_idata's
+    warmup_num_chains adapt-many/sample-few path) hardcoded
+    warmup_params["inverse_mass_matrix"] -- a KeyError on MEADS's
+    "momentum_inverse_scale" key. Detect whichever key is present and
+    reduce+broadcast under that SAME key name (the caller applies the
+    momentum_inverse_scale -> inverse_mass_matrix alias afterward).
+    """
+    import jax.numpy as jnp
+
+    from tuningfork.recipes._recipe_runner import _reduce_and_broadcast_warmup_output
+
+    # MEADS-shaped warmup_params: momentum_inverse_scale, not inverse_mass_matrix.
+    num_warmup_chains, num_sampling_chains, d = 16, 4, 5
+    warmup_state = {"position": jnp.zeros((num_warmup_chains, d))}
+    warmup_params = {
+        "step_size": jnp.linspace(0.1, 0.2, num_warmup_chains),
+        "momentum_inverse_scale": jnp.ones((num_warmup_chains, d)) * 2.0,
+        "alpha": jnp.full((num_warmup_chains,), 0.5),
+        "delta": jnp.full((num_warmup_chains,), 0.25),
+    }
+    broadcasted_state, broadcasted_params = _reduce_and_broadcast_warmup_output(
+        warmup_state, warmup_params, num_warmup_chains, num_sampling_chains
+    )
+    assert "momentum_inverse_scale" in broadcasted_params, (
+        "Expected the reduce step to preserve the momentum_inverse_scale key "
+        f"name; got keys: {list(broadcasted_params)}"
+    )
+    assert "inverse_mass_matrix" not in broadcasted_params, (
+        "reduce_and_broadcast should not invent an inverse_mass_matrix key "
+        "when the input was keyed momentum_inverse_scale -- that alias is "
+        "the caller's job."
+    )
+    reduced_imm = jnp.asarray(broadcasted_params["momentum_inverse_scale"])
+    assert reduced_imm.shape == (num_sampling_chains, d)
+    assert bool(jnp.allclose(reduced_imm, 2.0))
+
+    # Sibling check: standard inverse_mass_matrix-keyed input still works
+    # (no regression for window_adaptation-style warmups).
+    warmup_params_std = {
+        "step_size": jnp.linspace(0.1, 0.2, num_warmup_chains),
+        "inverse_mass_matrix": jnp.ones((num_warmup_chains, d)) * 3.0,
+    }
+    _, broadcasted_std = _reduce_and_broadcast_warmup_output(
+        warmup_state, warmup_params_std, num_warmup_chains, num_sampling_chains
+    )
+    assert "inverse_mass_matrix" in broadcasted_std
+    assert bool(jnp.allclose(jnp.asarray(broadcasted_std["inverse_mass_matrix"]), 3.0))

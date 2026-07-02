@@ -914,15 +914,27 @@ def _build_vmapped_inference(
         return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
 
     else:
-        # Default path: HMC / NUTS / MALA / Barker / mclmc(rerun) / etc.
+        # Default path: HMC / NUTS / MALA / Barker / mclmc(rerun) / GHMC / etc.
         # When "L" in per_chain_param_keys and batched_L is None (rerun), L is
         # already a scalar in shared_kwargs — handled correctly by this branch.
+        # blackjax.ghmc names its mass-matrix-like factory kwarg
+        # momentum_inverse_scale (no inverse_mass_matrix parameter at all, no
+        # **kwargs catch-all) — every other kernel here accepts
+        # inverse_mass_matrix.  batched_imm itself already holds the right
+        # VALUES for either name (see the momentum_inverse_scale ->
+        # inverse_mass_matrix alias applied to batched_params right after the
+        # MEADS warmup call); only the kwarg NAME differs at this call site.
+        _imm_kwarg_name = (
+            "momentum_inverse_scale"
+            if base_method.name == "ghmc"
+            else "inverse_mass_matrix"
+        )
 
         def _step_one_chain(state: Any, key: Any, step_size: Any, imm: Any) -> Any:
             kernel_step = base_method.factory(
                 logdensity_fn,
                 step_size=step_size,
-                inverse_mass_matrix=imm,
+                **{_imm_kwarg_name: imm},
                 **shared_kwargs,
             ).step
             return kernel_step(key, state)
@@ -1353,6 +1365,21 @@ def emit_low_recipe_for_cell(
     # dispatch latency only (potentially 100× less than actual compute time).
     jax.block_until_ready((batched_state, batched_params))
     t_warmup = time.perf_counter() - t_warmup0
+
+    # MEADS returns its adapted mass-matrix-like parameter under the key
+    # "momentum_inverse_scale" (blackjax.ghmc's own factory kwarg name), not
+    # the generic "inverse_mass_matrix" key every other per-chain-param-
+    # carrying warmup uses. Alias it so all downstream generic code (NaN/Inf
+    # guard, per-chain extraction, gate diagnostics, recipe-schema emission)
+    # keeps working uniformly off "inverse_mass_matrix" without needing a
+    # per-warmup branch at every one of those call sites. The literal
+    # "momentum_inverse_scale" kwarg name is still used at the actual
+    # blackjax.ghmc(...) factory call (see _build_vmapped_inference).
+    if (
+        "momentum_inverse_scale" in batched_params
+        and "inverse_mass_matrix" not in batched_params
+    ):
+        batched_params["inverse_mass_matrix"] = batched_params["momentum_inverse_scale"]
 
     step_size_arr = batched_params.get("step_size", None)
     if step_size_arr is not None:
@@ -2000,7 +2027,19 @@ def _reduce_and_broadcast_warmup_output(
     """
     # Reduce params to scalar via arithmetic mean (on-device, no host materialization).
     mean_step_size = jnp.mean(warmup_params["step_size"])
-    mean_imm = jnp.mean(warmup_params["inverse_mass_matrix"], axis=0)
+    # The mass-matrix-like param is keyed "inverse_mass_matrix" for most
+    # warmups, but MEADS uses "momentum_inverse_scale" (blackjax.ghmc's own
+    # factory kwarg name) -- this function runs on the RAW warmup.runner(...)
+    # output, before the momentum_inverse_scale -> inverse_mass_matrix alias
+    # applied by the caller, so detect whichever key is actually present
+    # rather than hardcoding one. Reduce+broadcast under the SAME key name it
+    # arrived under, so the caller's downstream alias step still finds it.
+    _imm_key = (
+        "inverse_mass_matrix"
+        if "inverse_mass_matrix" in warmup_params
+        else "momentum_inverse_scale"
+    )
+    mean_imm = jnp.mean(warmup_params[_imm_key], axis=0)
 
     # Broadcast shared params to S sampling chains.
     broad_step_size = jnp.broadcast_to(mean_step_size[None], (num_sampling_chains,))
@@ -2010,7 +2049,7 @@ def _reduce_and_broadcast_warmup_output(
     broadcasted_params = {
         **warmup_params,
         "step_size": broad_step_size,
-        "inverse_mass_matrix": broad_imm,
+        _imm_key: broad_imm,
     }
 
     # Replicate position: sampling chain s starts at warmup endpoint s % W.
@@ -2597,6 +2636,18 @@ def run_recipe_to_idata(
         params_override=_recipe_params_override,
         step_policy_from_transform=False,
     )
+
+    # MEADS returns its adapted mass-matrix-like parameter under the key
+    # "momentum_inverse_scale" (blackjax.ghmc's own factory kwarg name);
+    # _build_shared_kwargs above is IMM-key-name-agnostic (doesn't need this),
+    # but the direct dict access right below does -- alias it to the generic
+    # "inverse_mass_matrix" key. Same alias as emit_low_recipe_for_cell — see
+    # that call site's comment for the full rationale.
+    if (
+        "momentum_inverse_scale" in batched_params
+        and "inverse_mass_matrix" not in batched_params
+    ):
+        batched_params["inverse_mass_matrix"] = batched_params["momentum_inverse_scale"]
 
     batched_step_size = batched_params["step_size"]
     batched_imm = batched_params["inverse_mass_matrix"]
