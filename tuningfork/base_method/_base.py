@@ -207,6 +207,33 @@ class BaseMethod:
 
     # ---- optional fields ----
     needs_mass_matrix: bool = False
+    imm_kwarg_name: str = "inverse_mass_matrix"
+    """Name of the factory kwarg that receives the adapted mass-matrix-like
+    parameter.  Every kernel in the registry accepts ``inverse_mass_matrix``
+    EXCEPT ``blackjax.ghmc``, which names it ``momentum_inverse_scale`` (no
+    ``inverse_mass_matrix`` parameter at all, no ``**kwargs`` catch-all).
+
+    Single source of truth for that one exception: the generic dispatch
+    (``_build_vmapped_inference`` in ``_recipe_runner.py``) reads this field
+    instead of hardcoding the kwarg name or special-casing
+    ``base_method.name == "ghmc"``, so the translation lives in exactly one
+    place rather than being duplicated at every call site that builds a
+    factory call (the emit-script generator, ``_emit/_sampler.py``, has its
+    own independent translation for the reproduction-script code path).
+
+    ``batched_params`` (the warmup's raw adapted-param dict) is ALSO keyed by
+    this name — e.g. MEADS's adapted_params has a ``"momentum_inverse_scale"``
+    key, not ``"inverse_mass_matrix"`` — so this same field doubles as the
+    dict key to read the per-chain value from, in addition to naming the
+    kernel-factory kwarg.
+
+    TODO(descriptor-driven): ``_emit/_sampler.py:258`` (the emit-script /
+    reproduction-script generator) still has its own independent
+    ``momentum_inverse_scale=inverse_mass_matrix`` translation for ghmc,
+    predating this field. Consolidating it to read ``imm_kwarg_name`` too is
+    a follow-up, not done in this pass (that code path works and is
+    out of scope here).
+    """
     target_acceptance_rate: float | None = None
     notes: str = ""
     # ---- grad-count convention string (for headline_basis.grad_count_convention) ----

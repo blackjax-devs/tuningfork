@@ -169,9 +169,11 @@ def test_reduce_and_broadcast_key_name_aware_for_meads() -> None:
     _reduce_and_broadcast_warmup_output (used by run_recipe_to_idata's
     warmup_num_chains adapt-many/sample-few path) hardcoded
     warmup_params["inverse_mass_matrix"] -- a KeyError on MEADS's
-    "momentum_inverse_scale" key. Detect whichever key is present and
-    reduce+broadcast under that SAME key name (the caller applies the
-    momentum_inverse_scale -> inverse_mass_matrix alias afterward).
+    "momentum_inverse_scale" key. Fixed via an explicit imm_kwarg_name
+    parameter (callers pass base_method.imm_kwarg_name -- the single source
+    of truth on the BaseMethod descriptor, ghmc: "momentum_inverse_scale",
+    everything else: the default "inverse_mass_matrix") rather than sniffing
+    which key is present; reduce+broadcast happens under that key name.
     """
     import jax.numpy as jnp
 
@@ -187,7 +189,11 @@ def test_reduce_and_broadcast_key_name_aware_for_meads() -> None:
         "delta": jnp.full((num_warmup_chains,), 0.25),
     }
     broadcasted_state, broadcasted_params = _reduce_and_broadcast_warmup_output(
-        warmup_state, warmup_params, num_warmup_chains, num_sampling_chains
+        warmup_state,
+        warmup_params,
+        num_warmup_chains,
+        num_sampling_chains,
+        imm_kwarg_name="momentum_inverse_scale",
     )
     assert "momentum_inverse_scale" in broadcasted_params, (
         "Expected the reduce step to preserve the momentum_inverse_scale key "
@@ -195,15 +201,15 @@ def test_reduce_and_broadcast_key_name_aware_for_meads() -> None:
     )
     assert "inverse_mass_matrix" not in broadcasted_params, (
         "reduce_and_broadcast should not invent an inverse_mass_matrix key "
-        "when the input was keyed momentum_inverse_scale -- that alias is "
-        "the caller's job."
+        "when told imm_kwarg_name=momentum_inverse_scale."
     )
     reduced_imm = jnp.asarray(broadcasted_params["momentum_inverse_scale"])
     assert reduced_imm.shape == (num_sampling_chains, d)
     assert bool(jnp.allclose(reduced_imm, 2.0))
 
-    # Sibling check: standard inverse_mass_matrix-keyed input still works
-    # (no regression for window_adaptation-style warmups).
+    # Sibling check: standard inverse_mass_matrix-keyed input still works via
+    # the default imm_kwarg_name (no regression for window_adaptation-style
+    # warmups, which don't pass imm_kwarg_name explicitly).
     warmup_params_std = {
         "step_size": jnp.linspace(0.1, 0.2, num_warmup_chains),
         "inverse_mass_matrix": jnp.ones((num_warmup_chains, d)) * 3.0,
@@ -228,6 +234,8 @@ def test_chees_own_trajectory_length_threaded_into_shared_kwargs() -> None:
     omits it, and shared_kwargs overwrote it unconditionally. This test
     proves the fix by identity: shared_kwargs["integration_steps_fn"] must
     literally BE the callable CHEES returned, not a fresh V0-default closure.
+    Gated on the explicit warmup_name="chees" kwarg (not batched_params
+    sniffing) per TL review -- explicit identity preferred when reachable.
     """
     import jax
 
@@ -255,6 +263,7 @@ def test_chees_own_trajectory_length_threaded_into_shared_kwargs() -> None:
         None,  # warmup_inner_kernel
         None,  # step_policy
         None,  # params_override
+        warmup_name="chees",
     )
     assert (
         shared_kwargs["integration_steps_fn"] is adapted_params["integration_steps_fn"]
@@ -287,9 +296,10 @@ def test_chees_reinit_preserves_random_generator_arg_counter() -> None:
     dynamic_hmc.halton_sequence(random_generator_arg, max_bits) internally,
     which raises ValueError("Invalid integer data type 'O'") on a PRNGKey.
     Reinit-by-default would silently clobber the correct counter with the
-    wrong type. This test proves the fix: the reinit-skip path (detected via
-    "integration_steps_fn" in batched_params) preserves CHEES's own counter
-    bit-for-bit rather than replacing it with reinit_key.
+    wrong type. This test proves the fix: the reinit-skip path (gated on the
+    explicit warmup_name="chees" kwarg, not batched_params sniffing, per TL
+    review) preserves CHEES's own counter bit-for-bit rather than replacing
+    it with reinit_key.
     """
     import jax
 
@@ -323,7 +333,14 @@ def test_chees_reinit_preserves_random_generator_arg_counter() -> None:
     )
 
     shared_kwargs, _ = _build_shared_kwargs(
-        base_method, "dynamic_hmc", adapted_params, None, None, None, None
+        base_method,
+        "dynamic_hmc",
+        adapted_params,
+        None,
+        None,
+        None,
+        None,
+        warmup_name="chees",
     )
     reinit_keys = jax.random.split(jax.random.key(1234), 4)
     run_states = _reinit_batched_state(
@@ -337,7 +354,7 @@ def test_chees_reinit_preserves_random_generator_arg_counter() -> None:
         shared_kwargs=shared_kwargs,
         laplace_log_joint_fn=None,
         laplace_theta_init=None,
-        batched_params=adapted_params,
+        warmup_name="chees",
     )
     assert bool(
         (run_states.random_generator_arg == states.random_generator_arg).all()
