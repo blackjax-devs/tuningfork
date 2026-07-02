@@ -1369,10 +1369,20 @@ def emit_low_recipe_for_cell(
     # `LowRankInverseMassMatrix` NamedTuple with sigma/U/lam fields of
     # heterogeneous shapes) can't be `np.asarray`-ed as a single tensor; flatten
     # via `jax.tree.leaves` so each leaf is checked individually.
+    # Some warmups (CHEES) legitimately carry Python callables among their
+    # adapted_params leaves (next_random_arg_fn, integration_steps_fn) — a
+    # callable is a pytree leaf like any other non-container object, but it is
+    # not finite-checkable: np.asarray(callable) yields an object-dtype array,
+    # and np.isfinite raises TypeError on object dtype. Skip callables and any
+    # other non-numeric leaf rather than erroring on them.
     for k, v in batched_params.items():
         leaves = jax.tree.leaves(v)
         for i, leaf in enumerate(leaves):
+            if callable(leaf):
+                continue
             arr = np.asarray(leaf)
+            if not np.issubdtype(arr.dtype, np.number):
+                continue
             if not np.all(np.isfinite(arr)):
                 leaf_id = k if len(leaves) == 1 else f"{k}[leaf={i}]"
                 note = f"FAIL warmup produced NaN/Inf in {leaf_id}"
