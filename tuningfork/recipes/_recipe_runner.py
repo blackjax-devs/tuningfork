@@ -687,15 +687,48 @@ def _build_shared_kwargs(
     # dynamic_hmc / dmhmc: strip int NIS; inject integration_steps_fn callable.
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
-        shared_kwargs["integration_steps_fn"] = build_step_policy(
-            _effective_step_policy
-        )
+        # ChEES (warmup="chees") adapts its OWN trajectory-length distribution
+        # -- integration_steps_fn / next_random_arg_fn / integration_steps_params
+        # -- and hands it back in batched_params (upstream chees_adaptation.run()'s
+        # own docstring: `blackjax.dhmc(logdensity_fn, **parameters).step`). Using
+        # the V0 default step_policy instead (build_step_policy(None) ->
+        # `lambda key: randint(1, 10)`) would silently discard the entire point of
+        # ChEES-HMC and test dynamic_hmc-with-random-L instead. Detect via key
+        # presence (only chees's warmup emits this key) rather than warmup_name so
+        # this also covers the rerun path, which re-executes warmup.runner(...)
+        # and gets a fresh, real ChEES-adapted callable/params pair.
+        _chees_step_fn = batched_params.get("integration_steps_fn")
+        if _chees_step_fn is not None:
+            shared_kwargs["integration_steps_fn"] = _chees_step_fn
+            if "next_random_arg_fn" in batched_params:
+                shared_kwargs["next_random_arg_fn"] = batched_params[
+                    "next_random_arg_fn"
+                ]
+            if "integration_steps_params" in batched_params:
+                shared_kwargs["integration_steps_params"] = batched_params[
+                    "integration_steps_params"
+                ]
+        else:
+            shared_kwargs["integration_steps_fn"] = build_step_policy(
+                _effective_step_policy
+            )
 
     # Apply caller-specific overrides (emit: sampler_kwargs_override; rerun: recipe params).
     # _RECIPE_PROVENANCE_KEYS are baked into base_method_params for consumers but must
     # never reach the kernel factory (blackjax.mclmc rejects unknown kwargs).
+    # next_random_arg_fn / integration_steps_params are ChEES's own callable/param
+    # pair, threaded from batched_params above -- never let a params_override
+    # (JSON-derived; can't carry a real callable) clobber them.
     _EXCLUDE = (
-        frozenset(("step_size", "inverse_mass_matrix", "integration_steps_fn"))
+        frozenset(
+            (
+                "step_size",
+                "inverse_mass_matrix",
+                "integration_steps_fn",
+                "next_random_arg_fn",
+                "integration_steps_params",
+            )
+        )
         | _RECIPE_PROVENANCE_KEYS
     )
     if params_override:
@@ -718,6 +751,7 @@ def _reinit_batched_state(
     shared_kwargs: dict[str, Any],
     laplace_log_joint_fn: Any,
     laplace_theta_init: Any,
+    batched_params: dict[str, Any] | None = None,
 ) -> Any:
     """Per-chain .init() for samplers whose state type differs from warmup output.
 
@@ -727,9 +761,34 @@ def _reinit_batched_state(
       - mclmc dynamic (reinit_state=True, "L" in per_chain_param_keys):
         builds DynamicHMCState with per-chain L (emit, batched_L not None) or
         scalar L in shared_kwargs (rerun, batched_L=None).
+      - ChEES + dynamic_hmc (reinit_state=True, "integration_steps_fn" in
+        batched_params): SKIPS reinit -- see below.
       - other reinit_state=True kernels (dynamic_hmc, dmhmc):
         builds DynamicHMCState without L.
       - reinit_state=False: returns batched_state unchanged.
+
+    ChEES special case
+    -------------------
+    dynamic_hmc.reinit_state=True exists because MOST warmups that pair with
+    dynamic_hmc (e.g. window_adaptation) produce a plain HMCState, which lacks
+    the random_generator_arg field DynamicHMCState needs -- reinit via
+    kernel.init(position, reinit_key) is required to add it.  ChEES is the
+    exception: its own AdaptationResults.state (returned here as
+    batched_state) is ALREADY a correctly-shaped DynamicHMCState, with
+    random_generator_arg an INTEGER counter (ChEES inits it at 0, increments
+    by 1 each adaptation step) -- NOT a PRNGKey.  Reinit via
+    kernel.init(position, reinit_key) would silently overwrite that counter
+    with reinit_key (a raw PRNGKey, per blackjax.dynamic_hmc.init's own
+    pass_rng_key_to_init=True convention), which is the WRONG TYPE for
+    ChEES's adapted integration_steps_fn: it calls
+    dynamic_hmc.halton_sequence(random_generator_arg, max_bits) internally,
+    which shape-mismatches on a PRNGKey. Detected via
+    "integration_steps_fn" in batched_params (a signal only chees's warmup
+    wrapper emits) rather than warmup_name, so it also covers the rerun path
+    (which re-executes warmup.runner and gets a fresh batched_params).
+    Matches upstream chees_adaptation.run()'s own documented usage:
+    `blackjax.dhmc(logdensity_fn, **parameters).step` applied directly to
+    `last_states` (== batched_state here), not to a freshly re-init'd state.
     """
     # Data-driven dispatch via registry descriptors (T2.3).
     _is_laplace_reinit = "log_joint_fn" in base_method.extra_required_kwargs
@@ -738,9 +797,22 @@ def _reinit_batched_state(
         and "L" in base_method.per_chain_param_keys
         and not _is_laplace_reinit
     )
-    _is_dyn_reinit = (
-        base_method.reinit_state and not _is_laplace_reinit and not _is_mclmc_dyn_reinit
+    _is_chees_dyn_reinit = (
+        base_method.reinit_state
+        and not _is_laplace_reinit
+        and not _is_mclmc_dyn_reinit
+        and batched_params is not None
+        and "integration_steps_fn" in batched_params
     )
+    _is_dyn_reinit = (
+        base_method.reinit_state
+        and not _is_laplace_reinit
+        and not _is_mclmc_dyn_reinit
+        and not _is_chees_dyn_reinit
+    )
+
+    if _is_chees_dyn_reinit:
+        return batched_state
 
     _lljf = laplace_log_joint_fn
     _lti = laplace_theta_init
@@ -1493,6 +1565,7 @@ def emit_low_recipe_for_cell(
         shared_kwargs=shared_kwargs,
         laplace_log_joint_fn=laplace_log_joint_fn,
         laplace_theta_init=laplace_theta_init,
+        batched_params=batched_params,
     )
 
     # --- Build vmapped inference algorithm via shared helper (T2.3: descriptor-driven) ---
@@ -1729,10 +1802,23 @@ def emit_low_recipe_for_cell(
     # are functionally equivalent given the deterministic seed + per-chain key.
     _log(f"  Building {effort.value.upper()} recipe...")
     # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
-    # pinned params — it is reconstructed at recipe-run time via step_policy spec.
+    # pinned params — it is reconstructed at recipe-run time via step_policy spec
+    # (or, for ChEES, by re-executing the warmup, which is real, not JSON-pinned).
+    # next_random_arg_fn is ChEES's callable counterpart (same reasoning).
+    # integration_steps_params is a tuple wrapping a JAX array (not a bare
+    # array), so _to_jsonable's top-level-only coercion would leave a raw
+    # jax.Array nested inside a tuple -> json.dump TypeError; it is also
+    # regenerated fresh on every rerun (the warmup re-executes), so pinning
+    # it would be redundant even if it were serialisable.
     # Also exclude prior_cov / prior_mean: they are stored on the Posterior entry
     # and do not need to be pinned per-recipe (they are read at run time).
-    _NON_SERIALISABLE_KEYS = {"integration_steps_fn", "prior_cov", "prior_mean"}
+    _NON_SERIALISABLE_KEYS = {
+        "integration_steps_fn",
+        "next_random_arg_fn",
+        "integration_steps_params",
+        "prior_cov",
+        "prior_mean",
+    }
     pinned_params: dict[str, Any] = {
         k: v for k, v in shared_kwargs.items() if k not in _NON_SERIALISABLE_KEYS
     }
@@ -2670,6 +2756,7 @@ def run_recipe_to_idata(
         shared_kwargs=shared_kwargs,
         laplace_log_joint_fn=laplace_log_joint_fn,
         laplace_theta_init=laplace_theta_init,
+        batched_params=batched_params,
     )
 
     # --- Build vmapped inference algorithm via shared helper (T2.3: descriptor-driven) ---

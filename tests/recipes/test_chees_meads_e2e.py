@@ -33,7 +33,8 @@ import pytest
 # Not a blanket module-level pytestmark: the emit_low_recipe_for_cell tests
 # are phase-level gates (warmup + sampling + auto-gate, >10s) -> e2e; the
 # _reduce_and_broadcast_warmup_output unit test is pure array math (<100ms)
-# -> fast. Marked individually below.
+# -> fast; the _build_shared_kwargs/_reinit_batched_state unit tests are
+# single JAX-compiled warmup calls (<5s) -> slow. Marked individually below.
 
 
 @pytest.mark.e2e
@@ -212,3 +213,135 @@ def test_reduce_and_broadcast_key_name_aware_for_meads() -> None:
     )
     assert "inverse_mass_matrix" in broadcasted_std
     assert bool(jnp.allclose(jnp.asarray(broadcasted_std["inverse_mass_matrix"]), 3.0))
+
+
+@pytest.mark.slow
+def test_chees_own_trajectory_length_threaded_into_shared_kwargs() -> None:
+    """HARD-KEEP regression guard for bug 4 (item 4, the design-not-mechanical one).
+
+    Before the fix, _build_shared_kwargs unconditionally set
+    integration_steps_fn = build_step_policy(_effective_step_policy); for
+    chees, _effective_step_policy is None -> build_step_policy(None) returns
+    the V0 library default (`lambda key: randint(1, 10)`). CHEES's OWN
+    adapted integration_steps_fn (the entire point of ChEES-HMC) was
+    computed, pinned in adapted_params, and never read -- per_chain_param_keys
+    omits it, and shared_kwargs overwrote it unconditionally. This test
+    proves the fix by identity: shared_kwargs["integration_steps_fn"] must
+    literally BE the callable CHEES returned, not a fresh V0-default closure.
+    """
+    import jax
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+    from tuningfork.recipes._recipe_runner import _build_shared_kwargs
+    from tuningfork.warmup.chees import ENTRY as CHEES_ENTRY
+
+    key = jax.random.key(555)
+    init_pos, logdensity_fn, _ = build_logdensity_fn(key, MODELS["mvn_10"])
+    _, adapted_params = CHEES_ENTRY.runner(
+        jax.random.fold_in(key, 1),
+        init_pos,
+        100,
+        BASE_METHODS["dynamic_hmc"],
+        logdensity_fn=logdensity_fn,
+        num_chains=4,
+    )
+    shared_kwargs, _ = _build_shared_kwargs(
+        BASE_METHODS["dynamic_hmc"],
+        "dynamic_hmc",
+        adapted_params,
+        None,  # batched_warmup_info
+        None,  # warmup_inner_kernel
+        None,  # step_policy
+        None,  # params_override
+    )
+    assert (
+        shared_kwargs["integration_steps_fn"] is adapted_params["integration_steps_fn"]
+    ), (
+        "shared_kwargs['integration_steps_fn'] is not CHEES's own adapted "
+        "callable -- the V0 build_step_policy(None) default leaked back in."
+    )
+    assert (
+        shared_kwargs["next_random_arg_fn"] is adapted_params["next_random_arg_fn"]
+    ), "next_random_arg_fn was not threaded through alongside integration_steps_fn."
+    assert (
+        shared_kwargs["integration_steps_params"]
+        == adapted_params["integration_steps_params"]
+    ), "integration_steps_params was not threaded through."
+
+
+@pytest.mark.slow
+def test_chees_reinit_preserves_random_generator_arg_counter() -> None:
+    """HARD-KEEP: dynamic_hmc reinit must be SKIPPED for chees, not applied.
+
+    dynamic_hmc.reinit_state=True exists because most dynamic_hmc-pairing
+    warmups produce a plain HMCState lacking random_generator_arg -- reinit
+    via kernel.init(position, reinit_key) is required to add it, and that
+    call sets random_generator_arg = reinit_key (a raw PRNGKey, per
+    blackjax.dynamic_hmc.init's pass_rng_key_to_init=True convention).
+    CHEES is the exception: its own AdaptationResults.state is ALREADY a
+    correctly-shaped DynamicHMCState with random_generator_arg as an
+    INTEGER counter (CHEES inits it at 0, increments by 1 per adaptation
+    step) -- CHEES's adapted integration_steps_fn calls
+    dynamic_hmc.halton_sequence(random_generator_arg, max_bits) internally,
+    which raises ValueError("Invalid integer data type 'O'") on a PRNGKey.
+    Reinit-by-default would silently clobber the correct counter with the
+    wrong type. This test proves the fix: the reinit-skip path (detected via
+    "integration_steps_fn" in batched_params) preserves CHEES's own counter
+    bit-for-bit rather than replacing it with reinit_key.
+    """
+    import jax
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.model import MODELS
+    from tuningfork.model._numpyro import build_logdensity_fn
+    from tuningfork.recipes._recipe_runner import (
+        _build_shared_kwargs,
+        _reinit_batched_state,
+    )
+    from tuningfork.warmup.chees import ENTRY as CHEES_ENTRY
+
+    key = jax.random.key(9)
+    init_pos, logdensity_fn, _ = build_logdensity_fn(key, MODELS["mvn_10"])
+    base_method = BASE_METHODS["dynamic_hmc"]
+    states, adapted_params = CHEES_ENTRY.runner(
+        jax.random.fold_in(key, 1),
+        init_pos,
+        50,
+        base_method,
+        logdensity_fn=logdensity_fn,
+        num_chains=4,
+    )
+    # Sanity: CHEES's own counter is an int32 array (== n_warmup after 50
+    # +1-increments from init_random_arg=0), NOT a PRNGKey.
+    import jax.numpy as jnp
+
+    assert jnp.issubdtype(states.random_generator_arg.dtype, jnp.integer), (
+        f"Expected CHEES's random_generator_arg to be an integer counter, "
+        f"got dtype {states.random_generator_arg.dtype}"
+    )
+
+    shared_kwargs, _ = _build_shared_kwargs(
+        base_method, "dynamic_hmc", adapted_params, None, None, None, None
+    )
+    reinit_keys = jax.random.split(jax.random.key(1234), 4)
+    run_states = _reinit_batched_state(
+        states,
+        adapted_params["step_size"],
+        adapted_params["inverse_mass_matrix"],
+        None,
+        reinit_keys,
+        logdensity_fn=logdensity_fn,
+        base_method=base_method,
+        shared_kwargs=shared_kwargs,
+        laplace_log_joint_fn=None,
+        laplace_theta_init=None,
+        batched_params=adapted_params,
+    )
+    assert bool(
+        (run_states.random_generator_arg == states.random_generator_arg).all()
+    ), (
+        "_reinit_batched_state overwrote CHEES's own random_generator_arg "
+        "counter -- reinit was NOT skipped for the chees+dynamic_hmc case."
+    )
