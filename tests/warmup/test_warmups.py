@@ -1264,6 +1264,37 @@ class TestCheesMultiChain:
             params["_chees_max_leapfrog_steps"], int
         ), "_chees_max_leapfrog_steps must be a Python int"
 
+    def test_target_acceptance_rate_none_falls_back_to_default(self) -> None:
+        """HARD-KEEP: target_acceptance_rate=None must NOT reach upstream chees_adaptation.
+
+        The generic recipe-runner dispatch (_recipe_runner.py) always forwards
+        target_acceptance_rate explicitly, including None when the caller supplied
+        no override (the emit default is None, not "omit the kwarg").  Before the
+        fix, a plain typed default on this wrapper did nothing once None was passed
+        in, and `target_acceptance_rate - harmonic_mean` TypeErrored deep inside
+        chees_adaptation.py.  Regression guard: pass None explicitly and confirm
+        (a) no crash, (b) the sidecar records the CHEES default (0.651), not None.
+        """
+        from tuningfork.warmup.chees import _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE, ENTRY
+
+        key = jax.random.key(7008)
+        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
+        _, params = ENTRY.runner(
+            jax.random.fold_in(key, 1),
+            init_pos,
+            50,
+            _DYNAMIC_HMC,
+            logdensity_fn=logdensity_fn,
+            num_chains=4,
+            target_acceptance_rate=None,
+        )
+        assert params["_chees_target_acceptance_rate"] == pytest.approx(
+            _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE
+        ), (
+            "target_acceptance_rate=None must fall back to the CHEES default, "
+            f"got {params['_chees_target_acceptance_rate']}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 16. adjusted_mclmc_tuning warmup — SLOW (chain-running tests only)

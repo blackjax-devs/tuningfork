@@ -114,7 +114,7 @@ def _runner(
     logdensity_fn: Any,
     num_chains: int = 4,
     step_size: float = _DEFAULT_CHEES_STEP_SIZE,
-    target_acceptance_rate: float = _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE,
+    target_acceptance_rate: float | None = _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE,
     max_leapfrog_steps: int = _DEFAULT_CHEES_MAX_LEAPFROG_STEPS,
     optim_learning_rate: float = _DEFAULT_CHEES_OPTIM_LR,
     **kwargs: Any,
@@ -192,11 +192,23 @@ def _runner(
     ``integration_steps_fn``) are Python functions returned by CHEES and are
     passed through to the downstream kernel factory unchanged.
     """
+    # The generic recipe-runner dispatch (_recipe_runner.py) always forwards
+    # target_acceptance_rate explicitly, including None when the caller has no
+    # override — the emit default is None, not "omit the kwarg".  A plain typed
+    # default only helps direct callers; it does nothing once None is passed in.
+    # Fall back to the CHEES default the same way _window_adaptation_common.py:92
+    # falls back for window_adaptation, so a None reaching this wrapper never
+    # propagates to upstream chees_adaptation.py, where
+    # `target_acceptance_rate - harmonic_mean` would TypeError on None.
+    _target_acceptance_rate = (
+        target_acceptance_rate or _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE
+    )
+
     # Build CHEES adaptation object
     chees = blackjax.chees_adaptation(
         logdensity_fn,
         num_chains,
-        target_acceptance_rate=target_acceptance_rate,
+        target_acceptance_rate=_target_acceptance_rate,
         max_leapfrog_steps=max_leapfrog_steps,
     )
 
@@ -250,7 +262,7 @@ def _runner(
         "integration_steps_fn": raw_params["integration_steps_fn"],
         "integration_steps_params": raw_params["integration_steps_params"],
         # Sidecar metadata
-        "_chees_target_acceptance_rate": float(target_acceptance_rate),
+        "_chees_target_acceptance_rate": float(_target_acceptance_rate),
         "_chees_max_leapfrog_steps": int(max_leapfrog_steps),
     }
 
