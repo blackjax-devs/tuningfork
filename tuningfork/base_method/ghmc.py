@@ -58,8 +58,16 @@ ENTRY = BaseMethod(
         HyperparamSpace("delta", "uniform", low=0.0, high=1.0),
     ),
     needs_mass_matrix=True,  # momentum_inverse_scale comes from MEADS, not BO
+    imm_kwarg_name="momentum_inverse_scale",  # blackjax.ghmc's own factory kwarg name;
+    # no inverse_mass_matrix parameter at all, no **kwargs catch-all. See
+    # BaseMethod.imm_kwarg_name docstring for the single-source-of-truth rationale.
     target_acceptance_rate=0.65,  # Beskos et al. optimal ≈ 0.65 (same as HMC)
     # T2.3 descriptors: step_size + imm per-chain from MEADS warmup.
+    # NOTE: "inverse_mass_matrix" here is the semantic category marker the
+    # emit-script generator's _needs_imm() checks for (_emit/_sampler.py:71),
+    # NOT the literal batched_params key or factory kwarg name -- that
+    # translation is imm_kwarg_name above. Do not "fix" this to
+    # "momentum_inverse_scale"; it would break _needs_imm() for ghmc.
     per_chain_param_keys=("step_size", "inverse_mass_matrix"),
     reinit_state=False,  # GHMCState from MEADS is directly usable by the sampling kernel.
     # (Note: the audit suggested reinit_state=True for ghmc, but the current runner

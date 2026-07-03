@@ -644,6 +644,7 @@ def _build_shared_kwargs(
     params_override: dict[str, Any] | None,
     *,
     step_policy_from_transform: bool = True,
+    warmup_name: str | None = None,
 ) -> tuple[dict[str, Any], Any]:
     """Build per-step kernel kwargs shared by emit and rerun.
 
@@ -654,6 +655,9 @@ def _build_shared_kwargs(
     step_policy_from_transform=False (rerun) keeps the pinned recipe step_policy
     and discards any spec the transform would derive from the warmup trace,
     ensuring rerun reproduces the stored recipe exactly even when step_policy=None.
+    ``warmup_name`` gates the ChEES trajectory-length threading below (explicit
+    warmup identity, preferred over sniffing batched_params when reachable at
+    the call site -- both emit and rerun callers have it).
     Returns (shared_kwargs, effective_step_policy).
     """
     default_params = default_params_for(base_method)
@@ -687,15 +691,49 @@ def _build_shared_kwargs(
     # dynamic_hmc / dmhmc: strip int NIS; inject integration_steps_fn callable.
     if sampler_name in ("dynamic_hmc", "dmhmc"):
         shared_kwargs.pop("num_integration_steps", None)
-        shared_kwargs["integration_steps_fn"] = build_step_policy(
-            _effective_step_policy
-        )
+        # ChEES (warmup="chees") adapts its OWN trajectory-length distribution
+        # -- integration_steps_fn / next_random_arg_fn / integration_steps_params
+        # -- and hands it back in batched_params (upstream chees_adaptation.run()'s
+        # own docstring: `blackjax.dhmc(logdensity_fn, **parameters).step`). Using
+        # the V0 default step_policy instead (build_step_policy(None) ->
+        # `lambda key: randint(1, 10)`) would silently discard the entire point of
+        # ChEES-HMC and test dynamic_hmc-with-random-L instead. Gated on the
+        # explicit warmup_name identity (both emit and rerun callers thread
+        # it through) rather than sniffing batched_params for
+        # "integration_steps_fn" -- explicit is preferred when reachable.
+        if warmup_name == "chees":
+            shared_kwargs["integration_steps_fn"] = batched_params[
+                "integration_steps_fn"
+            ]
+            if "next_random_arg_fn" in batched_params:
+                shared_kwargs["next_random_arg_fn"] = batched_params[
+                    "next_random_arg_fn"
+                ]
+            if "integration_steps_params" in batched_params:
+                shared_kwargs["integration_steps_params"] = batched_params[
+                    "integration_steps_params"
+                ]
+        else:
+            shared_kwargs["integration_steps_fn"] = build_step_policy(
+                _effective_step_policy
+            )
 
     # Apply caller-specific overrides (emit: sampler_kwargs_override; rerun: recipe params).
     # _RECIPE_PROVENANCE_KEYS are baked into base_method_params for consumers but must
     # never reach the kernel factory (blackjax.mclmc rejects unknown kwargs).
+    # next_random_arg_fn / integration_steps_params are ChEES's own callable/param
+    # pair, threaded from batched_params above -- never let a params_override
+    # (JSON-derived; can't carry a real callable) clobber them.
     _EXCLUDE = (
-        frozenset(("step_size", "inverse_mass_matrix", "integration_steps_fn"))
+        frozenset(
+            (
+                "step_size",
+                "inverse_mass_matrix",
+                "integration_steps_fn",
+                "next_random_arg_fn",
+                "integration_steps_params",
+            )
+        )
         | _RECIPE_PROVENANCE_KEYS
     )
     if params_override:
@@ -718,6 +756,7 @@ def _reinit_batched_state(
     shared_kwargs: dict[str, Any],
     laplace_log_joint_fn: Any,
     laplace_theta_init: Any,
+    warmup_name: str | None = None,
 ) -> Any:
     """Per-chain .init() for samplers whose state type differs from warmup output.
 
@@ -727,9 +766,34 @@ def _reinit_batched_state(
       - mclmc dynamic (reinit_state=True, "L" in per_chain_param_keys):
         builds DynamicHMCState with per-chain L (emit, batched_L not None) or
         scalar L in shared_kwargs (rerun, batched_L=None).
+      - ChEES + dynamic_hmc (reinit_state=True, warmup_name == "chees"):
+        SKIPS reinit -- see below.
       - other reinit_state=True kernels (dynamic_hmc, dmhmc):
         builds DynamicHMCState without L.
       - reinit_state=False: returns batched_state unchanged.
+
+    ChEES special case
+    -------------------
+    dynamic_hmc.reinit_state=True exists because MOST warmups that pair with
+    dynamic_hmc (e.g. window_adaptation) produce a plain HMCState, which lacks
+    the random_generator_arg field DynamicHMCState needs -- reinit via
+    kernel.init(position, reinit_key) is required to add it.  ChEES is the
+    exception: its own AdaptationResults.state (returned here as
+    batched_state) is ALREADY a correctly-shaped DynamicHMCState, with
+    random_generator_arg an INTEGER counter (ChEES inits it at 0, increments
+    by 1 each adaptation step) -- NOT a PRNGKey.  Reinit via
+    kernel.init(position, reinit_key) would silently overwrite that counter
+    with reinit_key (a raw PRNGKey, per blackjax.dynamic_hmc.init's own
+    pass_rng_key_to_init=True convention), which is the WRONG TYPE for
+    ChEES's adapted integration_steps_fn: it calls
+    dynamic_hmc.halton_sequence(random_generator_arg, max_bits) internally,
+    which shape-mismatches on a PRNGKey. Gated on the explicit warmup_name
+    identity (both call sites -- emit and rerun -- thread it through) rather
+    than sniffing batched_params for "integration_steps_fn"; explicit is
+    preferred over sniffing when the identity is reachable at the call site.
+    Matches upstream chees_adaptation.run()'s own documented usage:
+    `blackjax.dhmc(logdensity_fn, **parameters).step` applied directly to
+    `last_states` (== batched_state here), not to a freshly re-init'd state.
     """
     # Data-driven dispatch via registry descriptors (T2.3).
     _is_laplace_reinit = "log_joint_fn" in base_method.extra_required_kwargs
@@ -738,9 +802,21 @@ def _reinit_batched_state(
         and "L" in base_method.per_chain_param_keys
         and not _is_laplace_reinit
     )
-    _is_dyn_reinit = (
-        base_method.reinit_state and not _is_laplace_reinit and not _is_mclmc_dyn_reinit
+    _is_chees_dyn_reinit = (
+        base_method.reinit_state
+        and not _is_laplace_reinit
+        and not _is_mclmc_dyn_reinit
+        and warmup_name == "chees"
     )
+    _is_dyn_reinit = (
+        base_method.reinit_state
+        and not _is_laplace_reinit
+        and not _is_mclmc_dyn_reinit
+        and not _is_chees_dyn_reinit
+    )
+
+    if _is_chees_dyn_reinit:
+        return batched_state
 
     _lljf = laplace_log_joint_fn
     _lti = laplace_theta_init
@@ -914,15 +990,19 @@ def _build_vmapped_inference(
         return _SamplingAlgorithm(lambda pos, key=None: pos, _vmapped_step_gf)
 
     else:
-        # Default path: HMC / NUTS / MALA / Barker / mclmc(rerun) / etc.
+        # Default path: HMC / NUTS / MALA / Barker / mclmc(rerun) / GHMC / etc.
         # When "L" in per_chain_param_keys and batched_L is None (rerun), L is
         # already a scalar in shared_kwargs — handled correctly by this branch.
+        # base_method.imm_kwarg_name is the single source of truth for the
+        # mass-matrix-like factory kwarg name (blackjax.ghmc calls it
+        # momentum_inverse_scale; everything else calls it inverse_mass_matrix).
+        _imm_kwarg_name = base_method.imm_kwarg_name
 
         def _step_one_chain(state: Any, key: Any, step_size: Any, imm: Any) -> Any:
             kernel_step = base_method.factory(
                 logdensity_fn,
                 step_size=step_size,
-                inverse_mass_matrix=imm,
+                **{_imm_kwarg_name: imm},
                 **shared_kwargs,
             ).step
             return kernel_step(key, state)
@@ -1369,10 +1449,20 @@ def emit_low_recipe_for_cell(
     # `LowRankInverseMassMatrix` NamedTuple with sigma/U/lam fields of
     # heterogeneous shapes) can't be `np.asarray`-ed as a single tensor; flatten
     # via `jax.tree.leaves` so each leaf is checked individually.
+    # Some warmups (CHEES) legitimately carry Python callables among their
+    # adapted_params leaves (next_random_arg_fn, integration_steps_fn) — a
+    # callable is a pytree leaf like any other non-container object, but it is
+    # not finite-checkable: np.asarray(callable) yields an object-dtype array,
+    # and np.isfinite raises TypeError on object dtype. Skip callables and any
+    # other non-numeric leaf rather than erroring on them.
     for k, v in batched_params.items():
         leaves = jax.tree.leaves(v)
         for i, leaf in enumerate(leaves):
+            if callable(leaf):
+                continue
             arr = np.asarray(leaf)
+            if not np.issubdtype(arr.dtype, np.number):
+                continue
             if not np.all(np.isfinite(arr)):
                 leaf_id = k if len(leaves) == 1 else f"{k}[leaf={i}]"
                 note = f"FAIL warmup produced NaN/Inf in {leaf_id}"
@@ -1404,6 +1494,7 @@ def emit_low_recipe_for_cell(
         warmup_inner_kernel,
         step_policy,
         params_override=sampler_kwargs_override,
+        warmup_name=warmup_name,
     )
 
     # Compute step_policy to persist HERE (before any early returns) so that
@@ -1417,8 +1508,10 @@ def emit_low_recipe_for_cell(
     # Extract per-chain warmup params.  Gradient-free / no-adapted-params samplers
     # (elliptical_slice, rwm in no_warmup) return empty batched_params from no_warmup
     # — they have no step_size or IMM; the helper detects this via per_chain_param_keys=().
+    # base_method.imm_kwarg_name is the single source of truth for the dict key
+    # (MEADS/ghmc: "momentum_inverse_scale"; everything else: "inverse_mass_matrix").
     batched_step_size = batched_params.get("step_size")
-    batched_imm = batched_params.get("inverse_mass_matrix")
+    batched_imm = batched_params.get(base_method.imm_kwarg_name)
 
     if is_elliptical_slice:
         # B3 (Phase 8B.3): prior kwargs go into shared_kwargs so the factory
@@ -1456,6 +1549,7 @@ def emit_low_recipe_for_cell(
         shared_kwargs=shared_kwargs,
         laplace_log_joint_fn=laplace_log_joint_fn,
         laplace_theta_init=laplace_theta_init,
+        warmup_name=warmup_name,
     )
 
     # --- Build vmapped inference algorithm via shared helper (T2.3: descriptor-driven) ---
@@ -1692,10 +1786,23 @@ def emit_low_recipe_for_cell(
     # are functionally equivalent given the deterministic seed + per-chain key.
     _log(f"  Building {effort.value.upper()} recipe...")
     # Exclude integration_steps_fn (callable; not JSON-serialisable) from the
-    # pinned params — it is reconstructed at recipe-run time via step_policy spec.
+    # pinned params — it is reconstructed at recipe-run time via step_policy spec
+    # (or, for ChEES, by re-executing the warmup, which is real, not JSON-pinned).
+    # next_random_arg_fn is ChEES's callable counterpart (same reasoning).
+    # integration_steps_params is a tuple wrapping a JAX array (not a bare
+    # array), so _to_jsonable's top-level-only coercion would leave a raw
+    # jax.Array nested inside a tuple -> json.dump TypeError; it is also
+    # regenerated fresh on every rerun (the warmup re-executes), so pinning
+    # it would be redundant even if it were serialisable.
     # Also exclude prior_cov / prior_mean: they are stored on the Posterior entry
     # and do not need to be pinned per-recipe (they are read at run time).
-    _NON_SERIALISABLE_KEYS = {"integration_steps_fn", "prior_cov", "prior_mean"}
+    _NON_SERIALISABLE_KEYS = {
+        "integration_steps_fn",
+        "next_random_arg_fn",
+        "integration_steps_params",
+        "prior_cov",
+        "prior_mean",
+    }
     pinned_params: dict[str, Any] = {
         k: v for k, v in shared_kwargs.items() if k not in _NON_SERIALISABLE_KEYS
     }
@@ -1715,7 +1822,11 @@ def emit_low_recipe_for_cell(
     jsonable_params = _to_jsonable(pinned_params)
 
     imm_arr: np.ndarray | None = None
-    imm_raw = batched_params.get("inverse_mass_matrix", None)
+    # Read from batched_params under base_method.imm_kwarg_name (the warmup's
+    # own key name), but the JSON schema field below stays the canonical
+    # "inverse_mass_matrix" regardless of which kernel produced it -- the
+    # recipe schema is a stable contract independent of kernel kwarg naming.
+    imm_raw = batched_params.get(base_method.imm_kwarg_name, None)
     if imm_raw is not None and hasattr(imm_raw, "_fields"):
         # Structured IMM (e.g., LowRankInverseMassMatrix NamedTuple).  Each
         # field is shape (num_chains, *event); pin chain 0 across all fields.
@@ -1959,6 +2070,7 @@ def _reduce_and_broadcast_warmup_output(
     warmup_params: dict[str, Any],
     num_warmup_chains: int,
     num_sampling_chains: int,
+    imm_kwarg_name: str = "inverse_mass_matrix",
 ) -> tuple[Any, dict[str, Any]]:
     """Reduce W warmup chains to shared params, broadcast to S sampling chains.
 
@@ -1966,7 +2078,8 @@ def _reduce_and_broadcast_warmup_output(
 
     The reduce step computes the arithmetic mean across the W warmup chains:
     - ``step_size``: scalar mean of the W per-chain step sizes.
-    - ``inverse_mass_matrix``: element-wise mean across W chains.
+    - the mass-matrix-like param (key given by ``imm_kwarg_name``):
+      element-wise mean across W chains.
 
     The broadcast step replicates the shared params to S copies.
     Position broadcast uses ``position[s % W]`` so each sampling chain
@@ -1982,6 +2095,12 @@ def _reduce_and_broadcast_warmup_output(
         W — number of warmup chains (leading dim of warmup_state).
     num_sampling_chains
         S — number of sampling chains to broadcast to.
+    imm_kwarg_name
+        Dict key of the mass-matrix-like param in ``warmup_params``.
+        Callers pass ``base_method.imm_kwarg_name`` (the single source of
+        truth for this key name — "inverse_mass_matrix" for most kernels,
+        "momentum_inverse_scale" for ghmc/MEADS). Default
+        ``"inverse_mass_matrix"`` for backward-compat direct callers.
 
     Returns
     -------
@@ -1990,7 +2109,7 @@ def _reduce_and_broadcast_warmup_output(
     """
     # Reduce params to scalar via arithmetic mean (on-device, no host materialization).
     mean_step_size = jnp.mean(warmup_params["step_size"])
-    mean_imm = jnp.mean(warmup_params["inverse_mass_matrix"], axis=0)
+    mean_imm = jnp.mean(warmup_params[imm_kwarg_name], axis=0)
 
     # Broadcast shared params to S sampling chains.
     broad_step_size = jnp.broadcast_to(mean_step_size[None], (num_sampling_chains,))
@@ -2000,7 +2119,7 @@ def _reduce_and_broadcast_warmup_output(
     broadcasted_params = {
         **warmup_params,
         "step_size": broad_step_size,
-        "inverse_mass_matrix": broad_imm,
+        imm_kwarg_name: broad_imm,
     }
 
     # Replicate position: sampling chain s starts at warmup endpoint s % W.
@@ -2328,10 +2447,13 @@ def run_recipe_to_idata(
         }
 
         # Build kernel (step_size/IMM don't affect .init; only used to instantiate)
+        # base_method.imm_kwarg_name: single source of truth for the factory
+        # kwarg name (ghmc: momentum_inverse_scale; everything else:
+        # inverse_mass_matrix) — see BaseMethod.imm_kwarg_name docstring.
         _skip_init_kernel = base_method.factory(
             logdensity_fn,
             step_size=_stored_ss,
-            inverse_mass_matrix=_stored_imm,
+            **{base_method.imm_kwarg_name: _stored_imm},
             **_skip_extra_kwargs,
         )
 
@@ -2355,10 +2477,13 @@ def run_recipe_to_idata(
 
             batched_state = _init_one_skip(_stationary_positions)
 
-        # Replicate stored params to (num_chains, ...) to match warmup output shape
+        # Replicate stored params to (num_chains, ...) to match warmup output shape.
+        # Keyed by base_method.imm_kwarg_name so the later generic extraction
+        # (batched_imm = batched_params[base_method.imm_kwarg_name]) finds it
+        # regardless of which code path populated batched_params.
         batched_params = {
             "step_size": jnp.full((num_chains,), _stored_ss),
-            "inverse_mass_matrix": jnp.broadcast_to(
+            base_method.imm_kwarg_name: jnp.broadcast_to(
                 _stored_imm[None], (num_chains,) + _stored_imm.shape
             ),
         }
@@ -2505,7 +2630,11 @@ def run_recipe_to_idata(
         _last_phase_W = _prev_phase_W
         if _last_phase_W != num_chains:
             batched_state, batched_params = _reduce_and_broadcast_warmup_output(
-                _prev_state, _prev_params_mp, _last_phase_W, num_chains
+                _prev_state,
+                _prev_params_mp,
+                _last_phase_W,
+                num_chains,
+                imm_kwarg_name=base_method.imm_kwarg_name,
             )
         else:
             batched_state = _prev_state
@@ -2527,7 +2656,11 @@ def run_recipe_to_idata(
         )
         if _single_W != num_chains:
             batched_state, batched_params = _reduce_and_broadcast_warmup_output(
-                _raw_state_ik, _raw_params_ik, _single_W, num_chains
+                _raw_state_ik,
+                _raw_params_ik,
+                _single_W,
+                num_chains,
+                imm_kwarg_name=base_method.imm_kwarg_name,
             )
         else:
             batched_state, batched_params = _raw_state_ik, _raw_params_ik
@@ -2555,7 +2688,11 @@ def run_recipe_to_idata(
         _raw_state_std, _raw_params_std = _std_result[0], _std_result[1]
         if _single_W != num_chains:
             batched_state, batched_params = _reduce_and_broadcast_warmup_output(
-                _raw_state_std, _raw_params_std, _single_W, num_chains
+                _raw_state_std,
+                _raw_params_std,
+                _single_W,
+                num_chains,
+                imm_kwarg_name=base_method.imm_kwarg_name,
             )
         else:
             batched_state, batched_params = _raw_state_std, _raw_params_std
@@ -2586,10 +2723,15 @@ def run_recipe_to_idata(
         recipe.step_policy,
         params_override=_recipe_params_override,
         step_policy_from_transform=False,
+        warmup_name=recipe.warmup_name,
     )
 
+    # base_method.imm_kwarg_name is the single source of truth for the dict
+    # key (MEADS/ghmc: "momentum_inverse_scale"; everything else:
+    # "inverse_mass_matrix"); _build_shared_kwargs above is IMM-key-name-
+    # agnostic (doesn't need this), but the direct dict access below does.
     batched_step_size = batched_params["step_size"]
-    batched_imm = batched_params["inverse_mass_matrix"]
+    batched_imm = batched_params[base_method.imm_kwarg_name]
 
     # --- Pre-scan init via shared helper (T2.3: descriptor-driven dispatch) ---
     # Laplace / dynamic_hmc / dmhmc / adjusted_mclmc_dynamic need a kernel-specific
@@ -2609,6 +2751,7 @@ def run_recipe_to_idata(
         shared_kwargs=shared_kwargs,
         laplace_log_joint_fn=laplace_log_joint_fn,
         laplace_theta_init=laplace_theta_init,
+        warmup_name=recipe.warmup_name,
     )
 
     # --- Build vmapped inference algorithm via shared helper (T2.3: descriptor-driven) ---

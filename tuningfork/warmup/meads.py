@@ -81,6 +81,51 @@ from tuningfork.warmup._base import Warmup, _maybe_replicate
 
 __all__ = ["ENTRY"]
 
+# Salt for deriving the init-jitter key from the caller's rng_key via fold_in,
+# keeping it independent of whatever sub-keys meads_adaptation.run() itself
+# splits off the SAME rng_key it is handed unchanged (see _runner below).
+_INIT_JITTER_SALT = 0x4EADD117
+_DEFAULT_INIT_JITTER_SCALE: float = 0.5
+
+
+def _replicate_with_init_jitter(
+    position: Any, num_chains: int, rng_key: jax.Array, jitter_scale: float
+) -> Any:
+    """Replicate ``position`` to ``(num_chains, ...)``, jittering a bit-identical broadcast.
+
+    MEADS's first adaptation iteration computes cross-chain dispersion
+    (``positions.std(axis=1)`` per fold) on the RAW pre-step positions to
+    estimate the maximum eigenvalue of the preconditioned gradient. When
+    ``_maybe_replicate`` broadcasts a single chain's position identically
+    across all ``num_chains`` (the common case: caller passes one chain's
+    worth of ``init_position``), that std is exactly 0 for every chain ->
+    0/0 in ``maximum_eigenvalue`` -> NaN, at any ``num_chains`` up to at
+    least 128 (confirmed empirically). Independent per-chain jitter fixes
+    this at the source, without touching ``_maybe_replicate`` itself (which
+    stays behavior-identical for every other warmup, including callers that
+    intentionally pre-batch a genuinely-diverse ``init_position``).
+
+    Only jitters when the caller did NOT pre-batch: if ``position`` already
+    has a leading dim of ``num_chains`` (per ``_maybe_replicate``'s own
+    detection), it is trusted to already carry meaningful per-chain
+    dispersion and is passed through via ``_maybe_replicate`` unchanged.
+    """
+    leaves = jax.tree.leaves(position)
+    is_pre_batched = (
+        bool(leaves) and bool(leaves[0].shape) and (leaves[0].shape[0] == num_chains)
+    )
+    replicated = _maybe_replicate(position, num_chains)
+    if is_pre_batched:
+        return replicated
+
+    rep_leaves, rep_treedef = jax.tree.flatten(replicated)
+    leaf_keys = jax.random.split(rng_key, len(rep_leaves))
+    jittered_leaves = [
+        leaf + jitter_scale * jax.random.normal(k, leaf.shape, dtype=leaf.dtype)
+        for leaf, k in zip(rep_leaves, leaf_keys)
+    ]
+    return jax.tree.unflatten(rep_treedef, jittered_leaves)
+
 
 def _runner(
     rng_key: jax.Array,
@@ -93,6 +138,7 @@ def _runner(
     num_folds: int = 4,
     step_size_multiplier: float = 0.5,
     damping_slowdown: float = 1.0,
+    init_jitter_scale: float = _DEFAULT_INIT_JITTER_SCALE,
     **kwargs: Any,
 ) -> tuple[Any, dict[str, Any]]:
     """Run ``blackjax.meads_adaptation`` over ``num_chains`` chains jointly.
@@ -105,11 +151,17 @@ def _runner(
     ----------
     rng_key
         JAX random key for the adaptation run.  Passed directly to
-        ``meads_adaptation.run``; split internally by MEADS.
+        ``meads_adaptation.run``; split internally by MEADS.  A distinct
+        sub-key (via ``fold_in``) is used to jitter a broadcast init; the
+        key handed to ``meads_adaptation.run`` itself is unchanged.
     init_position
         Initial unconstrained parameter dict/array (one chain's worth).
         Replicated across ``num_chains`` via ``_maybe_replicate`` unless the
-        caller pre-batches with a leading dim of ``num_chains``.
+        caller pre-batches with a leading dim of ``num_chains``.  When
+        replicated (not pre-batched), a small independent per-chain jitter
+        is applied (see ``init_jitter_scale``) — MEADS's first adaptation
+        iteration divides by cross-chain position std, which is exactly 0
+        for a bit-identical broadcast.
     n_warmup
         Number of adaptation steps.
     base_method
@@ -127,6 +179,13 @@ def _runner(
         initial step size.  See upstream ``blackjax.meads_adaptation`` docs.
     damping_slowdown
         Slows down the damping adaptation.  See upstream docs.
+    init_jitter_scale
+        Standard deviation of the independent Gaussian jitter applied to a
+        broadcast (non-pre-batched) init position, per chain.  Default
+        ``0.5`` — MEADS's cross-chain std/eigenvalue estimate is otherwise
+        exactly 0 at iteration 0, producing NaN (see ``init_position``
+        above).  Has no effect when the caller pre-batches ``init_position``
+        with genuinely diverse per-chain values.
     **kwargs
         Additional keyword arguments (ignored; kept for API uniformity).
 
@@ -169,8 +228,13 @@ def _runner(
     # Replicate init_position to (num_chains, *leaf.shape); pass-through if pre-batched.
     # _maybe_replicate preserves the pytree structure (dict, array, etc.) — MEADS .run()
     # accepts any ArrayLikeTree with a leading num_chains dimension, matching the
-    # logdensity_fn signature.
-    init_positions = _maybe_replicate(init_position, num_chains)
+    # logdensity_fn signature.  A broadcast (non-pre-batched) init is additionally
+    # jittered per chain (see _replicate_with_init_jitter docstring: MEADS's own
+    # first-iteration cross-chain std/eigenvalue estimate is 0/0-NaN otherwise).
+    _jitter_key = jax.random.fold_in(rng_key, _INIT_JITTER_SALT)
+    init_positions = _replicate_with_init_jitter(
+        init_position, num_chains, _jitter_key, init_jitter_scale
+    )
 
     # Run MEADS: single call handles all num_chains chains jointly.
     # Returns (AdaptationResults, AdaptationInfo).
@@ -232,6 +296,12 @@ ENTRY = Warmup(
         "Adapts step_size, momentum_inverse_scale, alpha, and delta jointly. "
         "GHMC-specific; not compatible with HMC, NUTS, or any other kernel. "
         "multi-chain by default (num_chains=4); adapted_params broadcast from "
-        "MEADS scalar output to (num_chains,) shape for contract uniformity."
+        "MEADS scalar output to (num_chains,) shape for contract uniformity. "
+        "CAUTION: at the DEFAULT num_chains=4/num_folds=4 (n_per_fold=1), MEADS's "
+        "cross-chain std within a fold is 0/0-NaN by construction (a single-sample "
+        "std has no variance to estimate, independent of init_jitter_scale) -- this "
+        "is distinct from the identical-init NaN that init_jitter_scale fixes. "
+        "MEADS needs num_chains large enough that num_chains // num_folds >= 2 "
+        "(recipe-generation practice: num_chains>=16) to adapt at all."
     ),
 )

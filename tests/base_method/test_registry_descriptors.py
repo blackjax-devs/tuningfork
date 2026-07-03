@@ -103,3 +103,22 @@ def test_entry_descriptors(name: str, expected: tuple) -> None:
         f"{name}.extra_kwarg_builder: expected is_none={exp_builder_none}, "
         f"got {entry.extra_kwarg_builder!r}"
     )
+
+
+# imm_kwarg_name: single source of truth for the factory-kwarg / batched_params
+# key that carries the adapted mass-matrix-like parameter. ghmc is the sole
+# exception (blackjax.ghmc calls it momentum_inverse_scale); every other entry
+# must keep the default "inverse_mass_matrix". A HARD-KEEP guard: silently
+# reverting ghmc's override (or adding a new mismatched kernel without setting
+# this field) would reintroduce the TypeError this field was added to fix.
+_IMM_KWARG_NAME_OVERRIDES: dict[str, str] = {"ghmc": "momentum_inverse_scale"}
+
+
+@pytest.mark.parametrize("name", sorted(BASE_METHODS.keys()))
+def test_imm_kwarg_name_matches_expected(name: str) -> None:
+    """Every entry's imm_kwarg_name is the default, except ghmc's override."""
+    entry = BASE_METHODS[name]
+    expected = _IMM_KWARG_NAME_OVERRIDES.get(name, "inverse_mass_matrix")
+    assert (
+        entry.imm_kwarg_name == expected
+    ), f"{name}.imm_kwarg_name: expected {expected!r}, got {entry.imm_kwarg_name!r}"
