@@ -47,6 +47,20 @@ Tests
         Single-chain samples (n_samples, dim) are reshaped into n_chunks for split-R̂.
 15. test_resolve_thresholds_high_correlation_tag
         Posterior with tags=("high-correlation",) → rhat_max review upper = 1.10.
+
+Dimension-aware (Šidák) PASS band — worklog/decisions/2026-07-03-dimension-aware-pass-band.md
+-----------------------------------------------------------------------------------------------
+17. test_sidak_t_pass_monotone_floor_cap
+        t_pass(d) non-decreasing in d; t_pass(1) == 2.0; capped at 4.0 for large d.
+18. test_sidak_t_pass_loosen_only
+        t_pass(d) >= 2.0 for d in a sweep 1..2000 (loosen-only invariant).
+19. test_sidak_t_pass_spot_values
+        Spot values from the decision doc table: d=10 → 2.80; d=50 → 3.28; d=200 → 3.66.
+20. test_dimension_aware_gate_verification_cases
+        The two empirical-trigger cells: max_abs_mean_z=2.036 at d=10 → PASS;
+        max_abs_mean_z=2.820 at d=10 → REVIEW.
+21. test_dimension_aware_gate_still_fails_genuine_bias
+        max_abs_mean_z >= 4.0 at any d → FAIL (the fixed FAIL boundary is untouched).
 """
 
 import math
@@ -61,6 +75,7 @@ from tuningfork.calibration.statistician_gate import (
     AutoGateVerdict,
     auto_gate,
     resolve_thresholds,
+    sidak_t_pass,
 )
 
 pytestmark = pytest.mark.fast
@@ -472,3 +487,154 @@ def test_per_dim_ess_not_global_min_for_z_se():
         f"max_abs_mean_z={verdict.max_abs_mean_z:.3f} unexpectedly large; "
         "per-dim ESS may have regressed to global-min logic."
     )
+
+
+# ---------------------------------------------------------------------------
+# Dimension-aware (Šidák) PASS band — helpers
+# ---------------------------------------------------------------------------
+
+
+def _calibrate_shift_for_max_z(
+    target_z: float,
+    *,
+    d: int,
+    n_chains: int,
+    n_draws: int,
+    seed: int,
+    n_iter: int = 60,
+) -> tuple[np.ndarray, dict]:
+    """Binary-search a mean-shift on dim 0 so ``auto_gate`` reports exactly
+    ``max_abs_mean_z == target_z`` on the real code path (not a hand-derived
+    SE formula — exercises ``auto_gate``'s actual per-dim-ESS/SE computation).
+
+    Returns ``(samples, gt)`` ready to feed into ``auto_gate``.
+    """
+    rng = np.random.RandomState(seed)
+    base = rng.normal(size=(n_chains, n_draws, d))
+    gt = {"x": {"mean": np.zeros(d), "std": np.ones(d), "n_samples": 100_000}}
+
+    def _max_z_at(shift: float) -> float:
+        samples = base.copy()
+        samples[:, :, 0] += shift
+        info = types.SimpleNamespace(
+            is_divergent=jnp.zeros((n_chains, n_draws), dtype=bool)
+        )
+        verdict = auto_gate({"x": samples}, info, ground_truth_summaries=gt)
+        assert verdict.max_abs_mean_z is not None
+        return verdict.max_abs_mean_z
+
+    lo, hi = 0.0, 1.0
+    while _max_z_at(hi) < target_z:
+        hi *= 2
+    for _ in range(n_iter):
+        mid = (lo + hi) / 2
+        if _max_z_at(mid) < target_z:
+            lo = mid
+        else:
+            hi = mid
+
+    samples = base.copy()
+    samples[:, :, 0] += hi
+    return samples, gt
+
+
+# ---------------------------------------------------------------------------
+# Test 17 — sidak_t_pass: monotone, floor, cap
+# ---------------------------------------------------------------------------
+
+
+def test_sidak_t_pass_monotone_floor_cap():
+    """t_pass(d) is non-decreasing in d; t_pass(1) == 2.0; capped at 4.0."""
+    assert sidak_t_pass(1) == 2.0
+    ds = [1, 2, 5, 10, 26, 50, 100, 200, 500, 1000, 1600, 5000]
+    values = [sidak_t_pass(d) for d in ds]
+    for prev, curr in zip(values, values[1:]):
+        assert curr >= prev - 1e-12, (prev, curr)
+    assert values[0] == 2.0
+    # Very high d hits the 4.0 cap.
+    assert sidak_t_pass(5000) == 4.0
+    assert sidak_t_pass(1_000_000) == 4.0
+
+
+# ---------------------------------------------------------------------------
+# Test 18 — loosen-only invariant: t_pass(d) >= 2.0 for all d
+# ---------------------------------------------------------------------------
+
+
+def test_sidak_t_pass_loosen_only():
+    """t_pass(d) >= 2.0 for all d in 1..2000 (loosen-only invariant).
+
+    This is the property that guarantees the dimension-aware band can only
+    ever widen the PASS region relative to the historical fixed PASS<2.0
+    boundary — no recipe that currently PASSes can regress to REVIEW/FAIL.
+    """
+    for d in range(1, 2001):
+        assert sidak_t_pass(d) >= 2.0, f"loosen-only invariant violated at d={d}"
+
+
+# ---------------------------------------------------------------------------
+# Test 19 — spot values from the decision doc table
+# ---------------------------------------------------------------------------
+
+
+def test_sidak_t_pass_spot_values():
+    """Spot values (worklog/decisions/2026-07-03-dimension-aware-pass-band.md)."""
+    assert sidak_t_pass(10) == pytest.approx(2.80, abs=1e-2)
+    assert sidak_t_pass(50) == pytest.approx(3.28, abs=1e-2)
+    assert sidak_t_pass(200) == pytest.approx(3.66, abs=1e-2)
+
+
+# ---------------------------------------------------------------------------
+# Test 20 — the two verification cases (empirical trigger)
+# ---------------------------------------------------------------------------
+
+
+def test_dimension_aware_gate_verification_cases():
+    """The two eight_schools_ncp-style cells from the decision doc:
+
+    - max_abs_mean_z = 2.036 at d=10 → PASS (2.036 < t_pass(10) = 2.80).
+    - max_abs_mean_z = 2.820 at d=10 → REVIEW (2.820 > t_pass(10), < 4.0).
+
+    Constructed via ``auto_gate`` on a synthetic 10-dim sample+ground-truth
+    pair (real code path), not a direct classification-helper unit test.
+    """
+    t_pass_10 = sidak_t_pass(10)
+    assert t_pass_10 == pytest.approx(2.80, abs=1e-2)
+
+    samples_pass, gt_pass = _calibrate_shift_for_max_z(
+        2.036, d=10, n_chains=4, n_draws=2000, seed=1
+    )
+    info = types.SimpleNamespace(is_divergent=jnp.zeros((4, 2000), dtype=bool))
+    verdict_pass = auto_gate({"x": samples_pass}, info, ground_truth_summaries=gt_pass)
+    assert verdict_pass.max_abs_mean_z == pytest.approx(2.036, abs=1e-6)
+    assert verdict_pass.verdict == "PASS"
+    assert verdict_pass.margins["max_abs_mean_z"]["band"] == "PASS"
+
+    samples_review, gt_review = _calibrate_shift_for_max_z(
+        2.820, d=10, n_chains=4, n_draws=2000, seed=1
+    )
+    verdict_review = auto_gate(
+        {"x": samples_review}, info, ground_truth_summaries=gt_review
+    )
+    assert verdict_review.max_abs_mean_z == pytest.approx(2.820, abs=1e-6)
+    assert verdict_review.verdict == "REVIEW"
+    assert verdict_review.margins["max_abs_mean_z"]["band"] == "REVIEW"
+
+
+# ---------------------------------------------------------------------------
+# Test 21 — genuine bias (z >= 4.0) still FAILs regardless of d
+# ---------------------------------------------------------------------------
+
+
+def test_dimension_aware_gate_still_fails_genuine_bias():
+    """A max z >= 4.0 still FAILs at any dimensionality (FAIL boundary untouched)."""
+    for d in (1, 10, 50):
+        samples, gt = _calibrate_shift_for_max_z(
+            4.5, d=d, n_chains=4, n_draws=2000, seed=2
+        )
+        info = types.SimpleNamespace(is_divergent=jnp.zeros((4, 2000), dtype=bool))
+        verdict = auto_gate({"x": samples}, info, ground_truth_summaries=gt)
+        assert verdict.max_abs_mean_z >= 4.0
+        assert (
+            verdict.verdict == "FAIL"
+        ), f"d={d} did not FAIL at z={verdict.max_abs_mean_z}"

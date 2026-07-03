@@ -41,6 +41,7 @@ Per-model threshold overrides are applied via ``Posterior.tags``; see
 import copy
 import math
 from dataclasses import dataclass
+from statistics import NormalDist
 
 import arviz as az
 import jax.numpy as jnp
@@ -51,6 +52,7 @@ __all__ = [
     "DEFAULT_THRESHOLDS",
     "auto_gate",
     "resolve_thresholds",
+    "sidak_t_pass",
 ]
 
 # ---------------------------------------------------------------------------
@@ -85,11 +87,67 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # else FAIL
     },
     "max_abs_mean_z": {
-        "pass": (0.0, 2.0),  # x < 2 → PASS
+        # NOTE: this fixed (0.0, 2.0) PASS band is the *d=1* special case of
+        # the dimension-aware Šidák band — see ``sidak_t_pass``.  ``auto_gate``
+        # overrides this "pass" tuple at call time with
+        # ``(0.0, sidak_t_pass(n_dims))`` before classifying, so the dict
+        # value here only matters when ``max_abs_mean_z`` is classified
+        # directly against ``DEFAULT_THRESHOLDS`` without going through
+        # ``auto_gate`` (e.g. ``resolve_thresholds`` callers, docs, tests).
+        # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+        "pass": (0.0, 2.0),  # x < 2 → PASS (d=1 case; d>1 loosens via Šidák)
         "review": (2.0, 4.0),  # 2 ≤ x < 4 → REVIEW
         # else FAIL
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Dimension-aware (Šidák) PASS band for max_abs_mean_z
+# ---------------------------------------------------------------------------
+
+
+def sidak_t_pass(n_dims: int, alpha: float = 0.05) -> float:
+    """Dimension-aware, loosen-only PASS threshold for ``max_abs_mean_z``.
+
+    ``max_abs_mean_z`` is a **max over ``n_dims`` per-dimension z-scores**.
+    Under a perfect sampler (H0), each z_i ~ |N(0,1)| and the max over
+    ``n_dims`` of them grows with ``n_dims`` (E[max] ≈ sqrt(2 log(2 * n_dims))).
+    A fixed PASS<2.0 band false-flags a perfect sampler with growing
+    probability as ``n_dims`` grows.  This computes the Šidák-corrected
+    per-comparison threshold for a family-wise ``alpha`` over ``n_dims``
+    independent comparisons, floored/capped to ``[2.0, 4.0]`` so the band
+    only ever *loosens* relative to the historical fixed PASS<2.0 boundary
+    and never crosses the fixed FAIL>=4.0 boundary.
+
+    See ``worklog/decisions/2026-07-03-dimension-aware-pass-band.md`` for the
+    derivation, the empirical trigger, and the full verification table.
+
+    Parameters
+    ----------
+    n_dims
+        Number of finite per-dimension z-scores the ``max_abs_mean_z`` max
+        was taken over.  Must be ``>= 1``.
+    alpha
+        Family-wise significance level.  Default ``0.05``.
+
+    Returns
+    -------
+    float
+        The PASS threshold ``t_pass(n_dims)``, in ``[2.0, 4.0]``.
+        ``sidak_t_pass(1) == 2.0`` exactly (recovers the historical fixed
+        band; continuity with today's gate).
+
+    Raises
+    ------
+    ValueError
+        If ``n_dims < 1``.
+    """
+    if n_dims < 1:
+        raise ValueError(f"n_dims must be >= 1, got {n_dims}")
+    p = (1.0 + (1.0 - alpha) ** (1.0 / n_dims)) / 2.0
+    t_pass = NormalDist().inv_cdf(p)
+    return float(min(max(t_pass, 2.0), 4.0))
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +561,11 @@ def auto_gate(
     # x: 10-D = 1 site × 10 dims) — uninformative.  See decision doc
     # 2026-05-28-max-abs-mean-z-threshold.md § Amendment.
     _frac_z2: float | None = None
+    # n_dims: count of finite per-dimension z-scores the max_abs_mean_z max is
+    # taken over (across all sites) — feeds the dimension-aware Šidák PASS
+    # band via sidak_t_pass(n_dims).  See
+    # worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+    _n_dims = 0
     if ground_truth_summaries is not None and mc_samples:
         z_values: list[float] = []
         # Per-dimension z-scores accumulated across all sites for frac_z2.
@@ -563,6 +626,7 @@ def auto_gate(
                     sum(1 for z in _all_z_dim_scores if z > 2.0)
                     / len(_all_z_dim_scores)
                 )
+                _n_dims = sum(1 for z in _all_z_dim_scores if math.isfinite(z))
 
     # --- Resonance warning (fixed-L HMC only; does not alter verdict) ---
     # True danger zones are the 2kπ resonances where fixed-L HMC exhibits
@@ -613,10 +677,22 @@ def auto_gate(
 
     # max_abs_mean_z
     if max_abs_mean_z is not None and "max_abs_mean_z" in thresholds:
-        band = _classify_metric(max_abs_mean_z, thresholds["max_abs_mean_z"])
-        margins["max_abs_mean_z"] = _build_margin(
-            max_abs_mean_z, thresholds["max_abs_mean_z"], band
-        )
+        z_bands = thresholds["max_abs_mean_z"]
+        if not vi_sampler_mode and _n_dims >= 1:
+            # Dimension-aware (Šidák), loosen-only PASS band: replace the
+            # fixed (0.0, 2.0) upper edge with sidak_t_pass(n_dims), which
+            # is >= 2.0 for all n_dims (floored) and <= 4.0 (capped) — so the
+            # PASS region only grows relative to the historical fixed band,
+            # never shrinks, and the FAIL >= 4.0 boundary is untouched.
+            # vi_sampler_mode uses its own dedicated pivotal-z band (z<4.0
+            # PASS, no FAIL) and is deliberately left alone here.
+            # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+            t_pass = sidak_t_pass(_n_dims)
+            z_bands = dict(z_bands)
+            z_bands["pass"] = (0.0, t_pass)
+            z_bands["review"] = (t_pass, z_bands.get("review", (2.0, 4.0))[1])
+        band = _classify_metric(max_abs_mean_z, z_bands)
+        margins["max_abs_mean_z"] = _build_margin(max_abs_mean_z, z_bands, band)
         if _frac_z2 is not None:
             # Secondary diagnostic: fraction of sites with |z| > 2.
             # Does NOT alter the verdict — purely informational for the statistician.
