@@ -478,6 +478,7 @@ def _regenerate_nuts(
         chain_stats,
         warmup_wall,
         sampling_wall,
+        telemetry_saturation,
     ) = certify_reference_nuts(
         entry,
         rng_key,
