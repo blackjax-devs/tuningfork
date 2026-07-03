@@ -31,6 +31,7 @@ This measures how well the momentum resampling explores the energy surface.
 
 import pickle
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,7 @@ from blackjax.util import run_inference_algorithm
 from jax.flatten_util import ravel_pytree
 
 from tuningfork.calibration._summary import Summaries, compute_summaries
+from tuningfork.calibration.telemetry_saturation import check_telemetry_saturation
 from tuningfork.model._base import Posterior, ReferenceMethod
 from tuningfork.model._numpyro import build_logdensity_fn
 
@@ -521,6 +523,7 @@ def certify_reference_nuts(
     dict[str, np.ndarray],
     float | None,
     float,
+    dict[str, object],
 ]:
     """Run long single-chain NUTS and certify the reference draws.
 
@@ -567,6 +570,11 @@ def certify_reference_nuts(
         ``None`` when ``pre_adapted`` was supplied (warmup was skipped).
     sampling_wall_seconds
         Wall seconds for the sampling phase (timed the same way).
+    telemetry_saturation
+        Dict from ``check_telemetry_saturation()`` with saturation diagnostics:
+        ``{saturated, modal_value, modal_mass, is_power2_minus1, n_unique}``.
+        Non-gating warning tripwire; raised via ``warnings.warn()`` if
+        ``saturated=True``.
 
     pre_adapted
         Optional pre-computed warmup output. When provided, the warmup phase
@@ -775,6 +783,28 @@ def certify_reference_nuts(
             # Skip fields that can't be converted to arrays
             pass
 
+    # --- Non-gating telemetry saturation check ---
+    # Detect if num_integration_steps is saturated/degenerate despite passing
+    # certification gates. This is a warning tripwire: "certified" = sample quality,
+    # not telemetry usability. See
+    # worklog/lessons/process/2026-07-03-cert-gate-blind-to-treedepth-saturation.md
+    telemetry_saturation: dict[str, object] = {}
+    if "num_integration_steps" in chain_stats:
+        telemetry_saturation = check_telemetry_saturation(
+            chain_stats["num_integration_steps"]
+        )
+        if telemetry_saturation["saturated"]:
+            warnings.warn(
+                f"Telemetry saturation detected in {entry.name}: "
+                f"num_integration_steps modal value {telemetry_saturation['modal_value']} "
+                f"has mass {telemetry_saturation['modal_mass']:.4f} "
+                f"(n_unique={telemetry_saturation['n_unique']}, "
+                f"is_power2_minus1={telemetry_saturation['is_power2_minus1']}). "
+                f"Certification gates passed, but trajectory telemetry may be censored.",
+                UserWarning,
+                stacklevel=2,
+            )
+
     # Reshape to (n_chunks, chunk_size, *site_shape) for split-R̂ and ESS
     chunk_size = n_samples // n_chunks
 
@@ -888,4 +918,13 @@ def certify_reference_nuts(
         xcheck_dir.mkdir(parents=True, exist_ok=True)
         xcheck.save(xcheck_dir / "xcheck.json")
 
-    return draws, summaries, adaptation, cert, chain_stats, _warmup_wall, _sampling_wall
+    return (
+        draws,
+        summaries,
+        adaptation,
+        cert,
+        chain_stats,
+        _warmup_wall,
+        _sampling_wall,
+        telemetry_saturation,
+    )

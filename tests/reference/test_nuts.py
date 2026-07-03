@@ -100,15 +100,33 @@ def smoke_cert_result():
         Summaries entry is ``None`` iff the gate raised (no summaries are
         computed on the failure path).
     """
+    import warnings
+
     key = jax.random.key(SMOKE_SEED)
     try:
-        draws, summaries, adaptation, cert, chain_stats = certify_reference_nuts(
-            ENTRY,
-            key,
-            n_warmup=SMOKE_N_WARMUP,
-            n_samples=SMOKE_N_SAMPLES,
-            n_chunks=SMOKE_N_CHUNKS,
-        )
+        # Suppress expected telemetry saturation warning at tiny sample size
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Telemetry saturation detected",
+                category=UserWarning,
+            )
+            (
+                draws,
+                summaries,
+                adaptation,
+                cert,
+                chain_stats,
+                _warmup_wall,
+                _sampling_wall,
+                _telemetry_saturation,
+            ) = certify_reference_nuts(
+                ENTRY,
+                key,
+                n_warmup=SMOKE_N_WARMUP,
+                n_samples=SMOKE_N_SAMPLES,
+                n_chunks=SMOKE_N_CHUNKS,
+            )
         return (draws, summaries, adaptation, cert, chain_stats)
     except CertificationError as exc:
         # Expected on the tiny config — gate threshold absolute, sample size below.
