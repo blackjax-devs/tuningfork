@@ -1,0 +1,149 @@
+{
+  "model_name": "german_credit",
+  "base_method_name": "dynamic_hmc",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 0.05602666735649109,
+    "inverse_mass_matrix": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "headline_metric": 0.04911227524280548,
+  "sample_quality": {
+    "mae_vs_reference": 0.051771834352806405,
+    "q05_error": 0.13337904105650036,
+    "q95_error": 0.11997588512638165,
+    "std_ratio_max_dev": 0.058202987621962965
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 5.819189928937703,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 3.12,
+    "sampling_wall_seconds": 0.967,
+    "sampling_seconds_per_draw": 0.000242,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-124-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev94+g8937e088b",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": null
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(chees, dynamic_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.05602666735649109, 'inverse_mass_matrix': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0491.\nWall time to produce this recipe: ~5 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 43112,
+    "min_bulk_ess": 2117.32841026783,
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "chees",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.651
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0027713480408351,
+      "min_bulk_ess": 2149.8637089474446,
+      "n_divergences": 0,
+      "max_abs_mean_z": 2.5077278497209754,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0027713480408351,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 2149.8637089474446,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 2.5077278497209754,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 3.094586540308519,
+          "review_lo": 3.094586540308519,
+          "review_hi": 4.0,
+          "frac_z2": 0.038461538461538464
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev82+gbb7a136e1.d20260702",
+  "blackjax_version": "1.6.dev94+g8937e088b",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-07-03T07:08:18Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}

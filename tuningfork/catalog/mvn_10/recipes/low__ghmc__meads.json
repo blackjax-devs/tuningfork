@@ -1,0 +1,135 @@
+{
+  "model_name": "mvn_10",
+  "base_method_name": "ghmc",
+  "effort": "low",
+  "base_method_params": {
+    "alpha": 0.5,
+    "delta": 0.5,
+    "step_size": 0.5463414788246155,
+    "inverse_mass_matrix": [
+      0.8763329386711121,
+      0.9390302300453186,
+      0.9341984391212463,
+      0.9281944036483765,
+      0.8107918500900269,
+      0.9855413436889648,
+      1.048703908920288,
+      0.8717113137245178,
+      0.9892526865005493,
+      0.824420154094696
+    ]
+  },
+  "headline_metric": 0.1839926540851593,
+  "sample_quality": {
+    "mae_vs_reference": 0.015860625503838675,
+    "q05_error": 0.05108724293782225,
+    "q95_error": 0.035443787811787975,
+    "std_ratio_max_dev": 0.012787961247083035
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 5.958399811992422,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 64,
+    "warmup_wall_seconds": 4.978,
+    "sampling_wall_seconds": 0.974,
+    "sampling_seconds_per_draw": 1.5e-05,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-124-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6.dev94+g8937e088b",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": null
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(meads, ghmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.ghmc(logdensity_fn, **{'alpha': 0.5, 'delta': 0.5, 'step_size': 0.5463414788246155, 'inverse_mass_matrix': [0.8763329386711121, 0.9390302300453186, 0.9341984391212463, 0.9281944036483765, 0.8107918500900269, 0.9855413436889648, 1.048703908920288, 0.8717113137245178, 0.9892526865005493, 0.824420154094696]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.1840.\nWall time to produce this recipe: ~5 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 64000,
+    "min_bulk_ess": 11775.529861450195,
+    "grad_count_convention": "1 (one leapfrog per step, constant)",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "meads",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 64,
+        "target_acceptance": 0.65
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0034860028404828,
+      "min_bulk_ess": 11811.096427595536,
+      "n_divergences": 0,
+      "max_abs_mean_z": 1.9109769105075625,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0034860028404828,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 11811.096427595536,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 1.9109769105075625,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.7996252193010864,
+          "review_lo": 2.7996252193010864,
+          "review_hi": 4.0,
+          "frac_z2": 0.0
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev82+gbb7a136e1.d20260702",
+  "blackjax_version": "1.6.dev94+g8937e088b",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-07-03T07:08:26Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
