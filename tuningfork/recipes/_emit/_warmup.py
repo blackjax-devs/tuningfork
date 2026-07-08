@@ -169,8 +169,12 @@ def _emit_window_adaptation(
         - ``window_adaptation_extra_kwargs``: extra kwargs before target
           (e.g. ``"is_mass_matrix_diagonal=False,"`` or ``"max_rank=N,"``).
         - ``num_chains``: number of chains (used for multichain path).
+        - ``warmup_progress_bar``: bool. Wraps the warmup run call in
+          ``with blackjax.progress_bar():``.
     multichain : bool
-        If True, emit multichain vmap path.  If False, emit single-chain path.
+        If True, emit multichain vmap path.  If False, emit single-chain path
+        (selected only via the independent ``warmup_num_chains=[1]`` knob —
+        avoids vmap-of-while_loop for expensive-logprob models).
     """
     lines: list[str] = []
     a = lines.append
@@ -182,6 +186,7 @@ def _emit_window_adaptation(
     warmup_extra_kwargs = ctx.get("warmup_extra_kwargs", "")
     wa_fn = ctx["window_adaptation_fn"]
     wa_extra = ctx["window_adaptation_extra_kwargs"]
+    warmup_progress_bar = ctx["warmup_progress_bar"]
 
     if multichain:
         a(
@@ -214,9 +219,16 @@ def _emit_window_adaptation(
         a("    return state, params")
         a("")
         a("")
-        a(
-            "_batched_states, _adapted_params = _run_one_warmup(_warmup_keys, _init_positions)"
-        )
+        if warmup_progress_bar:
+            a('with blackjax.progress_bar(label="warmup"):')
+            a(
+                "    _batched_states, _adapted_params = _run_one_warmup("
+                "_warmup_keys, _init_positions)"
+            )
+        else:
+            a(
+                "_batched_states, _adapted_params = _run_one_warmup(_warmup_keys, _init_positions)"
+            )
         a("# _warmup_is_perchain=True: adapted params have a leading num_chains axis.")
         a("_warmup_is_perchain = True")
         a("_state_post_warmup = _batched_states")
@@ -224,20 +236,11 @@ def _emit_window_adaptation(
         a(
             f"# === WARMUP: {warmup_name} (target_acceptance_rate={target_acceptance_rate}, n_warmup={n_warmup}) ==="
         )
+        a("# Single-chain warmup (warmup_num_chains=[1]): run once and broadcast the")
+        a("# state to (num_chains,) so that scan(vmap(kernel)) in the inference loop")
         a(
-            "# Single-chain warmup: run once and broadcast the state to (num_chains,) so that"
+            "# maps over chains sharing the same adapted (step_size, inverse_mass_matrix)."
         )
-        a(
-            "# scan(vmap(kernel)) in the inference loop maps over chains sharing the same"
-        )
-        a("# adapted (step_size, inverse_mass_matrix). Single-chain topology here is a")
-        a(
-            "# legacy choice (predates blackjax's vmap-safe progress_bar() context manager,"
-        )
-        a(
-            "# blackjax #964) kept pending a stage-2 cleanup; it is no longer required by"
-        )
-        a("# a blackjax constraint.")
         a(f"_warmup = {wa_fn}(")
         a(f"    {warmup_algorithm},")
         a("    logdensity_fn,")
@@ -246,9 +249,15 @@ def _emit_window_adaptation(
         a(f"    target_acceptance_rate={target_acceptance_rate}{warmup_extra_kwargs},")
         a(")")
         a(f"_warmup_key = jax.random.fold_in(jax.random.key({tuning_seed}), 0)")
-        a(
-            f"(state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
-        )
+        if warmup_progress_bar:
+            a('with blackjax.progress_bar(label="warmup"):')
+            a(
+                f"    (state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
+            )
+        else:
+            a(
+                f"(state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
+            )
         a("# Broadcast state to (num_chains,) for scan(vmap(kernel)).")
         a("_state_post_warmup = jax.tree.map(")
         a("    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),")
@@ -386,7 +395,7 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     ctx : dict
         Required keys: target_acceptance_rate, tuning_seed, n_warmup, num_chains,
         wp_n_paths, wp_num_samples_per_path, wp_imm_shrinkage_to_previous,
-        warmup_algorithm, warmup_extra_kwargs.
+        warmup_algorithm, warmup_extra_kwargs, warmup_progress_bar.
     """
     lines: list[str] = []
     a = lines.append
@@ -398,6 +407,7 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     num_samples_per_path = ctx["wp_num_samples_per_path"]
     imm_shrinkage = ctx["wp_imm_shrinkage_to_previous"]
     warmup_algorithm = ctx["warmup_algorithm"]
+    warmup_progress_bar = ctx["warmup_progress_bar"]
 
     a("# === WARMUP: multipathfinder_window_adaptation")
     a(f"#   n_paths={n_paths}, num_samples_per_path={num_samples_per_path},")
@@ -472,10 +482,6 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     a("_init_position_pf = jax.tree.map(lambda x: x[0], _init_positions_psis)")
     a("")
     a("# Stage 2: single-chain window_adaptation seeded with multipathfinder IMM.")
-    a("# Single-chain topology is a legacy choice kept pending a stage-2 cleanup;")
-    a(
-        "# it predates blackjax's vmap-safe progress_bar() context manager (blackjax #964)."
-    )
     a(
         "# imm_shrinkage_to_previous keeps the multipathfinder IMM influential across windows."
     )
@@ -490,9 +496,15 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     a(")")
     a("")
     a("_warmup_key = jax.random.fold_in(_adapt_key, 0)")
-    a(
-        f"(state, _adapted_params), _ = _warmup.run(_warmup_key, _init_position_pf, {n_warmup})"
-    )
+    if warmup_progress_bar:
+        a('with blackjax.progress_bar(label="warmup"):')
+        a(
+            f"    (state, _adapted_params), _ = _warmup.run(_warmup_key, _init_position_pf, {n_warmup})"
+        )
+    else:
+        a(
+            f"(state, _adapted_params), _ = _warmup.run(_warmup_key, _init_position_pf, {n_warmup})"
+        )
     a(
         "# Broadcast state to (num_chains,) using PSIS-resampled positions as chain start points."
     )
@@ -705,7 +717,7 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     ----------
     ctx : dict
         Required keys: num_warmup_phases, tuning_seed, warmup_algorithm,
-        warmup_extra_kwargs, num_chains,
+        warmup_extra_kwargs, num_chains, warmup_progress_bar,
         wp0_name, wp0_target, wp0_n_warmup, wp0_extra_kwargs,
         wp1_name, wp1_target, wp1_n_warmup, wp1_extra_kwargs, wp1_maxiter.
     """
@@ -715,6 +727,7 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     num_phases = ctx["num_warmup_phases"]
     tuning_seed = ctx["tuning_seed"]
     warmup_algorithm = ctx["warmup_algorithm"]
+    warmup_progress_bar = ctx["warmup_progress_bar"]
 
     # Phase 0 slots
     wp0_name = ctx["wp0_name"]
@@ -744,10 +757,6 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("#")
     a("# Single-chain warmup: both phases run on one chain; the final state is")
     a("# broadcast to (num_chains,) for scan(vmap(kernel)) in the inference loop.")
-    a("# Single-chain topology here is a legacy choice kept pending a stage-2 cleanup;")
-    a(
-        "# it predates blackjax's vmap-safe progress_bar() context manager (blackjax #964)."
-    )
     a("")
     a("# ── Phase 1: traversal (diagonal IMM) ────────────────────────────────────────")
     a(
@@ -759,9 +768,15 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a(f"    target_acceptance_rate={wp0_target}{wp0_extra_kwargs},")
     a(")")
     a(f"_warmup_key_p1 = jax.random.fold_in(jax.random.key({tuning_seed}), 0)")
-    a("(state_phase1, _adapted_params_phase1), _ = _warmup_p1.run(")
-    a(f"    _warmup_key_p1, init_position, {wp0_n_warmup}")
-    a(")")
+    if warmup_progress_bar:
+        a('with blackjax.progress_bar(label="warmup phase 1"):')
+        a("    (state_phase1, _adapted_params_phase1), _ = _warmup_p1.run(")
+        a(f"        _warmup_key_p1, init_position, {wp0_n_warmup}")
+        a("    )")
+    else:
+        a("(state_phase1, _adapted_params_phase1), _ = _warmup_p1.run(")
+        a(f"    _warmup_key_p1, init_position, {wp0_n_warmup}")
+        a(")")
     a("# After Phase 1 (single chain):")
     a("#   state_phase1   — LaplaceHMCState with phi + theta_star")
     a('#   _adapted_params_phase1["step_size"]             scalar — from dual-avg')
@@ -805,9 +820,15 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
         "# Phase 2 starts from Phase 1 end-position (single chain phi; warm-started theta_star)."
     )
     a("_init_position_p2 = state_phase1.position")
-    a("(state_post_warmup_single, _adapted_params), _ = _warmup_p2.run(")
-    a(f"    _warmup_key_p2, _init_position_p2, {wp1_n_warmup}")
-    a(")")
+    if warmup_progress_bar:
+        a('with blackjax.progress_bar(label="warmup phase 2"):')
+        a("    (state_post_warmup_single, _adapted_params), _ = _warmup_p2.run(")
+        a(f"        _warmup_key_p2, _init_position_p2, {wp1_n_warmup}")
+        a("    )")
+    else:
+        a("(state_post_warmup_single, _adapted_params), _ = _warmup_p2.run(")
+        a(f"    _warmup_key_p2, _init_position_p2, {wp1_n_warmup}")
+        a(")")
     a("# Broadcast final state to (num_chains,) for scan(vmap(kernel)).")
     a("_state_post_warmup = jax.tree.map(")
     a("    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),")

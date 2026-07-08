@@ -62,29 +62,6 @@ if TYPE_CHECKING:
 _X64_CONFIG_LINE = 'jax.config.update("jax_enable_x64", True)  # required by this model'
 _X64_CONFIG_LINE_EMPTY = ""
 
-# Warning text emitted when progress_bar=True: injected at the TOP of the generated
-# preamble (before model build) AND issued at emit_script() call time.  Defined once
-# here so both use sites share exactly the same text (no drift).
-_PROGRESS_BAR_WARNING_TEXT = (
-    "progress_bar=True forces SINGLE chain warmup and sampling — multi-chain runs "
-    "under jax.vmap. This is a legacy tuningfork topology choice (predates blackjax's "
-    "vmap-safe progress_bar() context manager, blackjax #964) kept pending a stage-2 "
-    "cleanup. For the full num_chains-chain run, set progress_bar=False."
-)
-
-# The warning block injected into the preamble template when progress_bar=True.
-# Uses `warnings` (already imported by the preamble) and UserWarning for visibility.
-_PROGRESS_BAR_WARNING_BLOCK = (
-    "warnings.warn(\n"
-    '    "progress_bar=True forces SINGLE chain warmup and sampling -- multi-chain runs "\n'
-    '    "under jax.vmap. This is a legacy tuningfork topology choice (predates blackjax\'s "\n'
-    '    "vmap-safe progress_bar() context manager, blackjax #964) kept pending a stage-2 "\n'
-    '    "cleanup. For the full num_chains-chain run, set progress_bar=False.",\n'
-    "    stacklevel=1,\n"
-    ")"
-)
-_PROGRESS_BAR_WARNING_BLOCK_EMPTY = ""
-
 # Timing block inserted between warmup_body and sampler_body.
 # T1.4: resolved at emit time — no_warmup path omits block_until_ready
 # (no _state_post_warmup exists before the sampler template sets it).
@@ -248,7 +225,7 @@ def _build_inference_loop(
     sampler_seed: int,
     tuning_seed: int,
     num_chains: int,
-    sampling_pb: bool,
+    use_progress_bar: bool,
     warmup_is_perchain: bool,
     warmup_init_is_single_chain: bool,
     needs_state_reinit: bool,
@@ -259,15 +236,21 @@ def _build_inference_loop(
     T1.1: replaces inference_loop.py.tmpl + inference_loop_singlechain.py.tmpl.
     No try/except NameError probes — every flag is known at generation time.
 
+    Stage 2 (blackjax #964): topology is now unconditionally multi-chain
+    (scan + vmap) — the old single-chain sampling path existed solely to keep
+    the legacy io_callback-based progress bar off jax.vmap (#927); blackjax's
+    new progress_bar() context manager is vmap-safe, so that constraint no
+    longer applies and the single-chain branch is gone.
+
     Parameters
     ----------
     has_per_chain_L : bool
         When True (mclmc_tuning / mclmc_lrd_tuning warmups), also extract and
         vmap over ``_adapted_params["L"]`` alongside step_size and imm.
         ``kernel_builder`` receives a third positional argument ``L``.
-    sampling_pb : bool
-        If True → single-chain loop (legacy topology, kept pending stage-2 cleanup).
-        If False → multi-chain loop (scan + vmap).
+    use_progress_bar : bool
+        If True, wrap the ``run_inference_algorithm`` call in
+        ``with blackjax.progress_bar():``.
     warmup_is_perchain : bool
         Warmup ran per-chain (jax.vmap). Adapted params are (num_chains, ...).
     warmup_init_is_single_chain : bool
@@ -280,220 +263,125 @@ def _build_inference_loop(
     a = lines.append
 
     a(f"_NUM_SAMPLES = {num_samples}")
-
-    if sampling_pb:
-        # ── Single-chain path ────────────────────────────────────────────────
-        a(
-            "_SAMPLING_PROGRESS_BAR = True"
-            "  # single-chain (progress bar safe); set False for multi-chain"
-        )
-        a("# Single-chain sampling.")
-        a(
-            "# Single-chain topology here is a legacy choice kept pending a stage-2"
-            " cleanup;"
-        )
-        a(
-            "# it predates blackjax's vmap-safe progress_bar() context manager"
-            " (blackjax #964)."
-        )
-        a(
-            "# We sample ONE chain then re-add a leading axis of 1 so downstream"
-            " consumers"
-        )
-        a("# see shape (1, num_samples, ...) regardless of num_chains.")
-        a("")
-
-        # Step-size / IMM resolution
-        if warmup_init_is_single_chain:
-            # no_warmup: broadcast state, set defaults
-            a(
-                "_state_post_warmup = jax.tree.map("
-                "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
-                " _state_post_warmup)"
-            )
-            a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
-            a("from jax.flatten_util import ravel_pytree as _il_ravel")
-            a("_il_flat, _ = _il_ravel(init_position)")
-            a("_n_dims = int(_il_flat.shape[0])")
-            a("_shared_imm = jnp.ones(_n_dims)")
-        elif warmup_is_perchain:
-            # Per-chain warmup — use per-chain params, pick chain-0 for single-chain run
-            a('_shared_step_size = _adapted_params["step_size"][0]')
-            a('_shared_imm = _adapted_params["inverse_mass_matrix"][0]')
-            if has_per_chain_L:
-                a('_shared_L = _adapted_params["L"][0]')
-        else:
-            # Single-chain warmup → scalar params
-            a('_shared_step_size = _adapted_params["step_size"]')
-            a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
-
-        a("")
-        a(
-            "from blackjax.util import run_inference_algorithm as _run_inference_algorithm"
-        )
-        a("from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm")
-        a("")
-        a("# Extract single-chain state (chain 0).")
-        a("_single_chain_state = jax.tree.map(lambda x: x[0], _state_post_warmup)")
-
-        if needs_state_reinit:
-            a("")
-            a("# Re-init per sampler state type (dynamic_hmc / dmhmc / ghmc).")
-            a(f"_single_reinit_key = jax.random.key({tuning_seed + 998})")
-            a(
-                "_single_chain_state = _state_reinit("
-                "_shared_step_size, _shared_imm,"
-                " _single_chain_state.position, _single_reinit_key)"
-            )
-
-        a("")
-        if has_per_chain_L and warmup_is_perchain:
-            a(
-                "_single_chain_step = kernel_builder("
-                "_shared_step_size, _shared_imm, _shared_L)"
-            )
-        else:
-            a("_single_chain_step = kernel_builder(_shared_step_size, _shared_imm)")
-        a(
-            "_sc_alg = _SamplingAlgorithm(lambda *args, **kwargs: None,"
-            " _single_chain_step)"
-        )
-        a("")
-        a(
-            "_sc_final_state, (_sc_states_hist, _sc_infos_hist) ="
-            " _run_inference_algorithm("
-        )
-        a(f"    jax.random.key({sampler_seed}),")
-        a("    _sc_alg,")
-        a("    num_steps=_NUM_SAMPLES,")
-        a("    initial_state=_single_chain_state,")
-        a(")")
-        a("")
-        a(
-            "# Re-add the leading chain axis (size 1) for downstream shape"
-            " consistency."
-        )
-        a("_samples = jax.tree.map(lambda x: x[None], _sc_states_hist)")
-        a("_infos = jax.tree.map(lambda x: x[None], _sc_infos_hist)")
-
+    if use_progress_bar:
+        a(f"_SAMPLING_PROGRESS_BAR = {use_progress_bar}  # see the with-block below")
     else:
-        # ── Multi-chain path ─────────────────────────────────────────────────
+        a(f"_SAMPLING_PROGRESS_BAR = {use_progress_bar}  # set True for a progress bar")
+    a("")
+
+    # Step-size / IMM resolution
+    if warmup_init_is_single_chain:
+        # no_warmup: broadcast state, set defaults
+        a("# no_warmup: broadcast init_position-derived state to (num_chains, ...).")
         a(
-            "_SAMPLING_PROGRESS_BAR = False"
-            "  # multi-chain scan+vmap; set True for single-chain with progress bar"
+            "_state_post_warmup = jax.tree.map("
+            "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
+            " _state_post_warmup)"
         )
+        a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
+        a("from jax.flatten_util import ravel_pytree as _il_ravel")
+        a("_il_flat, _ = _il_ravel(init_position)")
+        a("_n_dims = int(_il_flat.shape[0])")
+        a("_shared_imm = jnp.ones(_n_dims)")
+    elif not warmup_is_perchain:
+        # Single-chain warmup → scalar shared params
+        a("# Single-chain warmup: adapted params are scalar / un-batched.")
+        a('_shared_step_size = _adapted_params["step_size"]')
+        a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
+
+    if needs_state_reinit:
         a("")
-
-        # Step-size / IMM resolution
-        if warmup_init_is_single_chain:
-            # no_warmup: broadcast state, set defaults
-            a(
-                "# no_warmup: broadcast init_position-derived state to (num_chains, ...)."
-            )
-            a(
-                "_state_post_warmup = jax.tree.map("
-                "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
-                " _state_post_warmup)"
-            )
-            a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
-            a("from jax.flatten_util import ravel_pytree as _il_ravel")
-            a("_il_flat, _ = _il_ravel(init_position)")
-            a("_n_dims = int(_il_flat.shape[0])")
-            a("_shared_imm = jnp.ones(_n_dims)")
-        elif not warmup_is_perchain:
-            # Single-chain warmup → scalar shared params
-            a("# Single-chain warmup: adapted params are scalar / un-batched.")
-            a('_shared_step_size = _adapted_params["step_size"]')
-            a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
-
-        if needs_state_reinit:
-            a("")
-            a(
-                "# Re-init per-chain state (dynamic_hmc / dmhmc / ghmc: different state"
-                " type than warmup)."
-            )
-            a(
-                f"_reinit_keys = jax.random.split(jax.random.key({tuning_seed + 999}),"
-                f" num_chains)"
-            )
-            if warmup_is_perchain:
-                a('_batched_step_size = _adapted_params["step_size"]')
-                a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-                a(
-                    "_state_post_warmup = jax.vmap("
-                    "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
-                    ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
-                    " _batched_imm)"
-                )
-            else:
-                a(
-                    "_state_post_warmup = jax.vmap("
-                    "lambda s, k: _state_reinit(_shared_step_size, _shared_imm,"
-                    " s.position, k)"
-                    ")(_state_post_warmup, _reinit_keys)"
-                )
-
-        a("")
-        a("# Build the vmapped step function.")
         a(
-            "from blackjax.util import run_inference_algorithm as _run_inference_algorithm"
+            "# Re-init per-chain state (dynamic_hmc / dmhmc / ghmc: different state"
+            " type than warmup)."
         )
-        a("from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm")
-        a("")
-
-        if warmup_is_perchain and has_per_chain_L:
-            # MCLMC per-chain warmup: each chain gets its own (step_size, imm, L).
-            a(
-                "# Per-chain warmup (mclmc): each chain gets its own (step_size, imm, L)."
-            )
+        a(
+            f"_reinit_keys = jax.random.split(jax.random.key({tuning_seed + 999}),"
+            f" num_chains)"
+        )
+        if warmup_is_perchain:
             a('_batched_step_size = _adapted_params["step_size"]')
             a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-            a('_batched_L = _adapted_params["L"]')
-            a("")
-            a("def _step_one_chain(state, key, step_size, imm, L):")
-            a("    return kernel_builder(step_size, imm, L)(key, state)")
-            a("")
-            a("def _vmapped_step(rng_key, states):")
-            a(f"    keys = jax.random.split(rng_key, {num_chains})")
             a(
-                "    return jax.vmap(_step_one_chain)("
-                "states, keys, _batched_step_size, _batched_imm, _batched_L)"
-            )
-        elif warmup_is_perchain:
-            a("# Per-chain warmup: each chain gets its own (step_size, imm).")
-            a('_batched_step_size = _adapted_params["step_size"]')
-            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-            a("")
-            a("def _step_one_chain(state, key, step_size, imm):")
-            a("    return kernel_builder(step_size, imm)(key, state)")
-            a("")
-            a("def _vmapped_step(rng_key, states):")
-            a(f"    keys = jax.random.split(rng_key, {num_chains})")
-            a(
-                "    return jax.vmap(_step_one_chain)(states, keys, _batched_step_size,"
+                "_state_post_warmup = jax.vmap("
+                "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
+                ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
                 " _batched_imm)"
             )
         else:
-            a("# Single-chain warmup: shared step_size + IMM across all chains.")
-            a("_kernel_step = kernel_builder(_shared_step_size, _shared_imm)")
-            a("")
-            a("def _vmapped_step(rng_key, states):")
-            a(f"    keys = jax.random.split(rng_key, {num_chains})")
-            a("    return jax.vmap(_kernel_step)(keys, states)")
+            a(
+                "_state_post_warmup = jax.vmap("
+                "lambda s, k: _state_reinit(_shared_step_size, _shared_imm,"
+                " s.position, k)"
+                ")(_state_post_warmup, _reinit_keys)"
+            )
 
+    a("")
+    a("# Build the vmapped step function.")
+    a("from blackjax.util import run_inference_algorithm as _run_inference_algorithm")
+    a("from blackjax.base import SamplingAlgorithm as _SamplingAlgorithm")
+    a("")
+
+    if warmup_is_perchain and has_per_chain_L:
+        # MCLMC per-chain warmup: each chain gets its own (step_size, imm, L).
+        a("# Per-chain warmup (mclmc): each chain gets its own (step_size, imm, L).")
+        a('_batched_step_size = _adapted_params["step_size"]')
+        a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+        a('_batched_L = _adapted_params["L"]')
         a("")
-        a("# run_inference_algorithm: (num_steps, num_chains, ...) output.")
-        a("_alg = _SamplingAlgorithm(lambda *args, **kwargs: None, _vmapped_step)")
+        a("def _step_one_chain(state, key, step_size, imm, L):")
+        a("    return kernel_builder(step_size, imm, L)(key, state)")
+        a("")
+        a("def _vmapped_step(rng_key, states):")
+        a(f"    keys = jax.random.split(rng_key, {num_chains})")
+        a(
+            "    return jax.vmap(_step_one_chain)("
+            "states, keys, _batched_step_size, _batched_imm, _batched_L)"
+        )
+    elif warmup_is_perchain:
+        a("# Per-chain warmup: each chain gets its own (step_size, imm).")
+        a('_batched_step_size = _adapted_params["step_size"]')
+        a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+        a("")
+        a("def _step_one_chain(state, key, step_size, imm):")
+        a("    return kernel_builder(step_size, imm)(key, state)")
+        a("")
+        a("def _vmapped_step(rng_key, states):")
+        a(f"    keys = jax.random.split(rng_key, {num_chains})")
+        a(
+            "    return jax.vmap(_step_one_chain)(states, keys, _batched_step_size,"
+            " _batched_imm)"
+        )
+    else:
+        a("# Single-chain warmup: shared step_size + IMM across all chains.")
+        a("_kernel_step = kernel_builder(_shared_step_size, _shared_imm)")
+        a("")
+        a("def _vmapped_step(rng_key, states):")
+        a(f"    keys = jax.random.split(rng_key, {num_chains})")
+        a("    return jax.vmap(_kernel_step)(keys, states)")
+
+    a("")
+    a("# run_inference_algorithm: (num_steps, num_chains, ...) output.")
+    a("_alg = _SamplingAlgorithm(lambda *args, **kwargs: None, _vmapped_step)")
+    if use_progress_bar:
+        a('with blackjax.progress_bar(label="sampling"):')
+        a("    _final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(")
+        a(f"        jax.random.key({sampler_seed}),")
+        a("        _alg,")
+        a("        num_steps=_NUM_SAMPLES,")
+        a("        initial_state=_state_post_warmup,")
+        a("    )")
+    else:
         a("_final_state, (_states_hist, _infos_hist) = _run_inference_algorithm(")
         a(f"    jax.random.key({sampler_seed}),")
         a("    _alg,")
         a("    num_steps=_NUM_SAMPLES,")
         a("    initial_state=_state_post_warmup,")
         a(")")
-        a("")
-        a("# Swap axes: (num_steps, num_chains, ...) -> (num_chains, num_steps, ...).")
-        a("_samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)")
-        a("_infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos_hist)")
+    a("")
+    a("# Swap axes: (num_steps, num_chains, ...) -> (num_chains, num_steps, ...).")
+    a("_samples = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)")
+    a("_infos = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _infos_hist)")
 
     return "\n".join(lines)
 
@@ -582,27 +470,28 @@ def emit_script(
 
             emit_script(recipe, num_warmup=[100, 10], num_samples=100)
     progress_bar : bool or None, optional
-        When not ``None``, selects the warmup and sampling TOPOLOGY: ``True``
-        emits tuningfork's legacy single-chain warmup + sampling path (a
-        topology choice kept pending a stage-2 cleanup, unrelated to any
-        current blackjax vmap constraint); ``False`` emits the multi-chain
-        ``jax.vmap`` path.  Also sets the sampling ``_SAMPLING_PROGRESS_BAR``
-        constant in the emitted script to the same value (informational only
-        — it is a plain local variable, not forwarded to blackjax).  When
-        ``None`` (default), resolves to ``False`` (preserves multichain warmup
-        for recipes that spec it).
+        When ``True``, wraps the emitted warmup and sampling
+        ``run``/``run_inference_algorithm`` calls in
+        ``with blackjax.progress_bar():`` (blackjax #964 — vmap-safe, so this
+        no longer affects TOPOLOGY at all: warmup/sampling stay multi-chain
+        either way, see ``warmup_num_chains`` below for the one knob that
+        does select single-chain).  Also sets the sampling
+        ``_SAMPLING_PROGRESS_BAR`` constant in the emitted script to the same
+        value (informational only — a plain local variable, not itself
+        forwarded to blackjax).  When ``None`` (default) or ``False``, no
+        progress bar is wrapped.
     warmup_num_chains : list[int] or None, optional
         Runtime override for ``recipe.warmup_num_chains``.  Affects which warmup
         template variant is selected:
 
         - ``None`` (default): falls back to ``recipe.warmup_num_chains``, which
-          is itself ``None`` for legacy recipes (uses the multichain template when
-          ``progress_bar=False``).
+          is itself ``None`` for legacy recipes (uses the multichain template).
         - ``[1]`` or all-ones list: forces the single-chain warmup template
-          (``window_adaptation_*.py.tmpl``), regardless of ``progress_bar``.
-          Recommended for expensive-logprob models to avoid vmap-of-while_loop.
+          (``window_adaptation_*.py.tmpl``) — the ONE knob that selects
+          single-chain topology.  Recommended for expensive-logprob models to
+          avoid vmap-of-while_loop; unrelated to ``progress_bar``.
         - ``[W]`` with ``W == num_chains``: same as ``None`` — uses the multichain
-          template when ``progress_bar=False``.
+          template.
         - ``[W]`` with ``W != num_chains``: uses the multichain template (vmap
           over W chains); the reduce+broadcast is handled by the emitted script's
           runner, not by template selection.
@@ -712,18 +601,12 @@ def emit_script(
             f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
         )
 
-    # Progress-bar warning: no longer injected into the preamble (changed 2026-06-06).
-    # Warnings are now issued at emit_script() call-time via the Python warnings module,
-    # not in the emitted script. This allows clearer diagnostic feedback before the script runs.
-    _pb_warning_block = _PROGRESS_BAR_WARNING_BLOCK_EMPTY
-
     ctx = {
         "recipe_id": (
             f"{recipe.model_name}/{recipe.effort.value}"
             f"__{recipe.base_method_name}__{recipe.warmup_name}"
         ),
         "x64_config_line": _x64_config_line,
-        "progress_bar_warning_block": _pb_warning_block,
         "model_name": recipe.model_name,
         "base_method_name": recipe.base_method_name,
         "warmup_name": recipe.warmup_name,
@@ -1002,7 +885,8 @@ def emit_script(
     # actually exist for its algorithm family.
     preamble = emit_preamble(ctx)
 
-    # Warmup variants that support a multi-chain (vmap) path when progress_bar=False.
+    # Warmup variants that support a multi-chain (vmap) path (always used unless
+    # warmup_num_chains=[1] forces single-chain — see _is_wa_multichain below).
     # T1.6: window_adaptation variants unified into 2 templates (singlechain +
     # multichain), parameterised by $window_adaptation_fn and
     # $window_adaptation_extra_kwargs.
@@ -1040,8 +924,9 @@ def emit_script(
         warmup_num_chains if warmup_num_chains is not None else recipe.warmup_num_chains
     )
     # For single-phase warmups, the first (and only) entry drives template selection:
-    # W == 1 → force single-chain template (ignore progress_bar for template selection).
-    # W == num_chains → use existing multichain/single-chain logic.
+    # W == 1 → force single-chain template (independent perf knob — avoids
+    # vmap-of-while_loop for expensive-logprob models; unrelated to progress_bar).
+    # W == num_chains → use the multichain template.
     # W != num_chains but W > 1 → use multichain template (vmap over W; reduce+broadcast
     # is the runner's concern, not the template's).
     _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
@@ -1055,38 +940,19 @@ def emit_script(
     #
     # The multichain flag for WA variants is resolved here and injected into ctx
     # so emit_warmup can dispatch on it without re-deriving the same logic.
+    #
+    # Stage 2 (blackjax #964): topology is now ALWAYS multichain except for the
+    # independent warmup_num_chains=[1] knob (avoids vmap-of-while_loop for
+    # expensive-logprob models — unrelated to progress bars). progress_bar no
+    # longer forces single-chain: blackjax.progress_bar() is vmap-safe, so the
+    # flag now only controls whether emitted calls are wrapped in
+    # `with blackjax.progress_bar():` (see emit_warmup / _build_inference_loop).
     _is_wa_multichain = (
         not _is_laplace
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
         and not (_warmup_W0 == 1)
-        and not _warmup_pb
     )
     ctx["_warmup_is_multichain"] = _is_wa_multichain
-
-    # Warn when progress_bar=True forces single-chain for a multichain recipe.
-    # Only fires if the recipe WOULD HAVE BEEN multichain in the absence of the user's
-    # progress_bar=True choice. Single-chain recipes (no_warmup, etc.) don't warn.
-    if (
-        progress_bar is True  # explicitly passed (not None, not False)
-        and not _is_laplace
-        and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
-        and not (_warmup_W0 == 1)
-        and num_chains > 1
-    ):
-        import warnings as _warnings_emit
-
-        _warnings_emit.warn(
-            f"emit_script: progress_bar=True forced single-chain warmup for "
-            f"recipe with warmup_name={recipe.warmup_name!r} and num_chains={num_chains}. "
-            f"The recipe specifies multichain warmup (each chain runs an independent "
-            f"window_adaptation), but progress_bar=True selects tuningfork's legacy "
-            f"single-chain emit path (kept pending a stage-2 cleanup; unrelated to any "
-            f"current blackjax vmap constraint). Results may differ from "
-            f"run_recipe_to_idata (the runner) which always uses multichain warmup. "
-            f"Pass progress_bar=False (or omit it) to preserve the recipe's multichain "
-            f"warmup spec.",
-            stacklevel=2,
-        )
 
     # A3: all 8 warmup families use Python emit-functions.
     # For warmup names NOT in the 8 known families (e.g. mclmc_tuning,
@@ -1194,12 +1060,16 @@ def emit_script(
     # mclmc_tuning / mclmc_lrd_tuning (always multi-chain per-chain warmup).
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
     _MCLMC_WARMUP_NAMES = frozenset({"mclmc_tuning", "mclmc_lrd_tuning"})
+    # Stage 2 (blackjax #964): must stay in lockstep with _is_wa_multichain
+    # above — this flag decides how the INFERENCE LOOP interprets the warmup
+    # output's shape (per-chain vs shared/scalar), so it can never disagree
+    # with what emit_warmup actually emitted. progress_bar no longer forces
+    # single-chain, so it plays no role here either.
     _uses_multichain_warmup_tmpl = (
         not _is_laplace
         and not _is_multiphase_warmup
         and not _resolved_warmup_init_is_single_chain
         and not (_warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS)
-        and (not _warmup_pb)
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
     )
     _resolved_warmup_is_perchain = (
@@ -1232,7 +1102,7 @@ def emit_script(
         sampler_seed=sampler_seed,
         tuning_seed=recipe.tuning_seed,
         num_chains=num_chains,
-        sampling_pb=_sampling_pb,
+        use_progress_bar=_sampling_pb,
         warmup_is_perchain=_resolved_warmup_is_perchain,
         warmup_init_is_single_chain=_resolved_warmup_init_is_single_chain,
         needs_state_reinit=_resolved_needs_state_reinit,
