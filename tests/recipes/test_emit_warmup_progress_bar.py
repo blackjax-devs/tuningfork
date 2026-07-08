@@ -11,20 +11,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for emit_script progress_bar branching (warmup + sampling).
+"""Tests for emit_script progress_bar wrapping (warmup + sampling).
+
+Changed 2026-07-08 (stage 2, blackjax #964): blackjax.progress_bar() is
+vmap-safe, so ``progress_bar`` no longer selects TOPOLOGY at all -- warmup and
+sampling are unconditionally multi-chain (jax.vmap) regardless of the flag.
+The only knob that still selects single-chain topology is the independent
+``warmup_num_chains=[1]`` override (see test_warmup_num_chains_schema.py),
+which is unrelated to progress bars.
 
 Fast tests:
-  - progress_bar=True  → single-chain warmup (.run( once, no jax.vmap(...run))
-                         + single-chain sampling (no jax.vmap anywhere in script)
-                         + warnings.warn blocks mentioning blackjax issue #927
-                         + run_inference_algorithm( present in sampling section.
-  - progress_bar=False → multi-chain warmup via jax.vmap over warmup.run
-                         + multi-chain sampling via jax.vmap over kernel step
-                         + no warnings.warn blocks.
+  - progress_bar=True  → still multi-chain warmup + sampling (jax.vmap present,
+                         _run_one_warmup present, _warmup_is_perchain = True)
+                         PLUS `with blackjax.progress_bar():` wraps around the
+                         warmup and sampling run calls.
+  - progress_bar=False → multi-chain warmup + sampling, NO progress_bar() wrap.
+  - Neither case emits a warnings.warn() block (no forcing to warn about).
 
 e2e tests (lightweight, num_samples=10, minimal warmup):
-  - progress_bar=True  → single-chain run to completion; _samples leading axis = 1.
-  - progress_bar=False → multi-chain run to completion; _samples leading axis = num_chains.
+  - Both progress_bar=True and progress_bar=False run to completion with
+    _samples leading axis = num_chains (topology is unaffected by the flag).
   - No vmap/io_callback errors in either mode.
 """
 from __future__ import annotations
@@ -100,107 +106,80 @@ def _make_recipe(warmup_name: str, n_warmup: int = 10) -> Recipe:
 
 
 # ---------------------------------------------------------------------------
-# Fast: emitted source text checks
+# Fast: emitted source text checks -- warmup section
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_true_emits_single_chain_warmup(warmup_name: str) -> None:
-    """progress_bar=True → single-chain warmup (.run( once) + no jax.vmap(...run).
+def test_progress_bar_true_still_emits_multichain_warmup(warmup_name: str) -> None:
+    """progress_bar=True must NOT change warmup topology -- still multi-chain.
 
-    The single-chain template calls _warmup.run(...) once and broadcasts the
-    resulting state.  It must NOT contain a jax.vmap wrapper over the run call.
-    The test recipes are multichain (num_chains=2 + window_adaptation), so a warning
-    is issued when progress_bar=True forces single-chain.
+    No warning is issued: progress_bar no longer forces single-chain, so there
+    is nothing to warn about even for a multichain recipe.
     """
     recipe = _make_recipe(warmup_name)
-    # Multichain recipe with progress_bar=True → warning issued (pass num_chains=2).
-    with pytest.warns(UserWarning, match="multichain"):
-        script = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
-        )
+    script = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
+    )
 
-    # Single-chain path: exactly one .run( call (the warmup.run call)
-    # and no jax.vmap wrapping it.
-    assert "_warmup.run(" in script or ".run(_warmup_key" in script, (
-        f"[{warmup_name}] Single-chain warmup must contain a .run( call.\n"
+    assert "_run_one_warmup" in script, (
+        f"[{warmup_name}] progress_bar=True must still emit the multi-chain "
+        "_run_one_warmup vmap pattern (topology is unaffected by the flag).\n"
         f"Script snippet:\n{script[:1200]}"
     )
-    # Must NOT contain the multi-chain vmap pattern (_run_one_warmup).
-    assert "_run_one_warmup" not in script, (
-        f"[{warmup_name}] progress_bar=True must NOT emit the multi-chain "
-        "_run_one_warmup vmap pattern.\n"
+    assert "_warmup_is_perchain = True" in script, (
+        f"[{warmup_name}] progress_bar=True must still mark warmup as per-chain.\n"
         f"Script snippet:\n{script[:1200]}"
     )
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_true_emits_warnings_warn(warmup_name: str) -> None:
-    """progress_bar=True: warning is issued at call-time, not in emitted script.
+def test_progress_bar_true_wraps_warmup_run_call(warmup_name: str) -> None:
+    """progress_bar=True wraps the warmup run call in blackjax.progress_bar()."""
+    recipe = _make_recipe(warmup_name)
+    script = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
+    )
 
-    Changed 2026-06-06: the warning is now issued at emit_script() call-time via
-    the Python warnings module, not injected into the emitted script. This test
-    verifies that the EMITTED script does NOT contain a warnings.warn block.
+    assert 'with blackjax.progress_bar(label="warmup"):' in script, (
+        f"[{warmup_name}] progress_bar=True must wrap the warmup run call in "
+        "blackjax.progress_bar().\n"
+        f"Script snippet:\n{script[:1500]}"
+    )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
+def test_progress_bar_true_no_warnings_warn(warmup_name: str) -> None:
+    """progress_bar=True never emits (nor triggers) a warnings.warn() call.
+
+    Unlike stage 1, progress_bar no longer forces single-chain topology, so
+    there is nothing to warn about -- neither in the emitted script nor at
+    emit_script() call time. pytest.ini's filterwarnings=error means an
+    unexpected UserWarning here would already fail the test outright; no
+    explicit pytest.warns(...) context is needed.
     """
     recipe = _make_recipe(warmup_name)
-    # Suppress the call-time multichain warning (incidental to this test).
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        script = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
-        )
-
-    # The warning is now at call-time only, not in the emitted script.
+    script = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
+    )
     assert "warnings.warn(" not in script, (
-        f"[{warmup_name}] progress_bar=True must NOT emit warnings.warn() in the script (warning is at call-time).\n"
-        f"Script snippet:\n{script[:1200]}"
+        f"[{warmup_name}] progress_bar=True must NOT emit warnings.warn() in "
+        f"the script.\nScript snippet:\n{script[:1200]}"
     )
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_true_warning_above_warmup_section(warmup_name: str) -> None:
-    """progress_bar=True: warning is at call-time, not in emitted script.
-
-    Changed 2026-06-06: warnings are now issued at emit_script() call-time via
-    the Python warnings module. This test verifies that the EMITTED script does
-    NOT contain a warnings.warn block.
-    """
-    recipe = _make_recipe(warmup_name)
-    # Suppress the call-time multichain warning (incidental to this test).
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        script = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
-        )
-
-    warn_pos = script.find("warnings.warn(")
-
-    assert warn_pos == -1, (
-        f"[{warmup_name}] warnings.warn() should NOT be in emitted script (warning is at call-time).\n"
-        f"Script preamble:\n{script[:600]}"
-    )
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_false_emits_multichain_vmap_warmup(warmup_name: str) -> None:
-    """progress_bar=False → multi-chain warmup via jax.vmap(warmup.run) emitted.
-
-    The multi-chain template vmaps _run_one_warmup over (warmup_keys, init_positions).
-    The emitted source must contain the jax.vmap decorator / call and the
-    _run_one_warmup function.
-    """
+def test_progress_bar_false_emits_multichain_vmap_warmup_no_wrap(
+    warmup_name: str,
+) -> None:
+    """progress_bar=False → multi-chain warmup, no blackjax.progress_bar() wrap."""
     recipe = _make_recipe(warmup_name)
     script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
 
-    # Multi-chain path: must contain the vmap run helper.
     assert "_run_one_warmup" in script, (
         f"[{warmup_name}] progress_bar=False must emit multi-chain _run_one_warmup "
         "vmap pattern.\n"
@@ -210,15 +189,17 @@ def test_progress_bar_false_emits_multichain_vmap_warmup(warmup_name: str) -> No
         f"[{warmup_name}] progress_bar=False warmup must use jax.vmap.\n"
         f"Script snippet:\n{script[:1200]}"
     )
+    assert "blackjax.progress_bar(" not in script, (
+        f"[{warmup_name}] progress_bar=False must NOT wrap the warmup call in "
+        "blackjax.progress_bar().\n"
+        f"Script snippet:\n{script[:1200]}"
+    )
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
 def test_progress_bar_false_no_warnings_warn_in_warmup(warmup_name: str) -> None:
-    """progress_bar=False → NO warnings.warn in the emitted warmup section.
-
-    The multi-chain template is the honest path; no warning is needed.
-    """
+    """progress_bar=False → NO warnings.warn in the emitted warmup section."""
     recipe = _make_recipe(warmup_name)
     script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
 
@@ -231,11 +212,7 @@ def test_progress_bar_false_no_warnings_warn_in_warmup(warmup_name: str) -> None
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
 def test_progress_bar_none_default_same_as_false(warmup_name: str) -> None:
-    """progress_bar=None (default) produces the same script as progress_bar=False.
-
-    Changed 2026-06-06: None now maps to False (multichain-preserving behavior).
-    The generated script content is identical; both use jax.vmap for multichain.
-    """
+    """progress_bar=None (default) produces the same script as progress_bar=False."""
     recipe = _make_recipe(warmup_name)
     script_none = emit_script(recipe, num_samples=10, num_warmup=10)
     script_false = emit_script(
@@ -254,97 +231,57 @@ def test_progress_bar_none_default_same_as_false(warmup_name: str) -> None:
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_true_no_vmap_in_sampling(warmup_name: str) -> None:
-    """progress_bar=True → single-chain: no jax.vmap( CALLS in warmup or sampling.
+def test_progress_bar_true_still_has_vmap_in_sampling(warmup_name: str) -> None:
+    """progress_bar=True must NOT remove jax.vmap from the sampling section.
 
-    The single-chain path avoids jax.vmap calls entirely (warmup + sampling both
-    single-chain) so that progress_bar's io_callback is never inside a vmap.
-    The test recipes are multichain, so a warning is issued at emit_script call time.
+    Sampling topology is unconditionally multi-chain regardless of the flag.
     """
     recipe = _make_recipe(warmup_name)
-    # Multichain recipe with progress_bar=True → warning issued (pass num_chains=2).
-    with pytest.warns(UserWarning, match="multichain"):
-        script = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
-        )
-
-    assert "jax.vmap(" not in script, (
-        f"[{warmup_name}] progress_bar=True must NOT contain jax.vmap( calls "
-        "(single-chain warmup + single-chain sampling).\n"
-        f"Script snippet:\n{script[:2000]}"
+    script = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
     )
-    assert "@jax.vmap" not in script, (
-        f"[{warmup_name}] progress_bar=True must NOT use @jax.vmap decorator "
-        "(single-chain warmup + single-chain sampling).\n"
+
+    assert "jax.vmap" in script, (
+        f"[{warmup_name}] progress_bar=True must still use jax.vmap for "
+        "multi-chain sampling.\n"
         f"Script snippet:\n{script[:2000]}"
     )
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_true_sampling_has_run_inference_algorithm(
-    warmup_name: str,
-) -> None:
-    """progress_bar=True → sampling section uses run_inference_algorithm directly.
-
-    The single-chain path calls run_inference_algorithm with initial_state=
-    (a single-chain state), not a vmapped variant.
-    The test recipes are multichain, so a warning is issued at emit_script call time.
-    """
+def test_progress_bar_true_wraps_sampling_run_call(warmup_name: str) -> None:
+    """progress_bar=True wraps the sampling run_inference_algorithm call."""
     recipe = _make_recipe(warmup_name)
-    # Multichain recipe with progress_bar=True → warning issued (pass num_chains=2).
-    with pytest.warns(UserWarning, match="multichain"):
-        script = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
-        )
+    script = emit_script(
+        recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=2
+    )
 
     assert "run_inference_algorithm" in script, (
         f"[{warmup_name}] progress_bar=True must call run_inference_algorithm.\n"
         f"Script snippet:\n{script[:2000]}"
     )
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_true_sampling_warning_mentions_num_chains(
-    warmup_name: str,
-) -> None:
-    """progress_bar=True with multichain: emit_script issues warning at call time.
-
-    Changed 2026-06-06: warnings fire for multichain recipes (num_chains > 1 +
-    window_adaptation). This test checks that the EMITTED script's content is
-    correct (sampling using run_inference_algorithm); the call-time warning is
-    incidental. Uses num_chains=4 to ensure multichain spec.
-    """
-    recipe = _make_recipe(warmup_name)
-    # Use num_chains=4 to trigger multichain spec.
-    # Suppress the call-time multichain warning (incidental to this test).
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        script = emit_script(
-            recipe, num_samples=10, num_warmup=10, progress_bar=True, num_chains=4
-        )
-
-    # The emitted script should use run_inference_algorithm for single-chain sampling.
-    assert isinstance(script, str) and len(script) > 0
-    assert "run_inference_algorithm" in script, (
-        f"[{warmup_name}] Single-chain sampling must use run_inference_algorithm.\n"
+    assert 'with blackjax.progress_bar(label="sampling"):' in script, (
+        f"[{warmup_name}] progress_bar=True must wrap the sampling call in "
+        "blackjax.progress_bar().\n"
         f"Script snippet:\n{script[:2000]}"
     )
 
 
 @pytest.mark.fast
 @pytest.mark.parametrize("warmup_name", _WARMUP_VARIANTS)
-def test_progress_bar_false_has_vmap_in_sampling(warmup_name: str) -> None:
-    """progress_bar=False → multi-chain sampling uses jax.vmap (vmapped step)."""
+def test_progress_bar_false_has_vmap_in_sampling_no_wrap(warmup_name: str) -> None:
+    """progress_bar=False → multi-chain sampling uses jax.vmap, no wrap."""
     recipe = _make_recipe(warmup_name)
     script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
 
-    # The multi-chain sampling path uses jax.vmap for the vmapped step.
     assert "jax.vmap" in script, (
         f"[{warmup_name}] progress_bar=False must use jax.vmap for multi-chain sampling.\n"
+        f"Script snippet:\n{script[:2000]}"
+    )
+    assert "blackjax.progress_bar(" not in script, (
+        f"[{warmup_name}] progress_bar=False must NOT wrap the sampling call in "
+        "blackjax.progress_bar().\n"
         f"Script snippet:\n{script[:2000]}"
     )
 
@@ -356,7 +293,7 @@ def test_progress_bar_false_no_sampling_warning(warmup_name: str) -> None:
     recipe = _make_recipe(warmup_name)
     script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=False)
 
-    # No warnings.warn at all when progress_bar=False (multi-chain is the honest path).
+    # No warnings.warn at all when progress_bar=False.
     assert "warnings.warn(" not in script, (
         f"[{warmup_name}] progress_bar=False must NOT emit any warnings.warn(...).\n"
         f"Script snippet:\n{script[:2000]}"
@@ -370,19 +307,18 @@ def test_progress_bar_false_no_sampling_warning(warmup_name: str) -> None:
 
 @pytest.mark.e2e
 @pytest.mark.parametrize(
-    "warmup_name,progress_bar,expected_chain_axis",
+    "warmup_name,progress_bar",
     [
-        # progress_bar=True: single-chain sampling → leading axis = 1
-        ("window_adaptation_diag_imm", True, 1),
-        # progress_bar=False: multi-chain sampling → leading axis = num_chains
-        ("window_adaptation_diag_imm", False, 2),
-        ("window_adaptation_dense_imm", False, 2),
+        # Both progress_bar=True and False must produce the SAME (multichain)
+        # leading axis -- topology is unaffected by the flag (stage 2).
+        ("window_adaptation_diag_imm", True),
+        ("window_adaptation_diag_imm", False),
+        ("window_adaptation_dense_imm", False),
     ],
 )
 def test_emit_warmup_pb_executes_and_shapes_correct(
     warmup_name: str,
     progress_bar: bool,
-    expected_chain_axis: int,
     tmp_path: Path,
 ) -> None:
     """Emitted script with progress_bar={True,False} executes and produces correct shape.
@@ -391,30 +327,21 @@ def test_emit_warmup_pb_executes_and_shapes_correct(
     Asserts:
     - returncode == 0
     - "DONE" in stdout
-    - _samples leading axis = expected_chain_axis (1 for progress_bar=True, num_chains for False)
-    - No vmap/io_callback errors in stderr
+    - _samples leading axis = num_chains regardless of progress_bar (topology
+      is unaffected by the flag as of stage 2).
+    - No vmap/io_callback errors in stderr (progress_bar() is vmap-safe).
     """
     _NUM_CHAINS = 2
     _NUM_SAMPLES = 10
     recipe = _make_recipe(warmup_name, n_warmup=10)
 
-    if progress_bar is True:
-        with pytest.warns(UserWarning, match="multichain"):
-            script = emit_script(
-                recipe,
-                num_samples=_NUM_SAMPLES,
-                num_chains=_NUM_CHAINS,
-                num_warmup=10,
-                progress_bar=progress_bar,
-            )
-    else:
-        script = emit_script(
-            recipe,
-            num_samples=_NUM_SAMPLES,
-            num_chains=_NUM_CHAINS,
-            num_warmup=10,
-            progress_bar=progress_bar,
-        )
+    script = emit_script(
+        recipe,
+        num_samples=_NUM_SAMPLES,
+        num_chains=_NUM_CHAINS,
+        num_warmup=10,
+        progress_bar=progress_bar,
+    )
 
     # Append shape-check lines.
     shape_check = (
@@ -443,9 +370,9 @@ def test_emit_warmup_pb_executes_and_shapes_correct(
         f"Expected 'DONE' in stdout (pb={progress_bar}, warmup={warmup_name}).\n"
         f"stdout:\n{result.stdout}"
     )
-    assert f"SHAPE=({expected_chain_axis}, {_NUM_SAMPLES}" in result.stdout, (
-        f"Expected _samples leading axis {expected_chain_axis} "
-        f"(pb={progress_bar}, warmup={warmup_name}).\n"
+    assert f"SHAPE=({_NUM_CHAINS}, {_NUM_SAMPLES}" in result.stdout, (
+        f"Expected _samples leading axis {_NUM_CHAINS} (multichain, unaffected "
+        f"by progress_bar) (pb={progress_bar}, warmup={warmup_name}).\n"
         f"stdout:\n{result.stdout}"
     )
     assert "IO effect not supported" not in result.stderr, (

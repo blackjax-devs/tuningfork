@@ -918,9 +918,11 @@ def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> Non
 
     # Emitted script's warmup (executed in subprocess for isolation).
     # Use num_samples=10, num_warmup=10 to keep the test fast.
-    # Pass progress_bar=True to preserve the single-chain emit this test was designed for.
-    with pytest.warns(UserWarning, match="multichain"):
-        script = emit_script(recipe, num_samples=10, num_warmup=10, progress_bar=True)
+    # Changed 2026-07-08 (blackjax #964 stage 2): progress_bar=True no longer
+    # forces single-chain emit (topology is unaffected by the flag). Use
+    # warmup_num_chains=[1] -- the one knob that still selects single-chain --
+    # to preserve the single-chain emit this test was designed for.
+    script = emit_script(recipe, num_samples=10, num_warmup=10, warmup_num_chains=[1])
 
     epilogue = """
 import json
@@ -1575,26 +1577,35 @@ def test_emit_script_progress_bar_override_false() -> None:
 
 @pytest.mark.fast
 def test_emit_script_progress_bar_override_true() -> None:
-    """emit_script(recipe, progress_bar=True) selects the legacy single-chain topology.
+    """emit_script(recipe, progress_bar=True) wraps calls in blackjax.progress_bar().
 
-    Changed 2026-07-08 (blackjax #964 stage 1): no progress_bar= kwarg is
-    forwarded to blackjax regardless of topology; check the topology marker
-    (_warmup_is_perchain = False) instead of a literal blackjax kwarg.
-    For a single-chain recipe, no warning is issued (warning only fires for multichain).
+    Changed 2026-07-08 (blackjax #964 stage 2): blackjax.progress_bar() is
+    vmap-safe, so progress_bar=True no longer selects single-chain topology --
+    this groundtruth recipe has no warmup_num_chains stamped (None), so it
+    still resolves to the multichain template (_warmup_is_perchain = True),
+    same as progress_bar=False. The only observable difference is the added
+    ``with blackjax.progress_bar():`` wrap around the warmup + sampling calls.
     """
     from tuningfork.catalog import emit_script, load_recipe
 
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
-    # No warning expected for single-chain recipes (eight_schools_ncp is groundtruth/1-chain).
     script = emit_script(recipe, num_samples=50, progress_bar=True)
 
     assert "progress_bar=" not in script, (
         "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
         "(removed upstream in blackjax #964)."
     )
-    assert "_warmup_is_perchain = False" in script, (
-        "Expected single-chain warmup topology marker in emitted script when "
+    assert "_warmup_is_perchain = True" in script, (
+        "progress_bar=True must NOT change topology -- expected the multichain "
+        "warmup topology marker (unaffected by the flag)."
+    )
+    assert 'with blackjax.progress_bar(label="warmup"):' in script, (
+        "Expected the warmup run call wrapped in blackjax.progress_bar() when "
+        "progress_bar=True."
+    )
+    assert 'with blackjax.progress_bar(label="sampling"):' in script, (
+        "Expected the sampling run call wrapped in blackjax.progress_bar() when "
         "progress_bar=True."
     )
     assert (
@@ -1785,12 +1796,15 @@ def test_emit_script_default_progress_bar_preserves_multichain() -> None:
 
 
 @pytest.mark.fast
-def test_emit_script_progress_bar_true_warns() -> None:
-    """Explicit progress_bar=True issues a UserWarning for multichain recipes.
+def test_emit_script_progress_bar_true_no_longer_warns() -> None:
+    """Explicit progress_bar=True does NOT warn, even for a multichain recipe.
 
-    When the user explicitly passes progress_bar=True and the recipe specifies
-    multichain warmup (window_adaptation with num_chains > 1), a warning should
-    be issued at emit_script() call time (not just when the script runs).
+    Changed 2026-07-08 (blackjax #964 stage 2): the old "progress_bar=True
+    forces single-chain" UserWarning is gone -- blackjax.progress_bar() is
+    vmap-safe, so progress_bar=True no longer forces (or conflicts with)
+    multichain warmup. pytest.ini's filterwarnings=error means an unexpected
+    warning would fail this test outright, so no explicit pytest.warns(...)
+    context is needed to prove absence.
     """
     # Load a window_adaptation recipe with num_chains > 1.
     recipe_path = (
@@ -1805,13 +1819,15 @@ def test_emit_script_progress_bar_true_warns() -> None:
 
     recipe = load_recipe(recipe_path)
 
-    # Emit with explicit progress_bar=True and num_chains > 1.
-    with pytest.warns(UserWarning, match="multichain"):
-        script = emit_script(recipe, num_samples=100, num_chains=4, progress_bar=True)
+    # Emit with explicit progress_bar=True and num_chains > 1 -- no warning.
+    script = emit_script(recipe, num_samples=100, num_chains=4, progress_bar=True)
 
-    # The emitted script should NOT contain jax.vmap (forced single-chain).
-    # Verify the warning was triggered by checking the script was still emitted.
-    assert isinstance(script, str) and len(script) > 0
+    # The emitted script must still be multichain (jax.vmap present) and wrapped.
+    assert "jax.vmap" in script, (
+        "progress_bar=True must NOT force single-chain -- expected jax.vmap "
+        "to still be present for a multichain recipe."
+    )
+    assert 'with blackjax.progress_bar(label="warmup"):' in script
 
 
 # ── C5 regression guard: unadjusted mclmc info-fields ────────────────────────

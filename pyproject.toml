@@ -29,13 +29,15 @@ notebook = [
 ]
 
 bench = [
-    "blackjax @ git+https://github.com/blackjax-devs/blackjax.git@8937e088bd034ed72e83522fa578df9bc4f3b439",
+    # [progress] extra pulls in tqdm>=4.66, required by blackjax.progress_bar()'s
+    # display thread (blackjax #964) -- emitted recipe scripts wrap their
+    # warmup/sampling calls in this context manager when warmup_progress_bar=True.
+    "blackjax[progress] @ git+https://github.com/blackjax-devs/blackjax.git@bb91a2431551eefa743405c5e447683596b82934",
     "aeppl",
     "aesara",
     "arviz",
     "datasets",
     "diffeqzoo",
-    "fastprogress",
     "flax",
     "ipython",
     "jupyter-cache",

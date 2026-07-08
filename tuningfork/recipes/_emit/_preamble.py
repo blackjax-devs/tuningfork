@@ -31,7 +31,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     ctx : dict
         Substitution context from ``emit_script()``.
         Required keys: recipe_id, model_name, base_method_name, warmup_name,
-        recipe_hash, effort, verdict, x64_config_line, progress_bar_warning_block,
+        recipe_hash, effort, verdict, x64_config_line,
         tuning_seed, num_chains.
 
     Returns
@@ -67,7 +67,6 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     # Timing + imports
     a("import time as _recipe_time")
     a("_recipe_t0 = _recipe_time.perf_counter()")
-    a("import warnings")
     a("import jax")
 
     # x64 config (empty string for float32 models)
@@ -77,10 +76,6 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a("import jax.numpy as jnp")
     a("import numpy as np")
     a("import blackjax")
-
-    # progress bar warning (empty string when not needed)
-    if ctx["progress_bar_warning_block"]:
-        a(ctx["progress_bar_warning_block"])
 
     # Model import
     a("# === MODEL: imported from tuningfork (canonical NumPyro definition) ===")
