@@ -287,13 +287,18 @@ def test_emitted_script_gp_regression_timing_split_is_valid_python() -> None:
 # ── Progress bar tests ───────────────────────────────────────────────────
 
 
-def test_emitted_window_adaptation_uses_progress_bar_false() -> None:
-    """window_adaptation calls in emitted scripts (default path) now use progress_bar=False.
+def test_emitted_window_adaptation_default_is_multichain() -> None:
+    """window_adaptation calls in emitted scripts (default path) default to multichain.
 
-    Changed 2026-06-06: the default changed from True to False to preserve
-    multichain warmup specs in recipes. The default now enables multichain
-    window_adaptation via jax.vmap. Scripts run without visible progress in the
-    warmup section, but the multichain warmup behavior matches the recipe spec.
+    Changed 2026-06-06: the default changed from single-chain to multichain to
+    preserve multichain warmup specs in recipes. The default now enables
+    multichain window_adaptation via jax.vmap.
+
+    Changed 2026-07-08 (blackjax #964 stage 1): blackjax removed the
+    progress_bar= parameter from window_adaptation entirely (no longer
+    forwarded into the emitted call at all, regardless of topology), so this
+    test now checks the topology marker (jax.vmap / _warmup_is_perchain)
+    instead of the literal (now-removed) 'progress_bar=False' kwarg string.
     """
     recipe = _make_recipe(
         "eight_schools_ncp",
@@ -305,22 +310,28 @@ def test_emitted_window_adaptation_uses_progress_bar_false() -> None:
     warmup_section = script[
         script.find("# === WARMUP:") : script.find("# === SAMPLER:")
     ]
-    assert "progress_bar=False" in warmup_section, (
-        "window_adaptation in emitted script should use progress_bar=False "
-        "(default changed 2026-06-06 to preserve multichain warmup specs).\n"
+    assert "progress_bar=" not in warmup_section, (
+        "window_adaptation in emitted script must NOT forward a progress_bar= "
+        "kwarg to blackjax (removed upstream in blackjax #964).\n"
         f"Script warmup section:\n{warmup_section}"
     )
-    # Also verify jax.vmap is present for multichain.
+    # Multichain topology marker: jax.vmap present.
     assert "jax.vmap" in warmup_section, (
-        "window_adaptation with progress_bar=False should enable multichain via jax.vmap.\n"
+        "Default emit should select multichain window_adaptation via jax.vmap.\n"
+        f"Section:\n{warmup_section}"
+    )
+    assert "_warmup_is_perchain = True" in warmup_section, (
+        "Default emit should mark the warmup as per-chain (multichain).\n"
         f"Section:\n{warmup_section}"
     )
 
 
-def test_emitted_dense_window_adaptation_uses_progress_bar_false() -> None:
-    """window_adaptation_dense_imm emitted template uses progress_bar=False.
+def test_emitted_dense_window_adaptation_default_is_multichain() -> None:
+    """window_adaptation_dense_imm emitted template defaults to multichain.
 
-    Changed 2026-06-06: the default changed to False to preserve multichain warmup.
+    Changed 2026-06-06: the default changed to multichain to preserve multichain
+    warmup. Changed 2026-07-08 (blackjax #964 stage 1): no progress_bar= kwarg
+    is forwarded to blackjax at all any more; check the topology marker instead.
     """
     recipe = _make_recipe(
         "eight_schools_ncp",
@@ -329,6 +340,10 @@ def test_emitted_dense_window_adaptation_uses_progress_bar_false() -> None:
     )
     script = emit_script(recipe, num_samples=10)
 
+    assert "progress_bar=" not in script, (
+        "window_adaptation_dense_imm in emitted script must NOT forward a "
+        "progress_bar= kwarg to blackjax (removed upstream in blackjax #964)."
+    )
     assert (
-        "progress_bar=False" in script
-    ), "window_adaptation_dense_imm in emitted script should use progress_bar=False."
+        "_warmup_is_perchain = True" in script
+    ), "window_adaptation_dense_imm in emitted script should default to multichain."
