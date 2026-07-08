@@ -22,8 +22,8 @@ and the aggressive D-2 template replacement). It:
 2. Asserts each emitted script is syntactically valid Python.
 3. Asserts D8 compliance: zero forbidden tuningfork imports.
 4. Covers every warmup × sampler combination via synthetic recipes (no-warmup
-   path + window_adaptation diag/dense/low_rank, both single-chain and
-   multichain, progress_bar=True and False).
+   path + window_adaptation diag/dense/low_rank, both single-chain
+   [warmup_num_chains=[1]] and multichain, progress_bar=True and False).
 5. Includes a focused execution smoke-test (slow) asserting the emitted script
    produces DONE + n_divergences for the eight_schools_ncp × nuts ×
    window_adaptation_diag_imm recipe at minimal config.
@@ -389,7 +389,8 @@ _COMBO_COVER = [
     ("no_warmup", "mala", {"step_size": 0.1}, {}),
     ("no_warmup", "barker", {"step_size": 0.1}, {}),
     ("no_warmup", "rwm", {"sigma": 0.1}, {}),
-    # window_adaptation_diag_imm (single-chain warmup, default progress_bar=True)
+    # window_adaptation_diag_imm (multichain warmup by default; progress_bar
+    # defaults to None -> False and is not passed here)
     (
         "window_adaptation_diag_imm",
         "nuts",
@@ -700,12 +701,10 @@ def test_no_warmup_path_emits_warmup_init_is_single_chain() -> None:
     )
 
 
-@pytest.mark.fast
-def test_window_adaptation_multichain_emits_warmup_is_perchain() -> None:
-    """progress_bar=False multichain warmup emits '_warmup_is_perchain = True'."""
+def _make_wa_recipe():
     from tuningfork.recipes._base import Effort, Recipe
 
-    recipe = Recipe(
+    return Recipe(
         model_name="mvn_10",
         base_method_name="nuts",
         warmup_name="window_adaptation_diag_imm",
@@ -720,6 +719,12 @@ def test_window_adaptation_multichain_emits_warmup_is_perchain() -> None:
         instructions="",
         tuning_seed=0,
     )
+
+
+@pytest.mark.fast
+def test_window_adaptation_multichain_emits_warmup_is_perchain() -> None:
+    """progress_bar=False multichain warmup emits '_warmup_is_perchain = True'."""
+    recipe = _make_wa_recipe()
     # progress_bar=False → multichain warmup template (_multichain.py.tmpl)
     script = emit_script(recipe, num_samples=5, progress_bar=False)
     assert (
@@ -728,35 +733,36 @@ def test_window_adaptation_multichain_emits_warmup_is_perchain() -> None:
 
 
 @pytest.mark.fast
-def test_window_adaptation_singlechain_emits_warmup_is_perchain_false() -> None:
-    """progress_bar=True single-chain warmup emits '_warmup_is_perchain = False'."""
-    import warnings
+def test_window_adaptation_progress_bar_true_still_emits_warmup_is_perchain_true() -> (
+    None
+):
+    """progress_bar=True must NOT change topology (blackjax #964 stage 2).
 
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="nuts",
-        warmup_name="window_adaptation_diag_imm",
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.5, "max_num_doublings": 5},
-        warmup_params={"n_warmup": 10, "target_acceptance_rate": 0.8, "num_chains": 4},
-        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 10}}],
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={},
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
+    blackjax.progress_bar() is vmap-safe, so progress_bar=True no longer
+    forces single-chain -- it still emits the multichain template, now
+    additionally wrapped in ``with blackjax.progress_bar():``.
+    """
+    recipe = _make_wa_recipe()
+    script = emit_script(recipe, num_samples=5, progress_bar=True)
+    assert "_warmup_is_perchain = True" in script, (
+        "progress_bar=True must still emit '_warmup_is_perchain = True' "
+        "(topology is unaffected by the flag)."
     )
-    # progress_bar=True emits the single-chain template AND raises a UserWarning
-    # about single-chain execution (expected, documented behaviour).
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        script = emit_script(recipe, num_samples=5, progress_bar=True)
+    assert (
+        'with blackjax.progress_bar(label="warmup"):' in script
+    ), "progress_bar=True must wrap the warmup run call in blackjax.progress_bar()."
+
+
+@pytest.mark.fast
+def test_window_adaptation_num_chains_1_emits_warmup_is_perchain_false() -> None:
+    """warmup_num_chains=[1] (not progress_bar) is what selects single-chain now."""
+    recipe = _make_wa_recipe()
+    script = emit_script(
+        recipe, num_samples=5, progress_bar=False, warmup_num_chains=[1]
+    )
     assert (
         "_warmup_is_perchain = False" in script
-    ), "progress_bar=True single-chain warmup must emit '_warmup_is_perchain = False'."
+    ), "warmup_num_chains=[1] must emit '_warmup_is_perchain = False'."
 
 
 @pytest.mark.fast
