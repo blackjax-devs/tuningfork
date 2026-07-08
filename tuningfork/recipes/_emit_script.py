@@ -67,8 +67,9 @@ _X64_CONFIG_LINE_EMPTY = ""
 # here so both use sites share exactly the same text (no drift).
 _PROGRESS_BAR_WARNING_TEXT = (
     "progress_bar=True forces SINGLE chain warmup and sampling — multi-chain runs "
-    "under jax.vmap, which is incompatible with the progress bar's io_callback "
-    "(see blackjax issue #927). For the full num_chains-chain run, set progress_bar=False."
+    "under jax.vmap. This is a legacy tuningfork topology choice (predates blackjax's "
+    "vmap-safe progress_bar() context manager, blackjax #964) kept pending a stage-2 "
+    "cleanup. For the full num_chains-chain run, set progress_bar=False."
 )
 
 # The warning block injected into the preamble template when progress_bar=True.
@@ -76,8 +77,9 @@ _PROGRESS_BAR_WARNING_TEXT = (
 _PROGRESS_BAR_WARNING_BLOCK = (
     "warnings.warn(\n"
     '    "progress_bar=True forces SINGLE chain warmup and sampling -- multi-chain runs "\n'
-    '    "under jax.vmap, which is incompatible with the progress bar\'s io_callback "\n'
-    '    "(see blackjax issue #927). For the full num_chains-chain run, set progress_bar=False.",\n'
+    '    "under jax.vmap. This is a legacy tuningfork topology choice (predates blackjax\'s "\n'
+    '    "vmap-safe progress_bar() context manager, blackjax #964) kept pending a stage-2 "\n'
+    '    "cleanup. For the full num_chains-chain run, set progress_bar=False.",\n'
     "    stacklevel=1,\n"
     ")"
 )
@@ -264,8 +266,8 @@ def _build_inference_loop(
         vmap over ``_adapted_params["L"]`` alongside step_size and imm.
         ``kernel_builder`` receives a third positional argument ``L``.
     sampling_pb : bool
-        If True → single-chain loop (progress_bar=True, io_callback safe).
-        If False → multi-chain loop (scan + vmap, no progress bar).
+        If True → single-chain loop (legacy topology, kept pending stage-2 cleanup).
+        If False → multi-chain loop (scan + vmap).
     warmup_is_perchain : bool
         Warmup ran per-chain (jax.vmap). Adapted params are (num_chains, ...).
     warmup_init_is_single_chain : bool
@@ -285,14 +287,14 @@ def _build_inference_loop(
             "_SAMPLING_PROGRESS_BAR = True"
             "  # single-chain (progress bar safe); set False for multi-chain"
         )
-        a("# Single-chain sampling (progress_bar=True).")
+        a("# Single-chain sampling.")
         a(
-            "# progress_bar uses io_callback inside the scan body.  io_callback is"
-            " not"
+            "# Single-chain topology here is a legacy choice kept pending a stage-2"
+            " cleanup;"
         )
         a(
-            "# supported inside jax.vmap, so multi-chain sampling cannot use a"
-            " progress bar."
+            "# it predates blackjax's vmap-safe progress_bar() context manager"
+            " (blackjax #964)."
         )
         a(
             "# We sample ONE chain then re-add a leading axis of 1 so downstream"
@@ -365,7 +367,6 @@ def _build_inference_loop(
         a("    _sc_alg,")
         a("    num_steps=_NUM_SAMPLES,")
         a("    initial_state=_single_chain_state,")
-        a("    progress_bar=True,")
         a(")")
         a("")
         a(
@@ -488,7 +489,6 @@ def _build_inference_loop(
         a("    _alg,")
         a("    num_steps=_NUM_SAMPLES,")
         a("    initial_state=_state_post_warmup,")
-        a("    progress_bar=False,")
         a(")")
         a("")
         a("# Swap axes: (num_steps, num_chains, ...) -> (num_chains, num_steps, ...).")
@@ -582,10 +582,15 @@ def emit_script(
 
             emit_script(recipe, num_warmup=[100, 10], num_samples=100)
     progress_bar : bool or None, optional
-        When not ``None``, overrides BOTH the warmup ``progress_bar=`` arguments
-        AND the sampling ``_SAMPLING_PROGRESS_BAR`` constant in the emitted
-        script.  When ``None`` (default), defaults are used: warmup
-        ``progress_bar=True`` and sampling ``_SAMPLING_PROGRESS_BAR = True``.
+        When not ``None``, selects the warmup and sampling TOPOLOGY: ``True``
+        emits tuningfork's legacy single-chain warmup + sampling path (a
+        topology choice kept pending a stage-2 cleanup, unrelated to any
+        current blackjax vmap constraint); ``False`` emits the multi-chain
+        ``jax.vmap`` path.  Also sets the sampling ``_SAMPLING_PROGRESS_BAR``
+        constant in the emitted script to the same value (informational only
+        — it is a plain local variable, not forwarded to blackjax).  When
+        ``None`` (default), resolves to ``False`` (preserves multichain warmup
+        for recipes that spec it).
     warmup_num_chains : list[int] or None, optional
         Runtime override for ``recipe.warmup_num_chains``.  Affects which warmup
         template variant is selected:
@@ -1074,10 +1079,12 @@ def emit_script(
             f"emit_script: progress_bar=True forced single-chain warmup for "
             f"recipe with warmup_name={recipe.warmup_name!r} and num_chains={num_chains}. "
             f"The recipe specifies multichain warmup (each chain runs an independent "
-            f"window_adaptation), but progress_bar=True is incompatible with the vmap'd "
-            f"multichain path. Results may differ from run_recipe_to_idata (the runner) "
-            f"which always uses multichain warmup. Pass progress_bar=False (or omit it) "
-            f"to preserve the recipe's multichain warmup spec.",
+            f"window_adaptation), but progress_bar=True selects tuningfork's legacy "
+            f"single-chain emit path (kept pending a stage-2 cleanup; unrelated to any "
+            f"current blackjax vmap constraint). Results may differ from "
+            f"run_recipe_to_idata (the runner) which always uses multichain warmup. "
+            f"Pass progress_bar=False (or omit it) to preserve the recipe's multichain "
+            f"warmup spec.",
             stacklevel=2,
         )
 

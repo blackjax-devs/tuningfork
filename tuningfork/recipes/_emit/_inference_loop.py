@@ -70,8 +70,8 @@ def emit_inference_loop(
     num_chains : int
         Number of parallel chains.
     sampling_pb : bool
-        If True → single-chain loop (progress_bar=True, io_callback safe).
-        If False → multi-chain loop (scan + vmap, no progress bar).
+        If True → single-chain loop (legacy topology, kept pending stage-2 cleanup).
+        If False → multi-chain loop (scan + vmap).
     warmup_is_perchain : bool
         Warmup ran per-chain (jax.vmap). Adapted params are (num_chains, ...).
     warmup_init_is_single_chain : bool
@@ -91,10 +91,14 @@ def emit_inference_loop(
             "_SAMPLING_PROGRESS_BAR = True"
             "  # single-chain (progress bar safe); set False for multi-chain"
         )
-        a("# Single-chain sampling (progress_bar=True).")
-        a("# progress_bar uses io_callback inside the scan body.  io_callback is not")
+        a("# Single-chain sampling.")
         a(
-            "# supported inside jax.vmap, so multi-chain sampling cannot use a progress bar."
+            "# Single-chain topology here is a legacy choice kept pending a stage-2"
+            " cleanup;"
+        )
+        a(
+            "# it predates blackjax's vmap-safe progress_bar() context manager"
+            " (blackjax #964)."
         )
         a(
             "# We sample ONE chain then re-add a leading axis of 1 so downstream consumers"
@@ -158,7 +162,6 @@ def emit_inference_loop(
         a("    _sc_alg,")
         a("    num_steps=_NUM_SAMPLES,")
         a("    initial_state=_single_chain_state,")
-        a("    progress_bar=True,")
         a(")")
         a("")
         a("# Re-add the leading chain axis (size 1) for downstream shape consistency.")
@@ -260,7 +263,6 @@ def emit_inference_loop(
         a("    _alg,")
         a("    num_steps=_NUM_SAMPLES,")
         a("    initial_state=_state_post_warmup,")
-        a("    progress_bar=False,")
         a(")")
         a("")
         a("# Swap axes: (num_steps, num_chains, ...) -> (num_chains, num_steps, ...).")

@@ -1542,11 +1542,16 @@ def test_emit_script_num_warmup_wrong_list_length_raises() -> None:
 
 @pytest.mark.fast
 def test_emit_script_progress_bar_override_false() -> None:
-    """emit_script(recipe, progress_bar=False) disables both warmup and sampling bars.
+    """emit_script(recipe, progress_bar=False) selects the multichain topology.
 
-    Checks that:
-    - Warmup template has progress_bar=False (not True).
-    - Sampling constant _SAMPLING_PROGRESS_BAR = False (not True).
+    Changed 2026-07-08 (blackjax #964 stage 1): blackjax removed progress_bar=
+    from window_adaptation / run_inference_algorithm entirely, so the emitted
+    script no longer forwards a progress_bar= kwarg at all (regardless of
+    topology). This test now checks:
+    - No literal progress_bar= kwarg leaks into the emitted script.
+    - Sampling constant _SAMPLING_PROGRESS_BAR = False (not True) — this is a
+      plain informational local variable in the emitted script, not forwarded
+      to blackjax, so it is unaffected by the blackjax #964 removal.
     """
     from tuningfork.catalog import emit_script, load_recipe
 
@@ -1554,18 +1559,15 @@ def test_emit_script_progress_bar_override_false() -> None:
     recipe = load_recipe(recipe_path)
     script = emit_script(recipe, num_samples=50, progress_bar=False)
 
-    assert "progress_bar=False" in script, (
-        "Expected 'progress_bar=False' in emitted script when progress_bar=False override.\n"
+    assert "progress_bar=" not in script, (
+        "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
+        "(removed upstream in blackjax #964).\n"
         f"Script snippet:\n{script[:1200]}"
     )
     assert "_SAMPLING_PROGRESS_BAR = False" in script, (
         "Expected '_SAMPLING_PROGRESS_BAR = False' in emitted script when progress_bar=False.\n"
         f"Script snippet:\n{script[:1200]}"
     )
-    # Must NOT have the True variants for the overridden slots.
-    assert (
-        "progress_bar=True" not in script
-    ), "Unexpected 'progress_bar=True' in emitted script when progress_bar=False override."
     assert (
         "_SAMPLING_PROGRESS_BAR = True" not in script
     ), "Unexpected '_SAMPLING_PROGRESS_BAR = True' when progress_bar=False override."
@@ -1573,9 +1575,11 @@ def test_emit_script_progress_bar_override_false() -> None:
 
 @pytest.mark.fast
 def test_emit_script_progress_bar_override_true() -> None:
-    """emit_script(recipe, progress_bar=True) explicitly enables both progress bars.
+    """emit_script(recipe, progress_bar=True) selects the legacy single-chain topology.
 
-    Both warmup and sampling must have progress_bar=True when explicitly requested.
+    Changed 2026-07-08 (blackjax #964 stage 1): no progress_bar= kwarg is
+    forwarded to blackjax regardless of topology; check the topology marker
+    (_warmup_is_perchain = False) instead of a literal blackjax kwarg.
     For a single-chain recipe, no warning is issued (warning only fires for multichain).
     """
     from tuningfork.catalog import emit_script, load_recipe
@@ -1585,9 +1589,14 @@ def test_emit_script_progress_bar_override_true() -> None:
     # No warning expected for single-chain recipes (eight_schools_ncp is groundtruth/1-chain).
     script = emit_script(recipe, num_samples=50, progress_bar=True)
 
-    assert (
-        "progress_bar=True" in script
-    ), "Expected 'progress_bar=True' in emitted script when progress_bar=True."
+    assert "progress_bar=" not in script, (
+        "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
+        "(removed upstream in blackjax #964)."
+    )
+    assert "_warmup_is_perchain = False" in script, (
+        "Expected single-chain warmup topology marker in emitted script when "
+        "progress_bar=True."
+    )
     assert (
         "_SAMPLING_PROGRESS_BAR = True" in script
     ), "Expected '_SAMPLING_PROGRESS_BAR = True' in emitted script when progress_bar=True."
@@ -1595,10 +1604,11 @@ def test_emit_script_progress_bar_override_true() -> None:
 
 @pytest.mark.fast
 def test_emit_script_progress_bar_none_keeps_defaults() -> None:
-    """emit_script(recipe, progress_bar=None) uses defaults (warmup False, sampling False).
+    """emit_script(recipe, progress_bar=None) uses defaults (multichain topology).
 
-    The default behaviour (None) now resolves to False (changed 2026-06-06) to preserve
-    multichain warmup specs in recipes. progress_bar=False in the emitted script.
+    The default behaviour (None) resolves to False (changed 2026-06-06) to preserve
+    multichain warmup specs in recipes. Changed 2026-07-08 (blackjax #964 stage 1):
+    no progress_bar= kwarg is forwarded to blackjax at all any more.
     """
     from tuningfork.catalog import emit_script, load_recipe
 
@@ -1611,7 +1621,10 @@ def test_emit_script_progress_bar_none_keeps_defaults() -> None:
     assert (
         script_default == script_none
     ), "emit_script with progress_bar=None should produce identical output to default call."
-    assert "progress_bar=False" in script_none
+    assert "progress_bar=" not in script_none, (
+        "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
+        "(removed upstream in blackjax #964)."
+    )
     assert "_SAMPLING_PROGRESS_BAR = False" in script_none
 
 

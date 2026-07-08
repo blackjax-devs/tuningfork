@@ -1579,7 +1579,6 @@ def emit_low_recipe_for_cell(
             _alg,
             num_steps=n_samples,
             initial_state=_run_states,
-            progress_bar=False,
         )
         # run_inference_algorithm output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
         states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist)
@@ -2779,7 +2778,6 @@ def run_recipe_to_idata(
         _alg_r,
         num_steps=n_samples,
         initial_state=_run_states_r,
-        progress_bar=False,
     )
     # run_inference_algorithm output: (n_samples, num_chains, ...) → swap to (num_chains, n_samples, ...)
     states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), _states_hist_r)
