@@ -168,7 +168,6 @@ def _emit_window_adaptation(
           ``blackjax.window_adaptation_low_rank``.
         - ``window_adaptation_extra_kwargs``: extra kwargs before target
           (e.g. ``"is_mass_matrix_diagonal=False,"`` or ``"max_rank=N,"``).
-        - ``warmup_progress_bar``: bool.
         - ``num_chains``: number of chains (used for multichain path).
     multichain : bool
         If True, emit multichain vmap path.  If False, emit single-chain path.
@@ -183,7 +182,6 @@ def _emit_window_adaptation(
     warmup_extra_kwargs = ctx.get("warmup_extra_kwargs", "")
     wa_fn = ctx["window_adaptation_fn"]
     wa_extra = ctx["window_adaptation_extra_kwargs"]
-    warmup_progress_bar = ctx["warmup_progress_bar"]
 
     if multichain:
         a(
@@ -192,10 +190,7 @@ def _emit_window_adaptation(
         a(
             "# Multi-chain warmup: jax.vmap over window_adaptation.run so each chain gets its"
         )
-        a(
-            "# own adapted (step_size, inverse_mass_matrix).  Requires progress_bar=False"
-        )
-        a("# because io_callback (progress_bar) is not supported inside jax.vmap.")
+        a("# own adapted (step_size, inverse_mass_matrix).")
         a("# This matches the runner's per-chain warmup behavior.")
         a(f"_warmup = {wa_fn}(")
         a(f"    {warmup_algorithm},")
@@ -203,7 +198,6 @@ def _emit_window_adaptation(
         if wa_extra:
             a(f"    {wa_extra}")
         a(f"    target_acceptance_rate={target_acceptance_rate}{warmup_extra_kwargs},")
-        a("    progress_bar=False,")
         a(")")
         a(f"_warmup_keys = jax.random.split(jax.random.key({tuning_seed}), num_chains)")
         a("# Replicate init_position to (num_chains, ...) for vmap.")
@@ -236,17 +230,20 @@ def _emit_window_adaptation(
         a(
             "# scan(vmap(kernel)) in the inference loop maps over chains sharing the same"
         )
-        a("# adapted (step_size, inverse_mass_matrix).  Running warmup inside vmap is")
+        a("# adapted (step_size, inverse_mass_matrix). Single-chain topology here is a")
         a(
-            "# discouraged because io_callback (progress_bar) is not supported inside vmap."
+            "# legacy choice (predates blackjax's vmap-safe progress_bar() context manager,"
         )
+        a(
+            "# blackjax #964) kept pending a stage-2 cleanup; it is no longer required by"
+        )
+        a("# a blackjax constraint.")
         a(f"_warmup = {wa_fn}(")
         a(f"    {warmup_algorithm},")
         a("    logdensity_fn,")
         if wa_extra:
             a(f"    {wa_extra}")
         a(f"    target_acceptance_rate={target_acceptance_rate}{warmup_extra_kwargs},")
-        a(f"    progress_bar={warmup_progress_bar},")
         a(")")
         a(f"_warmup_key = jax.random.fold_in(jax.random.key({tuning_seed}), 0)")
         a(
@@ -389,7 +386,7 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     ctx : dict
         Required keys: target_acceptance_rate, tuning_seed, n_warmup, num_chains,
         wp_n_paths, wp_num_samples_per_path, wp_imm_shrinkage_to_previous,
-        warmup_algorithm, warmup_extra_kwargs, warmup_progress_bar.
+        warmup_algorithm, warmup_extra_kwargs.
     """
     lines: list[str] = []
     a = lines.append
@@ -401,7 +398,6 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     num_samples_per_path = ctx["wp_num_samples_per_path"]
     imm_shrinkage = ctx["wp_imm_shrinkage_to_previous"]
     warmup_algorithm = ctx["warmup_algorithm"]
-    warmup_progress_bar = ctx["warmup_progress_bar"]
 
     a("# === WARMUP: multipathfinder_window_adaptation")
     a(f"#   n_paths={n_paths}, num_samples_per_path={num_samples_per_path},")
@@ -476,7 +472,10 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     a("_init_position_pf = jax.tree.map(lambda x: x[0], _init_positions_psis)")
     a("")
     a("# Stage 2: single-chain window_adaptation seeded with multipathfinder IMM.")
-    a("# Single-chain warmup avoids io_callback-in-vmap issue (progress_bar).")
+    a("# Single-chain topology is a legacy choice kept pending a stage-2 cleanup;")
+    a(
+        "# it predates blackjax's vmap-safe progress_bar() context manager (blackjax #964)."
+    )
     a(
         "# imm_shrinkage_to_previous keeps the multipathfinder IMM influential across windows."
     )
@@ -488,7 +487,6 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     a(f"    imm_shrinkage_to_previous={imm_shrinkage},")
     a(f"    target_acceptance_rate={target_acceptance_rate},")
     a("    initial_step_size=1.0,")
-    a(f"    progress_bar={warmup_progress_bar},")
     a(")")
     a("")
     a("_warmup_key = jax.random.fold_in(_adapt_key, 0)")
@@ -707,7 +705,7 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     ----------
     ctx : dict
         Required keys: num_warmup_phases, tuning_seed, warmup_algorithm,
-        warmup_extra_kwargs, warmup_progress_bar, num_chains,
+        warmup_extra_kwargs, num_chains,
         wp0_name, wp0_target, wp0_n_warmup, wp0_extra_kwargs,
         wp1_name, wp1_target, wp1_n_warmup, wp1_extra_kwargs, wp1_maxiter.
     """
@@ -717,7 +715,6 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     num_phases = ctx["num_warmup_phases"]
     tuning_seed = ctx["tuning_seed"]
     warmup_algorithm = ctx["warmup_algorithm"]
-    warmup_progress_bar = ctx["warmup_progress_bar"]
 
     # Phase 0 slots
     wp0_name = ctx["wp0_name"]
@@ -747,8 +744,10 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("#")
     a("# Single-chain warmup: both phases run on one chain; the final state is")
     a("# broadcast to (num_chains,) for scan(vmap(kernel)) in the inference loop.")
-    a("# Running warmup inside vmap is discouraged because io_callback (progress_bar)")
-    a("# is not supported inside vmap.")
+    a("# Single-chain topology here is a legacy choice kept pending a stage-2 cleanup;")
+    a(
+        "# it predates blackjax's vmap-safe progress_bar() context manager (blackjax #964)."
+    )
     a("")
     a("# ── Phase 1: traversal (diagonal IMM) ────────────────────────────────────────")
     a(
@@ -758,7 +757,6 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a(f"    {warmup_algorithm},")
     a("    logdensity_fn,")
     a(f"    target_acceptance_rate={wp0_target}{wp0_extra_kwargs},")
-    a(f"    progress_bar={warmup_progress_bar},")
     a(")")
     a(f"_warmup_key_p1 = jax.random.fold_in(jax.random.key({tuning_seed}), 0)")
     a("(state_phase1, _adapted_params_phase1), _ = _warmup_p1.run(")
@@ -800,7 +798,6 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("    is_mass_matrix_diagonal=False,")
     a(f"    target_acceptance_rate={wp1_target}{wp1_extra_kwargs},")
     a("    initial_step_size=_initial_step_size_p2,")
-    a(f"    progress_bar={warmup_progress_bar},")
     a(")")
     a("# Use key offset from Phase 1 to avoid correlation.")
     a(f"_warmup_key_p2 = jax.random.fold_in(jax.random.key({tuning_seed + 1}), 0)")
