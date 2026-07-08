@@ -28,9 +28,9 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-          # uv.lock is gitignored (bench group pins blackjax@git+main; lockfile
-          # would churn on every blackjax bump). Cache invalidates on pyproject
-          # changes instead.
+          # uv.lock IS committed (see .gitignore), but this job runs plain
+          # `uv sync` (not --frozen) so it re-resolves rather than consuming
+          # the lock exactly. Cache invalidates on pyproject changes instead.
           cache-dependency-glob: pyproject.toml
 
       - name: Set up Python
