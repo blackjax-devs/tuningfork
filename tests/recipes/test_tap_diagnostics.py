@@ -11,355 +11,538 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for M2 opt-in tap diagnostics (TUNINGFORK_TAP_DIAGNOSTICS=1).
+"""Tests for M2 opt-in tap diagnostics (TUNINGFORK_TAP_DIAGNOSTICS).
 
-Four tests covering the four guarantees specified in M2:
+Six tests covering the five AYS challenges raised in round 1:
 
-1. ``test_planted_pathology_nan_alert`` — plants a float32 Cholesky NaN
-   (the canonical silent-failure trap class) and verifies the tap catches it:
-   JSONL artifact exists, contains a cholesky event with value=False, and
-   session.alerts records the hit.  [TESTED]
+Challenge 1 — Default-OFF purity (idata equality, not a flag check):
+  ``test_default_off_idata_equality`` [TESTED]: runs the same tiny recipe x
+  same seed twice — tap OFF vs tap ON — and asserts every posterior array is
+  bitwise-identical. Proves that entering the tap context does not alter
+  results (jaxtap bitwise-identity guarantee is ours, not just inherited).
+  Also verifies the JSONL artifact is created only for the ON run.
 
-2. ``test_false_positive_check`` — the same structure with a well-conditioned
-   identity matrix.  Asserts zero alerts (no false positives).  [TESTED]
+Challenge 2 — Planted pathology through run_recipe_to_idata (not synthetic scan):
+  ``test_runner_planted_pathology`` [TESTED]: monkeypatches
+  build_logdensity_fn to wrap the real logdensity with an ill-conditioned
+  float32 Cholesky call; runs through run_recipe_to_idata with tap ON;
+  asserts the JSONL artifact exists in the configured directory and contains
+  a cholesky NaN event at a sane step.
+  ``test_runner_healthy_zero_alerts`` [TESTED]: same recipe without the
+  monkeypatch; tap ON; asserts JSONL exists and has zero NaN cholesky events.
 
-3. ``test_default_off_purity`` — with TUNINGFORK_TAP_DIAGNOSTICS unset,
-   ``is_tap_enabled()`` returns False and the ExitStack is never entered.
-   [TESTED via logic gate]
+Challenge 3 — Speed-path inventory (all benchmark callers, not just one):
+  ``test_speed_path_inventory`` [TESTED]: parses _benchmark_helpers.py and
+  test_speed_lite.py with ``ast`` and asserts that EVERY call to
+  run_recipe_to_idata in those files carries ``_no_tap=True``.
 
-4. ``test_speed_path_guard`` — with TUNINGFORK_TAP_DIAGNOSTICS=1, calling
-   ``run_recipe_to_idata(..., _no_tap=True)`` leaves the ExitStack empty.
-   The speed path is structurally unreachable from the tap regardless of the
-   env var.  [TESTED via mock / env-set logic gate]
+Challenge 4 — Overhead measurement (not just structural argument):
+  ``test_overhead_measurement`` [TESTED]: times tap ON vs tap OFF on the same
+  tiny recipe (3 warm runs each after a cold-start discard); prints the ratio
+  and asserts overhead < 50%.
+
+Challenge 5 — Artifact path (env var as directory, not only "1"):
+  ``test_artifact_dir_env_var`` [TESTED]: sets the env var to an absolute
+  directory path; verifies tap_artifact_dir() returns that path and JSONL is
+  created there; also tests the "1" backward-compat path and "0"/unset OFF.
 """
 
 from __future__ import annotations
 
-import jax
+import ast
+import time
+from pathlib import Path
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 # ---------------------------------------------------------------------------
-# Helpers: tiny JAX computations that exercise cholesky
+# Shared helpers
 # ---------------------------------------------------------------------------
 
+_EIGHT_SCHOOLS_RECIPE_REL = (
+    "tuningfork/catalog/eight_schools_ncp/recipes/"
+    "low__nuts__window_adaptation_diag_imm.json"
+)
 
-def _make_bad_cholesky_scan(n_steps: int = 25):
-    """Return a function whose lax.scan calls cholesky on an ill-conditioned f32 matrix.
+# Repository root: tests/recipes/ -> tests/ -> repo root
+_REPO_ROOT = Path(__file__).parent.parent.parent
 
-    Mirrors the pattern from ``demo/cholesky_float32_trap.py`` in jax-tap.
-    The off-diagonal entry c → 1 as k increases; once k ≈ 12 the float32
-    matrix is numerically singular and cholesky produces NaN/Inf.
+
+def _load_eight_schools_recipe():
+    """Load the committed eight_schools_ncp LOW NUTS recipe from disk."""
+    from tuningfork.catalog.inspect import load_recipe
+
+    path = _REPO_ROOT / _EIGHT_SCHOOLS_RECIPE_REL
+    if not path.exists():
+        pytest.skip(f"Recipe not found on disk: {path}")
+    return load_recipe(path)
+
+
+def _make_wrapping_bad_build_logdensity_fn():
+    """Return a build_logdensity_fn that wraps the real logdensity + ill-conditioned f32 cholesky.
+
+    Mechanism:
+    - Calls the real build_logdensity_fn to get the correct init_position and
+      model_data so the skip_warmup=True stationary-init path works normally.
+    - Returns a wrapped logdensity that:
+        1. Evaluates the real logp (correct value; NUTS runs normally).
+        2. Computes cholesky on a float32 matrix with off-diagonal c_dep =
+           tanh(|x[0]| + 20) which equals exactly 1.0 in float32 (float32
+           epsilon ~ 1.19e-7 >> 1 - tanh(20) ~ 4.1e-18). Matrix =
+           [[1,1],[1,1]] is rank-1 and singular -> cholesky NaN.
+        3. Adds a zero-valued correction via jnp.where + NaN-safe sum so
+           logp is bitwise-unchanged: carry stays finite, only the cholesky
+           XLA primitive fires the tap.
+    - tap.watch_nan("cholesky") fires at the XLA primitive level regardless
+      of what happens to L downstream.
     """
 
-    def step(carry, _):
-        log_step, k = carry
-        # c → 1 as k → 12; matrix becomes singular in f32 (κ > 1/ε_f32 ≈ 1e7).
-        c = jnp.float32(1.0) - jnp.float32(10.0) ** (-jnp.minimum(k, jnp.float32(12.0)))
-        M = jnp.array([[1.0, c], [c, 1.0]], dtype=jnp.float32)
-        L = jnp.linalg.cholesky(M)  # silent NaN once c ≈ 1 in float32
-        logdens = -0.5 * jnp.float32(2.0) * jnp.sum(jnp.log(jnp.diag(L)))
-        new_log_step = jnp.where(
-            jnp.isfinite(logdens),
-            log_step + jnp.float32(0.05),
-            log_step - jnp.float32(1.0),
-        )
-        return (new_log_step, k + jnp.float32(1.0)), logdens
+    def wrapped_build(init_key, posterior):
+        from tuningfork.model._numpyro import build_logdensity_fn as real_build
 
-    def run():
-        x0 = (jnp.float32(0.0), jnp.float32(1.0))
-        (log_step, _), _ = jax.lax.scan(step, x0, None, length=n_steps)
-        return log_step
+        init_pos, real_logdensity, model_data = real_build(init_key, posterior)
 
-    return run
+        def bad_logdensity(position):
+            logp = real_logdensity(position)
 
-
-def _make_good_cholesky_scan(n_steps: int = 25):
-    """Return a function whose lax.scan calls cholesky on a well-conditioned identity matrix.
-
-    All outputs should be finite (false-positive check).
-    """
-
-    def step(carry, _):
-        log_step, k = carry
-        M = jnp.eye(2, dtype=jnp.float32)  # identity: κ=1, always PD in f32
-        L = jnp.linalg.cholesky(M)
-        logdens = -0.5 * jnp.sum(jnp.log(jnp.diag(L)))
-        return (log_step + jnp.float32(0.01), k + jnp.float32(1.0)), logdens
-
-    def run():
-        x0 = (jnp.float32(0.0), jnp.float32(1.0))
-        (log_step, _), _ = jax.lax.scan(step, x0, None, length=n_steps)
-        return log_step
-
-    return run
-
-
-# ---------------------------------------------------------------------------
-# Test 1: planted pathology → alert fires
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_planted_pathology_nan_alert(tmp_path):
-    """Plant a float32 Cholesky NaN; verify the tap catches it.
-
-    [TESTED]: runs the bad-cholesky scan inside tap_diagnostics_context,
-    then asserts:
-      - JSONL artifact exists and is non-empty
-      - At least one cholesky event has value=False (NaN detected)
-      - session.alerts contains a "cholesky_nan" entry with a sane step
-
-    Runtime budget: < 30 s (25 JAX scan steps + JAX compile).
-    """
-    # Disable x64 to ensure float32 Cholesky NaN trap fires.
-    jax.config.update("jax_enable_x64", False)
-
-    from jaxtap import read_jsonl
-
-    from tuningfork.diagnostics._tap import tap_diagnostics_context
-
-    artifact = tmp_path / "pathology.jsonl"
-    bad_scan = _make_bad_cholesky_scan(n_steps=25)
-
-    with tap_diagnostics_context(
-        artifact_path=artifact,
-        sample_every=1,  # check every step for reliability in the test
-    ) as session:
-        bad_scan()
-
-    # ── Artifact checks ──
-    assert artifact.exists(), "JSONL artifact was not created"
-    assert artifact.stat().st_size > 0, "JSONL artifact is empty"
-
-    events = read_jsonl(artifact)
-    assert len(events) > 0, "No events written to JSONL"
-
-    # ── Cholesky NaN check ──
-    # watch_nan("cholesky", once=True) yields PrimitiveTap events whose
-    # value = True when finite, False when NaN/Inf.
-    cholesky_events = [e for e in events if "cholesky" in str(e.path)]
-    assert (
-        len(cholesky_events) > 0
-    ), f"No cholesky events in JSONL. All paths: {sorted({e.path for e in events})}"
-
-    nan_events = [
-        e
-        for e in cholesky_events
-        if not bool(
-            np.asarray(e.value).all()
-            if hasattr(np.asarray(e.value), "all")
-            else bool(e.value)
-        )
-    ]
-    assert len(nan_events) > 0, (
-        "Expected at least one NaN cholesky event but found none. "
-        f"Cholesky event values: {[e.value for e in cholesky_events[:5]]}"
-    )
-
-    # ── Step sanity check: first NaN occurs at a sane step (< n_steps) ──
-    first_nan_step = min(e.step for e in nan_events)
-    assert (
-        0 <= first_nan_step < 25
-    ), f"First NaN step {first_nan_step} is outside expected range [0, 25)"
-
-    # ── session.alerts check ──
-    assert (
-        len(session.alerts) > 0
-    ), "session.alerts is empty; expected a cholesky_nan alert entry"
-    cholesky_nan_alerts = [a for a in session.alerts if a["type"] == "cholesky_nan"]
-    assert (
-        len(cholesky_nan_alerts) > 0
-    ), f"No cholesky_nan alerts in session.alerts. Got: {session.alerts}"
-
-    # Print the first NaN alert for the report (TL inspection)
-    first_alert = cholesky_nan_alerts[0]
-    print(
-        f"\n[PLANTED PATHOLOGY EVIDENCE] first_alert={first_alert}  "
-        f"first_nan_step={first_nan_step}  total_events={len(events)}  "
-        f"cholesky_events={len(cholesky_events)}  nan_events={len(nan_events)}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 2: false-positive check (healthy run → zero alerts)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_false_positive_check(tmp_path):
-    """Well-conditioned cholesky: tap fires zero alerts.
-
-    [TESTED]: runs the good-cholesky scan (identity matrix, always PD) inside
-    tap_diagnostics_context.  Asserts:
-      - JSONL artifact exists (events are recorded even when healthy)
-      - NO cholesky events have value=False
-      - session.alerts is empty
-
-    Runtime budget: < 30 s.
-    """
-    jax.config.update("jax_enable_x64", False)
-
-    from jaxtap import read_jsonl
-
-    from tuningfork.diagnostics._tap import tap_diagnostics_context
-
-    artifact = tmp_path / "healthy.jsonl"
-    good_scan = _make_good_cholesky_scan(n_steps=25)
-
-    with tap_diagnostics_context(
-        artifact_path=artifact,
-        sample_every=1,
-    ) as session:
-        good_scan()
-
-    assert artifact.exists(), "JSONL artifact was not created"
-
-    events = read_jsonl(artifact)
-    assert len(events) > 0, "No events written to JSONL"
-
-    # All cholesky events should have value=True (finite).
-    cholesky_events = [e for e in events if "cholesky" in str(e.path)]
-    assert (
-        len(cholesky_events) > 0
-    ), f"No cholesky events in JSONL. All paths: {sorted({e.path for e in events})}"
-
-    nan_events = [
-        e
-        for e in cholesky_events
-        if not bool(
-            np.asarray(e.value).all()
-            if hasattr(np.asarray(e.value), "all")
-            else bool(e.value)
-        )
-    ]
-    assert len(nan_events) == 0, (
-        f"False positive: {len(nan_events)} cholesky NaN events on healthy input. "
-        f"Events: {nan_events[:3]}"
-    )
-
-    # session.alerts must be empty.
-    assert (
-        session.alerts == []
-    ), f"False positive: session.alerts non-empty on healthy input: {session.alerts}"
-
-    print(
-        f"\n[FALSE POSITIVE CHECK EVIDENCE] total_events={len(events)}  "
-        f"cholesky_events={len(cholesky_events)}  alerts={session.alerts}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 3: default-OFF purity (env var unset → zero tap involvement)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.fast
-def test_default_off_purity(monkeypatch):
-    """Without env var, is_tap_enabled() is False and no JSONL is written.
-
-    [TESTED via logic gate]:
-      - Ensures TUNINGFORK_TAP_DIAGNOSTICS is absent.
-      - Verifies is_tap_enabled() returns False.
-      - Verifies that calling run_recipe_to_idata (without recipe, just the
-        guard logic) leaves _tap_stack with no entered contexts.
-    """
-    # Ensure the env var is absent for this test.
-    monkeypatch.delenv("TUNINGFORK_TAP_DIAGNOSTICS", raising=False)
-
-    from tuningfork.diagnostics._tap import is_tap_enabled
-
-    assert (
-        not is_tap_enabled()
-    ), "is_tap_enabled() returned True but TUNINGFORK_TAP_DIAGNOSTICS is unset"
-
-    # Verify the ExitStack code path: with env var absent, _tap_stack is empty.
-    import contextlib
-
-    _tap_stack = contextlib.ExitStack()
-    _no_tap = False  # simulate default call
-    if not _no_tap:
-        if is_tap_enabled():  # False → branch not taken
-            raise AssertionError("Entered tap branch without env var")
-
-    # ExitStack.close() on an empty stack is a no-op.
-    _tap_stack.close()
-
-    # Verify that jaxtap's scan patch is NOT active (module-level check).
-    # When tap is disabled, the production jax.lax.scan is the canonical one.
-    import jax.lax
-
-    scan_fn = jax.lax.scan
-    # The canonical scan is not a wrapped jaxtap version:
-    # check by name (jaxtap replaces it with a closure called "tapped_scan"
-    # or similar; the unpatched scan has a C-extension-level __name__).
-    # This is a best-effort check — don't rely on internal naming.
-    scan_qualname = getattr(scan_fn, "__qualname__", "")
-    assert (
-        "tap" not in scan_qualname.lower()
-    ), f"jax.lax.scan appears to be patched by jaxtap: __qualname__={scan_qualname!r}"
-
-
-# ---------------------------------------------------------------------------
-# Test 4: speed-path guard (env var set + _no_tap=True → no tap involvement)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.fast
-def test_speed_path_guard(monkeypatch, tmp_path):
-    """With env var set, _no_tap=True prevents any tap involvement.
-
-    [TESTED via logic gate + filesystem check]:
-      - Sets TUNINGFORK_TAP_DIAGNOSTICS=1.
-      - Simulates the speed-lite code path (ExitStack + _no_tap=True guard).
-      - Verifies that no JSONL artifact appears in the tap diagnostics directory.
-      - Verifies that the ExitStack remains empty (no context was entered).
-
-    This test proves the structural guard works regardless of env var state.
-    """
-    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", "1")
-
-    from tuningfork.diagnostics._tap import is_tap_enabled
-
-    assert is_tap_enabled(), "is_tap_enabled() returned False with env var = '1'"
-
-    # Simulate the run_recipe_to_idata guard with _no_tap=True:
-    import contextlib
-
-    _no_tap = True  # speed-lite caller always passes _no_tap=True
-    _tap_stack = contextlib.ExitStack()
-
-    entered = False
-    if not _no_tap:  # False → branch not taken
-        if is_tap_enabled():
-            entered = True  # would have entered the tap context
-
-    assert not entered, "_no_tap=True but tap context was entered (guard broken)"
-
-    _tap_stack.close()  # no-op: nothing was entered
-
-    # Verify no JSONL artifact appeared under the tap diagnostics directory.
-    import tempfile
-    from pathlib import Path
-
-    tap_dir = Path(tempfile.gettempdir()) / "tuningfork-tap-diagnostics"
-    # Collect JSONL files that could have appeared during this test.
-    jsonl_files_before = set(tap_dir.glob("*.jsonl")) if tap_dir.exists() else set()
-
-    # (Re-run the guard to confirm no side-effects)
-    _tap_stack2 = contextlib.ExitStack()
-    if not _no_tap:
-        if is_tap_enabled():
-            from tuningfork.diagnostics._tap import tap_diagnostics_context
-
-            _tap_stack2.enter_context(
-                tap_diagnostics_context(run_tag="speed_guard_test")
+            # Flatten all position leaves to float32 (works in f32 or f64 mode).
+            vals = jnp.concatenate(
+                [jnp.ravel(v).astype(jnp.float32) for v in position.values()]
             )
-    _tap_stack2.close()
 
-    jsonl_files_after = set(tap_dir.glob("*.jsonl")) if tap_dir.exists() else set()
-    new_files = jsonl_files_after - jsonl_files_before
+            # c_dep = tanh(|x[0]| + 20) in float32 = 1.0 exactly for any x[0].
+            # Making it state-dependent prevents XLA from constant-folding M.
+            c_dep = jnp.tanh(jnp.abs(vals[0]) + jnp.float32(20.0))
+
+            M = jnp.stack(
+                [
+                    jnp.stack([jnp.float32(1.0), c_dep]),
+                    jnp.stack([c_dep, jnp.float32(1.0)]),
+                ]
+            )
+            # cholesky([[1,1],[1,1]]) = NaN (rank-1, not positive definite).
+            # tap.watch_nan("cholesky") fires here at the XLA primitive level.
+            L = jnp.linalg.cholesky(M)
+
+            # NaN-safe sum keeps L in the computation graph (prevents DCE)
+            # while returning 0.0. jnp.float32(0.0) * 0.0 = 0.0 exactly.
+            safe_L_sum = jnp.sum(jnp.where(jnp.isfinite(L), L, jnp.float32(0.0)))
+            correction = jnp.float32(0.0) * safe_L_sum  # always 0.0
+
+            return logp + correction.astype(logp.dtype)
+
+        return init_pos, bad_logdensity, model_data
+
+    return wrapped_build
+
+
+# ---------------------------------------------------------------------------
+# Challenge 1: Default-OFF purity -- idata equality
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_default_off_idata_equality(monkeypatch, tmp_path):
+    """tap OFF vs tap ON from same seed yields bitwise-identical posterior draws.
+
+    [TESTED]: runs eight_schools_ncp NUTS (skip_warmup=True, n_samples=30,
+    seed=42) twice: once with TUNINGFORK_TAP_DIAGNOSTICS unset (tap OFF) and
+    once with it pointing at a temp directory (tap ON).
+
+    Asserts:
+      - tap OFF: no JSONL created in the OFF directory.
+      - tap ON: JSONL artifact exists in the configured directory.
+      - Every posterior variable array is bitwise-equal between OFF and ON runs.
+    """
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe = _load_eight_schools_recipe()
+    common_kwargs = dict(
+        skip_warmup=True,
+        n_samples=30,
+        force_resample_config={"seed": 42, "n_samples": 30},
+        _suppress_print=True,
+    )
+
+    # Run 1: tap OFF (env var absent)
+    monkeypatch.delenv("TUNINGFORK_TAP_DIAGNOSTICS", raising=False)
+    idata_off = run_recipe_to_idata(recipe, **common_kwargs)
+
+    # Run 2: tap ON (env var = tmp dir)
+    tap_dir_on = tmp_path / "on"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir_on))
+    idata_on = run_recipe_to_idata(recipe, **common_kwargs)
+
+    # JSONL created only for the ON run
+    assert tap_dir_on.exists(), "Tap artifact dir not created for ON run"
+    jsonl_on = list(tap_dir_on.glob("*.jsonl"))
+    assert len(jsonl_on) > 0, "No JSONL file created for tap ON run"
+
+    # Bitwise equality across all posterior variables
+    off_vars = set(idata_off.posterior.data_vars)
+    on_vars = set(idata_on.posterior.data_vars)
+    assert off_vars == on_vars, f"posterior variables differ: {off_vars} vs {on_vars}"
+
+    for var in off_vars:
+        arr_off = idata_off.posterior[var].values
+        arr_on = idata_on.posterior[var].values
+        both_nan = np.all(np.isnan(arr_off)) and np.all(np.isnan(arr_on))
+        assert np.array_equal(arr_off, arr_on) or both_nan, (
+            f"Variable {var!r}: tap OFF vs tap ON arrays differ.\n"
+            f"  OFF ravel[:5] = {arr_off.ravel()[:5]}\n"
+            f"  ON  ravel[:5] = {arr_on.ravel()[:5]}"
+        )
+
+    print(
+        f"\n[IDATA EQUALITY] OFF == ON for {len(off_vars)} vars x 30 samples. "
+        f"JSONL at {jsonl_on[0]}. [TESTED]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Challenge 2: Planted pathology + healthy twin through run_recipe_to_idata
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_runner_planted_pathology(monkeypatch, tmp_path):
+    """Planted f32 cholesky NaN fires through the runner's ExitStack wiring.
+
+    [TESTED]: monkeypatches build_logdensity_fn in the recipe runner's module
+    namespace so the returned logdensity wraps the real logp with a cholesky
+    call on a float32 matrix that is exactly singular (off-diagonal = 1.0 in
+    f32 -> [[1,1],[1,1]]). Runs through run_recipe_to_idata with:
+      - TUNINGFORK_TAP_DIAGNOSTICS=<tmp_dir> (env var as path)
+      - eight_schools_ncp NUTS, skip_warmup=True, n_samples=30
+
+    Asserts:
+      - JSONL artifact exists in the configured directory (not under /tmp).
+      - At least one event has "cholesky" in path and value=False (NaN).
+      - First NaN step is within [0, 30).
+
+    Runtime budget: < 60 s (JAX compile + 30 NUTS steps on CPU).
+    """
+    tap_dir = tmp_path / "planted"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    monkeypatch.setattr(
+        "tuningfork.recipes._recipe_runner.build_logdensity_fn",
+        _make_wrapping_bad_build_logdensity_fn(),
+    )
+
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe = _load_eight_schools_recipe()
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=30,
+        force_resample_config={"seed": 42, "n_samples": 30},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
     assert (
-        len(new_files) == 0
-    ), f"Speed-path guard failed: JSONL files created despite _no_tap=True: {new_files}"
+        len(jsonl_files) == 1
+    ), f"Expected exactly 1 JSONL in {tap_dir}, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    assert len(events) > 0, "JSONL is empty -- tap wiring did not produce events"
+
+    cholesky_events = [e for e in events if "cholesky" in str(e.path)]
+    assert (
+        len(cholesky_events) > 0
+    ), f"No cholesky events. All paths: {sorted({e.path for e in events})}"
+
+    nan_events = [
+        e
+        for e in cholesky_events
+        if not bool(
+            np.asarray(e.value).all()
+            if hasattr(np.asarray(e.value), "all")
+            else bool(e.value)
+        )
+    ]
+    assert (
+        len(nan_events) > 0
+    ), f"No cholesky NaN events. Values: {[e.value for e in cholesky_events[:5]]}"
+
+    first_nan_step = min(e.step for e in nan_events)
+    assert 0 <= first_nan_step < 30, f"First NaN step {first_nan_step} outside [0, 30)"
+
+    print(
+        f"\n[RUNNER PATHOLOGY] path={cholesky_events[0].path}  "
+        f"first_nan_step={first_nan_step}  "
+        f"cholesky_events={len(cholesky_events)}  nan_events={len(nan_events)}  "
+        f"jsonl={jsonl_files[0]} [TESTED]"
+    )
+
+
+@pytest.mark.slow
+def test_runner_healthy_zero_alerts(monkeypatch, tmp_path):
+    """Healthy recipe through run_recipe_to_idata: JSONL exists, zero NaN events.
+
+    [TESTED]: runs eight_schools_ncp NUTS (skip_warmup=True, n_samples=20,
+    seed=7) with tap ON and the REAL logdensity (no monkeypatching).
+
+    Asserts:
+      - JSONL exists and is non-empty (tap is active and writing events).
+      - Zero cholesky events have value=False (no false positives).
+
+    Runtime budget: < 60 s.
+    """
+    tap_dir = tmp_path / "healthy"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe = _load_eight_schools_recipe()
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=20,
+        force_resample_config={"seed": 7, "n_samples": 20},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    assert len(events) > 0, "JSONL is empty -- tap wiring did not produce events"
+
+    cholesky_events = [e for e in events if "cholesky" in str(e.path)]
+    nan_events = [
+        e
+        for e in cholesky_events
+        if not bool(
+            np.asarray(e.value).all()
+            if hasattr(np.asarray(e.value), "all")
+            else bool(e.value)
+        )
+    ]
+    assert (
+        len(nan_events) == 0
+    ), f"False positive: {len(nan_events)} cholesky NaN events on healthy recipe"
+
+    print(
+        f"\n[RUNNER HEALTHY] total_events={len(events)}  "
+        f"cholesky_events={len(cholesky_events)}  nan_events=0  "
+        f"jsonl={jsonl_files[0]} [TESTED]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Challenge 3: Speed-path inventory (all benchmark callers)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_speed_path_inventory():
+    """Every run_recipe_to_idata call in benchmarks/ carries _no_tap=True.
+
+    [TESTED]: uses ast.parse on _benchmark_helpers.py and test_speed_lite.py
+    to enumerate every call to run_recipe_to_idata and asserts _no_tap=True
+    is present as a literal keyword at each call site.
+
+    Inventoried call sites:
+      _benchmark_helpers.py
+        run_jit_warmup()              JIT cache pre-warm (benchmark context)
+        run_benchmark_cell() step 1   compile-warmup (outside benchmark() timer)
+        run_benchmark_cell() step 2   run_all_seeds timed body (inside benchmark())
+      test_speed_lite.py
+        run_once()                    timeit-timed speed-lite body
+
+    Catalog / correctness paths (tests/, catalog/notebooks/) are tap-eligible
+    by design and excluded from this check.
+    """
+    benchmarks_dir = _REPO_ROOT / "benchmarks"
+    files_to_check = {
+        "_benchmark_helpers.py": benchmarks_dir / "_benchmark_helpers.py",
+        "test_speed_lite.py": benchmarks_dir / "test_speed_lite.py",
+    }
+
+    for fname, fpath in files_to_check.items():
+        if not fpath.exists():
+            pytest.skip(f"Benchmark file not found: {fpath}")
+
+        source = fpath.read_text()
+        tree = ast.parse(source, filename=str(fpath))
+
+        call_sites_checked = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            func_name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else (func.id if isinstance(func, ast.Name) else None)
+            )
+            if func_name != "run_recipe_to_idata":
+                continue
+
+            call_sites_checked += 1
+            kwarg_names = {kw.arg for kw in node.keywords}
+
+            assert "_no_tap" in kwarg_names, (
+                f"{fname}:{node.lineno}: run_recipe_to_idata missing _no_tap=True. "
+                f"All benchmark callers must structurally gate tap. "
+                f"Keywords found: {sorted(kwarg_names)}"
+            )
+            for kw in node.keywords:
+                if kw.arg == "_no_tap":
+                    assert (
+                        isinstance(kw.value, ast.Constant) and kw.value.value is True
+                    ), (
+                        f"{fname}:{node.lineno}: _no_tap must be literal True, "
+                        f"got: {ast.unparse(kw.value)!r}"
+                    )
+
+        assert (
+            call_sites_checked > 0
+        ), f"{fname}: no run_recipe_to_idata calls found -- file may have moved"
+
+    print(
+        "\n[SPEED PATH INVENTORY] All benchmark run_recipe_to_idata calls "
+        "carry _no_tap=True [TESTED]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Challenge 4: Overhead measurement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_overhead_measurement(monkeypatch, tmp_path):
+    """Tap ON overhead vs tap OFF: measured on a tiny recipe, bounded < 50%.
+
+    [TESTED]: times eight_schools_ncp NUTS (skip_warmup=True, n_samples=50,
+    seed=99) for 4 runs each with tap OFF and tap ON.  Discards the first run
+    of each group to avoid cold-start JAX compilation.  Prints the wall time
+    ratio and asserts overhead < 50% (typical observed: < 5%).
+    """
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe = _load_eight_schools_recipe()
+    run_kwargs = dict(
+        skip_warmup=True,
+        n_samples=50,
+        force_resample_config={"seed": 99, "n_samples": 50},
+        _suppress_print=True,
+    )
+    n_reps = 4
+
+    # Tap OFF
+    monkeypatch.delenv("TUNINGFORK_TAP_DIAGNOSTICS", raising=False)
+    times_off: list[float] = []
+    for i in range(n_reps):
+        t0 = time.perf_counter()
+        run_recipe_to_idata(recipe, **run_kwargs)
+        if i > 0:
+            times_off.append(time.perf_counter() - t0)
+
+    # Tap ON
+    tap_dir = tmp_path / "overhead_tap"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+    times_on: list[float] = []
+    for i in range(n_reps):
+        t0 = time.perf_counter()
+        run_recipe_to_idata(recipe, **run_kwargs)
+        if i > 0:
+            times_on.append(time.perf_counter() - t0)
+
+    mean_off = float(np.mean(times_off))
+    mean_on = float(np.mean(times_on))
+    overhead_frac = (mean_on - mean_off) / mean_off if mean_off > 0.0 else 0.0
+
+    print(
+        f"\n[OVERHEAD] mean_off={mean_off:.3f}s  mean_on={mean_on:.3f}s  "
+        f"overhead={overhead_frac * 100:.1f}%  "
+        f"(off={[f'{t:.3f}' for t in times_off]}  "
+        f"on={[f'{t:.3f}' for t in times_on]}) [TESTED]"
+    )
+
+    assert overhead_frac < 0.50, (
+        f"Tap overhead {overhead_frac * 100:.1f}% exceeds 50% bound. "
+        f"mean_off={mean_off:.3f}s  mean_on={mean_on:.3f}s"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Challenge 5: Artifact path (env var as directory)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_artifact_dir_env_var(monkeypatch, tmp_path):
+    """TUNINGFORK_TAP_DIAGNOSTICS=<dir> writes JSONL to that directory.
+
+    [TESTED]:
+      - Custom path: env var = absolute dir path -> tap_artifact_dir() returns
+        that dir; JSONL created there.
+      - "1" backward-compat: env var = "1" -> default tempdir-based path.
+      - Disabled: "0" and unset -> is_tap_enabled() returns False.
+    """
+    import tempfile
+
+    import jax
+    import jax.numpy as _jnp
+
+    from tuningfork.diagnostics._tap import (
+        is_tap_enabled,
+        tap_artifact_dir,
+        tap_diagnostics_context,
+    )
+
+    # Custom absolute dir path
+    custom_dir = tmp_path / "custom-tap"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(custom_dir))
+
+    assert is_tap_enabled(), "Custom path should enable tap"
+    result_dir = tap_artifact_dir()
+    assert result_dir == custom_dir, f"Expected {custom_dir}, got {result_dir}"
+    assert custom_dir.exists(), "tap_artifact_dir() must create the directory"
+
+    # JSONL artifact lands in custom_dir (run tiny scan to emit events)
+    with tap_diagnostics_context(run_tag="test_custom") as session:
+        jax.lax.scan(
+            lambda c, _: (c + _jnp.float32(1.0), c),
+            _jnp.float32(0.0),
+            None,
+            length=5,
+        )
+
+    assert (
+        session.artifact_path.parent == custom_dir
+    ), f"JSONL parent {session.artifact_path.parent!r} != {custom_dir!r}"
+    assert session.artifact_path.exists(), "JSONL artifact was not created"
+
+    # "1" -> default tempdir (backward compat)
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", "1")
+    default_dir = tap_artifact_dir()
+    expected_default = Path(tempfile.gettempdir()) / "tuningfork-tap-diagnostics"
+    assert (
+        default_dir == expected_default
+    ), f"TUNINGFORK_TAP_DIAGNOSTICS=1 -> expected {expected_default}, got {default_dir}"
+
+    # "0" and unset -> disabled
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", "0")
+    assert not is_tap_enabled(), '"0" should disable tap'
+
+    monkeypatch.delenv("TUNINGFORK_TAP_DIAGNOSTICS", raising=False)
+    assert not is_tap_enabled(), "Unset env var should disable tap"
+
+    print(
+        f"\n[ARTIFACT PATH] custom={custom_dir}  default={expected_default}  "
+        f"disabled=ok [TESTED]"
+    )

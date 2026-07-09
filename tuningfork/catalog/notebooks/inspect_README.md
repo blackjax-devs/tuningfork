@@ -228,19 +228,31 @@ tuningfork/
 
 ## Tap diagnostics (opt-in)
 
-Set ``TUNINGFORK_TAP_DIAGNOSTICS=1`` before calling ``run_recipe_to_idata``
+Set ``TUNINGFORK_TAP_DIAGNOSTICS`` before calling ``run_recipe_to_idata``
 to activate runtime carry / primitive telemetry via
 [jax-tap](https://github.com/arcueil/jax-tap).
 
+**Environment variable semantics**
+
+| Value | Behaviour |
+|---|---|
+| Unset or ``"0"`` | Diagnostics OFF — zero jaxtap involvement, bitwise-identical run |
+| ``"1"`` | Diagnostics ON — artifacts written to ``<tempdir>/tuningfork-tap-diagnostics/`` (e.g. ``/tmp/tuningfork-tap-diagnostics/`` on Linux) |
+| Absolute path (e.g. ``"/workspace/tap-artifacts"``) | Diagnostics ON — artifacts written to that directory; use for nightly CI runs where artifacts must survive the job and be collected |
+
 ```bash
+# Tempdir (quick local debugging)
 TUNINGFORK_TAP_DIAGNOSTICS=1 uv run python my_resample_script.py
+
+# Explicit directory (nightly CI — artifacts survive and are collected)
+TUNINGFORK_TAP_DIAGNOSTICS=/workspace/tap-artifacts uv run python my_resample_script.py
 ```
 
 Or inside a notebook:
 
 ```python
 import os
-os.environ["TUNINGFORK_TAP_DIAGNOSTICS"] = "1"
+os.environ["TUNINGFORK_TAP_DIAGNOSTICS"] = "1"  # or an absolute path
 from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 idata = run_recipe_to_idata(recipe)  # tap-enabled
 ```
@@ -254,13 +266,16 @@ idata = run_recipe_to_idata(recipe)  # tap-enabled
 
 **Where the artifact lands**
 
-Each tap-enabled run writes one JSONL file:
+Each tap-enabled run writes one JSONL file to the configured directory:
 
 ```
-<tempdir>/tuningfork-tap-diagnostics/<model>__<sampler>__seed<N>.jsonl
+<dir>/<model>__<sampler>__seed<N>.jsonl
 ```
 
-Example on Linux: ``/tmp/tuningfork-tap-diagnostics/mvn_10__nuts__seed42.jsonl``
+Examples:
+
+- ``TUNINGFORK_TAP_DIAGNOSTICS=1`` → ``/tmp/tuningfork-tap-diagnostics/eight_schools_ncp__nuts__seed42.jsonl``
+- ``TUNINGFORK_TAP_DIAGNOSTICS=/workspace/tap-artifacts`` → ``/workspace/tap-artifacts/eight_schools_ncp__nuts__seed42.jsonl``
 
 Each line is a JSON event:
 
@@ -272,7 +287,7 @@ Each line is a JSON event:
 At run-end, if any alerts fired, a ``WARNING``-level log line is emitted:
 
 ```
-[tuningfork tap] 1 alert(s) during run (types: cholesky_nan). Artifact: /tmp/...
+[tuningfork tap] 1 alert(s) during run (types: cholesky_nan). Artifact: /workspace/tap-artifacts/...
 ```
 
 **Speed paths are unaffected**
@@ -283,7 +298,7 @@ benchmark, ``_no_tap=True`` callers) regardless of the env var.  Taps cost
 
 **Default: OFF**
 
-With the env var unset, jaxtap is never imported and the computation is
+With the env var unset or ``"0"``, jaxtap is never imported and the computation is
 bitwise-identical to an unpatched run.  To restore a session after a crash
 inside a tap-enabled run: call ``jaxtap.emergency_restore()``.
 

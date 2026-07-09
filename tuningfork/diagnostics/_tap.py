@@ -13,9 +13,23 @@
 # limitations under the License.
 """Opt-in tap diagnostics for run_recipe_to_idata.
 
-Enable by setting the ``TUNINGFORK_TAP_DIAGNOSTICS=1`` environment variable
+Enable by setting the ``TUNINGFORK_TAP_DIAGNOSTICS`` environment variable
 before running any recipe.  Default: **OFF** — with the variable unset, jaxtap
 is never imported and the hot path is bitwise-identical to an unpatched run.
+
+Environment variable semantics
+------------------------------
+- **Unset or ``"0"``**: diagnostics OFF, zero jaxtap involvement.
+- **``"1"``**: diagnostics ON, artifacts written to
+  ``<tempdir>/tuningfork-tap-diagnostics/`` (the system temp directory,
+  typically ``/tmp`` on Linux).
+- **An absolute path** (e.g. ``"/workspace/tap-artifacts"``): diagnostics ON,
+  artifacts written to that directory.  Use this form for nightly CI runs where
+  artifacts must survive the job and be collected by the CI system::
+
+      TUNINGFORK_TAP_DIAGNOSTICS=/workspace/tap-artifacts python run_suite.py
+
+  The directory is created if absent.
 
 Two alert classes are monitored:
 
@@ -31,30 +45,18 @@ Two alert classes are monitored:
 
 Artifacts
 ---------
-Each tap-enabled run writes a JSONL file alongside the run's other outputs.
-The path is:
+Each tap-enabled run writes a JSONL file to the configured directory::
 
-    ``<tempdir>/tuningfork-tap-diagnostics/<model>__<sampler>__<seed>.jsonl``
+    <dir>/<model>__<sampler>__seed<N>.jsonl
 
-where ``<tempdir>`` is ``tempfile.gettempdir()`` (typically ``/tmp``).  The
-artifact is created even when no alerts fire (a per-event record of all
-sampled carry states and primitive-tap values).
+The artifact is created even when no alerts fire (records all sampled carry
+states and primitive-tap values).  At run-end, if any alerts were collected,
+``logging.WARNING`` is emitted with a count and the artifact path.
 
-At run-end, if any alerts were collected, ``logging.WARNING`` is emitted with
-a count and the artifact path.
-
-Usage
------
-Run with:
-
-    TUNINGFORK_TAP_DIAGNOSTICS=1 python my_script.py
-
-or in a notebook cell:
-
-    import os; os.environ["TUNINGFORK_TAP_DIAGNOSTICS"] = "1"
-
-Speed paths (``_no_tap=True`` callers, e.g. the speed-lite benchmark) are
-structurally gated and ignore the env var.
+Speed paths (``_no_tap=True`` callers, e.g. the Speed-lite benchmark and all
+three timing paths in ``_benchmark_helpers.run_benchmark_cell``) are
+structurally gated and ignore the env var — zero tap overhead on any timed
+path regardless of the env var.
 """
 
 from __future__ import annotations
@@ -76,20 +78,40 @@ _DEFAULT_SAMPLE_EVERY: int = 10
 
 
 def is_tap_enabled() -> bool:
-    """Return True iff ``TUNINGFORK_TAP_DIAGNOSTICS=1`` is set.
+    """Return True when ``TUNINGFORK_TAP_DIAGNOSTICS`` is set to a non-off value.
+
+    "Non-off" means: non-empty and not ``"0"``.  Both ``"1"`` and an absolute
+    path string are truthy; unset and ``"0"`` are falsy.
 
     Called by ``run_recipe_to_idata`` to decide whether to enter the tap
-    context.  With the variable unset or set to any value other than ``"1"``,
-    returns False and zero jaxtap involvement.
+    context.  With the variable unset or ``"0"``, returns False and zero
+    jaxtap involvement.
     """
-    return os.environ.get("TUNINGFORK_TAP_DIAGNOSTICS", "0") == "1"
+    val = os.environ.get("TUNINGFORK_TAP_DIAGNOSTICS", "0")
+    return bool(val) and val != "0"
+
+
+def tap_artifact_dir() -> Path:
+    """Return the directory where JSONL artifacts are written.
+
+    - ``TUNINGFORK_TAP_DIAGNOSTICS=1`` → ``<tempdir>/tuningfork-tap-diagnostics``
+    - ``TUNINGFORK_TAP_DIAGNOSTICS=/abs/path`` → ``/abs/path``
+
+    The directory is created if absent.  Call only when ``is_tap_enabled()`` is
+    True; behaviour is undefined when diagnostics are OFF.
+    """
+    val = os.environ.get("TUNINGFORK_TAP_DIAGNOSTICS", "1")
+    if val == "1":
+        base = Path(tempfile.gettempdir()) / "tuningfork-tap-diagnostics"
+    else:
+        base = Path(val)
+    base.mkdir(parents=True, exist_ok=True)
+    return base
 
 
 def _default_artifact_path(run_tag: str = "run") -> Path:
-    """Build a per-run JSONL artifact path under the system temp directory."""
-    base = Path(tempfile.gettempdir()) / "tuningfork-tap-diagnostics"
-    base.mkdir(parents=True, exist_ok=True)
-    return base / f"{run_tag}.jsonl"
+    """Build a per-run JSONL artifact path under the configured artifact dir."""
+    return tap_artifact_dir() / f"{run_tag}.jsonl"
 
 
 def _select_finite(leaves: tuple) -> Any:
