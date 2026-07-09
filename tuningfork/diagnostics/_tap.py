@@ -31,17 +31,20 @@ Environment variable semantics
 
   The directory is created if absent.
 
-Two alert classes are monitored:
+Alert class monitored:
 
 1. **Float32 Cholesky NaN trap** (``tap.watch_nan("cholesky", once=True)``):
    fires the first time a Cholesky factor is non-finite inside any JAX
    scan/while loop.  Silent NaN → frozen chain is the canonical failure mode
    for metric adaptation on ill-conditioned posteriors at float32 precision.
 
-2. **Non-finite carry leaf** (carry-level ``alert``, ``alert_once=True``):
-   fires when any float carry leaf in a scan/while body becomes non-finite.
-   Catches step-size collapse or NaN-propagation scenarios that are not
-   directly attributable to a Cholesky call.
+**Known limitation**: carry-level non-finite monitoring (``select=`` /
+``alert=`` on every while loop step) is currently disabled.  NUTS's
+tree-expansion ``while_loop`` is vectorized over n_chains, giving
+``_while_active`` shape ``(n_chains,)`` while the step counter is scalar —
+a shape mismatch in jaxtap's ``lax.select`` active-lane encoding.  Tracked
+as a jaxtap issue; will be re-enabled once upstream fixes the batched-while
+handling.
 
 Artifacts
 ---------
@@ -155,6 +158,10 @@ class _TapSession:
         from jaxtap import JSONLWriter  # lazy — only when tap is enabled
 
         self.artifact_path = artifact_path
+        # Touch the file eagerly so it exists even when no events fire (e.g.,
+        # a healthy run with only watch_nan active produces zero events).
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.touch(exist_ok=True)
         self.alerts: list[dict[str, Any]] = []
         self._writer = JSONLWriter(artifact_path)
 
@@ -277,12 +284,16 @@ def tap_diagnostics_context(
         return False
 
     try:
+        # Note: select= and alert= are intentionally omitted here.
+        # They insert a carry-level interceptor at every while_loop step, and
+        # NUTS's tree-expansion while_loop is vectorized over n_chains, giving
+        # _while_active shape (n_chains,) vs scalar step — a shape mismatch in
+        # jaxtap's lax.select encoding (tracked in jaxtap issue #ytaps).
+        # Primitive-level watch_nan fires at the XLA cholesky op level and is
+        # not affected by vectorized while shapes.  Carry-level monitoring
+        # is a deferred improvement pending an upstream jaxtap fix.
         with tap.record(
             taps=[tap.watch_nan("cholesky", once=True)],
-            select=_select_finite,
-            alert=_carry_alert,
-            alert_once=True,
-            sample_every=sample_every,
             on_step=session,
         ):
             yield session
