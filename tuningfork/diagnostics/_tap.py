@@ -1,0 +1,268 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Opt-in tap diagnostics for run_recipe_to_idata.
+
+Enable by setting the ``TUNINGFORK_TAP_DIAGNOSTICS=1`` environment variable
+before running any recipe.  Default: **OFF** — with the variable unset, jaxtap
+is never imported and the hot path is bitwise-identical to an unpatched run.
+
+Two alert classes are monitored:
+
+1. **Float32 Cholesky NaN trap** (``tap.watch_nan("cholesky", once=True)``):
+   fires the first time a Cholesky factor is non-finite inside any JAX
+   scan/while loop.  Silent NaN → frozen chain is the canonical failure mode
+   for metric adaptation on ill-conditioned posteriors at float32 precision.
+
+2. **Non-finite carry leaf** (carry-level ``alert``, ``alert_once=True``):
+   fires when any float carry leaf in a scan/while body becomes non-finite.
+   Catches step-size collapse or NaN-propagation scenarios that are not
+   directly attributable to a Cholesky call.
+
+Artifacts
+---------
+Each tap-enabled run writes a JSONL file alongside the run's other outputs.
+The path is:
+
+    ``<tempdir>/tuningfork-tap-diagnostics/<model>__<sampler>__<seed>.jsonl``
+
+where ``<tempdir>`` is ``tempfile.gettempdir()`` (typically ``/tmp``).  The
+artifact is created even when no alerts fire (a per-event record of all
+sampled carry states and primitive-tap values).
+
+At run-end, if any alerts were collected, ``logging.WARNING`` is emitted with
+a count and the artifact path.
+
+Usage
+-----
+Run with:
+
+    TUNINGFORK_TAP_DIAGNOSTICS=1 python my_script.py
+
+or in a notebook cell:
+
+    import os; os.environ["TUNINGFORK_TAP_DIAGNOSTICS"] = "1"
+
+Speed paths (``_no_tap=True`` callers, e.g. the speed-lite benchmark) are
+structurally gated and ignore the env var.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+_LOG = logging.getLogger(__name__)
+
+# Default carry-tap sampling frequency.  Gates both the fineness-check select
+# and the cholesky primitive tap *inside* loops.  At sample_every=10 with a
+# ~100 µs body, overhead is ~+1% (see jaxtap bench/README.md recommendation
+# ladder).  Lower values increase sensitivity; higher values reduce overhead.
+_DEFAULT_SAMPLE_EVERY: int = 10
+
+
+def is_tap_enabled() -> bool:
+    """Return True iff ``TUNINGFORK_TAP_DIAGNOSTICS=1`` is set.
+
+    Called by ``run_recipe_to_idata`` to decide whether to enter the tap
+    context.  With the variable unset or set to any value other than ``"1"``,
+    returns False and zero jaxtap involvement.
+    """
+    return os.environ.get("TUNINGFORK_TAP_DIAGNOSTICS", "0") == "1"
+
+
+def _default_artifact_path(run_tag: str = "run") -> Path:
+    """Build a per-run JSONL artifact path under the system temp directory."""
+    base = Path(tempfile.gettempdir()) / "tuningfork-tap-diagnostics"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{run_tag}.jsonl"
+
+
+def _select_finite(leaves: tuple) -> Any:
+    """Device-side reducer: True iff every float carry leaf is finite.
+
+    Receives the flat tuple of carry leaves (pytree structure is erased by
+    JAX tracing).  Filters to floating-point leaves only; non-float leaves
+    (step counters, integer flags) are skipped.  Returns a scalar bool.
+
+    If no float leaves are present (unusual but valid), returns True.
+    """
+    import jax.numpy as jnp
+
+    checks = [
+        jnp.all(jnp.isfinite(leaf))
+        for leaf in leaves
+        if hasattr(leaf, "dtype") and jnp.issubdtype(leaf.dtype, jnp.floating)
+    ]
+    if not checks:
+        return jnp.bool_(True)
+    if len(checks) == 1:
+        return checks[0]
+    return jnp.all(jnp.stack(checks))
+
+
+class _TapSession:
+    """Collects tap events and alerts for one instrumented run.
+
+    Acts as the ``on_step`` callback for ``jaxtap.record``.  Streams each
+    event to a JSONL file and checks cholesky primitive-tap events for
+    non-finite values (to complement the stderr line that ``watch_nan``
+    already emits).
+
+    Parameters
+    ----------
+    artifact_path
+        JSONL file path; opened on construction, closed on ``close()``.
+    """
+
+    def __init__(self, artifact_path: Path) -> None:
+        from jaxtap import JSONLWriter  # lazy — only when tap is enabled
+
+        self.artifact_path = artifact_path
+        self.alerts: list[dict[str, Any]] = []
+        self._writer = JSONLWriter(artifact_path)
+
+    def __call__(self, event: Any) -> None:
+        """Receive one TapEvent: write to JSONL and check for cholesky NaN."""
+        self._writer(event)
+        if "cholesky" in str(event.path):
+            self._check_cholesky_nan(event)
+
+    def _check_cholesky_nan(self, event: Any) -> None:
+        """Append an alert when a cholesky event value is non-finite."""
+        import numpy as np
+
+        try:
+            val = np.asarray(event.value)
+            # watch_nan's select returns True when finite, False when NaN/Inf.
+            is_ok = bool(val.all() if hasattr(val, "all") else bool(val))
+            if not is_ok:
+                self.alerts.append(
+                    {
+                        "type": "cholesky_nan",
+                        "path": str(event.path),
+                        "step": int(event.step),
+                        "total": event.total,
+                    }
+                )
+        except Exception:  # noqa: BLE001 — diagnostics must never propagate
+            pass
+
+    def close(self) -> None:
+        """Close the JSONL file and emit a WARNING if any alerts were collected."""
+        self._writer.close()
+        if self.alerts:
+            n = len(self.alerts)
+            types = sorted({a["type"] for a in self.alerts})
+            _LOG.warning(
+                "[tuningfork tap] %d alert(s) during run (types: %s). " "Artifact: %s",
+                n,
+                ", ".join(types),
+                self.artifact_path,
+            )
+
+
+@contextlib.contextmanager
+def tap_diagnostics_context(
+    artifact_path: Path | None = None,
+    run_tag: str = "run",
+    sample_every: int = _DEFAULT_SAMPLE_EVERY,
+):
+    """Context manager: wrap a block with jaxtap carry + Cholesky NaN diagnostics.
+
+    Monkeypatches ``jax.lax.scan`` and ``jax.lax.while_loop`` for the duration
+    of the block to stream telemetry.  On exit the patch is removed and the
+    JSONL artifact is closed.
+
+    Must be called only when ``is_tap_enabled()`` is True.  Callers are
+    responsible for this guard; wrapping in the disabled case is a no-op but
+    incurs an unnecessary jaxtap import.
+
+    Parameters
+    ----------
+    artifact_path
+        Explicit JSONL path.  When ``None`` (default), a path is derived from
+        ``run_tag`` under ``<tempdir>/tuningfork-tap-diagnostics/``.
+    run_tag
+        Short identifier used to build the artifact filename when
+        ``artifact_path=None``.  Example: ``"mvn_10__nuts__seed42"``.
+    sample_every
+        Carry tap frequency (default ``_DEFAULT_SAMPLE_EVERY`` = 10).
+        Lower values increase sensitivity at higher overhead.
+
+    Yields
+    ------
+    session : _TapSession
+        The session object; has ``.alerts`` (list of alert dicts) and
+        ``.artifact_path`` (Path).
+
+    Examples
+    --------
+    Direct usage (testing / post-mortems)::
+
+        with tap_diagnostics_context(artifact_path=tmp_path / "run.jsonl") as session:
+            run_inference(...)
+
+        if session.alerts:
+            print("Alerts:", session.alerts)
+
+    The JSONL artifact contains one line per sampled event::
+
+        {"path": "scan[0]", "step": 0, "value_kind": "scalar", "value": true}
+        {"path": "scan[0]/cholesky[0]", "step": 10, "value_kind": "scalar", "value": false}
+    """
+    import jaxtap as tap  # lazy — imported only when tap is enabled
+
+    if artifact_path is None:
+        artifact_path = _default_artifact_path(run_tag)
+
+    session = _TapSession(artifact_path)
+
+    def _carry_alert(event: Any) -> Any:
+        """Host-side carry alert: fires when _select_finite returns False."""
+        import numpy as np
+
+        try:
+            val = np.asarray(event.value)
+            is_ok = bool(val.all() if hasattr(val, "all") else bool(val))
+            if not is_ok:
+                msg = f"non-finite carry leaf (step={event.step}, path={event.path})"
+                session.alerts.append(
+                    {
+                        "type": "carry_nonfinite",
+                        "path": str(event.path),
+                        "step": int(event.step),
+                        "total": event.total,
+                    }
+                )
+                return msg
+        except Exception:  # noqa: BLE001 — diagnostics must never propagate
+            pass
+        return False
+
+    try:
+        with tap.record(
+            taps=[tap.watch_nan("cholesky", once=True)],
+            select=_select_finite,
+            alert=_carry_alert,
+            alert_once=True,
+            sample_every=sample_every,
+            on_step=session,
+        ):
+            yield session
+    finally:
+        session.close()

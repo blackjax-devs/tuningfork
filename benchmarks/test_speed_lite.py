@@ -105,6 +105,7 @@ def test_speed_lite(
             n_samples=_N_SAMPLES,
             force_resample_config={"seed": seed, "n_samples": _N_SAMPLES},
             _suppress_print=True,
+            _no_tap=True,  # structurally gates tap diagnostics from timing
         )
 
     # pedantic: exact control over rounds.

@@ -226,6 +226,67 @@ tuningfork/
         └── recipe_diagnostics.md  # parametrized template notebook
 ```
 
+## Tap diagnostics (opt-in)
+
+Set ``TUNINGFORK_TAP_DIAGNOSTICS=1`` before calling ``run_recipe_to_idata``
+to activate runtime carry / primitive telemetry via
+[jax-tap](https://github.com/arcueil/jax-tap).
+
+```bash
+TUNINGFORK_TAP_DIAGNOSTICS=1 uv run python my_resample_script.py
+```
+
+Or inside a notebook:
+
+```python
+import os
+os.environ["TUNINGFORK_TAP_DIAGNOSTICS"] = "1"
+from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+idata = run_recipe_to_idata(recipe)  # tap-enabled
+```
+
+**What is monitored**
+
+| Alert class | Signal | Detection |
+|---|---|---|
+| Float32 Cholesky NaN trap | Metric-adaptation Cholesky produces NaN/Inf — silent, chain *appears* converged but is frozen | ``tap.watch_nan("cholesky", once=True)`` |
+| Non-finite carry leaf | Any floating carry leaf (position, logdensity, step_size carry) becomes NaN/Inf — catches NaN propagation beyond Cholesky | ``alert_once=`` on a fineness-check ``select`` |
+
+**Where the artifact lands**
+
+Each tap-enabled run writes one JSONL file:
+
+```
+<tempdir>/tuningfork-tap-diagnostics/<model>__<sampler>__seed<N>.jsonl
+```
+
+Example on Linux: ``/tmp/tuningfork-tap-diagnostics/mvn_10__nuts__seed42.jsonl``
+
+Each line is a JSON event:
+
+```json
+{"path": "scan[0]", "step": 0, "value_kind": "scalar", "value": true}
+{"path": "scan[0]/cholesky[0]", "step": 12, "value_kind": "scalar", "value": false}
+```
+
+At run-end, if any alerts fired, a ``WARNING``-level log line is emitted:
+
+```
+[tuningfork tap] 1 alert(s) during run (types: cholesky_nan). Artifact: /tmp/...
+```
+
+**Speed paths are unaffected**
+
+Tap diagnostics are disabled in all speed-measurement code paths (Speed-lite
+benchmark, ``_no_tap=True`` callers) regardless of the env var.  Taps cost
+4–8 µs/iter and must never contaminate timing.
+
+**Default: OFF**
+
+With the env var unset, jaxtap is never imported and the computation is
+bitwise-identical to an unpatched run.  To restore a session after a crash
+inside a tap-enabled run: call ``jaxtap.emergency_restore()``.
+
 ## Version history
 
 - 2026-05-12 (notebook-arviz-redesign): initial public API.
