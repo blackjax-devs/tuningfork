@@ -38,13 +38,14 @@ Alert class monitored:
    scan/while loop.  Silent NaN → frozen chain is the canonical failure mode
    for metric adaptation on ill-conditioned posteriors at float32 precision.
 
-**Known limitation**: carry-level non-finite monitoring (``select=`` /
-``alert=`` on every while loop step) is currently disabled.  NUTS's
-tree-expansion ``while_loop`` is vectorized over n_chains, giving
-``_while_active`` shape ``(n_chains,)`` while the step counter is scalar —
-a shape mismatch in jaxtap's ``lax.select`` active-lane encoding.  Tracked
-as a jaxtap issue; will be re-enabled once upstream fixes the batched-while
-handling.
+**jaxtap 0.2.0 / vmapped-while limitation**: NUTS uses ``jax.lax.while_loop``
+for tree expansion.  When run with ``n_chains > 1`` via ``jax.vmap``, both the
+while condition and carry are vmapped, giving non-scalar shapes (e.g.
+``bool[4]``) that jaxtap's ``rewrite_while`` cannot handle: ``_base_tap_cb``'s
+``lax.select`` requires scalar ``_while_active``, and ``rewrite_while.cond_fn``
+cannot accept a non-scalar cond return.  Workaround: use plain HMC or MCLMC
+(if skip_warmup is not needed) which use ``lax.scan`` for fixed-step leapfrog
+with no internal while_loops.
 
 Artifacts
 ---------
