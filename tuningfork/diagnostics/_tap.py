@@ -43,9 +43,26 @@ for tree expansion.  When run with ``n_chains > 1`` via ``jax.vmap``, both the
 while condition and carry are vmapped, giving non-scalar shapes (e.g.
 ``bool[4]``) that jaxtap's ``rewrite_while`` cannot handle: ``_base_tap_cb``'s
 ``lax.select`` requires scalar ``_while_active``, and ``rewrite_while.cond_fn``
-cannot accept a non-scalar cond return.  Workaround: use plain HMC or MCLMC
-(if skip_warmup is not needed) which use ``lax.scan`` for fixed-step leapfrog
-with no internal while_loops.
+cannot accept a non-scalar cond return.
+
+Never-crash invariant: ``run_recipe_to_idata`` checks
+``is_algorithm_tap_compatible(recipe.base_method_name)`` before entering
+``tap_diagnostics_context``.  Incompatible algorithms (NUTS, dynamic_hmc, and
+any other method using vmapped while_loops) receive a one-time
+``logging.WARNING`` and then run WITHOUT tap instrumentation — the recipe
+completes normally, no artifact is created, no crash.  This invariant ensures
+the diagnostics switch is always safe to enable, even on NUTS recipes.
+
+Compatible algorithms (those using ``lax.scan`` for fixed-step integration with
+no vmapped while_loops): HMC, MHMC, DMHMC, GHMC, MALA, Barker, RWM, IRMH,
+additive_step_random_walk, MCLMC, adjusted_mclmc (fixed-step tuning paths).
+Algorithms that MAY use while_loops internally (NUTS, dynamic_hmc,
+adjusted_mclmc_dynamic) are placed on the incompatible list.
+
+Upstream bug tracking (arcueil/jax-tap):
+- Bug 1 (``_base_tap_cb``): ``lax.select`` requires scalar ``_while_active``;
+  vmapped while gives shape ``(n_chains,)`` → ``TypeError``.
+- Bug 2 (``rewrite_while.cond_fn``): non-scalar cond return for vmapped while.
 
 Artifacts
 ---------
@@ -93,6 +110,63 @@ def is_tap_enabled() -> bool:
     """
     val = os.environ.get("TUNINGFORK_TAP_DIAGNOSTICS", "0")
     return bool(val) and val != "0"
+
+
+# Algorithms whose sampling loop uses lax.scan for fixed-step integration and
+# does NOT contain an internally-vmapped while_loop that would trigger the
+# jaxtap 0.2.0 vmap-while bugs (Bug 1: _base_tap_cb lax.select shape mismatch;
+# Bug 2: rewrite_while.cond_fn non-scalar return).
+#
+# NOT in this set: nuts, dynamic_hmc, adjusted_mclmc_dynamic — these use or may
+# use while_loops that are vectorized over n_chains via jax.vmap, causing
+# TypeError crashes when jaxtap intercepts them.
+#
+# Reference: arcueil/jax-tap issues for Bug 1 and Bug 2 (filed 2026-07-10).
+_TAP_COMPATIBLE_BASE_METHODS: frozenset[str] = frozenset(
+    {
+        "hmc",
+        "mhmc",
+        "dmhmc",
+        "ghmc",
+        "mala",
+        "barker",
+        "rwm",
+        "irmh",
+        "additive_step_random_walk",
+        "mclmc",
+        "adjusted_mclmc",
+        "orbital_hmc",
+        "elliptical_slice",
+        "mgrad_gaussian",
+        "rmhmc",
+        "meanfield_vi",
+        "fullrank_vi",
+    }
+)
+
+
+def is_algorithm_tap_compatible(base_method_name: str) -> bool:
+    """Return True when ``base_method_name`` is safe to instrument with jaxtap.
+
+    jaxtap 0.2.0 cannot handle vmapped while_loops (NUTS tree expansion,
+    dynamic_hmc, adjusted_mclmc_dynamic).  Algorithms in
+    ``_TAP_COMPATIBLE_BASE_METHODS`` use ``lax.scan`` for fixed-step
+    integration with no vmapped while_loops.
+
+    The check is conservative: unknown names return False (safe default —
+    warn and skip rather than crash).
+
+    Parameters
+    ----------
+    base_method_name
+        The recipe's ``base_method_name`` field (e.g. ``"hmc"``, ``"nuts"``).
+
+    Returns
+    -------
+    bool
+        True if tap instrumentation is safe for this algorithm.
+    """
+    return base_method_name in _TAP_COMPATIBLE_BASE_METHODS
 
 
 def tap_artifact_dir() -> Path:

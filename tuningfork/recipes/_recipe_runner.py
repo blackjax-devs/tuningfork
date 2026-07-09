@@ -2406,19 +2406,40 @@ def run_recipe_to_idata(
     # never affected regardless of the env var.
     # jaxtap is imported lazily inside the enabled branch only — with the
     # env var unset, zero jaxtap involvement (no import cost in the hot path).
-    # If the process raises inside the tap window, call jaxtap.emergency_restore()
-    # to remove the scan/while_loop patch before continuing.
+    #
+    # Never-crash invariant: algorithms that use vmapped while_loops (NUTS,
+    # dynamic_hmc, adjusted_mclmc_dynamic) are incompatible with jaxtap 0.2.0
+    # and would crash if instrumented (two upstream bugs: Bug 1 in _base_tap_cb
+    # lax.select shape, Bug 2 in rewrite_while.cond_fn non-scalar return).
+    # For such algorithms we emit a one-time WARNING and skip tap setup — the
+    # recipe runs normally without instrumentation.  The warning names the
+    # upstream issue so users can track the fix.
     import contextlib as _contextlib
+    import logging as _logging
 
     _tap_stack = _contextlib.ExitStack()
     if not _no_tap:
         from tuningfork.diagnostics._tap import is_tap_enabled as _is_tap_enabled
 
         if _is_tap_enabled():
+            from tuningfork.diagnostics._tap import (
+                is_algorithm_tap_compatible as _is_compat,
+            )
             from tuningfork.diagnostics._tap import tap_diagnostics_context
 
-            _tap_run_tag = f"{recipe.model_name}__{recipe.base_method_name}__seed{seed}"
-            _tap_stack.enter_context(tap_diagnostics_context(run_tag=_tap_run_tag))
+            if _is_compat(recipe.base_method_name):
+                _tap_run_tag = (
+                    f"{recipe.model_name}__{recipe.base_method_name}__seed{seed}"
+                )
+                _tap_stack.enter_context(tap_diagnostics_context(run_tag=_tap_run_tag))
+            else:
+                _logging.getLogger(__name__).warning(
+                    "[tuningfork tap] tap diagnostics skipped for %r: "
+                    "jaxtap 0.2.0 vmap-while incompatibility "
+                    "(arcueil/jax-tap Bug 1 + Bug 2). "
+                    "Recipe will run normally without instrumentation.",
+                    recipe.base_method_name,
+                )
 
     # Run warmup — multi-phase (recipe.warmups > 1) or single-phase.
     #

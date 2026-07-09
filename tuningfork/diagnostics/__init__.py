@@ -17,6 +17,16 @@ Enable via: ``TUNINGFORK_TAP_DIAGNOSTICS=1`` environment variable.
 Default: OFF (zero jaxtap involvement in the hot path).
 """
 
-from ._tap import is_tap_enabled, tap_diagnostics_context
+from ._tap import (
+    _TAP_COMPATIBLE_BASE_METHODS,
+    is_algorithm_tap_compatible,
+    is_tap_enabled,
+    tap_diagnostics_context,
+)
 
-__all__ = ["is_tap_enabled", "tap_diagnostics_context"]
+__all__ = [
+    "_TAP_COMPATIBLE_BASE_METHODS",
+    "is_algorithm_tap_compatible",
+    "is_tap_enabled",
+    "tap_diagnostics_context",
+]
