@@ -12,6 +12,7 @@ dependencies = [
     "jaxlib",
     "numpy",
     "pandas",
+    "jax-tap>=0.2.0",  # Emission library for diagnostics (treedepth tripwire, cert-pipeline taps); github.com/arcueil/jax-tap
 ]
 dynamic = ["version"]
 
