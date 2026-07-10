@@ -378,8 +378,8 @@ wheels = [
 
 [[package]]
 name = "blackjax"
-version = "1.6.dev113+gbb91a2431"
-source = { git = "https://github.com/blackjax-devs/blackjax.git?rev=bb91a2431551eefa743405c5e447683596b82934#bb91a2431551eefa743405c5e447683596b82934" }
+version = "1.6"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
@@ -388,9 +388,14 @@ dependencies = [
     { name = "scipy" },
     { name = "typing-extensions" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/42/0f/9da22812a20bd4f7da5b4f67ad79f459324c701fcca434ce583d90bd32e4/blackjax-1.6.tar.gz", hash = "sha256:fc1af2565bcf129974daa5d25067616aea85ea3e22e35d57d492d14bcd74daa5", size = 5174101, upload-time = "2026-07-10T20:30:31.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/64/3d9dcc0e3fbba2de25c39adf302b6ad2ca3c119299ac087b8002161958b8/blackjax-1.6-py3-none-any.whl", hash = "sha256:d1c135f448789961a4bada1e2eb803a1da55c0622c5f77eddce80bb3f7351fd5", size = 4857402, upload-time = "2026-07-10T20:30:30.492Z" },
+]
 
 [package.optional-dependencies]
 progress = [
+    { name = "jax-tap" },
     { name = "tqdm" },
 ]
 
@@ -3835,7 +3840,7 @@ bench = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], git = "https://github.com/blackjax-devs/blackjax.git?rev=bb91a2431551eefa743405c5e447683596b82934" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
@@ -3864,7 +3869,7 @@ bench-perf = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], git = "https://github.com/blackjax-devs/blackjax.git?rev=bb91a2431551eefa743405c5e447683596b82934" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
@@ -3894,7 +3899,7 @@ notebook = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], git = "https://github.com/blackjax-devs/blackjax.git?rev=bb91a2431551eefa743405c5e447683596b82934" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
