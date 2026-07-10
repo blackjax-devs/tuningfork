@@ -1185,26 +1185,26 @@ def _safe_int_val(val) -> int:
 def test_mclmc_tap_context_no_crash(tmp_path):
     """MCLMC tap context runs without crashing and writes a JSONL artifact.
 
-    KNOWN LIMITATION: MCLMC divergence detection via y-tap is NOT implemented.
-    The MCLMC adaptation scan (``run_steps``) returns ``jnp.logical_not(success)``
-    as its ys body output, but JAX DCE eliminates this ys from the jaxpr when the
-    outer caller (``L_step_size_adaptation``) discards the second tuple element.
-    jaxtap's A-form intercept therefore sees ``n_ys=0`` for both adaptation scans
-    (scan[0] length=6, scan[1] length=1) and produces zero output events from them.
+    KNOWN LIMITATION: MCLMC divergence detection via y-tap is NOT YET implemented.
+    The venv's pinned blackjax predates the blackjax#975 ys seam, which adds
+    ``jnp.logical_not(success)`` as the adaptation-scan ys.  Without the seam,
+    jaxtap's A-form intercept sees ``n_ys=0`` for the adaptation scans and
+    produces zero output events.  This is a version-skew artefact, not a JAX
+    DCE issue — on blackjax HEAD 27d920441 (which has the seam) n_ys=1 and all
+    events fire correctly (verified 2026-07-10).
 
     What IS tested here:
     - ``tap_diagnostics_context(base_method_name="mclmc")`` does not crash.
     - A JSONL artifact is created and populated with carry events from the
       adaptation scan (ncar=10, carry tap fires at sample_every=1).
     - Zero output events (kind="output") are produced — confirming that the
-      MCLMC adaptation scan's ys is inaccessible via jaxtap A-form.
+      pinned blackjax dep has no adaptation-scan ys.
     - ``compute_saturation_fraction`` handles an artifact with zero output events
       and returns ``(0, 0, 0.0)`` without raising.
 
-    If a future blackjax change makes ``L_step_size_adaptation`` USE the
-    div_flags (preventing DCE), the assertion ``len(output_events) == 0`` will
-    become the right regression gate to change.  See ``_tap.py`` module docstring
-    § 3 for the full investigation notes.
+    When the dep floor is bumped to include the seam, the assertion
+    ``len(output_events) == 0`` flips to a minimum-count assertion: that is the
+    re-enable signal.  See ``_tap.py`` module docstring §3 for notes.
     """
     import blackjax
     import jax
@@ -1256,12 +1256,12 @@ def test_mclmc_tap_context_no_crash(tmp_path):
         f"Total events: {len(events)}."
     )
 
-    # Zero output events is expected: the adaptation scan's ys is DCE'd.
-    # If this assertion fails, the DCE limitation has been resolved upstream.
+    # Zero output events expected: pinned blackjax predates the #975 ys seam.
+    # If this assertion fails, the dep floor now includes the seam — re-enable signal.
     assert len(output_events) == 0, (
         f"Unexpected output events: {len(output_events)} found. "
-        "The MCLMC adaptation scan's ys may now be accessible — "
-        "update the test and re-enable MCLMC y-tap in _tap.py."
+        "The pinned blackjax dep may now include the #975 ys seam — "
+        "update this assertion and re-enable MCLMC y-tap in _tap.py."
     )
 
     sat_n, total, frac = compute_saturation_fraction(
@@ -1273,8 +1273,8 @@ def test_mclmc_tap_context_no_crash(tmp_path):
     )
 
     print(
-        f"\n[MCLMC TAP] carry_events={len(carry_events)} output_events=0 (DCE limited) "
-        f"[TESTED — known limitation documented in _tap.py § 3]"
+        f"\n[MCLMC TAP] carry_events={len(carry_events)} output_events=0 (pre-seam dep) "
+        f"[TESTED — limitation documented in _tap.py §3]"
     )
 
 
