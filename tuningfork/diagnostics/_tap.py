@@ -38,31 +38,32 @@ Alert class monitored:
    scan/while loop.  Silent NaN → frozen chain is the canonical failure mode
    for metric adaptation on ill-conditioned posteriors at float32 precision.
 
-**jaxtap 0.2.0 / vmapped-while limitation**: NUTS uses ``jax.lax.while_loop``
-for tree expansion.  When run with ``n_chains > 1`` via ``jax.vmap``, both the
-while condition and carry are vmapped, giving non-scalar shapes (e.g.
-``bool[4]``) that jaxtap's ``rewrite_while`` cannot handle: ``_base_tap_cb``'s
-``lax.select`` requires scalar ``_while_active``, and ``rewrite_while.cond_fn``
-cannot accept a non-scalar cond return.
+**jaxtap 0.2.0 / vmapped-while limitation (FIXED in 0.2.1)**: NUTS uses
+``jax.lax.while_loop`` for tree expansion.  When run with ``n_chains > 1``
+via ``jax.vmap``, the vmapped while_loop previously crashed in two places:
+Bug 1 (``_base_tap_cb`` ``lax.select`` shape mismatch) and Bug 2
+(``rewrite_while.cond_fn`` non-scalar cond return).  Both fixed in
+``jax-tap 0.2.1`` (arcueil/jax-tap#5).  All algorithms — including NUTS,
+``dynamic_hmc``, and ``adjusted_mclmc_dynamic`` — are now in
+``_TAP_COMPATIBLE_BASE_METHODS`` and receive full instrumentation.
 
-Never-crash invariant: ``run_recipe_to_idata`` checks
-``is_algorithm_tap_compatible(recipe.base_method_name)`` before entering
-``tap_diagnostics_context``.  Incompatible algorithms (NUTS, dynamic_hmc, and
-any other method using vmapped while_loops) receive a one-time
-``logging.WARNING`` and then run WITHOUT tap instrumentation — the recipe
-completes normally, no artifact is created, no crash.  This invariant ensures
-the diagnostics switch is always safe to enable, even on NUTS recipes.
+Never-crash invariant (permanent design, applies to UNKNOWN algorithms):
+``run_recipe_to_idata`` checks ``is_algorithm_tap_compatible`` before
+entering ``tap_diagnostics_context``.  Unknown or future algorithms default
+to False (warn-and-skip rather than crash) until explicitly added to the
+allowlist.  This guard stays even after the 0.2.1 fix — it protects against
+new upstream regressions and future unregistered methods.
 
-Compatible algorithms (those using ``lax.scan`` for fixed-step integration with
-no vmapped while_loops): HMC, MHMC, DMHMC, GHMC, MALA, Barker, RWM, IRMH,
-additive_step_random_walk, MCLMC, adjusted_mclmc (fixed-step tuning paths).
-Algorithms that MAY use while_loops internally (NUTS, dynamic_hmc,
-adjusted_mclmc_dynamic) are placed on the incompatible list.
+vmap×while per-lane semantics (jax-tap 0.2.1): when a vmapped while_loop
+is instrumented, each lane (chain) emits its own events independently.
+A 4-chain NUTS run with depth-D trees emits up to 4 × D events per sample
+from the tree-expansion while_loop.  Use ``sample_every`` to control volume
+for long runs (default ``_DEFAULT_SAMPLE_EVERY`` = 10 applies to scan;
+while_loop events are not subject to ``sample_every`` gating in 0.2.1).
 
 Upstream bug tracking (arcueil/jax-tap):
-- Bug 1 (``_base_tap_cb``): ``lax.select`` requires scalar ``_while_active``;
-  vmapped while gives shape ``(n_chains,)`` → ``TypeError``.
-- Bug 2 (``rewrite_while.cond_fn``): non-scalar cond return for vmapped while.
+- Bug 1 (``_base_tap_cb``): ``lax.select`` shape mismatch — FIXED in 0.2.1.
+- Bug 2 (``rewrite_while.cond_fn``): non-scalar cond return — FIXED in 0.2.1.
 
 Artifacts
 ---------
@@ -112,33 +113,48 @@ def is_tap_enabled() -> bool:
     return bool(val) and val != "0"
 
 
-# Algorithms whose sampling loop uses lax.scan for fixed-step integration and
-# does NOT contain an internally-vmapped while_loop that would trigger the
-# jaxtap 0.2.0 vmap-while bugs (Bug 1: _base_tap_cb lax.select shape mismatch;
-# Bug 2: rewrite_while.cond_fn non-scalar return).
+# Algorithms known to be safe for jaxtap instrumentation.
 #
-# NOT in this set: nuts, dynamic_hmc, adjusted_mclmc_dynamic — these use or may
-# use while_loops that are vectorized over n_chains via jax.vmap, causing
-# TypeError crashes when jaxtap intercepts them.
+# As of jax-tap 0.2.1, ALL 24 in-scope base methods are compatible:
+# the 0.2.0 vmapped-while bugs (Bug 1 + Bug 2) that previously excluded
+# nuts / dynamic_hmc / adjusted_mclmc_dynamic are fixed in 0.2.1
+# (arcueil/jax-tap#5, released 2026-07-10).
 #
-# Reference: arcueil/jax-tap issues for Bug 1 and Bug 2 (filed 2026-07-10).
+# The guard mechanism is PERMANENT: unknown algorithm names return False
+# (warn-and-skip) by default to protect against new upstream regressions
+# and future unregistered methods.  Only add methods here after verifying
+# they work with tap.record() on vmapped kernels.
 _TAP_COMPATIBLE_BASE_METHODS: frozenset[str] = frozenset(
     {
+        # HMC family (fixed-step leapfrog via lax.scan)
         "hmc",
         "mhmc",
         "dmhmc",
         "ghmc",
+        # NUTS / dynamic family (vmapped while_loop; safe since jax-tap 0.2.1)
+        "nuts",
+        "dynamic_hmc",
+        # MALA / RWM family
         "mala",
         "barker",
         "rwm",
         "irmh",
         "additive_step_random_walk",
+        # MCLMC family
         "mclmc",
         "adjusted_mclmc",
+        "adjusted_mclmc_dynamic",  # vmapped while; safe since jax-tap 0.2.1
+        # Other
         "orbital_hmc",
         "elliptical_slice",
         "mgrad_gaussian",
         "rmhmc",
+        # Laplace marginal family (HMC-based sampling kernels)
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+        # VI family
         "meanfield_vi",
         "fullrank_vi",
     }
@@ -148,13 +164,14 @@ _TAP_COMPATIBLE_BASE_METHODS: frozenset[str] = frozenset(
 def is_algorithm_tap_compatible(base_method_name: str) -> bool:
     """Return True when ``base_method_name`` is safe to instrument with jaxtap.
 
-    jaxtap 0.2.0 cannot handle vmapped while_loops (NUTS tree expansion,
-    dynamic_hmc, adjusted_mclmc_dynamic).  Algorithms in
-    ``_TAP_COMPATIBLE_BASE_METHODS`` use ``lax.scan`` for fixed-step
-    integration with no vmapped while_loops.
+    All 24 in-scope base methods are in ``_TAP_COMPATIBLE_BASE_METHODS`` as of
+    ``jax-tap 0.2.1``.  Previously, ``nuts``, ``dynamic_hmc``, and
+    ``adjusted_mclmc_dynamic`` were excluded due to vmapped-while_loop bugs
+    (arcueil/jax-tap#5), fixed in 0.2.1.
 
-    The check is conservative: unknown names return False (safe default —
-    warn and skip rather than crash).
+    The check is conservative: **unknown names return False** (safe default —
+    warn and skip rather than crash).  This protects against new upstream
+    regressions and future unregistered methods not yet in the allowlist.
 
     Parameters
     ----------

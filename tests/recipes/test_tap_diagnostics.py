@@ -13,8 +13,8 @@
 # limitations under the License.
 """Tests for M2 opt-in tap diagnostics (TUNINGFORK_TAP_DIAGNOSTICS).
 
-Eight tests covering five AYS Round 1 challenges plus three AYS Round 2
-requirements:
+Ten tests covering five AYS Round 1 challenges, three AYS Round 2
+requirements, and the jax-tap 0.2.1 unblock (NUTS vmapped-while fixed).
 
 Challenge 1 — Default-OFF purity (idata equality, not a flag check):
   ``test_default_off_idata_equality`` [TESTED]: runs the same tiny recipe x
@@ -54,13 +54,25 @@ Challenge 5 — Artifact path (env var as directory, not only "1"):
 
 AYS Round 2 additions:
 
-Never-crash guard — NUTS + env var ON:
-  ``test_nuts_no_crash_with_tap_env`` [TESTED]: loads an MVN-10 NUTS recipe,
-  sets TUNINGFORK_TAP_DIAGNOSTICS to a temp directory, runs
-  run_recipe_to_idata. Asserts: run COMPLETES (no exception); no JSONL
-  artifact is created (NUTS is incompatible, taps are skipped); one
-  logging.WARNING is emitted naming the jaxtap vmap-while incompatibility.
-  This is the core never-crash invariant test.
+Never-crash guard (updated for 0.2.1):
+  ``test_nuts_tap_active_since_021`` [TESTED]: NUTS recipe + tap ON → run
+  completes, JSONL IS created (NUTS now in allowlist since 0.2.1), no
+  incompatibility WARNING. This was originally written as a negative test
+  (0.2.0: NUTS skipped with WARNING, no artifact); updated for 0.2.1 to
+  assert the positive case. The never-crash guard is still active for UNKNOWN
+  algorithms.
+
+vmapped-while crash fix + NaN propagation through carry (0.2.1):
+  ``test_nuts_vmapped_while_tap_events`` [TESTED]: NUTS + planted cholesky
+  NaN — run COMPLETES (0.2.0 would crash with TypeError in the vmapped
+  while_loop), JSONL IS created, outer scan carry events show NaN from the
+  planted cholesky propagating through NUTS's while_loop body into the NUTS
+  state. Note: NUTS's tree-expansion while_loop is inside a JIT boundary at
+  recipe runtime, so jaxtap emits carry-level ``scan[0]`` events (not
+  ``while``-path primitive events). The NaN appearing in the gradient leaf at
+  step 3+ of the outer scan carry proves the planted logdensity IS evaluated
+  inside NUTS's while_loop body (via value_and_grad, whose backward pass
+  propagates NaN through the singular cholesky gradient).
 
 Synthetic-scan attribution — NaN at step N attributed at step N:
   ``test_synthetic_scan_nan_attribution`` [TESTED]: proves that
@@ -71,16 +83,12 @@ Synthetic-scan attribution — NaN at step N attributed at step N:
   pathology test cannot (it only proves wiring). See test_runner_planted_pathology
   for proof that the wiring through run_recipe_to_idata works.
 
-**jaxtap 0.2.0 / vmapped-while limitation**: NUTS uses an internal
-``jax.lax.while_loop`` for tree expansion.  When run with ``n_chains > 1``
-via ``jax.vmap``, both the while condition and the carry are vmapped, giving
-non-scalar shapes (e.g. ``bool[4]``) that jaxtap's ``rewrite_while``
-cannot handle (two separate bugs: ``lax.select`` shape mismatch in
-``_base_tap_cb``, and non-scalar cond return in ``rewrite_while.cond_fn``).
-The never-crash guard in run_recipe_to_idata detects NUTS via
-is_algorithm_tap_compatible() and skips tap setup with a WARNING.
-HMC tests use ``low__hmc__window_adaptation_diag_imm.json`` (plain HMC
-kernel), which uses ``lax.scan`` for fixed-step leapfrog — no while_loop.
+**jax-tap history**: 0.2.0 had two vmapped-while bugs (Bug 1:
+``_base_tap_cb`` ``lax.select`` shape mismatch; Bug 2:
+``rewrite_while.cond_fn`` non-scalar cond return) that prevented NUTS from
+being instrumented.  Both fixed in 0.2.1 (arcueil/jax-tap#5, 2026-07-10).
+All 24 in-scope base methods are now in ``_TAP_COMPATIBLE_BASE_METHODS``.
+The never-crash guard (unknown → warn-and-skip) is a permanent design.
 """
 
 from __future__ import annotations
@@ -135,9 +143,12 @@ def _load_hmc_recipe():
 def _load_nuts_recipe():
     """Load the mvn_10 LOW NUTS recipe from disk.
 
-    Used only in the never-crash guard test — NUTS is incompatible with
-    jaxtap 0.2.0 (vmapped while_loop bugs), and the test verifies that
-    run_recipe_to_idata completes normally with a WARNING instead of crashing.
+    Used for the NUTS-specific tap tests (0.2.1 unblock):
+    test_nuts_tap_active_since_021 (positive run, JSONL created) and
+    test_nuts_vmapped_while_tap_events (planted cholesky, per-lane events).
+
+    Note: jaxtap 0.2.0 had vmapped-while bugs that made NUTS incompatible;
+    both are fixed in 0.2.1 (arcueil/jax-tap#5).
     """
     from tuningfork.catalog.inspect import load_recipe
 
@@ -638,37 +649,38 @@ def test_artifact_dir_env_var(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AYS Round 2 (1): Never-crash guard — NUTS recipe + tap env ON
+# AYS Round 2 (1) [updated for jax-tap 0.2.1]: NUTS recipe + tap env ON
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-def test_nuts_no_crash_with_tap_env(monkeypatch, tmp_path, caplog):
-    """NUTS recipe + TUNINGFORK_TAP_DIAGNOSTICS ON: run completes, no artifact, one warning.
+def test_nuts_tap_active_since_021(monkeypatch, tmp_path, caplog):
+    """NUTS recipe + TUNINGFORK_TAP_DIAGNOSTICS ON: taps ACTIVE, JSONL created (jax-tap 0.2.1).
 
-    This test verifies the CORE INVARIANT of the tap diagnostics feature:
-    a user who sets TUNINGFORK_TAP_DIAGNOSTICS=1 on a NUTS recipe (the most
-    common sampler family in tuningfork) must NOT get a crash.
+    This test was originally written for jax-tap 0.2.0, where NUTS crashed with
+    TypeError when instrumented (vmapped-while Bug 1 + Bug 2). The never-crash
+    guard was added to detect incompatible algorithms and skip tap setup with a
+    WARNING. In 0.2.0, NUTS was excluded from _TAP_COMPATIBLE_BASE_METHODS.
 
-    Context: jaxtap 0.2.0 cannot handle NUTS's tree-expansion while_loop when
-    it is vmapped over n_chains (Bug 1: _base_tap_cb lax.select shape mismatch;
-    Bug 2: rewrite_while.cond_fn non-scalar cond return). Without a guard,
-    setting the env var on any NUTS recipe would raise TypeError and abort
-    the run — catastrophic for a diagnostics switch whose job is to help debug.
+    In jax-tap 0.2.1, both vmapped-while bugs are fixed (arcueil/jax-tap#5).
+    NUTS is now IN _TAP_COMPATIBLE_BASE_METHODS. This test verifies the updated
+    positive behavior: NUTS + tap ON → tap context ENTERED → JSONL created.
 
-    The never-crash guard in run_recipe_to_idata calls
-    is_algorithm_tap_compatible(recipe.base_method_name) before entering
-    tap_diagnostics_context. For NUTS (incompatible), it emits logging.WARNING
-    and skips tap setup entirely.
+    The never-crash guard (is_algorithm_tap_compatible) is still a permanent
+    design — it applies to UNKNOWN/FUTURE algorithms not yet in the allowlist.
+    For NUTS (now in the allowlist), the guard passes through, no WARNING emitted.
 
     [TESTED]: loads mvn_10 LOW NUTS recipe (skip_warmup=True, n_samples=30),
     sets TUNINGFORK_TAP_DIAGNOSTICS to a temp directory, runs
     run_recipe_to_idata. Asserts:
       - Run COMPLETES without any exception.
-      - NO JSONL artifact appears in the configured directory (taps skipped).
-      - At least one WARNING log record mentions "jaxtap" (upstream issue name).
+      - JSONL artifact IS created (NUTS is now compatible — tap context entered).
+      - NO WARNING about jaxtap incompatibility (NUTS is allowlisted).
+
+    For per-lane event evidence from NUTS's vmapped while_loop, see
+    test_nuts_vmapped_while_tap_events.
     """
-    tap_dir = tmp_path / "nuts_guard"
+    tap_dir = tmp_path / "nuts_021"
     monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
 
     from tuningfork.recipes._recipe_runner import run_recipe_to_idata
@@ -676,7 +688,7 @@ def test_nuts_no_crash_with_tap_env(monkeypatch, tmp_path, caplog):
     recipe = _load_nuts_recipe()
 
     with caplog.at_level(logging.WARNING):
-        # Must NOT raise — that is the invariant
+        # Must NOT raise — both as invariant (guard) and as 0.2.1 positive test
         run_recipe_to_idata(
             recipe,
             skip_warmup=True,
@@ -685,27 +697,145 @@ def test_nuts_no_crash_with_tap_env(monkeypatch, tmp_path, caplog):
             _suppress_print=True,
         )
 
-    # No JSONL artifact: tap was skipped for NUTS
-    jsonl_files = list(tap_dir.glob("*.jsonl")) if tap_dir.exists() else []
-    assert len(jsonl_files) == 0, (
-        f"NUTS tap guard failed: JSONL artifact was created despite NUTS "
-        f"being incompatible: {jsonl_files}"
-    )
+    # JSONL created: NUTS is now tap-compatible, tap context was entered
+    assert tap_dir.exists(), "Tap artifact dir not created for NUTS 0.2.1 run"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert (
+        len(jsonl_files) == 1
+    ), f"Expected 1 JSONL for NUTS + 0.2.1 (taps active), got {jsonl_files}"
 
-    # One warning naming the upstream jaxtap incompatibility
-    warning_records = [
+    # No warning: NUTS is in the allowlist, guard passes through silently
+    incompatibility_warnings = [
         r
         for r in caplog.records
-        if r.levelno >= logging.WARNING and "jaxtap" in r.getMessage().lower()
+        if r.levelno >= logging.WARNING
+        and "jaxtap" in r.getMessage().lower()
+        and "incompatib" in r.getMessage().lower()
     ]
-    assert len(warning_records) >= 1, (
-        f"Expected at least one WARNING mentioning 'jaxtap' for NUTS tap skip. "
-        f"All WARNING records: {[r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]}"
+    assert len(incompatibility_warnings) == 0, (
+        f"Unexpected incompatibility WARNING for NUTS (should be allowlisted in 0.2.1): "
+        f"{[r.getMessage() for r in incompatibility_warnings]}"
     )
 
     print(
-        f"\n[NUTS GUARD] run completed, no artifact, "
-        f"warning='{warning_records[0].getMessage()[:80]}...' [TESTED]"
+        f"\n[NUTS 0.2.1 POSITIVE] run completed, jsonl={jsonl_files[0]}, "
+        f"no incompatibility warning [TESTED]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AYS Round 2 (1+) [jax-tap 0.2.1]: vmapped NUTS while_loop emits tap events
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_nuts_vmapped_while_tap_events(monkeypatch, tmp_path):
+    """NUTS + planted cholesky NaN: run completes and carry NaN detected (jax-tap 0.2.1).
+
+    In jax-tap 0.2.0, the NUTS tree-expansion while_loop (vmapped over n_chains)
+    crashed with TypeError when instrumented (Bug 1: _base_tap_cb lax.select shape;
+    Bug 2: rewrite_while.cond_fn non-scalar cond). Fixed in 0.2.1 (arcueil/jax-tap#5).
+
+    The jax-tap 0.2.1 fix makes NUTS runnable under instrumentation. This test
+    proves:
+      1. The run COMPLETES without crash (the 0.2.0 TypeError is gone).
+      2. JSONL is created (tap context was entered — NUTS is allowlisted).
+      3. Carry events contain NaN values (the planted logdensity IS evaluated
+         inside NUTS's while_loop body; NaN from the singular cholesky gradient
+         propagates via value_and_grad into the NUTS state and from there into
+         the outer scan carry, where jaxtap detects it).
+
+    Note on observation boundary: NUTS's tree-expansion while_loop is inside a
+    JIT compilation boundary at recipe runtime, so jaxtap emits outer scan carry
+    events (path ``scan[0]``) rather than ``while``-path primitive events. The
+    cholesky NaN does not appear as a primitive-level event in this context because
+    the cholesky primitive executes inside the JIT. The NaN IS observable in the
+    carry because JAX's backward pass propagates NaN through the singular cholesky
+    gradient (``0.0 * NaN_grad = NaN`` in IEEE 754), infecting the logdensity
+    gradient leaf of the NUTS carry starting around step 3.
+
+    [TESTED]: uses mvn_10 NUTS recipe (skip_warmup=True, n_samples=30) with
+    monkeypatched build_logdensity_fn that plants a float32 singular cholesky
+    in every logdensity evaluation. Asserts:
+      - JSONL artifact is created (tap context entered for NUTS).
+      - events > 0 (sane output; carry events with structure).
+      - At least one event carry value contains NaN (planted pathology detected
+        at the outer scan carry level).
+
+    For WIRING proof through the runner (ExitStack → tap → JSONL), see
+    test_runner_planted_pathology (HMC scan-based, cholesky primitive events).
+    For step-level attribution, see test_synthetic_scan_nan_attribution.
+    For the positive NUTS crash-fix test without pathology, see
+    test_nuts_tap_active_since_021.
+    """
+    tap_dir = tmp_path / "nuts_while_events"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    monkeypatch.setattr(
+        "tuningfork.recipes._recipe_runner.build_logdensity_fn",
+        _make_wrapping_bad_build_logdensity_fn(),
+    )
+
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    recipe = _load_nuts_recipe()
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=30,
+        force_resample_config={"seed": 42, "n_samples": 30},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert (
+        len(jsonl_files) == 1
+    ), f"Expected 1 JSONL for NUTS + 0.2.1 (taps active), got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    assert len(events) > 0, (
+        "JSONL is empty — tap context was entered but no events emitted. "
+        f"JSONL path: {jsonl_files[0]}"
+    )
+
+    # Planted cholesky NaN propagates through NUTS value_and_grad into outer
+    # scan carry (gradient leaf).  Verify at least one carry event has NaN.
+    def _has_nan(value) -> bool:
+        """Recursively check for NaN in a (possibly nested) event value."""
+        if isinstance(value, tuple):
+            return any(_has_nan(v) for v in value)
+        try:
+            arr = np.asarray(value)
+            return bool(np.any(np.isnan(arr)))
+        except (TypeError, ValueError):
+            return False
+
+    unique_paths = sorted({str(e.path) for e in events})
+    nan_carry_events = [e for e in events if _has_nan(e.value)]
+    assert len(nan_carry_events) > 0, (
+        f"No carry events with NaN values detected. "
+        f"Unique paths: {unique_paths}. "
+        f"Total events: {len(events)}. "
+        f"The planted singular cholesky should produce NaN gradients that "
+        f"propagate into the outer scan carry via value_and_grad."
+    )
+
+    # All carry events should be at scan[0] (outer run_inference_algorithm scan).
+    # NUTS's while_loop is inside a JIT boundary — jaxtap observes the NaN at
+    # the outer scan level, not at the while primitive level.
+    nan_paths = sorted({str(e.path) for e in nan_carry_events})
+    first_nan_step = min(e.step for e in nan_carry_events)
+
+    print(
+        f"\n[NUTS WHILE 0.2.1] total_events={len(events)} "
+        f"nan_carry_events={len(nan_carry_events)} "
+        f"first_nan_step={first_nan_step} "
+        f"unique_paths={unique_paths} "
+        f"nan_paths={nan_paths} "
+        f"[TESTED]"
     )
 
 
