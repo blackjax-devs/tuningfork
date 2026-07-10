@@ -86,19 +86,20 @@ Alert classes monitored
    ``alert_ys`` uses ``np.asarray(val).max()`` to obtain the worst-case
    treedepth across all chains in that step.
 
-3. **MCLMC warmup divergence flag** — NOT IMPLEMENTED (JAX DCE limitation):
-   blackjax #975 (merged 2026-07-10) adds ``jnp.logical_not(success)`` as a
-   scan ys in the MCLMC adaptation body (``run_steps``).  However, JAX's
-   dead-code elimination removes this ys from the body jaxpr when the outer
-   caller discards it (``L_step_size_adaptation`` ignores the second element
-   of the ``run_steps`` return).  As a result, jaxtap's A-form intercept sees
-   ``n_ys=0`` for both adaptation scans and y-tap never fires.  This was
-   verified empirically: 5 output events are produced from the ESS sub-scans
-   (scan[2–4]), but zero from the adaptation scans (scan[0–1]).  Carry events
-   from the adaptation scan ARE visible (ncar=10, 6 steps); future divergence
-   monitoring for MCLMC should use a carry-based approach once a suitable
-   carry leaf is identified (e.g. a ``nonans`` field in the adaptation state).
-   For now, MCLMC recipes receive only the cholesky NaN carry tap.
+3. **MCLMC warmup divergence flag** — NOT YET IMPLEMENTED (pending dep floor
+   update): the divergence flag ``jnp.logical_not(success)`` is exposed as an
+   adaptation-scan ys in blackjax#975 (the "seam" commit).  Tuningfork's
+   pinned blackjax dep predates that seam (original n_ys=0 observation was a
+   version-skew artefact, not JAX DCE — verified 2026-07-10 on HEAD 27d920441
+   which shows n_ys=1 and all 200 output events firing).  Re-enable the
+   ``_make_mclmc_ys_wiring`` path in a follow-up PR once the dep floor
+   includes the seam release.  When re-enabling, ``select_ys`` MUST filter
+   ``leaf.ndim <= 1``: the ESS autocorrelation sub-scan emits a ``(1, DIM)``
+   bool ys (ndim=2) that a naive dtype check false-positives on; the ``ndim
+   <= 1`` guard rejects it while accepting the adaptation-flag scalar (ndim=0)
+   and vmapped-chain vectors (ndim=1).  Verified via
+   ``/tmp/tap-dce-repro/repro2.py`` (2026-07-10).  For now, MCLMC recipes
+   receive only the cholesky NaN carry tap.
 
 **jaxtap 0.2.x / vmapped-while history (FIXED in 0.2.1)**:
 NUTS uses ``jax.lax.while_loop`` for tree expansion.  When run with
@@ -161,9 +162,11 @@ _DEFAULT_SAMPLE_EVERY: int = 10
 
 # Algorithm families for y-tap wiring (treedepth).
 # Families are disjoint; unknown methods get no y-tap (safe default).
-# NOTE: MCLMC divergence detection via y-tap is NOT implemented — the
-# adaptation scan's ys is eliminated by JAX DCE before jaxtap can see it.
-# MCLMC recipes receive only the cholesky NaN carry tap.
+# NOTE: MCLMC divergence detection via y-tap is NOT YET implemented — the
+# adaptation-scan ys seam (blackjax#975) is absent in the pinned dep; re-enable
+# in a follow-up PR once the dep floor includes it (see module docstring §3 for
+# re-enable notes and the ndim<=1 ESS guard).  MCLMC recipes receive only the
+# cholesky NaN carry tap.
 #
 # Audit of all 24 in-scope base methods for NUTSInfo (which carries
 # num_trajectory_expansions) — verified against blackjax source 2026-07-10:
@@ -543,9 +546,10 @@ def tap_diagnostics_context(
       when ``base_method_name="nuts"`` AND ``max_num_doublings is not None``.
       Offline tripwire — use ``compute_saturation_fraction`` to read results;
       no threshold policy here.
-    - **MCLMC warmup divergence**: not implemented.  JAX DCE eliminates the
-      adaptation scan's ys before jaxtap can intercept it; MCLMC recipes
-      receive only the cholesky NaN carry tap.  See module docstring § 3.
+    - **MCLMC warmup divergence**: not yet implemented.  The adaptation-scan
+      ys seam (blackjax#975) is absent in the pinned dep; re-enable when the
+      dep floor includes it.  MCLMC recipes receive only the cholesky NaN
+      carry tap.  See module docstring §3 for re-enable notes.
 
     Parameters
     ----------
