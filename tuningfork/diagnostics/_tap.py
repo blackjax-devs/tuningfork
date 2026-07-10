@@ -86,20 +86,23 @@ Alert classes monitored
    ``alert_ys`` uses ``np.asarray(val).max()`` to obtain the worst-case
    treedepth across all chains in that step.
 
-3. **MCLMC warmup divergence flag** — NOT YET IMPLEMENTED (pending dep floor
-   update): the divergence flag ``jnp.logical_not(success)`` is exposed as an
-   adaptation-scan ys in blackjax#975 (the "seam" commit).  Tuningfork's
-   pinned blackjax dep predates that seam (original n_ys=0 observation was a
-   version-skew artefact, not JAX DCE — verified 2026-07-10 on HEAD 27d920441
-   which shows n_ys=1 and all 200 output events firing).  Re-enable the
-   ``_make_mclmc_ys_wiring`` path in a follow-up PR once the dep floor
-   includes the seam release.  When re-enabling, ``select_ys`` MUST filter
-   ``leaf.ndim <= 1``: the ESS autocorrelation sub-scan emits a ``(1, DIM)``
-   bool ys (ndim=2) that a naive dtype check false-positives on; the ``ndim
-   <= 1`` guard rejects it while accepting the adaptation-flag scalar (ndim=0)
-   and vmapped-chain vectors (ndim=1).  Verified via
-   ``/tmp/tap-dce-repro/repro2.py`` (2026-07-10).  For now, MCLMC recipes
-   receive only the cholesky NaN carry tap.
+3. **MCLMC warmup divergence flag** (y-tap, ``mclmc`` only, blackjax ≥ 1.6):
+   fires when the per-step divergence flag ``jnp.logical_not(success)`` is
+   True inside the adaptation scan of ``mclmc_find_L_and_step_size``.  The
+   seam was added in blackjax#975 (``mclmc_adaptation.py:301``) and ships in
+   blackjax 1.6.
+
+   **Scope — mclmc only**: ``adjusted_mclmc`` and ``adjusted_mclmc_dynamic``
+   call ``adjusted_mclmc_find_L_and_step_size``, whose scan ys is
+   ``(info, state_position)`` — not a bool divergence flag.  They receive
+   only the cholesky NaN carry tap.  Verified against blackjax 1.6 source
+   (``adjusted_mclmc_adaptation.py:303-311``).
+
+   **The ndim ≤ 1 guard in select_ys is load-bearing**: the ESS autocorrelation
+   sub-scan emits a ``(1, DIM)`` bool ys (ndim=2) that a naive dtype check
+   false-positives on.  The guard rejects it while accepting the
+   adaptation-flag scalar (ndim=0) and any vmapped-chain vector (ndim=1).
+   Verified via ``/tmp/tap-dce-repro/repro2.py`` (2026-07-10).
 
 **jaxtap 0.2.x / vmapped-while history (FIXED in 0.2.1)**:
 NUTS uses ``jax.lax.while_loop`` for tree expansion.  When run with
@@ -160,13 +163,8 @@ _LOG = logging.getLogger(__name__)
 # ladder).  Lower values increase sensitivity; higher values reduce overhead.
 _DEFAULT_SAMPLE_EVERY: int = 10
 
-# Algorithm families for y-tap wiring (treedepth).
+# Algorithm families for y-tap wiring.
 # Families are disjoint; unknown methods get no y-tap (safe default).
-# NOTE: MCLMC divergence detection via y-tap is NOT YET implemented — the
-# adaptation-scan ys seam (blackjax#975) is absent in the pinned dep; re-enable
-# in a follow-up PR once the dep floor includes it (see module docstring §3 for
-# re-enable notes and the ndim<=1 ESS guard).  MCLMC recipes receive only the
-# cholesky NaN carry tap.
 #
 # Audit of all 24 in-scope base methods for NUTSInfo (which carries
 # num_trajectory_expansions) — verified against blackjax source 2026-07-10:
@@ -194,6 +192,16 @@ _DEFAULT_SAMPLE_EVERY: int = 10
 # Source ref: blackjax/mcmc/nuts.py:36 (NUTSInfo), :72 (num_trajectory_expansions field).
 # grep -rn "num_trajectory_expansions" blackjax/ → nuts.py:56 + :72, no other matches.
 _NUTS_FAMILY: frozenset[str] = frozenset({"nuts"})
+
+# MCLMC divergence y-tap: only "mclmc" calls mclmc_find_L_and_step_size, whose
+# adaptation scan returns jnp.logical_not(success) as the per-step ys (seam added
+# in blackjax#975, mclmc_adaptation.py:301).  Available from blackjax 1.6.
+#
+# adjusted_mclmc and adjusted_mclmc_dynamic call
+# adjusted_mclmc_find_L_and_step_size, whose scan ys is (info, state_position)
+# — not a bool divergence flag.  They get no MCLMC y-tap.
+# Verified against blackjax 1.6 source (adjusted_mclmc_adaptation.py:303-311).
+_MCLMC_FAMILY: frozenset[str] = frozenset({"mclmc"})
 
 
 def is_tap_enabled() -> bool:
@@ -366,6 +374,62 @@ def _make_nuts_ys_wiring(
         return False
 
     return select_ys, alert_ys, False  # alert_ys_once=False: fire every saturation
+
+
+def _make_mclmc_ys_wiring() -> tuple[Any, Any, bool]:
+    """Build (select_ys, alert_ys, alert_ys_once) for MCLMC warmup divergence.
+
+    The MCLMC adaptation scan (``mclmc_find_L_and_step_size``) returns
+    ``jnp.logical_not(success)`` as its per-step ys (blackjax#975 seam,
+    ``mclmc_adaptation.py:301``).  A True value means the step diverged.
+
+    ``select_ys`` finds the first bool leaf with ndim ≤ 1 in the flat ys tuple.
+    The ndim ≤ 1 check is load-bearing: the ESS autocorrelation sub-scan emits
+    a ``(1, DIM)`` bool ys (ndim=2) that would otherwise produce false positives;
+    the guard rejects it while accepting the adaptation-flag scalar (ndim=0) and
+    any vmapped-chain vector (ndim=1).  Verified via ``/tmp/tap-dce-repro/repro2.py``
+    (2026-07-10).
+
+    Returns a sentinel ``jnp.bool_(False)`` when no bool scalar/vector is found
+    (non-MCLMC ys structure — the alert predicate treats False as no-divergence).
+
+    Returns
+    -------
+    select_ys
+        Device-side callable for ``tap.record(select_ys=...)``.
+    alert_ys
+        Host-side callable for ``tap.record(alert_ys=...)``.
+    alert_ys_once
+        Whether to fire the alert only once (False = fire every diverging step).
+    """
+    import jax.numpy as jnp
+
+    def select_ys(ys_leaves: tuple) -> Any:
+        for leaf in ys_leaves:
+            if (
+                hasattr(leaf, "dtype")
+                and jnp.issubdtype(leaf.dtype, jnp.bool_)
+                and leaf.ndim <= 1  # scalar () or vmapped (num_chains,)
+            ):
+                return leaf  # logical_not(success) divergence flag
+        return jnp.bool_(False)  # sentinel: no bool divergence flag in this ys
+
+    def alert_ys(event: Any) -> Any:
+        import numpy as np
+
+        try:
+            # any() across chains handles both scalar and (num_chains,) shapes.
+            val = bool(np.asarray(event.value).any())
+            if val:
+                return (
+                    f"output: MCLMC warmup divergence at step {event.step} "
+                    f"(flag={event.value})"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    return select_ys, alert_ys, False  # alert_ys_once=False: fire every diverging step
 
 
 def compute_saturation_fraction(
@@ -546,10 +610,12 @@ def tap_diagnostics_context(
       when ``base_method_name="nuts"`` AND ``max_num_doublings is not None``.
       Offline tripwire — use ``compute_saturation_fraction`` to read results;
       no threshold policy here.
-    - **MCLMC warmup divergence**: not yet implemented.  The adaptation-scan
-      ys seam (blackjax#975) is absent in the pinned dep; re-enable when the
-      dep floor includes it.  MCLMC recipes receive only the cholesky NaN
-      carry tap.  See module docstring §3 for re-enable notes.
+    - **MCLMC warmup divergence** (y-tap, ``mclmc`` only, blackjax ≥ 1.6):
+      fires when ``jnp.logical_not(success)`` is True in the adaptation scan.
+      Armed automatically when ``base_method_name="mclmc"``; no extra param
+      needed.  See module docstring §3 for scope and the ndim ≤ 1 guard note.
+      ``adjusted_mclmc`` and ``adjusted_mclmc_dynamic`` receive only the
+      cholesky NaN carry tap (different scan ys structure).
 
     Parameters
     ----------
@@ -563,10 +629,11 @@ def tap_diagnostics_context(
         Carry tap frequency (default ``_DEFAULT_SAMPLE_EVERY`` = 10).
         Lower values increase sensitivity at higher overhead.
     base_method_name
-        The recipe's base method name (e.g. ``"nuts"``).  When provided and
+        The recipe's base method name (e.g. ``"nuts"``, ``"mclmc"``).  When
         in ``_NUTS_FAMILY`` **and** ``max_num_doublings is not None``, arms the
-        treedepth y-tap.  When ``None`` or not in ``_NUTS_FAMILY``, only the
-        cholesky NaN carry tap is active.
+        treedepth y-tap.  When in ``_MCLMC_FAMILY``, arms the warmup-divergence
+        y-tap (no extra param needed).  When ``None`` or in neither family,
+        only the cholesky NaN carry tap is active.
     max_num_doublings
         NUTS treedepth cap.  Alerts fire when
         ``num_trajectory_expansions >= max_num_doublings``.  **Default ``None``
@@ -612,11 +679,13 @@ def tap_diagnostics_context(
     _alert_ys: Any = None
     _alert_ys_once: bool = False
 
-    if base_method_name is not None and max_num_doublings is not None:
-        if base_method_name in _NUTS_FAMILY:
+    if base_method_name is not None:
+        if base_method_name in _NUTS_FAMILY and max_num_doublings is not None:
             _select_ys, _alert_ys, _alert_ys_once = _make_nuts_ys_wiring(
                 max_num_doublings
             )
+        elif base_method_name in _MCLMC_FAMILY:
+            _select_ys, _alert_ys, _alert_ys_once = _make_mclmc_ys_wiring()
 
     def _on_ys(event: Any) -> None:
         """Receive y-tap output events: write to the same JSONL."""

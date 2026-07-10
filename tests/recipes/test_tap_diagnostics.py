@@ -97,12 +97,16 @@ jax-tap 0.3.0 y-tap additions (#209 treedepth tripwire):
   ``compute_saturation_fraction`` returns fraction=0.0. Proves the tripwire
   arms on real catalog NUTS recipes and produces no false positives.
 
+  ``test_mclmc_warmup_healthy_zero_alerts`` [TESTED]: healthy MCLMC run on
+  standard Gaussian (blackjax >=1.6, seam live) → output events present (y-tap
+  fires), all flags False (no divergence). ``compute_saturation_fraction``
+  returns ``(0, total>0, 0.0)``. Proves y-tap wiring active and no false positives.
+
   ``test_mclmc_warmup_divergence_alert`` [TESTED]: MCLMC adaptation
-  (``mclmc_find_L_and_step_size``) with a planted NaN logdensity (returns NaN
-  for any position where x[0] > 0) → JSONL has output events with value=True
-  (divergence flags from the adaptation scan ys). ``compute_saturation_fraction``
-  returns non-zero fraction. Proves the MCLMC warmup divergence y-tap fires
-  (blackjax #975 seam).
+  (``mclmc_find_L_and_step_size``) with a cliff logdensity (``-inf`` for
+  ``x[0]>0``) → JSONL has output events with value=True (divergence flags from
+  the adaptation scan ys). ``compute_saturation_fraction`` returns non-zero
+  fraction. Proves the MCLMC warmup divergence y-tap fires (blackjax 1.6 seam).
 
 **jax-tap history**: 0.2.0 had two vmapped-while bugs (Bug 1:
 ``_base_tap_cb`` ``lax.select`` shape mismatch; Bug 2:
@@ -1182,29 +1186,20 @@ def _safe_int_val(val) -> int:
 
 
 @pytest.mark.slow
-def test_mclmc_tap_context_no_crash(tmp_path):
-    """MCLMC tap context runs without crashing and writes a JSONL artifact.
+def test_mclmc_warmup_healthy_zero_alerts(tmp_path):
+    """Healthy MCLMC run: y-tap fires (all flags False), zero divergence alerts.
 
-    KNOWN LIMITATION: MCLMC divergence detection via y-tap is NOT YET implemented.
-    The venv's pinned blackjax predates the blackjax#975 ys seam, which adds
-    ``jnp.logical_not(success)`` as the adaptation-scan ys.  Without the seam,
-    jaxtap's A-form intercept sees ``n_ys=0`` for the adaptation scans and
-    produces zero output events.  This is a version-skew artefact, not a JAX
-    DCE issue — on blackjax HEAD 27d920441 (which has the seam) n_ys=1 and all
-    events fire correctly (verified 2026-07-10).
+    With blackjax >=1.6 and the MCLMC y-tap wiring enabled, a healthy
+    ``mclmc_find_L_and_step_size`` run on a standard Gaussian (no divergence)
+    produces output events whose value is False at every step.
 
-    What IS tested here:
+    Asserts:
     - ``tap_diagnostics_context(base_method_name="mclmc")`` does not crash.
-    - A JSONL artifact is created and populated with carry events from the
-      adaptation scan (ncar=10, carry tap fires at sample_every=1).
-    - Zero output events (kind="output") are produced — confirming that the
-      pinned blackjax dep has no adaptation-scan ys.
-    - ``compute_saturation_fraction`` handles an artifact with zero output events
-      and returns ``(0, 0, 0.0)`` without raising.
-
-    When the dep floor is bumped to include the seam, the assertion
-    ``len(output_events) == 0`` flips to a minimum-count assertion: that is the
-    re-enable signal.  See ``_tap.py`` module docstring §3 for notes.
+    - Carry events present (jaxtap is active).
+    - Output events > 0 (the y-tap fires — the seam is live).
+    - Zero output events with a truthy value (no divergences on std Gaussian).
+    - ``compute_saturation_fraction(path, max_num_doublings=None)`` returns
+      ``(0, total, 0.0)`` with ``total > 0``.
     """
     import blackjax
     import jax
@@ -1226,7 +1221,7 @@ def test_mclmc_tap_context_no_crash(tmp_path):
     kernel = blackjax.mclmc.build_kernel()
     state = blackjax.mclmc.init(init_pos, logdensity, init_key)
 
-    artifact_path = tmp_path / "mclmc_tap.jsonl"
+    artifact_path = tmp_path / "mclmc_healthy.jsonl"
     jax.clear_caches()
 
     with tap_diagnostics_context(
@@ -1250,31 +1245,126 @@ def test_mclmc_tap_context_no_crash(tmp_path):
     output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
     carry_events = [e for e in events if getattr(e, "kind", "carry") != "output"]
 
-    # Carry tap fires on the adaptation scan (ncar=10) — confirms jaxtap is active.
     assert len(carry_events) > 0, (
-        "No carry events in JSONL — jaxtap carry tap did not fire for MCLMC. "
+        "No carry events — jaxtap carry tap did not fire for MCLMC. "
         f"Total events: {len(events)}."
     )
 
-    # Zero output events expected: pinned blackjax predates the #975 ys seam.
-    # If this assertion fails, the dep floor now includes the seam — re-enable signal.
-    assert len(output_events) == 0, (
-        f"Unexpected output events: {len(output_events)} found. "
-        "The pinned blackjax dep may now include the #975 ys seam — "
-        "update this assertion and re-enable MCLMC y-tap in _tap.py."
+    # y-tap fires every adaptation step — output events must be present.
+    assert len(output_events) > 0, (
+        "No output events — MCLMC y-tap did not fire. "
+        "Check that blackjax>=1.6 is installed (seam at mclmc_adaptation.py:301) "
+        "and that _make_mclmc_ys_wiring is armed in tap_diagnostics_context."
+    )
+
+    # Healthy Gaussian: every divergence flag should be False.
+    diverged = [e for e in output_events if bool(np.asarray(e.value).any())]
+    assert len(diverged) == 0, (
+        f"False-positive divergence alerts on healthy mvn: {len(diverged)} events. "
+        f"Values: {[e.value for e in diverged[:5]]}"
     )
 
     sat_n, total, frac = compute_saturation_fraction(
         artifact_path, max_num_doublings=None
     )
-    assert sat_n == 0 and total == 0 and frac == 0.0, (
-        f"compute_saturation_fraction should return (0, 0, 0.0) with no output events; "
-        f"got ({sat_n}, {total}, {frac})"
-    )
+    assert total > 0, "compute_saturation_fraction: total output events must be > 0"
+    assert (
+        sat_n == 0 and frac == 0.0
+    ), f"Expected (sat_n=0, frac=0.0), got ({sat_n}, {frac})"
 
     print(
-        f"\n[MCLMC TAP] carry_events={len(carry_events)} output_events=0 (pre-seam dep) "
-        f"[TESTED — limitation documented in _tap.py §3]"
+        f"\n[MCLMC HEALTHY] carry={len(carry_events)} output={total} diverged=0 "
+        f"[TESTED — y-tap live, blackjax >=1.6]"
+    )
+
+
+@pytest.mark.slow
+def test_mclmc_warmup_divergence_alert(tmp_path):
+    """Planted-divergence MCLMC run: y-tap fires True flags, alert counted.
+
+    Uses a cliff logdensity (returns ``-jnp.inf`` for ``x[0] > 0``) to force
+    divergences in the adaptation scan.  Verifies that
+    ``mclmc_find_L_and_step_size`` with the MCLMC y-tap wiring produces output
+    events with True values and that ``compute_saturation_fraction`` counts them.
+
+    Asserts:
+    - Output events present with at least one True (diverged) flag.
+    - ``compute_saturation_fraction(path, max_num_doublings=None)`` returns
+      ``sat_n > 0`` and ``frac > 0.0``.
+    - Default-OFF purity still holds (no tap context = no crash).
+    """
+    import blackjax
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.diagnostics._tap import (
+        compute_saturation_fraction,
+        tap_diagnostics_context,
+    )
+
+    DIM = 5
+    init_key, run_key = jax.random.split(jax.random.key(7))
+
+    # Cliff logdensity: valid at x<=0, -inf for x[0]>0.  Forces divergences as
+    # the adaption scan takes steps across the cliff.
+    def cliff_logdensity(position):
+        x = jnp.ravel(position)
+        return jax.lax.cond(
+            x[0] > 0.0,
+            lambda: -jnp.inf,
+            lambda: -0.5 * jnp.sum(x**2),
+        )
+
+    # Start at zero so the first step is valid; the adaptation will cross the
+    # cliff when it proposes positive x[0].
+    init_pos = jnp.zeros(DIM)
+    kernel = blackjax.mclmc.build_kernel()
+    state = blackjax.mclmc.init(init_pos, cliff_logdensity, init_key)
+
+    artifact_path = tmp_path / "mclmc_divergence.jsonl"
+    jax.clear_caches()
+
+    with tap_diagnostics_context(
+        artifact_path=artifact_path,
+        base_method_name="mclmc",
+        sample_every=1,
+    ):
+        blackjax.mclmc_find_L_and_step_size(
+            mclmc_kernel=kernel,
+            num_steps=60,
+            state=state,
+            rng_key=run_key,
+            logdensity_fn=cliff_logdensity,
+        )
+
+    assert artifact_path.exists(), "JSONL artifact not created"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(artifact_path)
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+
+    assert len(output_events) > 0, (
+        "No output events — MCLMC y-tap did not fire on cliff logdensity. "
+        "Check the seam and wiring."
+    )
+
+    diverged = [e for e in output_events if bool(np.asarray(e.value).any())]
+    assert len(diverged) > 0, (
+        f"Expected divergence alerts on cliff logdensity, got 0 out of "
+        f"{len(output_events)} output events. "
+        f"Values sample: {[e.value for e in output_events[:10]]}"
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        artifact_path, max_num_doublings=None
+    )
+    assert sat_n > 0, f"compute_saturation_fraction: expected sat_n > 0, got {sat_n}"
+    assert frac > 0.0, f"Expected frac > 0.0, got {frac}"
+
+    print(
+        f"\n[MCLMC DIVERGENCE] output={total} diverged={sat_n} frac={frac:.2%} "
+        f"[TESTED — divergence alert fires on cliff logdensity]"
     )
 
 
