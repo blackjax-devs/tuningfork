@@ -2431,12 +2431,19 @@ def run_recipe_to_idata(
                 _tap_run_tag = (
                     f"{recipe.model_name}__{recipe.base_method_name}__seed{seed}"
                 )
-                _tap_stack.enter_context(tap_diagnostics_context(run_tag=_tap_run_tag))
+                _tap_stack.enter_context(
+                    tap_diagnostics_context(
+                        run_tag=_tap_run_tag,
+                        base_method_name=recipe.base_method_name,
+                        max_num_doublings=recipe.base_method_params.get(
+                            "max_num_doublings", 10
+                        ),
+                    )
+                )
             else:
                 _logging.getLogger(__name__).warning(
                     "[tuningfork tap] tap diagnostics skipped for %r: "
-                    "jaxtap 0.2.0 vmap-while incompatibility "
-                    "(arcueil/jax-tap Bug 1 + Bug 2). "
+                    "not in _TAP_COMPATIBLE_BASE_METHODS allowlist. "
                     "Recipe will run normally without instrumentation.",
                     recipe.base_method_name,
                 )

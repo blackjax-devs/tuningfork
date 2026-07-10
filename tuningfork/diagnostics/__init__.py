@@ -19,6 +19,7 @@ Default: OFF (zero jaxtap involvement in the hot path).
 
 from ._tap import (
     _TAP_COMPATIBLE_BASE_METHODS,
+    compute_saturation_fraction,
     is_algorithm_tap_compatible,
     is_tap_enabled,
     tap_diagnostics_context,
@@ -26,6 +27,7 @@ from ._tap import (
 
 __all__ = [
     "_TAP_COMPATIBLE_BASE_METHODS",
+    "compute_saturation_fraction",
     "is_algorithm_tap_compatible",
     "is_tap_enabled",
     "tap_diagnostics_context",

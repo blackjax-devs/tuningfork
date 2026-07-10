@@ -31,21 +31,73 @@ Environment variable semantics
 
   The directory is created if absent.
 
-Alert class monitored:
-
+Alert classes monitored
+-----------------------
 1. **Float32 Cholesky NaN trap** (``tap.watch_nan("cholesky", once=True)``):
    fires the first time a Cholesky factor is non-finite inside any JAX
    scan/while loop.  Silent NaN → frozen chain is the canonical failure mode
    for metric adaptation on ill-conditioned posteriors at float32 precision.
 
-**jaxtap 0.2.0 / vmapped-while limitation (FIXED in 0.2.1)**: NUTS uses
-``jax.lax.while_loop`` for tree expansion.  When run with ``n_chains > 1``
-via ``jax.vmap``, the vmapped while_loop previously crashed in two places:
-Bug 1 (``_base_tap_cb`` ``lax.select`` shape mismatch) and Bug 2
-(``rewrite_while.cond_fn`` non-scalar cond return).  Both fixed in
-``jax-tap 0.2.1`` (arcueil/jax-tap#5).  All algorithms — including NUTS,
-``dynamic_hmc``, and ``adjusted_mclmc_dynamic`` — are now in
+2. **NUTS treedepth saturation** (y-tap, jax-tap 0.3.0): fires when the
+   ``num_trajectory_expansions`` field of ``NUTSInfo`` (the scan ys) reaches
+   ``max_num_doublings``.  Saturation = NUTS stopped NOT because the U-turn
+   criterion fired, but because it hit the hard cap — evidence the trajectory
+   length budget is insufficient for the posterior's geometry.  The tripwire
+   gate is OFFLINE (policy-free); ``compute_saturation_fraction`` reads the
+   JSONL and returns the fraction; the nightly/cert consumer decides thresholds.
+
+   **How the treedepth leaf is identified** (documented for audit):
+   ``run_inference_algorithm`` scans over steps and returns
+   ``(state, info)`` as the per-step ys where ``state`` is ``HMCState`` and
+   ``info`` is ``NUTSInfo``.  Flattening ``(HMCState, NUTSInfo)`` with
+   ``jax.tree_util.tree_leaves`` yields a tuple whose FIRST ``int32`` scalar
+   is always ``NUTSInfo.num_trajectory_expansions`` — this holds for any
+   position pytree shape because ``HMCState`` contains only float leaves, and
+   within ``NUTSInfo`` the bool leaves (``is_divergent``, ``is_turning``) have
+   ``bool`` dtype (not ``int32``), so the first ``int32`` scalar is
+   unambiguously ``num_trajectory_expansions``.  Verified by a probe run on
+   mvn_10 (d=10, dict position): 18 total leaves, integer scalars at indices
+   15 (num_trajectory_expansions) and 16 (num_integration_steps).  The ordering
+   is a JAX pytree traversal guarantee (NamedTuples are traversed
+   field-by-field in declaration order).
+
+   The selector returns a sentinel ``jnp.int32(-1)`` when no integer leaf with
+   ndim ≤ 1 is found (i.e. the kernel's ys doesn't include a treedepth field).
+   The alert predicate guards against the sentinel, so non-NUTS kernels never
+   fire treedepth alerts.
+
+   **Vmapped-chain shape**: when the recipe runner vmaps over ``num_chains``
+   chains, each scan step returns ``infos.num_trajectory_expansions`` with
+   shape ``(num_chains,)`` rather than ``()``.  The selector therefore checks
+   ``leaf.ndim <= 1`` (scalar or 1-D) rather than ``leaf.shape == ()``, and
+   ``alert_ys`` uses ``np.asarray(val).max()`` to obtain the worst-case
+   treedepth across all chains in that step.
+
+3. **MCLMC warmup divergence flag** — NOT IMPLEMENTED (JAX DCE limitation):
+   blackjax #975 (merged 2026-07-10) adds ``jnp.logical_not(success)`` as a
+   scan ys in the MCLMC adaptation body (``run_steps``).  However, JAX's
+   dead-code elimination removes this ys from the body jaxpr when the outer
+   caller discards it (``L_step_size_adaptation`` ignores the second element
+   of the ``run_steps`` return).  As a result, jaxtap's A-form intercept sees
+   ``n_ys=0`` for both adaptation scans and y-tap never fires.  This was
+   verified empirically: 5 output events are produced from the ESS sub-scans
+   (scan[2–4]), but zero from the adaptation scans (scan[0–1]).  Carry events
+   from the adaptation scan ARE visible (ncar=10, 6 steps); future divergence
+   monitoring for MCLMC should use a carry-based approach once a suitable
+   carry leaf is identified (e.g. a ``nonans`` field in the adaptation state).
+   For now, MCLMC recipes receive only the cholesky NaN carry tap.
+
+**jaxtap 0.2.x / vmapped-while history (FIXED in 0.2.1)**:
+NUTS uses ``jax.lax.while_loop`` for tree expansion.  When run with
+``n_chains > 1`` via ``jax.vmap``, the vmapped while_loop crashed in two
+places in 0.2.0: Bug 1 (``_base_tap_cb`` ``lax.select`` shape mismatch) and
+Bug 2 (``rewrite_while.cond_fn`` non-scalar cond return).  Both fixed in
+``jax-tap 0.2.1`` (arcueil/jax-tap#5).  All algorithms are now in
 ``_TAP_COMPATIBLE_BASE_METHODS`` and receive full instrumentation.
+
+**Upstream bug tracking (arcueil/jax-tap)**:
+- Bug 1 (``_base_tap_cb``): ``lax.select`` shape mismatch — FIXED in 0.2.1.
+- Bug 2 (``rewrite_while.cond_fn``): non-scalar cond return — FIXED in 0.2.1.
 
 Never-crash invariant (permanent design, applies to UNKNOWN algorithms):
 ``run_recipe_to_idata`` checks ``is_algorithm_tap_compatible`` before
@@ -60,10 +112,6 @@ A 4-chain NUTS run with depth-D trees emits up to 4 × D events per sample
 from the tree-expansion while_loop.  Use ``sample_every`` to control volume
 for long runs (default ``_DEFAULT_SAMPLE_EVERY`` = 10 applies to scan;
 while_loop events are not subject to ``sample_every`` gating in 0.2.1).
-
-Upstream bug tracking (arcueil/jax-tap):
-- Bug 1 (``_base_tap_cb``): ``lax.select`` shape mismatch — FIXED in 0.2.1.
-- Bug 2 (``rewrite_while.cond_fn``): non-scalar cond return — FIXED in 0.2.1.
 
 Artifacts
 ---------
@@ -98,6 +146,13 @@ _LOG = logging.getLogger(__name__)
 # ladder).  Lower values increase sensitivity; higher values reduce overhead.
 _DEFAULT_SAMPLE_EVERY: int = 10
 
+# Algorithm families for y-tap wiring (treedepth).
+# Families are disjoint; unknown methods get no y-tap (safe default).
+# NOTE: MCLMC divergence detection via y-tap is NOT implemented — the
+# adaptation scan's ys is eliminated by JAX DCE before jaxtap can see it.
+# MCLMC recipes receive only the cholesky NaN carry tap.
+_NUTS_FAMILY: frozenset[str] = frozenset({"nuts", "dynamic_hmc"})
+
 
 def is_tap_enabled() -> bool:
     """Return True when ``TUNINGFORK_TAP_DIAGNOSTICS`` is set to a non-off value.
@@ -122,8 +177,8 @@ def is_tap_enabled() -> bool:
 #
 # The guard mechanism is PERMANENT: unknown algorithm names return False
 # (warn-and-skip) by default to protect against new upstream regressions
-# and future unregistered methods.  Only add methods here after verifying
-# they work with tap.record() on vmapped kernels.
+# and future unregistered methods not yet in the allowlist.  Only add methods
+# here after verifying they work with tap.record() on vmapped kernels.
 _TAP_COMPATIBLE_BASE_METHODS: frozenset[str] = frozenset(
     {
         # HMC family (fixed-step leapfrog via lax.scan)
@@ -209,27 +264,149 @@ def _default_artifact_path(run_tag: str = "run") -> Path:
     return tap_artifact_dir() / f"{run_tag}.jsonl"
 
 
-def _select_finite(leaves: tuple) -> Any:
-    """Device-side reducer: True iff every float carry leaf is finite.
+def _make_nuts_ys_wiring(
+    max_num_doublings: int,
+) -> tuple[Any, Any, bool]:
+    """Build (select_ys, alert_ys, alert_ys_once) for NUTS treedepth saturation.
 
-    Receives the flat tuple of carry leaves (pytree structure is erased by
-    JAX tracing).  Filters to floating-point leaves only; non-float leaves
-    (step counters, integer flags) are skipped.  Returns a scalar bool.
+    ``select_ys`` scans the flat ys leaves for the first ``int32`` leaf with
+    ndim ≤ 1 (scalar OR 1-D array), which is always
+    ``NUTSInfo.num_trajectory_expansions`` (the treedepth).  The ndim ≤ 1
+    check handles both single-chain (shape ``()``) and vmapped multi-chain
+    (shape ``(num_chains,)``) cases.  See the module docstring for the full
+    proof that this identification is robust across all model position shapes.
 
-    If no float leaves are present (unusual but valid), returns True.
+    Returns a sentinel ``jnp.int32(-1)`` when no integer scalar is found
+    (non-NUTS ys structure — the alert guard handles this gracefully).
+
+    Parameters
+    ----------
+    max_num_doublings
+        The recipe's ``max_num_doublings`` value (typically 10).  An alert
+        fires when treedepth reaches this value.
+
+    Returns
+    -------
+    select_ys
+        Device-side callable for ``tap.record(select_ys=...)``.
+    alert_ys
+        Host-side callable for ``tap.record(alert_ys=...)``.
+    alert_ys_once
+        Whether to fire the alert only once (False = fire every saturated step).
     """
     import jax.numpy as jnp
 
-    checks = [
-        jnp.all(jnp.isfinite(leaf))
-        for leaf in leaves
-        if hasattr(leaf, "dtype") and jnp.issubdtype(leaf.dtype, jnp.floating)
-    ]
-    if not checks:
-        return jnp.bool_(True)
-    if len(checks) == 1:
-        return checks[0]
-    return jnp.all(jnp.stack(checks))
+    def select_ys(ys_leaves: tuple) -> Any:
+        for leaf in ys_leaves:
+            if (
+                hasattr(leaf, "dtype")
+                and jnp.issubdtype(leaf.dtype, jnp.integer)
+                and leaf.ndim <= 1  # scalar () or vmapped (num_chains,)
+            ):
+                return leaf  # num_trajectory_expansions
+        return jnp.int32(-1)  # sentinel: no treedepth in this ys
+
+    def alert_ys(event: Any) -> Any:
+        import numpy as np
+
+        try:
+            # max() across chains handles both scalar and (num_chains,) shapes.
+            val = int(np.asarray(event.value).max())
+            if val < 0:
+                return False  # sentinel from non-NUTS scan
+            if val >= max_num_doublings:
+                return (
+                    f"output: treedepth saturated at step {event.step} "
+                    f"(depth={val}/{max_num_doublings})"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    return select_ys, alert_ys, False  # alert_ys_once=False: fire every saturation
+
+
+def compute_saturation_fraction(
+    jsonl_path: Path | str,
+    max_num_doublings: int | None = None,
+) -> tuple[int, int, float]:
+    """Compute the treedepth saturation fraction from a run's JSONL artifact.
+
+    The nightly/cert consumer decides the acceptable threshold; this helper
+    is POLICY-FREE (reads events and counts, no assertion).
+
+    For NUTS recipes: output events hold ``num_trajectory_expansions`` values.
+    Saturation = value >= ``max_num_doublings``.
+
+    For MCLMC recipes: output events hold a bool divergence flag.
+    Pass ``max_num_doublings=None`` to count True-flag events.
+
+    Parameters
+    ----------
+    jsonl_path
+        Path to the JSONL artifact written by ``tap_diagnostics_context``.
+    max_num_doublings
+        NUTS saturation threshold.  When ``None``, counts output events where
+        the value is truthy (suitable for MCLMC divergence flags).
+
+    Returns
+    -------
+    saturation_count
+        Number of output events that indicate saturation/divergence.
+    total_output_events
+        Total number of output events in the artifact.
+    fraction
+        ``saturation_count / total_output_events``, or 0.0 if no output events.
+
+    Examples
+    --------
+    ::
+
+        sat_n, total, frac = compute_saturation_fraction(
+            "/tmp/run.jsonl", max_num_doublings=10
+        )
+        if frac > 0.01:  # policy: flag if >1% saturated
+            print(f"Treedepth saturation: {frac:.1%} ({sat_n}/{total})")
+    """
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(Path(jsonl_path))
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    if not output_events:
+        return 0, 0, 0.0
+
+    if max_num_doublings is not None:
+        saturated = [
+            e for e in output_events if _safe_int(e.value) >= max_num_doublings
+        ]
+    else:
+        saturated = [e for e in output_events if _safe_bool(e.value)]
+
+    sat_n = len(saturated)
+    total = len(output_events)
+    return sat_n, total, sat_n / total if total > 0 else 0.0
+
+
+def _safe_int(val: Any) -> int:
+    """Convert a TapEvent value to int, returning -1 on failure.
+
+    For vmapped-chain NUTS the value is ``(num_chains,)`` shaped; ``max()``
+    gives the worst-case treedepth across all chains for saturation counting.
+    """
+    import numpy as np
+
+    try:
+        return int(np.asarray(val).max())
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+def _safe_bool(val: Any) -> bool:
+    """Convert a TapEvent value to bool, returning False on failure."""
+    try:
+        return bool(val)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 class _TapSession:
@@ -239,6 +416,9 @@ class _TapSession:
     event to a JSONL file and checks cholesky primitive-tap events for
     non-finite values (to complement the stderr line that ``watch_nan``
     already emits).
+
+    Also used as ``on_ys`` callback: y-tap events (treedepth, divergence) are
+    written to the same JSONL file.
 
     Parameters
     ----------
@@ -290,7 +470,7 @@ class _TapSession:
             n = len(self.alerts)
             types = sorted({a["type"] for a in self.alerts})
             _LOG.warning(
-                "[tuningfork tap] %d alert(s) during run (types: %s). " "Artifact: %s",
+                "[tuningfork tap] %d alert(s) during run (types: %s). Artifact: %s",
                 n,
                 ", ".join(types),
                 self.artifact_path,
@@ -302,8 +482,10 @@ def tap_diagnostics_context(
     artifact_path: Path | None = None,
     run_tag: str = "run",
     sample_every: int = _DEFAULT_SAMPLE_EVERY,
+    base_method_name: str | None = None,
+    max_num_doublings: int = 10,
 ):
-    """Context manager: wrap a block with jaxtap carry + Cholesky NaN diagnostics.
+    """Context manager: wrap a block with jaxtap carry + y-tap diagnostics.
 
     Monkeypatches ``jax.lax.scan`` and ``jax.lax.while_loop`` for the duration
     of the block to stream telemetry.  On exit the patch is removed and the
@@ -312,6 +494,18 @@ def tap_diagnostics_context(
     Must be called only when ``is_tap_enabled()`` is True.  Callers are
     responsible for this guard; wrapping in the disabled case is a no-op but
     incurs an unnecessary jaxtap import.
+
+    Alert classes wired (all write to the same JSONL artifact):
+
+    - **Float32 Cholesky NaN** (primitive tap, all recipes): fires the first
+      time a Cholesky factor is non-finite inside any scan/while body.
+    - **NUTS treedepth saturation** (y-tap, NUTS/dynamic_hmc recipes): fires
+      when ``num_trajectory_expansions`` reaches ``max_num_doublings``.
+      Offline tripwire — use ``compute_saturation_fraction`` to read results;
+      no threshold policy here.
+    - **MCLMC warmup divergence**: not implemented.  JAX DCE eliminates the
+      adaptation scan's ys before jaxtap can intercept it; MCLMC recipes
+      receive only the cholesky NaN carry tap.  See module docstring § 3.
 
     Parameters
     ----------
@@ -324,6 +518,15 @@ def tap_diagnostics_context(
     sample_every
         Carry tap frequency (default ``_DEFAULT_SAMPLE_EVERY`` = 10).
         Lower values increase sensitivity at higher overhead.
+    base_method_name
+        The recipe's base method name (e.g. ``"nuts"``, ``"mclmc"``).  When
+        provided, enables algorithm-family-specific y-taps (treedepth for NUTS,
+        divergence flag for MCLMC).  When ``None``, only the cholesky NaN tap
+        is active.
+    max_num_doublings
+        NUTS treedepth cap (default 10).  Alerts fire when
+        ``num_trajectory_expansions >= max_num_doublings``.  Ignored for
+        non-NUTS recipes.
 
     Yields
     ------
@@ -335,16 +538,19 @@ def tap_diagnostics_context(
     --------
     Direct usage (testing / post-mortems)::
 
-        with tap_diagnostics_context(artifact_path=tmp_path / "run.jsonl") as session:
+        with tap_diagnostics_context(
+            artifact_path=tmp_path / "run.jsonl",
+            base_method_name="nuts",
+            max_num_doublings=10,
+        ) as session:
             run_inference(...)
 
-        if session.alerts:
-            print("Alerts:", session.alerts)
+        sat_n, total, frac = compute_saturation_fraction(
+            session.artifact_path, max_num_doublings=10
+        )
 
-    The JSONL artifact contains one line per sampled event::
-
-        {"path": "scan[0]", "step": 0, "value_kind": "scalar", "value": true}
-        {"path": "scan[0]/cholesky[0]", "step": 10, "value_kind": "scalar", "value": false}
+    The JSONL artifact contains carry events (``kind="carry"`` / ``kind`` key
+    absent for pre-0.3.0 compat) and y-tap output events (``kind="output"``).
     """
     import jaxtap as tap  # lazy — imported only when tap is enabled
 
@@ -353,41 +559,35 @@ def tap_diagnostics_context(
 
     session = _TapSession(artifact_path)
 
-    def _carry_alert(event: Any) -> Any:
-        """Host-side carry alert: fires when _select_finite returns False."""
-        import numpy as np
+    # Build y-tap wiring based on recipe family.  Never-crash: unknown methods
+    # get no y-tap (only the cholesky NaN carry tap is always active).
+    _select_ys: Any = None
+    _alert_ys: Any = None
+    _alert_ys_once: bool = False
 
-        try:
-            val = np.asarray(event.value)
-            is_ok = bool(val.all() if hasattr(val, "all") else bool(val))
-            if not is_ok:
-                msg = f"non-finite carry leaf (step={event.step}, path={event.path})"
-                session.alerts.append(
-                    {
-                        "type": "carry_nonfinite",
-                        "path": str(event.path),
-                        "step": int(event.step),
-                        "total": event.total,
-                    }
-                )
-                return msg
-        except Exception:  # noqa: BLE001 — diagnostics must never propagate
-            pass
-        return False
+    if base_method_name is not None:
+        if base_method_name in _NUTS_FAMILY:
+            _select_ys, _alert_ys, _alert_ys_once = _make_nuts_ys_wiring(
+                max_num_doublings
+            )
+
+    def _on_ys(event: Any) -> None:
+        """Receive y-tap output events: write to the same JSONL."""
+        session._writer(event)
 
     try:
-        # Note: select= and alert= are intentionally omitted here.
-        # They insert a carry-level interceptor at every while_loop step, and
-        # NUTS's tree-expansion while_loop is vectorized over n_chains, giving
-        # _while_active shape (n_chains,) vs scalar step — a shape mismatch in
-        # jaxtap's lax.select encoding (tracked in jaxtap issue #ytaps).
-        # Primitive-level watch_nan fires at the XLA cholesky op level and is
-        # not affected by vectorized while shapes.  Carry-level monitoring
-        # is a deferred improvement pending an upstream jaxtap fix.
-        with tap.record(
-            taps=[tap.watch_nan("cholesky", once=True)],
-            on_step=session,
-        ):
+        record_kwargs: dict[str, Any] = {
+            "taps": [tap.watch_nan("cholesky", once=True)],
+            "on_step": session,
+            "sample_every": sample_every,
+        }
+        if _select_ys is not None:
+            record_kwargs["select_ys"] = _select_ys
+            record_kwargs["on_ys"] = _on_ys
+            record_kwargs["alert_ys"] = _alert_ys
+            record_kwargs["alert_ys_once"] = _alert_ys_once
+
+        with tap.record(**record_kwargs):
             yield session
     finally:
         session.close()

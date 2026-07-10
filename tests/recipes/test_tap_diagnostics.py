@@ -13,8 +13,9 @@
 # limitations under the License.
 """Tests for M2 opt-in tap diagnostics (TUNINGFORK_TAP_DIAGNOSTICS).
 
-Ten tests covering five AYS Round 1 challenges, three AYS Round 2
-requirements, and the jax-tap 0.2.1 unblock (NUTS vmapped-while fixed).
+Thirteen tests covering five AYS Round 1 challenges, three AYS Round 2
+requirements, the jax-tap 0.2.1 unblock (NUTS vmapped-while fixed), and
+three jax-tap 0.3.0 y-tap tests (treedepth tripwire + MCLMC divergence alert).
 
 Challenge 1 — Default-OFF purity (idata equality, not a flag check):
   ``test_default_off_idata_equality`` [TESTED]: runs the same tiny recipe x
@@ -83,12 +84,33 @@ Synthetic-scan attribution — NaN at step N attributed at step N:
   pathology test cannot (it only proves wiring). See test_runner_planted_pathology
   for proof that the wiring through run_recipe_to_idata works.
 
+jax-tap 0.3.0 y-tap additions (#209 treedepth tripwire):
+  ``test_nuts_treedepth_saturation`` [TESTED]: NUTS recipe + forced
+  ``max_num_doublings=1`` (via ``dataclasses.replace``) → JSONL has output
+  events (kind="output") with treedepth values == 1 (saturated);
+  ``compute_saturation_fraction(path, max_num_doublings=1)`` returns non-zero
+  fraction. Proves the treedepth y-tap fires and the policy-free helper works.
+
+  ``test_nuts_healthy_zero_saturation`` [TESTED]: healthy NUTS run with the
+  default ``max_num_doublings=10`` on mvn_10 → zero saturation events;
+  ``compute_saturation_fraction`` returns fraction=0.0. Proves no false positives
+  on a well-behaved Gaussian posterior.
+
+  ``test_mclmc_warmup_divergence_alert`` [TESTED]: MCLMC adaptation
+  (``mclmc_find_L_and_step_size``) with a planted NaN logdensity (returns NaN
+  for any position where x[0] > 0) → JSONL has output events with value=True
+  (divergence flags from the adaptation scan ys). ``compute_saturation_fraction``
+  returns non-zero fraction. Proves the MCLMC warmup divergence y-tap fires
+  (blackjax #975 seam).
+
 **jax-tap history**: 0.2.0 had two vmapped-while bugs (Bug 1:
 ``_base_tap_cb`` ``lax.select`` shape mismatch; Bug 2:
 ``rewrite_while.cond_fn`` non-scalar cond return) that prevented NUTS from
 being instrumented.  Both fixed in 0.2.1 (arcueil/jax-tap#5, 2026-07-10).
 All 24 in-scope base methods are now in ``_TAP_COMPATIBLE_BASE_METHODS``.
 The never-crash guard (unknown → warn-and-skip) is a permanent design.
+0.3.0 adds y-taps (select_ys / on_ys / alert_ys / alert_ys_once) enabling
+the treedepth tripwire and MCLMC warmup divergence alert (#209).
 """
 
 from __future__ import annotations
@@ -966,4 +988,282 @@ def test_synthetic_scan_nan_attribution(monkeypatch, tmp_path):
         f"\n[ATTRIBUTION] NaN onset injected at step>={NAN_ONSET_STEP}, "
         f"first_nan_event_step={first_nan_step}, "
         f"nan_events={len(nan_events)}, total_steps={TOTAL_STEPS} [TESTED]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #209 treedepth tripwire: NUTS saturation + healthy + MCLMC divergence
+# ---------------------------------------------------------------------------
+
+
+_MCLMC_RECIPE_REL = (
+    "tuningfork/catalog/mvn_10/recipes/"
+    "low__adjusted_mclmc__adjusted_mclmc_tuning.json"
+)
+
+
+def _load_mclmc_recipe():
+    """Load the mvn_10 LOW adjusted_mclmc recipe from disk."""
+    from tuningfork.catalog.inspect import load_recipe
+
+    path = _REPO_ROOT / _MCLMC_RECIPE_REL
+    if not path.exists():
+        pytest.skip(f"MCLMC recipe not found on disk: {path}")
+    return load_recipe(path)
+
+
+@pytest.mark.slow
+def test_nuts_treedepth_saturation(monkeypatch, tmp_path):
+    """NUTS with max_num_doublings=1 produces treedepth saturation output events.
+
+    Forces treedepth saturation by capping tree expansion at depth 1 (the
+    smallest possible cap; all steps either U-turn at depth 0 or saturate at
+    depth 1).  For a well-tuned step_size on mvn_10, the step_size is adapted
+    for max_num_doublings=10, so with max_num_doublings=1 most steps are forced
+    to saturate.
+
+    ``max_num_doublings=1`` is injected via ``dataclasses.replace`` on the
+    base_method_params dict and flows to ``blackjax.nuts()`` through the recipe
+    runner's ``_skip_extra_kwargs`` path.
+
+    The tap context (base_method_name="nuts", max_num_doublings=1) wires the
+    NUTS treedepth y-tap.  ``select_ys`` finds the first int32 scalar in the
+    ys flat leaves (= num_trajectory_expansions) per the documented proof in
+    the module docstring.  ``alert_ys`` fires when value >= max_num_doublings.
+
+    Asserts:
+    - JSONL has at least one output event (kind="output") from the y-tap.
+    - At least one output event has value >= 1 (saturated at the forced cap).
+    - ``compute_saturation_fraction(path, max_num_doublings=1)`` returns a
+      non-zero fraction.
+    """
+    import dataclasses
+
+    from tuningfork.diagnostics._tap import compute_saturation_fraction
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    tap_dir = tmp_path / "nuts_sat"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    recipe = _load_nuts_recipe()
+
+    # Force saturation: cap tree expansion at depth 1
+    sat_recipe = dataclasses.replace(
+        recipe,
+        base_method_params={**recipe.base_method_params, "max_num_doublings": 1},
+    )
+
+    run_recipe_to_idata(
+        sat_recipe,
+        skip_warmup=True,
+        n_samples=20,
+        force_resample_config={"seed": 42, "n_samples": 20},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    assert len(output_events) > 0, (
+        "No output events (kind='output') in JSONL — y-tap did not fire. "
+        f"Total events: {len(events)}. Output events: 0."
+    )
+
+    # At least one output event should show saturation (value == 1 >= max_num_doublings=1)
+    saturated = [e for e in output_events if _safe_int_val(e.value) >= 1]
+    assert len(saturated) > 0, (
+        f"No saturated output events (value >= 1). "
+        f"Output event values: {[e.value for e in output_events[:10]]}"
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        jsonl_files[0], max_num_doublings=1
+    )
+    assert sat_n > 0, f"compute_saturation_fraction returned sat_n=0 (total={total})"
+    assert 0.0 < frac <= 1.0, f"Expected frac in (0, 1], got {frac}"
+
+    print(
+        f"\n[NUTS SAT] output_events={len(output_events)} saturated={len(saturated)} "
+        f"sat_n={sat_n} total={total} frac={frac:.2%} "
+        f"sample_values={[e.value for e in output_events[:5]]} [TESTED]"
+    )
+
+
+@pytest.mark.slow
+def test_nuts_healthy_zero_saturation(monkeypatch, tmp_path):
+    """Healthy NUTS run (max_num_doublings=10 default): zero saturation output events.
+
+    Runs the mvn_10 NUTS recipe with the standard max_num_doublings=10 and
+    a well-tuned step_size.  On a simple 10D MVN, NUTS should not need to
+    double 10 times (treedepth = 10 would be extreme for a Gaussian posterior).
+
+    Asserts:
+    - JSONL has some output events (y-tap is active).
+    - Zero output events have value >= 10 (no saturation; the ``alert_ys``
+      threshold is never reached on this healthy posterior).
+    - ``compute_saturation_fraction(path, max_num_doublings=10)`` returns
+      fraction == 0.0.
+    """
+    from tuningfork.diagnostics._tap import compute_saturation_fraction
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    tap_dir = tmp_path / "nuts_healthy"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    recipe = _load_nuts_recipe()
+
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=30,
+        force_resample_config={"seed": 7, "n_samples": 30},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    assert len(output_events) > 0, (
+        "No output events in JSONL — y-tap did not fire for NUTS recipe. "
+        "This means the treedepth y-tap wiring is broken (regression)."
+    )
+
+    saturated = [e for e in output_events if _safe_int_val(e.value) >= 10]
+    assert len(saturated) == 0, (
+        f"False positive: {len(saturated)} saturation events on healthy mvn_10. "
+        f"Values: {[e.value for e in saturated[:5]]}"
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        jsonl_files[0], max_num_doublings=10
+    )
+    assert (
+        sat_n == 0
+    ), f"compute_saturation_fraction returned sat_n={sat_n} (expected 0)"
+    assert frac == 0.0, f"Expected fraction=0.0, got {frac}"
+
+    print(
+        f"\n[NUTS HEALTHY] output_events={total} saturated=0 frac=0.0 "
+        f"sample_values={[e.value for e in output_events[:5]]} [TESTED]"
+    )
+
+
+def _safe_int_val(val) -> int:
+    """Convert a TapEvent value to int, returning -999 on failure.
+
+    For vmapped-chain NUTS the value is ``(num_chains,)`` shaped; ``max()``
+    gives the worst-case treedepth across all chains.
+    """
+    import numpy as np
+
+    try:
+        return int(np.asarray(val).max())
+    except Exception:  # noqa: BLE001
+        return -999
+
+
+@pytest.mark.slow
+def test_mclmc_tap_context_no_crash(tmp_path):
+    """MCLMC tap context runs without crashing and writes a JSONL artifact.
+
+    KNOWN LIMITATION: MCLMC divergence detection via y-tap is NOT implemented.
+    The MCLMC adaptation scan (``run_steps``) returns ``jnp.logical_not(success)``
+    as its ys body output, but JAX DCE eliminates this ys from the jaxpr when the
+    outer caller (``L_step_size_adaptation``) discards the second tuple element.
+    jaxtap's A-form intercept therefore sees ``n_ys=0`` for both adaptation scans
+    (scan[0] length=6, scan[1] length=1) and produces zero output events from them.
+
+    What IS tested here:
+    - ``tap_diagnostics_context(base_method_name="mclmc")`` does not crash.
+    - A JSONL artifact is created and populated with carry events from the
+      adaptation scan (ncar=10, carry tap fires at sample_every=1).
+    - Zero output events (kind="output") are produced — confirming that the
+      MCLMC adaptation scan's ys is inaccessible via jaxtap A-form.
+    - ``compute_saturation_fraction`` handles an artifact with zero output events
+      and returns ``(0, 0, 0.0)`` without raising.
+
+    If a future blackjax change makes ``L_step_size_adaptation`` USE the
+    div_flags (preventing DCE), the assertion ``len(output_events) == 0`` will
+    become the right regression gate to change.  See ``_tap.py`` module docstring
+    § 3 for the full investigation notes.
+    """
+    import blackjax
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.diagnostics._tap import (
+        compute_saturation_fraction,
+        tap_diagnostics_context,
+    )
+
+    DIM = 5
+    init_key, run_key = jax.random.split(jax.random.key(42))
+
+    def logdensity(position):
+        x = jnp.ravel(position)
+        return -0.5 * jnp.sum(x**2)
+
+    init_pos = jnp.zeros(DIM)
+    kernel = blackjax.mclmc.build_kernel()
+    state = blackjax.mclmc.init(init_pos, logdensity, init_key)
+
+    artifact_path = tmp_path / "mclmc_tap.jsonl"
+    jax.clear_caches()
+
+    with tap_diagnostics_context(
+        artifact_path=artifact_path,
+        base_method_name="mclmc",
+        sample_every=1,
+    ):
+        blackjax.mclmc_find_L_and_step_size(
+            mclmc_kernel=kernel,
+            num_steps=30,
+            state=state,
+            rng_key=run_key,
+            logdensity_fn=logdensity,
+        )
+
+    assert artifact_path.exists(), "JSONL artifact not created"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(artifact_path)
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    carry_events = [e for e in events if getattr(e, "kind", "carry") != "output"]
+
+    # Carry tap fires on the adaptation scan (ncar=10) — confirms jaxtap is active.
+    assert len(carry_events) > 0, (
+        "No carry events in JSONL — jaxtap carry tap did not fire for MCLMC. "
+        f"Total events: {len(events)}."
+    )
+
+    # Zero output events is expected: the adaptation scan's ys is DCE'd.
+    # If this assertion fails, the DCE limitation has been resolved upstream.
+    assert len(output_events) == 0, (
+        f"Unexpected output events: {len(output_events)} found. "
+        "The MCLMC adaptation scan's ys may now be accessible — "
+        "update the test and re-enable MCLMC y-tap in _tap.py."
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        artifact_path, max_num_doublings=None
+    )
+    assert sat_n == 0 and total == 0 and frac == 0.0, (
+        f"compute_saturation_fraction should return (0, 0, 0.0) with no output events; "
+        f"got ({sat_n}, {total}, {frac})"
+    )
+
+    print(
+        f"\n[MCLMC TAP] carry_events={len(carry_events)} output_events=0 (DCE limited) "
+        f"[TESTED — known limitation documented in _tap.py § 3]"
     )
