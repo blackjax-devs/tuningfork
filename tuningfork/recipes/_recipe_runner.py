@@ -2436,7 +2436,7 @@ def run_recipe_to_idata(
                         run_tag=_tap_run_tag,
                         base_method_name=recipe.base_method_name,
                         max_num_doublings=recipe.base_method_params.get(
-                            "max_num_doublings", 10
+                            "max_num_doublings"
                         ),
                     )
                 )

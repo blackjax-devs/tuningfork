@@ -46,7 +46,20 @@ Alert classes monitored
    gate is OFFLINE (policy-free); ``compute_saturation_fraction`` reads the
    JSONL and returns the fraction; the nightly/cert consumer decides thresholds.
 
-   **How the treedepth leaf is identified** (documented for audit):
+   **Scope — NUTSInfo-returning methods only** (``_NUTS_FAMILY = {"nuts"}``):
+   ``num_trajectory_expansions`` is a field of ``NUTSInfo`` and does NOT exist
+   in any other info type in the 24-method inventory (verified 2026-07-10;
+   see ``_NUTS_FAMILY`` comment for the full audit table).  ``dynamic_hmc``
+   was previously included in error — it returns ``HMCInfo`` whose only int
+   leaf is ``num_integration_steps`` (Halton-drawn trajectory length, routine
+   large values), which the ``ndim ≤ 1`` selector would have matched, producing
+   false "treedepth saturated" alerts every step at the default
+   ``max_num_doublings=10`` threshold.  It is now excluded.  The treedepth
+   y-tap is only armed when ``base_method_name in {"nuts"}`` AND
+   ``max_num_doublings is not None`` (see ``tap_diagnostics_context``).
+
+   **How the treedepth leaf is identified** (documented for audit — applies
+   to ``nuts`` only, which returns ``NUTSInfo`` via ``run_inference_algorithm``):
    ``run_inference_algorithm`` scans over steps and returns
    ``(state, info)`` as the per-step ys where ``state`` is ``HMCState`` and
    ``info`` is ``NUTSInfo``.  Flattening ``(HMCState, NUTSInfo)`` with
@@ -151,7 +164,33 @@ _DEFAULT_SAMPLE_EVERY: int = 10
 # NOTE: MCLMC divergence detection via y-tap is NOT implemented — the
 # adaptation scan's ys is eliminated by JAX DCE before jaxtap can see it.
 # MCLMC recipes receive only the cholesky NaN carry tap.
-_NUTS_FAMILY: frozenset[str] = frozenset({"nuts", "dynamic_hmc"})
+#
+# Audit of all 24 in-scope base methods for NUTSInfo (which carries
+# num_trajectory_expansions) — verified against blackjax source 2026-07-10:
+#
+#   nuts                → NUTSInfo         ← ONLY method with num_trajectory_expansions
+#   dynamic_hmc         → HMCInfo          (no num_trajectory_expansions; a draw-length
+#                                           int leaves num_integration_steps instead)
+#   hmc, mhmc, rmhmc   → HMCInfo
+#   dmhmc               → HMCInfo (via dynamic_hmc kernel with multinomial proposal)
+#   ghmc                → HMCInfo
+#   adjusted_mclmc,
+#   adjusted_mclmc_dynamic → HMCInfo
+#   laplace_hmc/dhmc/
+#   mhmc/dmhmc          → LaplaceHMCInfo (HMCInfo subtype, no treedepth field)
+#   mclmc               → MCLMCInfo
+#   mala, barker, rwm,
+#   irmh, additive_step_random_walk,
+#   orbital_hmc,
+#   elliptical_slice,
+#   mgrad_gaussian      → own Info NamedTuples, no treedepth field
+#   meanfield_vi,
+#   fullrank_vi         → VI info types, no treedepth field
+#
+# Conclusion: num_trajectory_expansions exists in NUTSInfo ONLY.
+# Source ref: blackjax/mcmc/nuts.py:36 (NUTSInfo), :72 (num_trajectory_expansions field).
+# grep -rn "num_trajectory_expansions" blackjax/ → nuts.py:56 + :72, no other matches.
+_NUTS_FAMILY: frozenset[str] = frozenset({"nuts"})
 
 
 def is_tap_enabled() -> bool:
@@ -483,7 +522,7 @@ def tap_diagnostics_context(
     run_tag: str = "run",
     sample_every: int = _DEFAULT_SAMPLE_EVERY,
     base_method_name: str | None = None,
-    max_num_doublings: int = 10,
+    max_num_doublings: int | None = None,
 ):
     """Context manager: wrap a block with jaxtap carry + y-tap diagnostics.
 
@@ -499,8 +538,9 @@ def tap_diagnostics_context(
 
     - **Float32 Cholesky NaN** (primitive tap, all recipes): fires the first
       time a Cholesky factor is non-finite inside any scan/while body.
-    - **NUTS treedepth saturation** (y-tap, NUTS/dynamic_hmc recipes): fires
-      when ``num_trajectory_expansions`` reaches ``max_num_doublings``.
+    - **NUTS treedepth saturation** (y-tap, ``nuts`` only): fires when
+      ``num_trajectory_expansions`` reaches ``max_num_doublings``.  Armed only
+      when ``base_method_name="nuts"`` AND ``max_num_doublings is not None``.
       Offline tripwire — use ``compute_saturation_fraction`` to read results;
       no threshold policy here.
     - **MCLMC warmup divergence**: not implemented.  JAX DCE eliminates the
@@ -519,14 +559,17 @@ def tap_diagnostics_context(
         Carry tap frequency (default ``_DEFAULT_SAMPLE_EVERY`` = 10).
         Lower values increase sensitivity at higher overhead.
     base_method_name
-        The recipe's base method name (e.g. ``"nuts"``, ``"mclmc"``).  When
-        provided, enables algorithm-family-specific y-taps (treedepth for NUTS,
-        divergence flag for MCLMC).  When ``None``, only the cholesky NaN tap
-        is active.
+        The recipe's base method name (e.g. ``"nuts"``).  When provided and
+        in ``_NUTS_FAMILY`` **and** ``max_num_doublings is not None``, arms the
+        treedepth y-tap.  When ``None`` or not in ``_NUTS_FAMILY``, only the
+        cholesky NaN carry tap is active.
     max_num_doublings
-        NUTS treedepth cap (default 10).  Alerts fire when
-        ``num_trajectory_expansions >= max_num_doublings``.  Ignored for
-        non-NUTS recipes.
+        NUTS treedepth cap.  Alerts fire when
+        ``num_trajectory_expansions >= max_num_doublings``.  **Default ``None``
+        = treedepth y-tap disabled** (safe for non-NUTS methods or callers that
+        do not know the recipe's cap).  Pass explicitly from the recipe's
+        ``base_method_params["max_num_doublings"]`` to arm the tripwire.
+        Ignored for non-NUTS recipes.
 
     Yields
     ------
@@ -565,7 +608,7 @@ def tap_diagnostics_context(
     _alert_ys: Any = None
     _alert_ys_once: bool = False
 
-    if base_method_name is not None:
+    if base_method_name is not None and max_num_doublings is not None:
         if base_method_name in _NUTS_FAMILY:
             _select_ys, _alert_ys, _alert_ys_once = _make_nuts_ys_wiring(
                 max_num_doublings

@@ -1096,19 +1096,26 @@ def test_nuts_treedepth_saturation(monkeypatch, tmp_path):
 
 @pytest.mark.slow
 def test_nuts_healthy_zero_saturation(monkeypatch, tmp_path):
-    """Healthy NUTS run (max_num_doublings=10 default): zero saturation output events.
+    """Healthy NUTS run (max_num_doublings=10 explicit): zero saturation output events.
 
-    Runs the mvn_10 NUTS recipe with the standard max_num_doublings=10 and
-    a well-tuned step_size.  On a simple 10D MVN, NUTS should not need to
-    double 10 times (treedepth = 10 would be extreme for a Gaussian posterior).
+    Runs the mvn_10 NUTS recipe with ``max_num_doublings=10`` injected into
+    ``base_method_params`` (the standard cap) to arm the treedepth y-tap.
+    The standard NUTS recipe on disk does NOT include ``max_num_doublings``
+    in its params (only ``step_size`` and ``inverse_mass_matrix`` are stored);
+    the recipe runner passes ``recipe.base_method_params.get("max_num_doublings")``
+    which would return ``None`` (= y-tap disabled) for the on-disk recipe.
+    We inject it explicitly to ensure the y-tap is armed, then verify no
+    saturation occurs (10D MVN with a well-tuned step_size should never hit
+    depth 10).
 
     Asserts:
-    - JSONL has some output events (y-tap is active).
-    - Zero output events have value >= 10 (no saturation; the ``alert_ys``
-      threshold is never reached on this healthy posterior).
+    - JSONL has some output events (y-tap is active with explicit max_num_doublings=10).
+    - Zero output events have value >= 10 (no saturation on healthy mvn_10).
     - ``compute_saturation_fraction(path, max_num_doublings=10)`` returns
       fraction == 0.0.
     """
+    import dataclasses
+
     from tuningfork.diagnostics._tap import compute_saturation_fraction
     from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
@@ -1117,8 +1124,17 @@ def test_nuts_healthy_zero_saturation(monkeypatch, tmp_path):
 
     recipe = _load_nuts_recipe()
 
-    run_recipe_to_idata(
+    # Inject max_num_doublings=10 so the recipe runner arms the treedepth y-tap.
+    # Without this, the on-disk recipe has no max_num_doublings in params →
+    # .get("max_num_doublings") returns None → y-tap disabled (correct design:
+    # the runner must know the cap to arm the tripwire; it doesn't guess 10).
+    recipe_with_cap = dataclasses.replace(
         recipe,
+        base_method_params={**recipe.base_method_params, "max_num_doublings": 10},
+    )
+
+    run_recipe_to_idata(
+        recipe_with_cap,
         skip_warmup=True,
         n_samples=30,
         force_resample_config={"seed": 7, "n_samples": 30},
@@ -1266,4 +1282,95 @@ def test_mclmc_tap_context_no_crash(tmp_path):
     print(
         f"\n[MCLMC TAP] carry_events={len(carry_events)} output_events=0 (DCE limited) "
         f"[TESTED — known limitation documented in _tap.py § 3]"
+    )
+
+
+_DYNAMIC_HMC_RECIPE_REL = (
+    "tuningfork/catalog/mvn_10/recipes/"
+    "low__dynamic_hmc__window_adaptation_diag_imm.json"
+)
+
+
+def _load_dynamic_hmc_recipe():
+    """Load the mvn_10 LOW dynamic_hmc recipe from disk."""
+    from tuningfork.catalog.inspect import load_recipe
+
+    path = _REPO_ROOT / _DYNAMIC_HMC_RECIPE_REL
+    if not path.exists():
+        pytest.skip(f"dynamic_hmc recipe not found on disk: {path}")
+    return load_recipe(path)
+
+
+@pytest.mark.slow
+def test_dynamic_hmc_no_false_treedepth_alerts(monkeypatch, tmp_path):
+    """dynamic_hmc tap context produces zero output events (HMCInfo, no treedepth).
+
+    dynamic_hmc returns HMCInfo, not NUTSInfo.  HMCInfo has no
+    ``num_trajectory_expansions`` field — its only integer leaf is
+    ``num_integration_steps`` (a Halton-drawn trajectory length, routinely
+    large).  ``dynamic_hmc`` is therefore EXCLUDED from ``_NUTS_FAMILY`` to
+    prevent the treedepth selector from matching ``num_integration_steps`` and
+    emitting false "treedepth saturated" alerts every step at the default
+    ``max_num_doublings=10`` threshold.
+
+    Two mechanisms protect against false alerts:
+    1. ``_NUTS_FAMILY = {"nuts"}`` — dynamic_hmc is not in the set.
+    2. ``max_num_doublings=None`` default — the recipe runner passes
+       ``recipe.base_method_params.get("max_num_doublings")`` which returns
+       ``None`` for dynamic_hmc recipes (they have no such param); the context
+       skips y-tap wiring when ``max_num_doublings is None``.
+
+    Asserts:
+    - JSONL artifact is created and populated with carry events (cholesky
+      carry tap is always active — confirms jaxtap instrumentation is alive).
+    - Zero output events (kind="output") — no false treedepth y-tap wiring.
+    - ``compute_saturation_fraction`` returns (0, 0, 0.0).
+    """
+    from tuningfork.diagnostics._tap import compute_saturation_fraction
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    tap_dir = tmp_path / "dhmc_no_false_alerts"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    recipe = _load_dynamic_hmc_recipe()
+
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=20,
+        force_resample_config={"seed": 42, "n_samples": 20},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    carry_events = [e for e in events if getattr(e, "kind", "carry") != "output"]
+
+    assert len(carry_events) > 0, (
+        "No carry events — jaxtap not active for dynamic_hmc recipe. "
+        f"Total events: {len(events)}"
+    )
+    assert len(output_events) == 0, (
+        f"False treedepth alerts: {len(output_events)} output events on dynamic_hmc. "
+        "dynamic_hmc returns HMCInfo (no num_trajectory_expansions); it must NOT be "
+        "in _NUTS_FAMILY.  Check _tap.py: _NUTS_FAMILY should be frozenset({'nuts'})."
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        jsonl_files[0], max_num_doublings=10
+    )
+    assert sat_n == 0 and total == 0 and frac == 0.0, (
+        f"Expected (0, 0, 0.0) from compute_saturation_fraction; "
+        f"got ({sat_n}, {total}, {frac})"
+    )
+
+    print(
+        f"\n[DHMC NO-FALSE-ALERTS] carry_events={len(carry_events)} "
+        f"output_events=0 (HMCInfo, not in _NUTS_FAMILY) [TESTED]"
     )
