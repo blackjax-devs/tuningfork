@@ -1359,14 +1359,14 @@ wheels = [
 
 [[package]]
 name = "jax-tap"
-version = "0.2.1"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/b2/094afbe93181282996fd07002cd08bf98a48b3e534a9c3b1f5dc1a76072d/jax_tap-0.2.1.tar.gz", hash = "sha256:9184d85b7cd1f1f4f17def2936d6ce1cc3e6530e73dc41a3a50f8f158984dbdc", size = 331917, upload-time = "2026-07-10T05:37:40.652Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/20/a06fa6677c2adb32760c791a866382cefe12eb005dca3ba973475a3adcb2/jax_tap-0.3.0.tar.gz", hash = "sha256:ee197700a35f3432c8601946f1d8060beea7c6273b23a2d242ce7ea4cc006db6", size = 347489, upload-time = "2026-07-10T09:04:31.726Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/e6/2d3cdd4adc34f58238af2f1643ee850447e8491a25f8aa3e445faae0936d/jax_tap-0.2.1-py3-none-any.whl", hash = "sha256:71929f7c8ac5f7fe8dd2c0faa666dedaf097aff1f116f7277458cb063d7ef52f", size = 59781, upload-time = "2026-07-10T05:37:39.444Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/0a/bd7b66cc683c767c580757e96f3acd17d37aafda3ac2ac0a075aeff9e3ef/jax_tap-0.3.0-py3-none-any.whl", hash = "sha256:45389b02e20de89abe2717308b4e7a2773682f62a85387f95c48be2382179a3d", size = 64791, upload-time = "2026-07-10T09:04:30.697Z" },
 ]
 
 [[package]]
@@ -3824,7 +3824,7 @@ notebook = [
 [package.metadata]
 requires-dist = [
     { name = "jax" },
-    { name = "jax-tap", specifier = ">=0.2.1" },
+    { name = "jax-tap", specifier = ">=0.3.0" },
     { name = "jaxlib" },
     { name = "numpy" },
     { name = "pandas" },

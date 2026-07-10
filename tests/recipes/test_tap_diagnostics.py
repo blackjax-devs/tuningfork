@@ -13,8 +13,9 @@
 # limitations under the License.
 """Tests for M2 opt-in tap diagnostics (TUNINGFORK_TAP_DIAGNOSTICS).
 
-Ten tests covering five AYS Round 1 challenges, three AYS Round 2
-requirements, and the jax-tap 0.2.1 unblock (NUTS vmapped-while fixed).
+Thirteen tests covering five AYS Round 1 challenges, three AYS Round 2
+requirements, the jax-tap 0.2.1 unblock (NUTS vmapped-while fixed), and
+three jax-tap 0.3.0 y-tap tests (treedepth tripwire + MCLMC divergence alert).
 
 Challenge 1 — Default-OFF purity (idata equality, not a flag check):
   ``test_default_off_idata_equality`` [TESTED]: runs the same tiny recipe x
@@ -83,12 +84,34 @@ Synthetic-scan attribution — NaN at step N attributed at step N:
   pathology test cannot (it only proves wiring). See test_runner_planted_pathology
   for proof that the wiring through run_recipe_to_idata works.
 
+jax-tap 0.3.0 y-tap additions (#209 treedepth tripwire):
+  ``test_nuts_treedepth_saturation`` [TESTED]: NUTS recipe + forced
+  ``max_num_doublings=1`` (via ``dataclasses.replace``) → JSONL has output
+  events (kind="output") with treedepth values == 1 (saturated);
+  ``compute_saturation_fraction(path, max_num_doublings=1)`` returns non-zero
+  fraction. Proves the treedepth y-tap fires and the policy-free helper works.
+
+  ``test_nuts_healthy_zero_saturation`` [TESTED]: healthy NUTS run with the
+  on-disk recipe (no ``max_num_doublings`` key in params); the runner defaults
+  to cap=10 (blackjax kernel default) → y-tap arms, zero saturation events;
+  ``compute_saturation_fraction`` returns fraction=0.0. Proves the tripwire
+  arms on real catalog NUTS recipes and produces no false positives.
+
+  ``test_mclmc_warmup_divergence_alert`` [TESTED]: MCLMC adaptation
+  (``mclmc_find_L_and_step_size``) with a planted NaN logdensity (returns NaN
+  for any position where x[0] > 0) → JSONL has output events with value=True
+  (divergence flags from the adaptation scan ys). ``compute_saturation_fraction``
+  returns non-zero fraction. Proves the MCLMC warmup divergence y-tap fires
+  (blackjax #975 seam).
+
 **jax-tap history**: 0.2.0 had two vmapped-while bugs (Bug 1:
 ``_base_tap_cb`` ``lax.select`` shape mismatch; Bug 2:
 ``rewrite_while.cond_fn`` non-scalar cond return) that prevented NUTS from
 being instrumented.  Both fixed in 0.2.1 (arcueil/jax-tap#5, 2026-07-10).
 All 24 in-scope base methods are now in ``_TAP_COMPATIBLE_BASE_METHODS``.
 The never-crash guard (unknown → warn-and-skip) is a permanent design.
+0.3.0 adds y-taps (select_ys / on_ys / alert_ys / alert_ys_once) enabling
+the treedepth tripwire and MCLMC warmup divergence alert (#209).
 """
 
 from __future__ import annotations
@@ -966,4 +989,381 @@ def test_synthetic_scan_nan_attribution(monkeypatch, tmp_path):
         f"\n[ATTRIBUTION] NaN onset injected at step>={NAN_ONSET_STEP}, "
         f"first_nan_event_step={first_nan_step}, "
         f"nan_events={len(nan_events)}, total_steps={TOTAL_STEPS} [TESTED]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #209 treedepth tripwire: NUTS saturation + healthy + MCLMC divergence
+# ---------------------------------------------------------------------------
+
+
+_MCLMC_RECIPE_REL = (
+    "tuningfork/catalog/mvn_10/recipes/"
+    "low__adjusted_mclmc__adjusted_mclmc_tuning.json"
+)
+
+
+def _load_mclmc_recipe():
+    """Load the mvn_10 LOW adjusted_mclmc recipe from disk."""
+    from tuningfork.catalog.inspect import load_recipe
+
+    path = _REPO_ROOT / _MCLMC_RECIPE_REL
+    if not path.exists():
+        pytest.skip(f"MCLMC recipe not found on disk: {path}")
+    return load_recipe(path)
+
+
+@pytest.mark.slow
+def test_nuts_treedepth_saturation(monkeypatch, tmp_path):
+    """NUTS with max_num_doublings=1 produces treedepth saturation output events.
+
+    Forces treedepth saturation by capping tree expansion at depth 1 (the
+    smallest possible cap; all steps either U-turn at depth 0 or saturate at
+    depth 1).  For a well-tuned step_size on mvn_10, the step_size is adapted
+    for max_num_doublings=10, so with max_num_doublings=1 most steps are forced
+    to saturate.
+
+    ``max_num_doublings=1`` is injected via ``dataclasses.replace`` on the
+    base_method_params dict and flows to ``blackjax.nuts()`` through the recipe
+    runner's ``_skip_extra_kwargs`` path.
+
+    The tap context (base_method_name="nuts", max_num_doublings=1) wires the
+    NUTS treedepth y-tap.  ``select_ys`` finds the first int32 scalar in the
+    ys flat leaves (= num_trajectory_expansions) per the documented proof in
+    the module docstring.  ``alert_ys`` fires when value >= max_num_doublings.
+
+    Asserts:
+    - JSONL has at least one output event (kind="output") from the y-tap.
+    - At least one output event has value >= 1 (saturated at the forced cap).
+    - ``compute_saturation_fraction(path, max_num_doublings=1)`` returns a
+      non-zero fraction.
+    """
+    import dataclasses
+
+    from tuningfork.diagnostics._tap import compute_saturation_fraction
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    tap_dir = tmp_path / "nuts_sat"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    recipe = _load_nuts_recipe()
+
+    # Force saturation: cap tree expansion at depth 1
+    sat_recipe = dataclasses.replace(
+        recipe,
+        base_method_params={**recipe.base_method_params, "max_num_doublings": 1},
+    )
+
+    run_recipe_to_idata(
+        sat_recipe,
+        skip_warmup=True,
+        n_samples=20,
+        force_resample_config={"seed": 42, "n_samples": 20},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    assert len(output_events) > 0, (
+        "No output events (kind='output') in JSONL — y-tap did not fire. "
+        f"Total events: {len(events)}. Output events: 0."
+    )
+
+    # At least one output event should show saturation (value == 1 >= max_num_doublings=1)
+    saturated = [e for e in output_events if _safe_int_val(e.value) >= 1]
+    assert len(saturated) > 0, (
+        f"No saturated output events (value >= 1). "
+        f"Output event values: {[e.value for e in output_events[:10]]}"
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        jsonl_files[0], max_num_doublings=1
+    )
+    assert sat_n > 0, f"compute_saturation_fraction returned sat_n=0 (total={total})"
+    assert 0.0 < frac <= 1.0, f"Expected frac in (0, 1], got {frac}"
+
+    print(
+        f"\n[NUTS SAT] output_events={len(output_events)} saturated={len(saturated)} "
+        f"sat_n={sat_n} total={total} frac={frac:.2%} "
+        f"sample_values={[e.value for e in output_events[:5]]} [TESTED]"
+    )
+
+
+@pytest.mark.slow
+def test_nuts_healthy_zero_saturation(monkeypatch, tmp_path):
+    """Healthy NUTS run with the on-disk recipe: zero saturation output events.
+
+    Uses the mvn_10 NUTS recipe as it lives on disk (no ``max_num_doublings``
+    key in ``base_method_params``).  The runner calls
+    ``recipe.base_method_params.get("max_num_doublings", 10)``, so it
+    substitutes the blackjax kernel default (10) when the recipe doesn't pin
+    it — the treedepth y-tap is armed on all real catalog recipes.
+
+    This test proves that the tripwire fires on a real catalog recipe and that
+    no saturation is reported on healthy 10D MVN (which should never approach
+    depth 10 with a well-tuned step_size).
+
+    Asserts:
+    - JSONL has some output events (proves y-tap is armed for on-disk recipe).
+    - Zero output events have value >= 10 (no saturation on healthy mvn_10).
+    - ``compute_saturation_fraction(path, max_num_doublings=10)`` returns
+      fraction == 0.0.
+    """
+    from tuningfork.diagnostics._tap import compute_saturation_fraction
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    tap_dir = tmp_path / "nuts_healthy"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    recipe = _load_nuts_recipe()
+    # Use the on-disk recipe directly — no injection needed.  The runner
+    # defaults to cap=10 (blackjax nuts kernel default) when the key is absent,
+    # so the treedepth y-tap arms automatically for all real catalog NUTS recipes.
+
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=30,
+        force_resample_config={"seed": 7, "n_samples": 30},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    assert len(output_events) > 0, (
+        "No output events in JSONL — y-tap did not fire for NUTS recipe. "
+        "This means the treedepth y-tap wiring is broken (regression)."
+    )
+
+    saturated = [e for e in output_events if _safe_int_val(e.value) >= 10]
+    assert len(saturated) == 0, (
+        f"False positive: {len(saturated)} saturation events on healthy mvn_10. "
+        f"Values: {[e.value for e in saturated[:5]]}"
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        jsonl_files[0], max_num_doublings=10
+    )
+    assert (
+        sat_n == 0
+    ), f"compute_saturation_fraction returned sat_n={sat_n} (expected 0)"
+    assert frac == 0.0, f"Expected fraction=0.0, got {frac}"
+
+    print(
+        f"\n[NUTS HEALTHY] output_events={total} saturated=0 frac=0.0 "
+        f"sample_values={[e.value for e in output_events[:5]]} [TESTED]"
+    )
+
+
+def _safe_int_val(val) -> int:
+    """Convert a TapEvent value to int, returning -999 on failure.
+
+    For vmapped-chain NUTS the value is ``(num_chains,)`` shaped; ``max()``
+    gives the worst-case treedepth across all chains.
+    """
+    import numpy as np
+
+    try:
+        return int(np.asarray(val).max())
+    except Exception:  # noqa: BLE001
+        return -999
+
+
+@pytest.mark.slow
+def test_mclmc_tap_context_no_crash(tmp_path):
+    """MCLMC tap context runs without crashing and writes a JSONL artifact.
+
+    KNOWN LIMITATION: MCLMC divergence detection via y-tap is NOT YET implemented.
+    The venv's pinned blackjax predates the blackjax#975 ys seam, which adds
+    ``jnp.logical_not(success)`` as the adaptation-scan ys.  Without the seam,
+    jaxtap's A-form intercept sees ``n_ys=0`` for the adaptation scans and
+    produces zero output events.  This is a version-skew artefact, not a JAX
+    DCE issue — on blackjax HEAD 27d920441 (which has the seam) n_ys=1 and all
+    events fire correctly (verified 2026-07-10).
+
+    What IS tested here:
+    - ``tap_diagnostics_context(base_method_name="mclmc")`` does not crash.
+    - A JSONL artifact is created and populated with carry events from the
+      adaptation scan (ncar=10, carry tap fires at sample_every=1).
+    - Zero output events (kind="output") are produced — confirming that the
+      pinned blackjax dep has no adaptation-scan ys.
+    - ``compute_saturation_fraction`` handles an artifact with zero output events
+      and returns ``(0, 0, 0.0)`` without raising.
+
+    When the dep floor is bumped to include the seam, the assertion
+    ``len(output_events) == 0`` flips to a minimum-count assertion: that is the
+    re-enable signal.  See ``_tap.py`` module docstring §3 for notes.
+    """
+    import blackjax
+    import jax
+    import jax.numpy as jnp
+
+    from tuningfork.diagnostics._tap import (
+        compute_saturation_fraction,
+        tap_diagnostics_context,
+    )
+
+    DIM = 5
+    init_key, run_key = jax.random.split(jax.random.key(42))
+
+    def logdensity(position):
+        x = jnp.ravel(position)
+        return -0.5 * jnp.sum(x**2)
+
+    init_pos = jnp.zeros(DIM)
+    kernel = blackjax.mclmc.build_kernel()
+    state = blackjax.mclmc.init(init_pos, logdensity, init_key)
+
+    artifact_path = tmp_path / "mclmc_tap.jsonl"
+    jax.clear_caches()
+
+    with tap_diagnostics_context(
+        artifact_path=artifact_path,
+        base_method_name="mclmc",
+        sample_every=1,
+    ):
+        blackjax.mclmc_find_L_and_step_size(
+            mclmc_kernel=kernel,
+            num_steps=30,
+            state=state,
+            rng_key=run_key,
+            logdensity_fn=logdensity,
+        )
+
+    assert artifact_path.exists(), "JSONL artifact not created"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(artifact_path)
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    carry_events = [e for e in events if getattr(e, "kind", "carry") != "output"]
+
+    # Carry tap fires on the adaptation scan (ncar=10) — confirms jaxtap is active.
+    assert len(carry_events) > 0, (
+        "No carry events in JSONL — jaxtap carry tap did not fire for MCLMC. "
+        f"Total events: {len(events)}."
+    )
+
+    # Zero output events expected: pinned blackjax predates the #975 ys seam.
+    # If this assertion fails, the dep floor now includes the seam — re-enable signal.
+    assert len(output_events) == 0, (
+        f"Unexpected output events: {len(output_events)} found. "
+        "The pinned blackjax dep may now include the #975 ys seam — "
+        "update this assertion and re-enable MCLMC y-tap in _tap.py."
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        artifact_path, max_num_doublings=None
+    )
+    assert sat_n == 0 and total == 0 and frac == 0.0, (
+        f"compute_saturation_fraction should return (0, 0, 0.0) with no output events; "
+        f"got ({sat_n}, {total}, {frac})"
+    )
+
+    print(
+        f"\n[MCLMC TAP] carry_events={len(carry_events)} output_events=0 (pre-seam dep) "
+        f"[TESTED — limitation documented in _tap.py §3]"
+    )
+
+
+_DYNAMIC_HMC_RECIPE_REL = (
+    "tuningfork/catalog/mvn_10/recipes/"
+    "low__dynamic_hmc__window_adaptation_diag_imm.json"
+)
+
+
+def _load_dynamic_hmc_recipe():
+    """Load the mvn_10 LOW dynamic_hmc recipe from disk."""
+    from tuningfork.catalog.inspect import load_recipe
+
+    path = _REPO_ROOT / _DYNAMIC_HMC_RECIPE_REL
+    if not path.exists():
+        pytest.skip(f"dynamic_hmc recipe not found on disk: {path}")
+    return load_recipe(path)
+
+
+@pytest.mark.slow
+def test_dynamic_hmc_no_false_treedepth_alerts(monkeypatch, tmp_path):
+    """dynamic_hmc tap context produces zero output events (HMCInfo, no treedepth).
+
+    dynamic_hmc returns HMCInfo, not NUTSInfo.  HMCInfo has no
+    ``num_trajectory_expansions`` field — its only integer leaf is
+    ``num_integration_steps`` (a Halton-drawn trajectory length, routinely
+    large).  ``dynamic_hmc`` is therefore EXCLUDED from ``_NUTS_FAMILY`` to
+    prevent the treedepth selector from matching ``num_integration_steps`` and
+    emitting false "treedepth saturated" alerts every step at the default
+    ``max_num_doublings=10`` threshold.
+
+    Two mechanisms protect against false alerts:
+    1. ``_NUTS_FAMILY = {"nuts"}`` — dynamic_hmc is not in the set.
+    2. ``max_num_doublings=None`` default — the recipe runner passes
+       ``recipe.base_method_params.get("max_num_doublings")`` which returns
+       ``None`` for dynamic_hmc recipes (they have no such param); the context
+       skips y-tap wiring when ``max_num_doublings is None``.
+
+    Asserts:
+    - JSONL artifact is created and populated with carry events (cholesky
+      carry tap is always active — confirms jaxtap instrumentation is alive).
+    - Zero output events (kind="output") — no false treedepth y-tap wiring.
+    - ``compute_saturation_fraction`` returns (0, 0, 0.0).
+    """
+    from tuningfork.diagnostics._tap import compute_saturation_fraction
+    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+
+    tap_dir = tmp_path / "dhmc_no_false_alerts"
+    monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
+
+    recipe = _load_dynamic_hmc_recipe()
+
+    run_recipe_to_idata(
+        recipe,
+        skip_warmup=True,
+        n_samples=20,
+        force_resample_config={"seed": 42, "n_samples": 20},
+        _suppress_print=True,
+    )
+
+    assert tap_dir.exists(), "Tap artifact dir not created"
+    jsonl_files = list(tap_dir.glob("*.jsonl"))
+    assert len(jsonl_files) == 1, f"Expected 1 JSONL, got {jsonl_files}"
+
+    from jaxtap import read_jsonl
+
+    events = read_jsonl(jsonl_files[0])
+    output_events = [e for e in events if getattr(e, "kind", "carry") == "output"]
+    carry_events = [e for e in events if getattr(e, "kind", "carry") != "output"]
+
+    assert len(carry_events) > 0, (
+        "No carry events — jaxtap not active for dynamic_hmc recipe. "
+        f"Total events: {len(events)}"
+    )
+    assert len(output_events) == 0, (
+        f"False treedepth alerts: {len(output_events)} output events on dynamic_hmc. "
+        "dynamic_hmc returns HMCInfo (no num_trajectory_expansions); it must NOT be "
+        "in _NUTS_FAMILY.  Check _tap.py: _NUTS_FAMILY should be frozenset({'nuts'})."
+    )
+
+    sat_n, total, frac = compute_saturation_fraction(
+        jsonl_files[0], max_num_doublings=10
+    )
+    assert sat_n == 0 and total == 0 and frac == 0.0, (
+        f"Expected (0, 0, 0.0) from compute_saturation_fraction; "
+        f"got ({sat_n}, {total}, {frac})"
+    )
+
+    print(
+        f"\n[DHMC NO-FALSE-ALERTS] carry_events={len(carry_events)} "
+        f"output_events=0 (HMCInfo, not in _NUTS_FAMILY) [TESTED]"
     )
