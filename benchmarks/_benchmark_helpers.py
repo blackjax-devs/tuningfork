@@ -192,6 +192,7 @@ def run_jit_warmup(seed: int = _BENCHMARK_SEED) -> None:
                 n_samples=100,
                 force_resample_config={"seed": seed, "n_samples": 100},
                 _suppress_print=True,
+                _no_tap=True,  # benchmark context: never touch tap regardless of env var
             )
     except Exception:  # noqa: BLE001
         pass  # best-effort; never break the benchmark run
@@ -401,6 +402,7 @@ def run_benchmark_cell(
             n_samples=_N_SAMPLES,
             force_resample_config={"seed": compile_seed, "n_samples": _N_SAMPLES},
             _suppress_print=True,
+            _no_tap=True,  # compile-warmup is outside the timed block; never tap
         )
         warmup_metrics = extract_cell_metrics(idata_warmup, model_name)
         jax_drift_flag, jax_drift_details = _check_jax_drift(
@@ -428,6 +430,7 @@ def run_benchmark_cell(
                         None if skip_warmup else {"seed": s, "n_samples": _N_SAMPLES}
                     ),
                     _suppress_print=True,
+                    _no_tap=True,  # timed body: structurally gates tap from all timing
                 )
                 t_run = time.perf_counter() - t0
                 runs.append(

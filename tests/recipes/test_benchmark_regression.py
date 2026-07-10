@@ -585,7 +585,13 @@ def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
     captured_seeds: list[int] = []
 
     def mock_run_recipe(
-        recipe, *, skip_warmup, n_samples, force_resample_config, _suppress_print
+        recipe,
+        *,
+        skip_warmup,
+        n_samples,
+        force_resample_config,
+        _suppress_print,
+        _no_tap=False,
     ):
         if force_resample_config:
             captured_seeds.append(force_resample_config.get("seed", -1))
@@ -824,7 +830,13 @@ def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
     call_count = [0]
 
     def mock_run_recipe(
-        recipe, *, skip_warmup, n_samples, force_resample_config, _suppress_print
+        recipe,
+        *,
+        skip_warmup,
+        n_samples,
+        force_resample_config,
+        _suppress_print,
+        _no_tap=False,
     ):
         call_count[0] += 1
         return mock_idata

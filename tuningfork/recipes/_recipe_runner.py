@@ -2141,6 +2141,7 @@ def run_recipe_to_idata(
     _allow_failed_diagnostic: bool = False,
     _return_timing: bool = False,
     _suppress_print: bool = False,
+    _no_tap: bool = False,
 ) -> Any:
     """Run a LOW/MEDIUM recipe's warmup + sampling pipeline; return as InferenceData.
 
@@ -2206,6 +2207,12 @@ def run_recipe_to_idata(
         penalty for expensive-logprob models (e.g. gp_regression × laplace_*).
         ``None`` (default) falls back to ``recipe.warmup_num_chains`` (which is
         itself ``None`` for legacy recipes, meaning all phases use ``num_chains``).
+    _no_tap
+        When ``True``, disables tap diagnostics for this call even if
+        ``TUNINGFORK_TAP_DIAGNOSTICS=1`` is set in the environment.  Speed-
+        measurement code paths (Speed-lite benchmark) must always pass
+        ``_no_tap=True`` so tap overhead never contaminates timing.  Default
+        ``False`` — diagnostics follow the env var.
 
     Returns
     -------
@@ -2392,6 +2399,47 @@ def run_recipe_to_idata(
                 "gap on some medium-effort inner-kernel recipes). Re-run with "
                 "skip_warmup=False."
             )
+
+    # ── Tap diagnostics setup ──────────────────────────────────────────────
+    # Opt-in via TUNINGFORK_TAP_DIAGNOSTICS=1.  Structurally gated by
+    # _no_tap=True so speed-measurement callers (Speed-lite benchmark) are
+    # never affected regardless of the env var.
+    # jaxtap is imported lazily inside the enabled branch only — with the
+    # env var unset, zero jaxtap involvement (no import cost in the hot path).
+    #
+    # Never-crash invariant: algorithms that use vmapped while_loops (NUTS,
+    # dynamic_hmc, adjusted_mclmc_dynamic) are incompatible with jaxtap 0.2.0
+    # and would crash if instrumented (two upstream bugs: Bug 1 in _base_tap_cb
+    # lax.select shape, Bug 2 in rewrite_while.cond_fn non-scalar return).
+    # For such algorithms we emit a one-time WARNING and skip tap setup — the
+    # recipe runs normally without instrumentation.  The warning names the
+    # upstream issue so users can track the fix.
+    import contextlib as _contextlib
+    import logging as _logging
+
+    _tap_stack = _contextlib.ExitStack()
+    if not _no_tap:
+        from tuningfork.diagnostics._tap import is_tap_enabled as _is_tap_enabled
+
+        if _is_tap_enabled():
+            from tuningfork.diagnostics._tap import (
+                is_algorithm_tap_compatible as _is_compat,
+            )
+            from tuningfork.diagnostics._tap import tap_diagnostics_context
+
+            if _is_compat(recipe.base_method_name):
+                _tap_run_tag = (
+                    f"{recipe.model_name}__{recipe.base_method_name}__seed{seed}"
+                )
+                _tap_stack.enter_context(tap_diagnostics_context(run_tag=_tap_run_tag))
+            else:
+                _logging.getLogger(__name__).warning(
+                    "[tuningfork tap] tap diagnostics skipped for %r: "
+                    "jaxtap 0.2.0 vmap-while incompatibility "
+                    "(arcueil/jax-tap Bug 1 + Bug 2). "
+                    "Recipe will run normally without instrumentation.",
+                    recipe.base_method_name,
+                )
 
     # Run warmup — multi-phase (recipe.warmups > 1) or single-phase.
     #
@@ -2794,6 +2842,10 @@ def run_recipe_to_idata(
     # states.position is still a JAX future at this point; without sync
     # _t_sample measures dispatch only (can be 10×+ underestimate).
     jax.block_until_ready(states)
+    # Close tap diagnostics (no-op when _no_tap=True or env var unset).
+    # Called after block_until_ready so all device callbacks have fired before
+    # the JSONL writer is closed and the alert summary is logged.
+    _tap_stack.close()
     _t_sample = time.perf_counter() - _t_sample_start
     positions = states.position  # shape: (num_chains, n_samples, *event_shape)
 
