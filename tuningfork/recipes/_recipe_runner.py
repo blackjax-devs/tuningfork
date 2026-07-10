@@ -2435,8 +2435,13 @@ def run_recipe_to_idata(
                     tap_diagnostics_context(
                         run_tag=_tap_run_tag,
                         base_method_name=recipe.base_method_name,
+                        # 10 = blackjax nuts kernel default (blackjax/mcmc/nuts.py:119);
+                        # effective cap when the recipe doesn't pin max_num_doublings.
+                        # The family gate in tap_diagnostics_context prevents arming for
+                        # non-NUTS methods (hmc, dynamic_hmc, mclmc, …) regardless of
+                        # this value — so passing 10 for a NUTS recipe is safe.
                         max_num_doublings=recipe.base_method_params.get(
-                            "max_num_doublings"
+                            "max_num_doublings", 10
                         ),
                     )
                 )

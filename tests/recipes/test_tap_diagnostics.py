@@ -92,9 +92,10 @@ jax-tap 0.3.0 y-tap additions (#209 treedepth tripwire):
   fraction. Proves the treedepth y-tap fires and the policy-free helper works.
 
   ``test_nuts_healthy_zero_saturation`` [TESTED]: healthy NUTS run with the
-  default ``max_num_doublings=10`` on mvn_10 → zero saturation events;
-  ``compute_saturation_fraction`` returns fraction=0.0. Proves no false positives
-  on a well-behaved Gaussian posterior.
+  on-disk recipe (no ``max_num_doublings`` key in params); the runner defaults
+  to cap=10 (blackjax kernel default) → y-tap arms, zero saturation events;
+  ``compute_saturation_fraction`` returns fraction=0.0. Proves the tripwire
+  arms on real catalog NUTS recipes and produces no false positives.
 
   ``test_mclmc_warmup_divergence_alert`` [TESTED]: MCLMC adaptation
   (``mclmc_find_L_and_step_size``) with a planted NaN logdensity (returns NaN
@@ -1096,26 +1097,24 @@ def test_nuts_treedepth_saturation(monkeypatch, tmp_path):
 
 @pytest.mark.slow
 def test_nuts_healthy_zero_saturation(monkeypatch, tmp_path):
-    """Healthy NUTS run (max_num_doublings=10 explicit): zero saturation output events.
+    """Healthy NUTS run with the on-disk recipe: zero saturation output events.
 
-    Runs the mvn_10 NUTS recipe with ``max_num_doublings=10`` injected into
-    ``base_method_params`` (the standard cap) to arm the treedepth y-tap.
-    The standard NUTS recipe on disk does NOT include ``max_num_doublings``
-    in its params (only ``step_size`` and ``inverse_mass_matrix`` are stored);
-    the recipe runner passes ``recipe.base_method_params.get("max_num_doublings")``
-    which would return ``None`` (= y-tap disabled) for the on-disk recipe.
-    We inject it explicitly to ensure the y-tap is armed, then verify no
-    saturation occurs (10D MVN with a well-tuned step_size should never hit
-    depth 10).
+    Uses the mvn_10 NUTS recipe as it lives on disk (no ``max_num_doublings``
+    key in ``base_method_params``).  The runner calls
+    ``recipe.base_method_params.get("max_num_doublings", 10)``, so it
+    substitutes the blackjax kernel default (10) when the recipe doesn't pin
+    it — the treedepth y-tap is armed on all real catalog recipes.
+
+    This test proves that the tripwire fires on a real catalog recipe and that
+    no saturation is reported on healthy 10D MVN (which should never approach
+    depth 10 with a well-tuned step_size).
 
     Asserts:
-    - JSONL has some output events (y-tap is active with explicit max_num_doublings=10).
+    - JSONL has some output events (proves y-tap is armed for on-disk recipe).
     - Zero output events have value >= 10 (no saturation on healthy mvn_10).
     - ``compute_saturation_fraction(path, max_num_doublings=10)`` returns
       fraction == 0.0.
     """
-    import dataclasses
-
     from tuningfork.diagnostics._tap import compute_saturation_fraction
     from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
@@ -1123,18 +1122,12 @@ def test_nuts_healthy_zero_saturation(monkeypatch, tmp_path):
     monkeypatch.setenv("TUNINGFORK_TAP_DIAGNOSTICS", str(tap_dir))
 
     recipe = _load_nuts_recipe()
-
-    # Inject max_num_doublings=10 so the recipe runner arms the treedepth y-tap.
-    # Without this, the on-disk recipe has no max_num_doublings in params →
-    # .get("max_num_doublings") returns None → y-tap disabled (correct design:
-    # the runner must know the cap to arm the tripwire; it doesn't guess 10).
-    recipe_with_cap = dataclasses.replace(
-        recipe,
-        base_method_params={**recipe.base_method_params, "max_num_doublings": 10},
-    )
+    # Use the on-disk recipe directly — no injection needed.  The runner
+    # defaults to cap=10 (blackjax nuts kernel default) when the key is absent,
+    # so the treedepth y-tap arms automatically for all real catalog NUTS recipes.
 
     run_recipe_to_idata(
-        recipe_with_cap,
+        recipe,
         skip_warmup=True,
         n_samples=30,
         force_resample_config={"seed": 7, "n_samples": 30},
