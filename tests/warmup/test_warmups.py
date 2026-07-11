@@ -1335,6 +1335,49 @@ class TestCheesMultiChain:
             f"got {params['_chees_target_acceptance_rate']}"
         )
 
+    def test_default_optim_lr_and_canonical_betas(self) -> None:
+        """Pin the calibrated trajectory-optimizer config (issue #217).
+
+        Two regressions this guards:
+        (1) the module default LR must be the calibrated 0.05 (SNAPER "ChEES
+            fast"), NOT the old under-converging 0.01;
+        (2) the optimizer must use the canonical CHEES/SNAPER betas b1=0, b2=0.95
+            (no first-moment averaging), NOT optax.adam's defaults (b1=0.9) — the
+            momentum caused the observed L-oscillation.
+
+        The sidecar records the values ACTUALLY used at runtime, so this asserts
+        behaviour, not just a constant.
+        """
+        from tuningfork.warmup.chees import (
+            _DEFAULT_CHEES_OPTIM_B1,
+            _DEFAULT_CHEES_OPTIM_B2,
+            _DEFAULT_CHEES_OPTIM_LR,
+        )
+
+        # Module constants pinned to the calibrated canonical form.
+        assert _DEFAULT_CHEES_OPTIM_LR == pytest.approx(0.05)
+        assert _DEFAULT_CHEES_OPTIM_B1 == 0.0
+        assert _DEFAULT_CHEES_OPTIM_B2 == pytest.approx(0.95)
+
+        # Sidecar reflects the runtime optimizer config (default path).
+        _, params, *_ = self._run(7009, num_chains=4)
+        assert params["_chees_optim_learning_rate"] == pytest.approx(0.05)
+        assert params["_chees_optim_b1"] == 0.0
+        assert params["_chees_optim_b2"] == pytest.approx(0.95)
+
+    def test_optim_lr_override_forwards_to_sidecar(self) -> None:
+        """An explicit optim_learning_rate override is honoured and recorded.
+
+        The recipe emit path forwards optim_learning_rate via
+        warmup_kwargs_override; this confirms the wrapper consumes it (not just
+        the module default) and stamps the used value into the sidecar.
+        """
+        _, params, *_ = self._run(7010, num_chains=4, optim_learning_rate=0.1)
+        assert params["_chees_optim_learning_rate"] == pytest.approx(0.1)
+        # betas stay canonical regardless of the LR override
+        assert params["_chees_optim_b1"] == 0.0
+        assert params["_chees_optim_b2"] == pytest.approx(0.95)
+
 
 # ---------------------------------------------------------------------------
 # 16. adjusted_mclmc_tuning warmup — SLOW (chain-running tests only)

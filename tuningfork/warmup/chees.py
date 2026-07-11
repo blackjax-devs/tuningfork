@@ -39,9 +39,19 @@ optimizer) as additional positional arguments::
 
     chees.run(rng_key, positions, step_size, optim, num_steps=n_warmup)
 
-This wrapper hard-codes an ``optax.adam(learning_rate=0.01)`` optimizer for the
-trajectory-length parameters (the standard CHEES default) and accepts
-``step_size`` as a pass-through kwarg (default ``0.5``).
+This wrapper builds an ``optax.adam(learning_rate=0.05, b1=0, b2=0.95)``
+optimizer for the trajectory-length parameters and accepts ``step_size`` as a
+pass-through kwarg (default ``0.5``).  The optimizer form is the canonical
+CHEES/SNAPER one (Adam with ``b1=0, b2=0.95``: no first-moment averaging, so an
+RMSProp-style scaled log-trajectory-length step — the same form TFP's
+``GradientBasedTrajectoryLengthAdaptation`` ships).  TFP's shipped
+``adaptation_rate`` is ``0.025`` ("ChEES"); Sountsov & Hoffman (SNAPER-HMC,
+arXiv:2110.11576, App. D) label ``0.025`` "(ChEES)" and ``0.05`` "ChEES fast".
+The ``0.05`` default here was CALIBRATED for tuningfork's ``n_warmup=2000`` cert
+budget — the TFP-canonical ``0.025`` leaves the trajectory length
+under-converged on stiff scale-separated targets (see issue #217 and the
+``_DEFAULT_CHEES_OPTIM_LR`` note below).  ``optim_learning_rate`` stays exposed
+for callers that want a different rate.
 
 Adapted parameters returned by upstream
 ----------------------------------------
@@ -79,6 +89,9 @@ Where:
   ``integration_steps_params`` ``(1,)`` array (passed through; shared)
   ``_chees_target_acceptance_rate`` float — value used
   ``_chees_max_leapfrog_steps``     int — cap used
+  ``_chees_optim_learning_rate``    float — trajectory-optimizer LR used
+  ``_chees_optim_b1``               float — Adam b1 used (0.0, canonical)
+  ``_chees_optim_b2``               float — Adam b2 used (0.95, canonical)
   ========================= =============================================
 
 References
@@ -101,7 +114,23 @@ __all__ = ["ENTRY"]
 # Default CHEES hyperparameters (matching upstream defaults)
 _DEFAULT_CHEES_TARGET_ACCEPTANCE_RATE: float = 0.651
 _DEFAULT_CHEES_MAX_LEAPFROG_STEPS: int = 1000
-_DEFAULT_CHEES_OPTIM_LR: float = 0.01
+
+# Trajectory-length optimizer (Adam on log trajectory length).  The canonical
+# CHEES/SNAPER form is Adam(beta1=0, beta2=0.95) — a plain RMSProp-like scaled
+# gradient step with NO first-moment (momentum) averaging.  TFP's shipped
+# ``GradientBasedTrajectoryLengthAdaptation`` uses ``adaptation_rate=0.025``
+# ("ChEES") with these betas; Sountsov & Hoffman (SNAPER-HMC, arXiv:2110.11576,
+# App. D) label 0.025 "(ChEES)" and 0.05 "ChEES fast".  The rate here (0.05) was
+# CALIBRATED for tuningfork's cert budget: at ``n_warmup=2000`` on stiff
+# scale-separated targets with dispersed inits (radon d=390, irt_2pl d=144,
+# nc=128), the TFP-canonical 0.025 leaves the trajectory length under-converged
+# (L stuck ~50, R̂≈3.6), while 0.05 lets L converge (radon×uniform L=171,
+# R̂=1.004, 0 div) — the smallest paper-grounded rate that certifies robustly.
+# Bigger is not better: 0.1/0.5 overshoot and destabilise (irt z-spikes, longer
+# trajectories).  See tuningfork issue #217 + the 2026-07-11 GPU A/B calibration.
+_DEFAULT_CHEES_OPTIM_LR: float = 0.05
+_DEFAULT_CHEES_OPTIM_B1: float = 0.0
+_DEFAULT_CHEES_OPTIM_B2: float = 0.95
 _DEFAULT_CHEES_STEP_SIZE: float = 0.5
 
 # Salt for deriving the init-jitter key from the caller's rng_key via fold_in,
@@ -198,7 +227,11 @@ def _runner(
         default).
     optim_learning_rate
         Learning rate for the optax Adam optimizer used to adapt trajectory
-        length parameters.  Default ``0.01`` (standard CHEES default).
+        length parameters.  Default ``0.05`` — SNAPER App. D "ChEES fast"; the
+        smallest paper-grounded rate that certifies robustly at ``n_warmup=2000``
+        (TFP-canonical ``0.025`` under-converges L at this budget on stiff
+        targets — calibrated 2026-07-11, issue #217).  The optimizer betas are
+        fixed to the canonical ``b1=0, b2=0.95``.
     **kwargs
         Additional keyword arguments (ignored; kept for API uniformity).
 
@@ -222,6 +255,10 @@ def _runner(
           trajectory length param; shared across chains; passed through as-is).
         - ``"_chees_target_acceptance_rate"``: Python float — value used.
         - ``"_chees_max_leapfrog_steps"``: Python int — cap used.
+        - ``"_chees_optim_learning_rate"``: Python float — trajectory-optimizer
+          learning rate used (default ``0.05``; issue #217 calibration).
+        - ``"_chees_optim_b1"`` / ``"_chees_optim_b2"``: Python floats — Adam
+          betas used (``0.0`` / ``0.95``, the canonical CHEES/SNAPER form).
 
     Raises
     ------
@@ -232,10 +269,12 @@ def _runner(
     -----
     CHEES upstream signature is different from MEADS: ``chees_adaptation.run``
     requires ``step_size`` and ``optim`` (optax optimizer) as positional
-    arguments after ``positions``.  This wrapper creates an ``optax.adam``
-    optimizer internally.  The callable params (``next_random_arg_fn``,
-    ``integration_steps_fn``) are Python functions returned by CHEES and are
-    passed through to the downstream kernel factory unchanged.
+    arguments after ``positions``.  This wrapper creates the optimizer
+    internally as ``optax.adam(optim_learning_rate, b1=0, b2=0.95)`` — the
+    canonical CHEES/SNAPER form (no first-moment averaging).  The callable
+    params (``next_random_arg_fn``, ``integration_steps_fn``) are Python
+    functions returned by CHEES and are passed through to the downstream kernel
+    factory unchanged.
     """
     # The generic recipe-runner dispatch (_recipe_runner.py) always forwards
     # target_acceptance_rate explicitly, including None when the caller has no
@@ -265,8 +304,17 @@ def _runner(
         init_position, num_chains, _jitter_key, init_jitter_scale
     )
 
-    # Build optax optimizer for trajectory-length adaptation (standard CHEES default).
-    optim = optax.adam(learning_rate=optim_learning_rate)
+    # Build optax optimizer for trajectory-length adaptation.  Canonical
+    # CHEES/SNAPER form: Adam(b1=0, b2=0.95) — no first-moment averaging, so it
+    # behaves as an RMSProp-style scaled log-trajectory-length step (matches
+    # TFP's GradientBasedTrajectoryLengthAdaptation).  Plain optax.adam defaults
+    # (b1=0.9) inject momentum the CHEES update was never designed for and were
+    # observed to make the adapted L oscillate — see issue #217.
+    optim = optax.adam(
+        learning_rate=optim_learning_rate,
+        b1=_DEFAULT_CHEES_OPTIM_B1,
+        b2=_DEFAULT_CHEES_OPTIM_B2,
+    )
 
     # Run CHEES: single call handles all num_chains chains jointly.
     # Returns (AdaptationResults, AdaptationInfo).
@@ -314,6 +362,11 @@ def _runner(
         # Sidecar metadata
         "_chees_target_acceptance_rate": float(_target_acceptance_rate),
         "_chees_max_leapfrog_steps": int(max_leapfrog_steps),
+        # Trajectory-length optimizer config used (provenance; underscore-prefixed
+        # so it never reaches a kernel factory — see _recipe_runner filtering).
+        "_chees_optim_learning_rate": float(optim_learning_rate),
+        "_chees_optim_b1": float(_DEFAULT_CHEES_OPTIM_B1),
+        "_chees_optim_b2": float(_DEFAULT_CHEES_OPTIM_B2),
     }
 
     return states, adapted_params
@@ -329,8 +382,9 @@ ENTRY = Warmup(
         "next_random_arg_fn, integration_steps_params).  Like MEADS but for dynamic-HMC "
         "instead of GHMC; both are multi-chain-by-construction adaptation procedures. "
         "Upstream API note: chees_adaptation.run() requires step_size and an optax optimizer "
-        "as positional args (unlike meads_adaptation.run); this wrapper provides optax.adam "
-        "internally.  Callable params (next_random_arg_fn, integration_steps_fn) are Python "
+        "as positional args (unlike meads_adaptation.run); this wrapper provides "
+        "optax.adam(0.05, b1=0, b2=0.95) internally (canonical CHEES/SNAPER form; LR calibrated "
+        "for n_warmup=2000, issue #217).  Callable params (next_random_arg_fn, integration_steps_fn) are Python "
         "functions returned by CHEES and passed through unchanged — they cannot be broadcast "
         "to (num_chains,) shape.  numeric params (step_size, inverse_mass_matrix) are "
         "broadcast from the shared CHEES estimate to (num_chains,) / (num_chains, d). "
