@@ -1,0 +1,126 @@
+{
+  "model_name": "radon",
+  "base_method_name": "dynamic_hmc",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.007309063337743282,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "headline_metric": 0.0020445259287953377,
+  "sample_quality": {
+    "mae_vs_reference": 0.015046699113089923,
+    "q05_error": 0.04793921093773949,
+    "q95_error": 0.04042076541568139,
+    "std_ratio_max_dev": 0.020228916955335574
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 1760.1047203369671,
+    "n_warmup": 2000,
+    "n_samples": 1000,
+    "num_chains": 128,
+    "warmup_wall_seconds": 999.651,
+    "sampling_wall_seconds": 754.899,
+    "sampling_seconds_per_draw": 0.005898,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "x86_64",
+      "cpu_count_logical": 8,
+      "os": "Linux 6.8.0-134-generic",
+      "python_version": "3.13.13",
+      "jax_version": "0.10.1",
+      "blackjax_version": "1.6",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": null
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(chees, dynamic_hmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.007309063337743282, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0020.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "Confirmatory ChEES emission through the fixed pipeline (tuningfork issue #217).\n\nPipeline fixes verified before emission: PR #218 (ChEES trajectory-optimizer learning-rate default set to 0.05 with canonical Adam betas b1=0/b2=0.95 in warmup/chees.py) and PR #219 (auto-gate invoked with multichain=True on the emit path in _recipe_runner.py). The LR default IS the fix (no per-call override). tuningfork HEAD b4221b3.\n\nConfiguration: dynamic_hmc sampler x ChEES warmup, num_chains=128, n_warmup=2000, n_samples=1000, seed=20260517, init_strategy=uniform.\n\nEffort class medium__: investigation-derived non-defaults (num_chains=128, n_warmup=2000, pinned init_strategy). Provenance: issue #217, PRs #218/#219, GPU calibration campaign (worklog gpu-chees-meads-scaling).\n\nInit-strategy comparison (both inits run at the identical config above; the recipe pins the better gate margin):\n  WINNER    init=uniform: verdict=PASS, rhat_max=1.004935761919449, min_bulk_ess=26346.235592000525, n_div=0, headline=0.0020445259287953377, wall=1803.8s\n  runner-up init=zero: verdict=REVIEW, rhat_max=1.0121837267146376, min_bulk_ess=10606.689818584835, n_div=0, headline=0.0004890789859928191, wall=1372.6s",
+  "headline_basis": {
+    "total_grad_evals": 12794240,
+    "min_bulk_ess": 26158.15541923046,
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "chees",
+      "params": {
+        "n_warmup": 2000,
+        "num_chains": 128,
+        "target_acceptance": 0.651
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": {
+    "type": "uniform",
+    "low": -1.0,
+    "high": 1.0
+  },
+  "variant_label": null,
+  "inverse_mass_matrix_path": "radon/recipes/medium__dynamic_hmc__chees.imm.npz",
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.004935761919449,
+      "min_bulk_ess": 26346.235592000525,
+      "n_divergences": 0,
+      "max_abs_mean_z": 3.0093398226179846,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.004935761919449,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 26346.235592000525,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 3.0093398226179846,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 3.8236086129737092,
+          "review_lo": 3.8236086129737092,
+          "review_hi": 4.0,
+          "frac_z2": 0.07948717948717948
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev93+gd6d1539e9.d20260711",
+  "blackjax_version": "1.6",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-07-12T15:15:37Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
