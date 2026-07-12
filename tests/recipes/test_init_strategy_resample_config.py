@@ -127,8 +127,14 @@ def test_validate_init_strategy_uniform_inverted_raises() -> None:
 
 
 def test_valid_init_strategy_types_constant() -> None:
-    """_VALID_INIT_STRATEGY_TYPES covers exactly the three documented types."""
-    assert _VALID_INIT_STRATEGY_TYPES == {"prior_sample", "zero", "uniform"}
+    """_VALID_INIT_STRATEGY_TYPES covers exactly the five documented types."""
+    assert _VALID_INIT_STRATEGY_TYPES == {
+        "prior_sample",
+        "zero",
+        "uniform",
+        "zero_perchain",
+        "uniform_perchain",
+    }
 
 
 # ---------------------------------------------------------------------------
