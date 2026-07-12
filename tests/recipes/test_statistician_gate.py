@@ -638,3 +638,103 @@ def test_dimension_aware_gate_still_fails_genuine_bias():
         assert (
             verdict.verdict == "FAIL"
         ), f"d={d} did not FAIL at z={verdict.max_abs_mean_z}"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for issue #217 — multichain misclassification (≤64 cliff bug)
+# ---------------------------------------------------------------------------
+# The bug: ndim >= 2 and shape[0] <= 64 was treated as multichain, but this
+# failed for genuine multichain arrays with nc > 64. The fix uses ndim >= 3
+# as definitive multichain, and adds an explicit multichain parameter.
+
+
+def test_samples_to_multichain_explicit_true_preserves_shape():
+    """multichain=True preserves (128, 1000, 5) shape without rechunking."""
+    from tuningfork.calibration.statistician_gate import _samples_to_multichain
+
+    rng = np.random.RandomState(10)
+    samples = {"x": rng.normal(size=(128, 1000, 5))}
+    # Explicit multichain=True should return as-is
+    result = _samples_to_multichain(samples, n_chunks=4, multichain=True)
+    result_arr = np.asarray(result["x"])
+    assert result_arr.shape == (128, 1000, 5), (
+        f"multichain=True rechunked the array; expected (128, 1000, 5), "
+        f"got {result_arr.shape}"
+    )
+
+
+def test_samples_to_multichain_heuristic_ndim3_unscrambled():
+    """(128, 1000, 5) via heuristic (multichain=None) is NOT rechunked."""
+    from tuningfork.calibration.statistician_gate import _samples_to_multichain
+
+    rng = np.random.RandomState(11)
+    samples = {"x": rng.normal(size=(128, 1000, 5))}
+    # ndim=3 → heuristic detects as multichain → no rechunk
+    result = _samples_to_multichain(samples, n_chunks=4, multichain=None)
+    result_arr = np.asarray(result["x"])
+    assert result_arr.shape == (128, 1000, 5), (
+        f"heuristic (ndim=3) should detect as multichain; expected (128, 1000, 5), "
+        f"got {result_arr.shape}"
+    )
+
+
+def test_samples_to_multichain_explicit_false_rechunks():
+    """multichain=False rechunks single-chain (4000, 5) into n_chunks segments."""
+    from tuningfork.calibration.statistician_gate import _samples_to_multichain
+
+    rng = np.random.RandomState(12)
+    samples = {"x": rng.normal(size=(4000, 5))}
+    # Explicit multichain=False should rechunk
+    result = _samples_to_multichain(samples, n_chunks=4, multichain=False)
+    result_arr = np.asarray(result["x"])
+    assert result_arr.shape == (4, 1000, 5), (
+        f"multichain=False should rechunk (4000, 5) into (4, 1000, 5), "
+        f"got {result_arr.shape}"
+    )
+
+
+def test_auto_gate_multichain_true_healthy_numbers():
+    """auto_gate with multichain=True on synthetic (128, 200, 3) → healthy rhat/ess."""
+    rng = np.random.RandomState(13)
+    # Synthetic well-mixed 128 chains × 200 draws × 3D
+    samples = {"x": rng.normal(size=(128, 200, 3))}
+    info = _make_info(128, 200, n_divergences=0)
+    # Explicitly flag as multichain; should NOT rechunk and should pass
+    verdict = auto_gate(samples, info, multichain=True)
+    assert verdict.verdict == "PASS", (
+        f"Well-mixed (128, 200, 3) with multichain=True should PASS, "
+        f"got {verdict.verdict} (rhat={verdict.rhat_max:.4f}, ess={verdict.min_bulk_ess:.1f})"
+    )
+    assert verdict.rhat_max is not None
+    assert verdict.rhat_max < 1.01, (
+        f"multichain=True on well-mixed draws should have rhat < 1.01, "
+        f"got {verdict.rhat_max:.4f}"
+    )
+    assert verdict.min_bulk_ess is not None
+    assert verdict.min_bulk_ess > 100, (
+        f"multichain=True on (128, 200) draws should have ESS >> 100, "
+        f"got {verdict.min_bulk_ess:.1f}"
+    )
+
+
+def test_auto_gate_multichain_none_heuristic_large_nc_no_rechunk():
+    """multichain=None heuristic on (128, 1000, 5) detects as multichain (ndim=3)."""
+    rng = np.random.RandomState(14)
+    # Large nc (128 > 64), ndim=3: old ≤64 cliff would misclassify as single-chain
+    # and rechunk to (4, 32000, 5), scrambling ESS.
+    # New heuristic (ndim >= 3) detects as multichain → no rechunk.
+    samples = {"x": rng.normal(size=(128, 1000, 5))}
+    info = _make_info(128, 1000, n_divergences=0)
+    # multichain=None (default): heuristic should see ndim=3 and NOT rechunk
+    verdict = auto_gate(samples, info, multichain=None, n_chunks=4)
+    # If the old bug was active, ESS would be ~21.65 (as mentioned in the issue).
+    # With the fix, ESS should be healthy (>> 100 for well-mixed draws).
+    assert verdict.min_bulk_ess is not None
+    assert verdict.min_bulk_ess > 100, (
+        f"Heuristic on (128, 1000, 5) incorrectly rechunked; ESS={verdict.min_bulk_ess:.1f} "
+        f"suggests scrambling (expected >> 100 for well-mixed)"
+    )
+    assert verdict.verdict == "PASS", (
+        f"Well-mixed (128, 1000, 5) should PASS with correct heuristic, "
+        f"got {verdict.verdict}"
+    )
