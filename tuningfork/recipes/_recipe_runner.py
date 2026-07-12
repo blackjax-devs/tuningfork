@@ -1664,6 +1664,7 @@ def emit_low_recipe_for_cell(
         step_size=_gate_chain0_ss,
         num_integration_steps=_gate_nis,
         vi_sampler_mode=_vi_sampler_mode,
+        multichain=True,  # emit path knows positions is (num_chains, n_samples, *shape)
     )
     _log(
         f"  Gate: {gate_verdict.verdict}, "

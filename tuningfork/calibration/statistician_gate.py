@@ -347,14 +347,23 @@ def _build_margin(value: float, bands: dict, band: str) -> dict:
 def _samples_to_multichain(
     samples: dict,
     n_chunks: int,
+    multichain: bool | None = None,
 ) -> dict:
     """Ensure samples are (n_chains, n_draws, *shape); rechunk if needed.
 
-    If the first array in ``samples`` has a shape that indicates multi-chain
-    layout (ndim ≥ 2 for scalar params, ndim ≥ 3 for vector params), the
-    dict is returned as-is.  Otherwise (single-chain layout with shape
-    ``(n_samples, *event_shape)``), the samples are reshaped into ``n_chunks``
-    contiguous segments following the reference-certification split-R̂ protocol.
+    When ``multichain`` is explicitly provided, it bypasses the heuristic:
+    - ``True``: treat as multichain, return as-is.
+    - ``False``: treat as single-chain, reshape into n_chunks segments.
+    - ``None`` (default): use heuristic to detect layout (see below).
+
+    **Heuristic (when multichain=None)**:
+    If the first array in ``samples`` has ndim ≥ 3, it is definitively
+    multichain: single-chain positions are (n_samples, *event_shape);
+    multichain are (n_chains, n_samples, *event_shape). For ndim < 3,
+    a shape-based fallback distinguishes them conservatively (first dim
+    < 64 treated as n_chains). This heuristic is permissive to avoid
+    the ≤64 cliff bug (issue #217) where genuine multichain arrays with
+    nc>64 were misclassified as single-chain.
 
     **Precondition**: Callers must call ``jax.block_until_ready(samples)`` before
     invoking this function. JAX arrays passed in are expected to be fully
@@ -369,6 +378,10 @@ def _samples_to_multichain(
         ``(n_chains, n_draws, *event_shape)`` or ``(n_draws, *event_shape)``.
     n_chunks
         Number of contiguous segments to reshape into when single-chain.
+    multichain
+        Explicit layout hint. When ``True``, return as-is (cast to np).
+        When ``False``, rechunk into n_chunks. When ``None`` (default),
+        use the heuristic below.
 
     Returns
     -------
@@ -380,15 +393,23 @@ def _samples_to_multichain(
     first = next(iter(samples.values()))
     arr = np.asarray(first)
 
-    # Heuristic: if the first axis is small (≤ 32), treat as n_chains.
-    # Otherwise treat as single-chain (n_samples, *event_shape).
-    # Single-chain: ndim == 1 (scalar param) or ndim ≥ 2 but large first dim.
-    # Multi-chain: ndim ≥ 2 and first dim looks like n_chains.
-    #
-    # The spec says: single-chain has shape (n_samples, *event_shape);
-    # multi-chain has (n_chains, n_samples, *event_shape).
-    # We detect by checking if the first dim is ≤ n_chunks (heuristic).
-    is_multichain = arr.ndim >= 2 and arr.shape[0] <= 64
+    # Determine if samples are multichain
+    if multichain is not None:
+        is_multichain = multichain
+    else:
+        # Heuristic: ndim ≥ 3 is definitively multichain.
+        # Single-chain: (n_samples, *event_shape) has ndim ≤ 2.
+        # Multichain: (n_chains, n_samples, *event_shape) has ndim ≥ 3.
+        #
+        # For ndim < 3: fallback to first-axis heuristic (conservative).
+        # The original ≤64 cliff caused issue #217: arrays with nc>64 were
+        # misclassified as single-chain and incorrectly rechunked.
+        # The new heuristic (ndim ≥ 3) avoids this cliff entirely.
+        if arr.ndim >= 3:
+            is_multichain = True
+        else:
+            # ndim <= 2: first dim ≤ 64 → treat as n_chains.
+            is_multichain = arr.ndim >= 2 and arr.shape[0] <= 64
 
     if is_multichain:
         return {k: np.asarray(v) for k, v in samples.items()}
@@ -420,6 +441,7 @@ def auto_gate(
     step_size: float | None = None,
     num_integration_steps: int | None = None,
     vi_sampler_mode: bool = False,
+    multichain: bool | None = None,
 ) -> AutoGateVerdict:
     """Compute MCMC quality metrics and render a 3-band verdict.
 
@@ -475,6 +497,14 @@ def auto_gate(
     num_integration_steps
         Fixed leapfrog step count L.  Required with ``step_size`` for the
         resonance check.  Pass ``None`` for dynamic-L kernels (NUTS/dmhmc).
+    multichain
+        Optional explicit hint for sample layout.  When ``True``, treat
+        ``samples`` as multichain ``(n_chains, n_draws, *event_shape)`` and
+        use as-is. When ``False``, treat as single-chain ``(n_draws, *event_shape)``
+        and rechunk into ``n_chunks``. When ``None`` (default), auto-detect via
+        the heuristic in ``_samples_to_multichain`` (ndim ≥ 3 is definitively
+        multichain; ndim < 3 uses shape[0] < 64 fallback).  The emit path should
+        pass ``True`` when it knowingly provides multichain positions.
 
     Returns
     -------
@@ -521,7 +551,7 @@ def auto_gate(
         thresholds["n_divergences"] = {"pass": (0, float("inf"))}
 
     # --- Ensure multi-chain layout ---
-    mc_samples = _samples_to_multichain(samples, n_chunks)
+    mc_samples = _samples_to_multichain(samples, n_chunks, multichain=multichain)
 
     # --- R̂ and bulk-ESS ---
     rhat_max: float | None = None
