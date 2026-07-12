@@ -56,6 +56,15 @@ jobs:
         with:
           version: "latest"
 
+      - name: Compute machine fingerprint
+        id: machine
+        run: |
+          # Capture CPU features that affect XLA compilation.
+          # This ensures the cache is invalidated when the runner machine changes
+          # (e.g., due to GitHub Actions infrastructure updates that add/remove CPU features).
+          fingerprint=$(cat /proc/cpuinfo | grep flags | head -1 | sha256sum | cut -d' ' -f1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
       - name: Restore JAX persistent compilation cache
         # MUST run BEFORE the install steps so hashFiles('uv.lock') reflects the
         # committed lockfile, NOT one mutated by "uv pip install blackjax@main".
@@ -91,11 +100,23 @@ jobs:
         # JAX's persistent cache survives jax.clear_caches() (in-memory only).
         # Saves ~58 min/night on lotka_volterra + horseshoe e2e cells starting
         # night 2 (night 1 cold, ~155 min, builds the cache).
+        #
+        # 2026-07-12 finding: cache was persisting across runner machine feature
+        # changes (e.g., GitHub Actions infrastructure updates adding/removing CPU
+        # feature flags like +prefer-no-gather). XLA-compiled code optimized for
+        # the old machine would fail on the new machine with cpu_aot_loader warnings.
+        #
+        # Fix (2026-07-12): machine fingerprint computed from /proc/cpuinfo flags
+        # is included in the cache key. When runner hardware changes, the fingerprint
+        # changes → old cache is not restored → new cache is built for the new machine.
+        # restore-keys fallback still picks up the most-recent matching fingerprint
+        # cache (warm cache within same hardware), so performance is preserved.
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/jax-compile-cache
-          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ github.run_id }}
+          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ steps.machine.outputs.fingerprint }}-${{ github.run_id }}
           restore-keys: |
+            jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ steps.machine.outputs.fingerprint }}-
             jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-
             jax-compile-
 
@@ -207,13 +228,18 @@ jobs:
         # entry via prefix fallback — exact key first, then hash-prefix, then bare
         # prefix — so the next night always inherits the freshest available cache.
         #
+        # Machine fingerprint is included in the key so that when runner hardware
+        # changes, a new cache entry is created (old stale cache not re-used).
+        # restore-keys fallback still picks up the most-recent matching fingerprint
+        # cache for warm starts within the same hardware.
+        #
         # Mirrors the pattern speed_benchmark.yml uses for its trend cache
         # (restore@v4 + save@v4 with if: always()).
         if: always()
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/jax-compile-cache
-          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ github.run_id }}
+          key: jax-compile-${{ hashFiles('uv.lock') }}-py3.13-ubuntu-24.04-${{ steps.machine.outputs.fingerprint }}-${{ github.run_id }}
 
       - name: Verify nightly cron fired (informational)
         if: github.event_name == 'schedule'
