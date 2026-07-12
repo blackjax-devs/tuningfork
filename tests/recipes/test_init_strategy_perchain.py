@@ -336,3 +336,90 @@ def test_legacy_uniform_not_pre_batched() -> None:
     # All rows should be identical (broadcast from single center)
     for i in range(num_chains):
         assert jnp.allclose(replicated[i], result)
+
+
+# ---------------------------------------------------------------------------
+# Warmup compatibility guard (fail-loud for non-ensemble warmups)
+# ---------------------------------------------------------------------------
+
+
+def test_perchain_uniform_pathfinder_raises() -> None:
+    """uniform_perchain × pathfinder raises ValueError with clear message."""
+    from tuningfork.recipes._recipe_runner import (
+        _validate_init_strategy_warmup_compatibility,
+    )
+
+    strategy = {"type": "uniform_perchain", "low": -1.0, "high": 1.0}
+
+    with pytest.raises(ValueError, match="ensemble warmups") as exc_info:
+        _validate_init_strategy_warmup_compatibility(strategy, "pathfinder")
+
+    msg = str(exc_info.value)
+    assert "uniform_perchain" in msg
+    assert "pathfinder" in msg
+    assert "single-point" in msg
+    assert "legacy" in msg
+
+
+def test_perchain_zero_multipathfinder_raises() -> None:
+    """zero_perchain × multipathfinder raises ValueError with clear message."""
+    from tuningfork.recipes._recipe_runner import (
+        _validate_init_strategy_warmup_compatibility,
+    )
+
+    strategy = {"type": "zero_perchain", "jitter": 0.5}
+
+    with pytest.raises(ValueError, match="ensemble warmups") as exc_info:
+        _validate_init_strategy_warmup_compatibility(strategy, "multipathfinder")
+
+    msg = str(exc_info.value)
+    assert "zero_perchain" in msg
+    assert "multipathfinder" in msg
+
+
+def test_perchain_uniform_chees_passes() -> None:
+    """uniform_perchain × chees does NOT raise (compatible)."""
+    from tuningfork.recipes._recipe_runner import (
+        _validate_init_strategy_warmup_compatibility,
+    )
+
+    strategy = {"type": "uniform_perchain", "low": -1.0, "high": 1.0}
+
+    # Must not raise
+    _validate_init_strategy_warmup_compatibility(strategy, "chees")
+
+
+def test_perchain_zero_meads_passes() -> None:
+    """zero_perchain × meads does NOT raise (compatible)."""
+    from tuningfork.recipes._recipe_runner import (
+        _validate_init_strategy_warmup_compatibility,
+    )
+
+    strategy = {"type": "zero_perchain", "jitter": 0.2}
+
+    # Must not raise
+    _validate_init_strategy_warmup_compatibility(strategy, "meads")
+
+
+def test_legacy_uniform_pathfinder_passes() -> None:
+    """legacy uniform × pathfinder does NOT raise (no incompatibility)."""
+    from tuningfork.recipes._recipe_runner import (
+        _validate_init_strategy_warmup_compatibility,
+    )
+
+    strategy = {"type": "uniform", "low": -1.0, "high": 1.0}
+
+    # Must not raise (legacy types are compatible with all warmups)
+    _validate_init_strategy_warmup_compatibility(strategy, "pathfinder")
+
+
+def test_legacy_zero_multipathfinder_passes() -> None:
+    """legacy zero × multipathfinder does NOT raise (no incompatibility)."""
+    from tuningfork.recipes._recipe_runner import (
+        _validate_init_strategy_warmup_compatibility,
+    )
+
+    strategy = {"type": "zero"}
+
+    # Must not raise (legacy types are compatible with all warmups)
+    _validate_init_strategy_warmup_compatibility(strategy, "multipathfinder")
