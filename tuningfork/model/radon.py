@@ -196,7 +196,11 @@ ENTRY = Posterior(
     numpyro_model=radon_hierarchical,
     model_args=(FLOOR_X, COUNTY_IDX, LOG_RADON),
     model_kwargs={"n_counties": N_COUNTIES},
-    posteriordb_id="radon-radon_hierarchical_centered",
+    posteriordb_id=None,  # Not comparable to any posteriordb entry: the nearest
+    # structural match (radon_all-radon_variable_intercept_noncentered) ships no
+    # reference draws in posteriordb v0.2.0, and even that match has a prior
+    # mismatch (HalfNormal(5.0) here vs HalfNormal(1.0) there) — see
+    # CONSOLIDATION.md §2 for the full analysis.
     citations=(
         "Gelman, A. & Hill, J. (2007). Data Analysis Using Regression and "
         "Multilevel/Hierarchical Models. Cambridge University Press. Ch. 12.",

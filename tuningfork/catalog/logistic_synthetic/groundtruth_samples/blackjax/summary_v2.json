@@ -1,0 +1,147 @@
+{
+  "model_name": "logistic_synthetic",
+  "schema_version": "gt_v2_multichain",
+  "generator": "nuts_perchain",
+  "space": "unconstrained",
+  "n_chains": 10,
+  "n_draws_per_chain": 10000,
+  "n_total": 100000,
+  "sampler_config": {
+    "sampler": "nuts",
+    "warmup": "window_adaptation_diag_imm_perchain",
+    "n_warmup_per_chain": 2000,
+    "target_acceptance": 0.8,
+    "max_num_doublings": 10,
+    "init_strategy": "per_chain_init_to_uniform_radius2"
+  },
+  "seeds": {
+    "master_seed": 20260713,
+    "derivation": "key=jax.random.key(seed); split->(init,warmup,sample); per-chain=split(k,n_chains)"
+  },
+  "az_method": {
+    "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+    "tail_ess": "az.ess(idata, method='tail')",
+    "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+    "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)"
+  },
+  "quality_gate": {
+    "rhat_threshold": 1.01,
+    "max_rhat": 1.000181088986364,
+    "min_bulk_ess": 46049.172356749244,
+    "total_divergences": 0,
+    "divergence_rate": 0.0,
+    "min_e_bfmi": 0.9473688006401062,
+    "passed": true
+  },
+  "diagnostics_per_chain": {
+    "step_size": [
+      0.5688117742538452,
+      0.5590985417366028,
+      0.498727411031723,
+      0.47693586349487305,
+      0.5392351746559143,
+      0.5189151167869568,
+      0.6011093258857727,
+      0.5131685733795166,
+      0.4537857174873352,
+      0.6137409806251526
+    ],
+    "divergences_per_chain": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "e_bfmi_per_chain": [
+      0.9751608371734619,
+      0.9929232001304626,
+      0.9483916163444519,
+      0.9473688006401062,
+      1.0144498348236084,
+      0.9905225038528442,
+      0.9921526312828064,
+      0.9710943698883057,
+      0.9536482691764832,
+      1.0038458108901978
+    ],
+    "mean_acceptance_per_chain": [
+      0.9026880860328674,
+      0.8948935270309448,
+      0.9236738085746765,
+      0.9238568544387817,
+      0.8840538263320923,
+      0.9127371907234192,
+      0.8553812503814697,
+      0.9058108329772949,
+      0.9305635690689087,
+      0.8667849898338318
+    ],
+    "total_divergences": 0
+  },
+  "timing_seconds": {
+    "warmup": 6.179733817989472,
+    "sampling": 8.66044497799885,
+    "total": 17.484443852008553
+  },
+  "provenance": {
+    "tuningfork_version": "0.0.0.dev0",
+    "code_sha": "c60ffb9",
+    "jax_version": "0.10.1",
+    "blackjax_version": "1.6.dev114+g2ad3a801d",
+    "arviz_version": "1.1.0",
+    "x64_enabled": false,
+    "device": "gpu",
+    "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+    "timestamp_utc": "2026-07-13T05:03:04Z"
+  },
+  "per_site": {
+    "beta": {
+      "mean": [
+        0.7918443083763123,
+        1.4364006519317627,
+        3.5998520851135254
+      ],
+      "std": [
+        0.8654627799987793,
+        0.9887025356292725,
+        1.272694706916809
+      ],
+      "q05": [
+        -0.5322230458259583,
+        0.03133437782526016,
+        1.8316038846969604
+      ],
+      "q95": [
+        2.3012959957122803,
+        3.233616352081299,
+        5.944310188293457
+      ],
+      "between_chain_se": [
+        0.004815550438031753,
+        0.005102956323643396,
+        0.006880060637904759
+      ],
+      "bulk_ess": [
+        49732.90630145179,
+        48976.71876030776,
+        46049.172356749244
+      ],
+      "tail_ess": [
+        48526.296282659896,
+        43548.296645805036,
+        44996.73517495931
+      ],
+      "rhat": [
+        1.0001421074282695,
+        1.000181088986364,
+        1.0001695660989856
+      ]
+    }
+  }
+}

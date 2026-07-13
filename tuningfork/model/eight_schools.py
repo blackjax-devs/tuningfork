@@ -50,7 +50,7 @@ ENTRY = Posterior(
     class_="hierarchical",
     numpyro_model=_model,
     model_args=(Y, SIGMA),
-    posteriordb_id="8_schools-eight_schools_noncentered",
+    posteriordb_id="eight_schools-eight_schools_noncentered",
     citations=(
         "Rubin 1981 'Estimation in parallel randomized experiments', "
         "J. Educational Statistics",

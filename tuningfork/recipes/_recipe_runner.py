@@ -632,6 +632,11 @@ def _align_gt_keys_for_gate(
     Returns ``{param: {"mean", "std", "q05", "q95", "n_samples"}}`` for
     parameters present in both *draws_dict* and the GT summary.
 
+    This is the **legacy path** for ``reference/summary.json`` (single-chain
+    GT, nominal SE formula ``gt_std / sqrt(n_samples)``).  For multichain GT
+    (``groundtruth_samples/blackjax/summary_v2.json``), use
+    ``_build_gt_for_gate_v2`` instead.
+
     Parameters
     ----------
     gt_summary
@@ -680,6 +685,68 @@ def _align_gt_keys_for_gate(
         }
         if n_samples is not None:
             aligned[k]["n_samples"] = n_samples
+
+    return aligned if aligned else None
+
+
+def _build_gt_for_gate_v2(
+    sv2: dict,
+    draws_dict: dict,
+    is_laplace_family: bool,
+    model_name: str,
+) -> dict | None:
+    """Build GT-alignment dict from ``summary_v2.json`` (multichain GT format).
+
+    Returns ``{param: {"mean", "std", "q05", "q95", "between_chain_se",
+    "bulk_ess", "n_total"}}`` so that ``_compute_gt_compare`` takes the
+    multichain SE path (``max(between_chain_se, se_gt_capped)`` rather than
+    the legacy ``gt_std / sqrt(n_samples)``).
+
+    Parameters
+    ----------
+    sv2
+        Parsed ``groundtruth_samples/blackjax/summary_v2.json`` dict.
+    draws_dict
+        The post-warmup ``positions`` dict
+        ``{param: (num_chains, n_samples, *shape)}``.
+    is_laplace_family
+        When ``True``, restrict alignment to phi sites from
+        ``_LAPLACE_PHI_THETA_SPLITS[model_name]``.
+    model_name
+        Registry key, used to look up phi sites.
+
+    Returns
+    -------
+    dict | None
+        Per-param GT dict with ``between_chain_se`` present, or ``None`` if
+        no matching keys were found.
+    """
+    per_site = sv2.get("per_site", {})
+    n_total = int(
+        sv2.get("n_total", sv2.get("n_chains", 1) * sv2.get("n_draws_per_chain", 1))
+    )
+
+    if is_laplace_family and model_name in _LAPLACE_PHI_THETA_SPLITS:
+        phi_sites, _ = _LAPLACE_PHI_THETA_SPLITS[model_name]
+        candidate_keys = [k for k in phi_sites if k in draws_dict and k in per_site]
+    else:
+        candidate_keys = [k for k in draws_dict if k in per_site]
+
+    if not candidate_keys:
+        return None
+
+    aligned: dict = {}
+    for k in candidate_keys:
+        site = per_site[k]
+        aligned[k] = {
+            "mean": site["mean"],
+            "std": site["std"],
+            "q05": site.get("q05", site["mean"]),
+            "q95": site.get("q95", site["mean"]),
+            "between_chain_se": site["between_chain_se"],
+            "bulk_ess": site["bulk_ess"],
+            "n_total": n_total,
+        }
 
     return aligned if aligned else None
 
@@ -1335,13 +1402,29 @@ def emit_low_recipe_for_cell(
 
     # --- Load GT reference summary for gate + sample_quality wiring ---
     # Loaded early (before any JAX work) so it's available at auto_gate time.
-    # Missing summary.json is graceful: _gt_summary stays None, aligned_gt
-    # stays None, and auto_gate / compute_sample_quality simply skip GT checks.
-    _gt_summary_path = catalog_root / model_name / "reference" / "summary.json"
+    # Priority: summary_v2.json (multichain GT, between_chain_se path) >
+    # summary.json (legacy single-chain GT, nominal SE path).  Missing both
+    # is graceful: _gt_summary stays None, aligned_gt stays None, and
+    # auto_gate / compute_sample_quality simply skip GT checks.
+    _sv2_gt_path = (
+        catalog_root
+        / model_name
+        / "groundtruth_samples"
+        / "blackjax"
+        / "summary_v2.json"
+    )
+    _legacy_gt_path = catalog_root / model_name / "reference" / "summary.json"
     _gt_summary: dict | None = None
-    if _gt_summary_path.exists():
+    _gt_is_v2: bool = False
+    if _sv2_gt_path.exists():
         try:
-            _gt_summary = json.loads(_gt_summary_path.read_text())
+            _gt_summary = json.loads(_sv2_gt_path.read_text())
+            _gt_is_v2 = True
+        except Exception:  # noqa: BLE001
+            _gt_summary = None
+    if _gt_summary is None and _legacy_gt_path.exists():
+        try:
+            _gt_summary = json.loads(_legacy_gt_path.read_text())
         except Exception:  # noqa: BLE001
             _gt_summary = None
 
@@ -1786,11 +1869,18 @@ def emit_low_recipe_for_cell(
     # --- Align GT keys for auto-gate and sample_quality ---
     # For laplace-family: phi-subset alignment (only phi sites are in positions).
     # For full-posterior: intersection of positions and GT keys.
+    # Dispatch: summary_v2 → _build_gt_for_gate_v2 (between_chain_se path);
+    # legacy summary.json → _align_gt_keys_for_gate (nominal SE path).
     _aligned_gt: dict | None = None
     if _gt_summary is not None:
-        _aligned_gt = _align_gt_keys_for_gate(
-            _gt_summary, positions, is_laplace, model_name
-        )
+        if _gt_is_v2:
+            _aligned_gt = _build_gt_for_gate_v2(
+                _gt_summary, positions, is_laplace, model_name
+            )
+        else:
+            _aligned_gt = _align_gt_keys_for_gate(
+                _gt_summary, positions, is_laplace, model_name
+            )
 
     # --- Auto-gate ---
     # Pass step_size + num_integration_steps for the resonance check (fixed-L

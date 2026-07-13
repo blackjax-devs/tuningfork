@@ -633,6 +633,28 @@ def _build_corpus():
         )
     )
 
+    # Case 33: legacy GT format (n_samples only, no between_chain_se) — explicit
+    # control case demonstrating the old-formula path is bit-identical between the
+    # reference snapshot and the refactored impl.  Complements the multichain GT
+    # pinned-value tests (below) by proving the legacy branch is unchanged.
+    rng = np.random.RandomState(33)
+    corpus.append(
+        (
+            "legacy_gt_format_old_formula",
+            dict(
+                samples=_make_clean_mc(rng, 4, 500, 1),
+                info=_make_info(4, 500),
+                ground_truth_summaries={
+                    "x": {
+                        "mean": np.array([0.0]),
+                        "std": np.array([1.0]),
+                        "n_samples": 40_000,  # old-style single-chain, no between_chain_se
+                    }
+                },
+            ),
+        )
+    )
+
     return corpus
 
 
@@ -825,3 +847,170 @@ def test_gate_refactor_exact_equality_real_nc128_emit():
     old = _ref.auto_gate(samples, None)
     new = _new.auto_gate(samples, None)
     _assert_exact_equal(old, new, label="real_nc128_V_emit")
+
+
+# ---------------------------------------------------------------------------
+# Multichain GT pinned-value golden tests
+#
+# These cases use the new ``between_chain_se`` field in ground_truth_summaries
+# (multichain GT path in gt_compare.py).  The old reference implementation does
+# not know about ``between_chain_se``; comparing against it would give different
+# results.  Instead, these tests assert the *new* auto_gate against hardcoded
+# pinned values computed once from the actual eight_schools_ncp summary_v2.json
+# (10×10k NUTS regen, az.ess method='bulk', code_sha=c60ffb9).
+#
+# Provenance:
+#   - between_chain_se and bulk_ess from
+#     catalog/eight_schools_ncp/groundtruth_samples/blackjax/summary_v2.json
+#   - az_method: "az.ess(idata, method='bulk') on raw (chain,draw) real chains"
+#   - Expected output verified by running compute_golden.py
+#     (scratchpad/compute_golden.py) at code_sha of this commit.
+# ---------------------------------------------------------------------------
+
+# Pinned values from eight_schools_ncp/summary_v2.json, mu site
+# (n_chains=10, n_draws_per_chain=10000, n_total=100000, code_sha=c60ffb9)
+_MU_MEAN_V2 = np.array([4.384352207183838])
+_MU_STD_V2 = np.array([3.319882869720459])
+_MU_Q05_V2 = np.array([-1.129860520362854])
+_MU_Q95_V2 = np.array([9.80411148071289])
+_MU_BETWEEN_CHAIN_SE_V2 = np.array([0.012389487962109457])
+# Pinned bulk_ess (az.ess method='bulk', Vehtari 2021 rank-norm split-Rhat):
+# This value documents the exact az method used.  If arviz changes its ESS
+# computation or a different chunking convention is used (e.g. split-half vs
+# full-chain gives 6259/7421/10428 historically — the #14 lesson), this
+# assertion will catch the drift.
+_MU_BULK_ESS_V2 = np.array([91832.54451409346])
+_N_TOTAL_V2 = 100_000
+
+
+def _make_gt_multichain_mu():
+    """GT dict for eight_schools_ncp mu using multichain summary_v2 format."""
+    return {
+        "mu": {
+            "mean": _MU_MEAN_V2,
+            "std": _MU_STD_V2,
+            "q05": _MU_Q05_V2,
+            "q95": _MU_Q95_V2,
+            "between_chain_se": _MU_BETWEEN_CHAIN_SE_V2,
+            "bulk_ess": _MU_BULK_ESS_V2,
+            "n_total": _N_TOTAL_V2,
+        }
+    }
+
+
+def test_multichain_gt_mu_pass_pinned():
+    """Multichain GT path: mu pass — pinned exact z and verdict.
+
+    Uses ``between_chain_se`` (not n_samples) for se_gt.  The pinned z
+    (0.3663878020210703) differs from the legacy-formula z (0.4323859794566717)
+    for the same sample/GT pair, proving the path split is active.
+    Both are PASS; the new formula is looser (between_chain_se > se_gt_old).
+    """
+    rng = np.random.RandomState(500)
+    samples_pass = {
+        "mu": rng.normal(loc=float(_MU_MEAN_V2[0]), scale=3.0, size=(10, 10_000))
+    }
+    verdict = _new.auto_gate(
+        samples_pass,
+        None,
+        ground_truth_summaries=_make_gt_multichain_mu(),
+        multichain=True,
+    )
+    d = verdict.to_dict()
+
+    assert d["verdict"] == "PASS", f"Expected PASS, got {d['verdict']!r}"
+    assert (
+        d["max_abs_mean_z"] == 0.3663878020210703
+    ), f"Pinned z mismatch: expected 0.3663878020210703, got {d['max_abs_mean_z']!r}"
+
+
+def test_multichain_gt_legacy_formula_differs():
+    """Confirm the two paths produce different z for the same sample/GT pair.
+
+    When ``between_chain_se`` is present (new path) vs absent (legacy path),
+    se_gt differs, so z differs.  This test pins that difference:
+    - new path z:    0.3663878020210703
+    - legacy path z: 0.4323859794566717
+    """
+    rng = np.random.RandomState(500)
+    samples_pass = {
+        "mu": rng.normal(loc=float(_MU_MEAN_V2[0]), scale=3.0, size=(10, 10_000))
+    }
+    gt_new = _make_gt_multichain_mu()
+    gt_legacy = {
+        "mu": {
+            "mean": _MU_MEAN_V2,
+            "std": _MU_STD_V2,
+            "n_samples": _N_TOTAL_V2,  # old-style, no between_chain_se
+        }
+    }
+
+    v_new = _new.auto_gate(
+        samples_pass, None, ground_truth_summaries=gt_new, multichain=True
+    )
+    v_leg = _new.auto_gate(
+        samples_pass, None, ground_truth_summaries=gt_legacy, multichain=True
+    )
+
+    assert (
+        v_new.max_abs_mean_z == 0.3663878020210703
+    ), f"New-path pinned z: expected 0.3663878020210703, got {v_new.max_abs_mean_z!r}"
+    assert (
+        v_leg.max_abs_mean_z == 0.4323859794566717
+    ), f"Legacy-path pinned z: expected 0.4323859794566717, got {v_leg.max_abs_mean_z!r}"
+    # The new formula is looser (between_chain_se > se_gt_old → z_new < z_legacy)
+    assert (
+        v_new.max_abs_mean_z < v_leg.max_abs_mean_z
+    ), "New GT se_gt (between_chain_se) should yield smaller z than legacy (nominal SE)"
+
+
+def test_summary_v2_bulk_ess_method_golden():
+    """Pin the az bulk-ESS method string and the mu bulk_ess numeric value.
+
+    Locks in that summary_v2.json uses az.ess(method='bulk') on raw chains
+    (not split-half or other conventions).  If arviz changes ESS computation
+    or a different convention is used, the pinned value will drift and this
+    test catches it.
+
+    Provenance: eight_schools_ncp summary_v2.json (code_sha=c60ffb9, gpu run).
+    The three chunking conventions that gave 6259/7421/10428 historically
+    (the #14 lesson) would each yield a different value here.
+    """
+    import json
+    import os
+
+    sv2_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "tuningfork",
+        "catalog",
+        "eight_schools_ncp",
+        "groundtruth_samples",
+        "blackjax",
+        "summary_v2.json",
+    )
+    if not os.path.exists(sv2_path):
+        pytest.skip("summary_v2.json not present (pre-GT-migration checkout)")
+
+    with open(sv2_path) as f:
+        sv2 = json.load(f)
+
+    # Pin the az method description
+    az_method = sv2.get("az_method", {})
+    assert "bulk_ess" in az_method, f"az_method missing bulk_ess key: {az_method}"
+    assert (
+        "method='bulk'" in az_method["bulk_ess"]
+    ), f"Expected az.ess method='bulk' in az_method.bulk_ess, got: {az_method['bulk_ess']!r}"
+
+    # Pin the mu bulk_ess numeric value
+    mu_bulk_ess = sv2["per_site"]["mu"]["bulk_ess"][0]
+    assert (
+        mu_bulk_ess == 91832.54451409346
+    ), f"Pinned mu bulk_ess mismatch: expected 91832.54451409346, got {mu_bulk_ess!r}"
+
+    # Pin the mu between_chain_se value (used in se_gt computation)
+    mu_bse = sv2["per_site"]["mu"]["between_chain_se"][0]
+    assert (
+        mu_bse == 0.012389487962109457
+    ), f"Pinned mu between_chain_se mismatch: expected 0.012389487962109457, got {mu_bse!r}"

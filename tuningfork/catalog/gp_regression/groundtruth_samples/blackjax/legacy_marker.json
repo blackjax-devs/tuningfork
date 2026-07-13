@@ -1,0 +1,6 @@
+{
+  "gt_type": "legacy_single_chain",
+  "se_regime": "nominal_se",
+  "reason": "multichain_regen_not_attempted",
+  "note": "GP regression requires ~50h CPU wall-time for a single NUTS run at the reference configuration; multichain regen (10 chains) was deferred as pre-existing infrastructure problem. Single-chain GT (40k draws) remains the operative ground truth until a GPU-accelerated or alternative approach is feasible."
+}

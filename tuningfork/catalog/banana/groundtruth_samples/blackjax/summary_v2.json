@@ -1,0 +1,110 @@
+{
+  "model_name": "banana",
+  "schema_version": "gt_v2_multichain",
+  "generator": "analytic_iid",
+  "space": "unconstrained",
+  "n_chains": 10,
+  "n_draws_per_chain": 10000,
+  "n_total": 100000,
+  "sampler_config": {
+    "sampler": "analytic",
+    "warmup": null,
+    "n_warmup_per_chain": null,
+    "target_acceptance": null,
+    "max_num_doublings": null,
+    "init_strategy": "analytic_sampler_iid"
+  },
+  "seeds": {
+    "master_seed": 20260713,
+    "derivation": "key=jax.random.key(seed); split->(init,warmup,sample); per-chain=split(k,n_chains)"
+  },
+  "az_method": {
+    "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+    "tail_ess": "az.ess(idata, method='tail')",
+    "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+    "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)"
+  },
+  "quality_gate": {
+    "rhat_threshold": 1.01,
+    "max_rhat": 1.0000301375535827,
+    "min_bulk_ess": 99109.62636413568,
+    "total_divergences": 0,
+    "divergence_rate": 0.0,
+    "min_e_bfmi": null,
+    "passed": true
+  },
+  "diagnostics_per_chain": {
+    "generator": "analytic_iid",
+    "total_divergences": 0
+  },
+  "timing_seconds": {
+    "warmup": 0.0,
+    "sampling": 0.30738166099763475,
+    "total": 0.59479455401015
+  },
+  "provenance": {
+    "tuningfork_version": "0.0.0.dev0",
+    "code_sha": "c60ffb9",
+    "jax_version": "0.10.1",
+    "blackjax_version": "1.6.dev114+g2ad3a801d",
+    "arviz_version": "1.1.0",
+    "x64_enabled": false,
+    "device": "gpu",
+    "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+    "timestamp_utc": "2026-07-13T05:02:17Z"
+  },
+  "per_site": {
+    "x1": {
+      "mean": [
+        -0.005062622483819723
+      ],
+      "std": [
+        2.820742607116699
+      ],
+      "q05": [
+        -4.652442455291748
+      ],
+      "q95": [
+        4.614022254943848
+      ],
+      "between_chain_se": [
+        0.010065465513163445
+      ],
+      "bulk_ess": [
+        100111.8126245201
+      ],
+      "tail_ess": [
+        99893.20916800325
+      ],
+      "rhat": [
+        1.0000301375535827
+      ]
+    },
+    "x2": {
+      "mean": [
+        1.9887206554412842
+      ],
+      "std": [
+        2.9817187786102295
+      ],
+      "q05": [
+        -1.0706650018692017
+      ],
+      "q95": [
+        7.789238929748535
+      ],
+      "between_chain_se": [
+        0.010661638687856408
+      ],
+      "bulk_ess": [
+        99109.62636413568
+      ],
+      "tail_ess": [
+        99185.1070336418
+      ],
+      "rhat": [
+        0.9999829239835981
+      ]
+    }
+  }
+}
