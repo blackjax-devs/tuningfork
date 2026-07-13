@@ -52,8 +52,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import tuningfork.calibration._gate_golden_reference as _ref
 import tuningfork.calibration.statistician_gate as _new
+from tests.helpers import gate_golden_reference as _ref
 
 pytestmark = pytest.mark.fast
 
