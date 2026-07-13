@@ -484,6 +484,62 @@ def _build_corpus():
         )
     )
 
+    # Case 26: ndim=2, nc=64, multichain=None → heuristic must classify as multichain.
+    # The `shape[0] <= 64` branch in layout.py treats first-dim <= 64 as n_chains.
+    # Mutation (g): `<= 64` → `< 64` would misclassify nc=64 as single-chain (rechunk).
+    rng = np.random.RandomState(26)
+    corpus.append(
+        (
+            "nc64_ndim2_heuristic_multichain",
+            dict(
+                samples={"x": rng.normal(size=(64, 200))},
+                info=None,
+                multichain=None,
+            ),
+        )
+    )
+
+    # Case 27: ndim=2, nc=65, multichain=None → heuristic must classify as single-chain.
+    # With `shape[0] > 64` the fallback treats it as n_samples and rechunks into
+    # n_chunks segments.  Brackets the boundary together with Case 26.
+    rng = np.random.RandomState(27)
+    corpus.append(
+        (
+            "nc65_ndim2_heuristic_single_chain",
+            dict(
+                samples={"x": rng.normal(size=(65, 200))},
+                info=None,
+                multichain=None,
+            ),
+        )
+    )
+
+    # Case 28: non-zero gt_mean exposes float-op reorder in z-score computation.
+    # With gt_mean=0 all cases have: |sample_mean - 0| / denom = |sample_mean / denom|
+    # (exact in float, so (a-b)/c ≡ a/c-b/c is invisible).  With gt_mean ≠ 0:
+    # |a-b|/c and |a/c - b/c| can differ by 1 ULP because 0.3 is not exactly
+    # representable as float64 and two separate divisions introduce independent
+    # rounding.  Mutation (b): `np.abs(sample_mean-gt_mean)/denom` →
+    # `np.abs(sample_mean/denom - gt_mean/denom)` is caught by this case.
+    rng = np.random.RandomState(28)
+    nc, nd, dim = 4, 500, 1
+    corpus.append(
+        (
+            "nonzero_gt_mean",
+            dict(
+                samples={"x": rng.normal(loc=0.3, scale=1.0, size=(nc, nd, dim))},
+                info=_make_info(nc, nd),
+                ground_truth_summaries={
+                    "x": {
+                        "mean": np.array([0.3]),
+                        "std": np.array([1.0]),
+                        "n_samples": 1_000_000,
+                    }
+                },
+            ),
+        )
+    )
+
     return corpus
 
 
@@ -556,6 +612,21 @@ def test_corpus_covers_multichain_modes():
     assert "nc65_multichain_true" in labels  # multichain=True
     assert "single_chain_rechunk_explicit_false" in labels  # multichain=False
     assert "nc128_ndim3_heuristic" in labels  # multichain=None
+
+
+def test_corpus_covers_layout_heuristic_boundary():
+    """Corpus brackets the ndim=2 shape[0] <= 64 boundary from both sides."""
+    corpus = _build_corpus()
+    labels = {label for label, _ in corpus}
+    assert "nc64_ndim2_heuristic_multichain" in labels  # nc=64 → multichain
+    assert "nc65_ndim2_heuristic_single_chain" in labels  # nc=65 → single-chain
+
+
+def test_corpus_covers_nonzero_gt_mean():
+    """Corpus includes a GT case with non-zero mean to expose float-op reorders."""
+    corpus = _build_corpus()
+    labels = {label for label, _ in corpus}
+    assert "nonzero_gt_mean" in labels
 
 
 def test_corpus_size():
