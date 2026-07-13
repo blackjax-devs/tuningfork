@@ -1,0 +1,6 @@
+{
+  "gt_type": "legacy_single_chain",
+  "se_regime": "nominal_se",
+  "reason": "multichain_regen_failed_dispersed_init_poisoning",
+  "note": "10-chain regen (seed 20260714) failed: radius-2 uniform init poisoned 4 of 10 chains (3 frozen at bad starts, 1 diverged with 8686 transitions). The 6 well-initialized chains converged cleanly. Retry requires mode-anchored init from catalog/lotka_volterra/reference/adaptation.json. Single-chain GT (40k draws) remains the operative ground truth until retried."
+}

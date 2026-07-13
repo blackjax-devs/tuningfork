@@ -127,8 +127,24 @@ def _compute_gt_compare(
 
         gt_mean = np.asarray(gt["mean"])
         gt_std = np.asarray(gt["std"])
-        gt_n = gt.get("n_samples", n_chains * n_draws)
-        se_gt = gt_std / np.sqrt(max(float(gt_n), 1.0))
+
+        if "between_chain_se" in gt:
+            # Multichain GT path (summary_v2): use per-dim between-chain SE as
+            # the primary GT uncertainty estimate, floored by the ESS-capped
+            # formula.  The cap (min(bulk_ess, n_gt)) is mandatory for high-ESS
+            # dims where bulk_ess >> n_gt (e.g. analytic models, theta-class
+            # dims with ESS > 100k draws).
+            between_chain_se = np.asarray(gt["between_chain_se"])
+            gt_bulk_ess = np.asarray(
+                gt.get("bulk_ess", np.full_like(between_chain_se, float("inf")))
+            )
+            n_gt = float(gt.get("n_total", gt.get("n_samples", float("inf"))))
+            se_gt_capped = gt_std / np.sqrt(np.minimum(gt_bulk_ess, max(n_gt, 1.0)))
+            se_gt = np.maximum(between_chain_se, se_gt_capped)
+        else:
+            # Legacy GT path (summary.json, single-chain): nominal SE.
+            gt_n = gt.get("n_samples", n_chains * n_draws)
+            se_gt = gt_std / np.sqrt(max(float(gt_n), 1.0))
 
         denom = np.maximum(se_sample, se_gt)
         # Avoid division by zero
