@@ -540,6 +540,99 @@ def _build_corpus():
         )
     )
 
+    # Case 29: partial GT overlap — samples has two params ("x", "y") but GT only
+    # covers "x".  The "y" param triggers the `continue` branch in gt_compare.py:96
+    # (loop skips any param absent from ground_truth_summaries).  z is computed for
+    # "x" only; "y" contributes to rhat/ESS but not to z.
+    rng = np.random.RandomState(29)
+    nc, nd, dim = 4, 500, 1
+    corpus.append(
+        (
+            "partial_gt_overlap",
+            dict(
+                samples={
+                    "x": rng.normal(size=(nc, nd, dim)),
+                    "y": rng.normal(size=(nc, nd, dim)),
+                },
+                info=_make_info(nc, nd),
+                ground_truth_summaries={
+                    "x": {
+                        "mean": np.zeros(dim),
+                        "std": np.ones(dim),
+                        "n_samples": 100_000,
+                    }
+                },
+            ),
+        )
+    )
+
+    # Case 30: zero param-name overlap — samples has "x", GT has only "y" (different
+    # key).  The loop in gt_compare.py iterates mc_samples but none of the keys appear
+    # in ground_truth_summaries, so z_values stays empty (gt_compare.py:160→191 False
+    # branch).  Result: max_abs_mean_z = None despite ground_truth_summaries being
+    # non-None.  Both impls must agree on this boundary.
+    rng = np.random.RandomState(30)
+    nc, nd, dim = 4, 500, 1
+    corpus.append(
+        (
+            "zero_gt_param_overlap",
+            dict(
+                samples={"x": rng.normal(size=(nc, nd, dim))},
+                info=_make_info(nc, nd),
+                ground_truth_summaries={
+                    "y": {
+                        "mean": np.zeros(dim),
+                        "std": np.ones(dim),
+                        "n_samples": 100_000,
+                    }
+                },
+            ),
+        )
+    )
+
+    # Case 31: z-FAIL + divergences-FAIL at ESS > 6400 (the #226 load-bearing
+    # semantic).  The z-advisory demotion (verdict.py:198→202) applies ONLY when z
+    # is the SOLE failing metric.  When n_divergences is already FAIL, has_other_fail
+    # is True and the demotion is skipped: verdict stays FAIL and no "z_advisory" key
+    # is written to margins["max_abs_mean_z"].
+    #
+    # Construction: nc=4, nd=5000 → ≈20k iid draws → min_bulk_ESS >> 6400 (advisory
+    # realm triggered).  loc=0.5 vs gt_mean=0 → z ≈ 70 >> 4 → z FAIL.
+    # n_div=50 → n_divergences=50 > 40 → div FAIL.  Both metrics FAIL → no demotion.
+    rng = np.random.RandomState(31)
+    nc, nd, dim = 4, 5000, 1
+    corpus.append(
+        (
+            "z_fail_plus_div_fail_high_ess",
+            dict(
+                samples={"x": rng.normal(loc=0.5, scale=1.0, size=(nc, nd, dim))},
+                info=_make_info(nc, nd, n_div=50),
+                ground_truth_summaries={
+                    "x": {
+                        "mean": np.array([0.0]),
+                        "std": np.array([1.0]),
+                        "n_samples": 1_000_000,
+                    }
+                },
+            ),
+        )
+    )
+
+    # Case 32: cost kwargs without ess_per_grad — exercises verdict.py:236→238 (the
+    # False branch of `if ess_per_grad is not None:` inside the cost block).  The cost
+    # block is entered because total_grad_evals is non-None; ess_per_grad is not set.
+    rng = np.random.RandomState(32)
+    corpus.append(
+        (
+            "cost_total_grad_evals_only",
+            dict(
+                samples=_make_clean_mc(rng, 4, 500, 1),
+                info=_make_info(4, 500),
+                total_grad_evals=1000,
+            ),
+        )
+    )
+
     return corpus
 
 
@@ -633,6 +726,72 @@ def test_corpus_size():
     """Corpus has at least 20 cases."""
     corpus = _build_corpus()
     assert len(corpus) >= 20, f"Corpus too small: {len(corpus)} cases"
+
+
+def test_sidak_t_pass_raises_for_invalid_dims():
+    """Both implementations raise ValueError for n_dims < 1 (bands.py:68 coverage)."""
+    import pytest as _pytest
+
+    for n in (0, -1):
+        with _pytest.raises(ValueError, match="n_dims must be >= 1"):
+            _ref.sidak_t_pass(n)
+        with _pytest.raises(ValueError, match="n_dims must be >= 1"):
+            _new.sidak_t_pass(n)
+
+
+def test_resolve_thresholds_custom_defaults_equal():
+    """Both implementations agree when non-None defaults are passed (bands.py:109→111).
+
+    Passing an explicit ``defaults`` dict skips the ``if defaults is None:``
+    True-branch and goes directly to ``thresholds = copy.deepcopy(defaults)``.
+    Both old and new should return equal deep-copies of the supplied dict.
+    """
+    import copy
+
+    custom = copy.deepcopy(_ref.DEFAULT_THRESHOLDS)
+    # Tweak one band so the custom dict is distinct from the default
+    custom["rhat_max"]["pass"] = (0.0, 1.005)
+
+    old_t = _ref.resolve_thresholds(posterior=None, defaults=custom)
+    new_t = _new.resolve_thresholds(posterior=None, defaults=custom)
+    assert (
+        old_t == new_t
+    ), f"resolve_thresholds with custom defaults differs:\n  old={old_t}\n  new={new_t}"
+    # Confirm the custom tweak was honoured (not silently overridden by DEFAULT_THRESHOLDS)
+    assert old_t["rhat_max"]["pass"] == (0.0, 1.005)
+
+
+def test_z_fail_plus_other_fail_no_advisory_demotion():
+    """z-FAIL + div-FAIL at ESS>6400 keeps FAIL verdict — no advisory demotion.
+
+    Pins the #226 semantic: z-advisory demotion applies ONLY when z is the sole
+    failing metric.  When n_divergences is already FAIL, has_other_fail=True and
+    the demotion (verdict.py:198→202 True-branch) is bypassed.
+
+    Asserts:
+    - verdict == "FAIL"
+    - margins["n_divergences"]["band"] == "FAIL"
+    - margins["max_abs_mean_z"]["band"] == "FAIL"
+    - "z_advisory" NOT in margins["max_abs_mean_z"]
+    """
+    corpus = _build_corpus()
+    label_to_kwargs = {label: kwargs for label, kwargs in corpus}
+    kwargs = label_to_kwargs["z_fail_plus_div_fail_high_ess"]
+
+    verdict = _new.auto_gate(**kwargs)
+    d = verdict.to_dict()
+
+    assert d["verdict"] == "FAIL", f"Expected FAIL, got {d['verdict']!r}"
+    assert (
+        d["margins"]["n_divergences"]["band"] == "FAIL"
+    ), f"Expected n_divergences FAIL, got {d['margins']['n_divergences']}"
+    assert (
+        d["margins"]["max_abs_mean_z"]["band"] == "FAIL"
+    ), f"Expected max_abs_mean_z FAIL (no demotion), got {d['margins']['max_abs_mean_z']}"
+    assert "z_advisory" not in d["margins"]["max_abs_mean_z"], (
+        f"z_advisory key must be absent when another metric is also FAIL: "
+        f"{d['margins']['max_abs_mean_z']}"
+    )
 
 
 # ---------------------------------------------------------------------------
