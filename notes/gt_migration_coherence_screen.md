@@ -68,7 +68,7 @@ Any recipe adjudicated by exact test supersedes the bound.
 | radon | 390 | 3.649 | 2.759 | 0.756 | OK | 1.612 | alpha_raw[93] |
 | gp_regression | N/A | — | — | — | legacy (no GT change) | — | — |
 | lotka_volterra | N/A | — | — | — | legacy (no GT change) | — | — |
-| stoch_vol | N/A | — | — | — | legacy (no GT change) | — | — |
+| stoch_vol | 503 | 3.719 | 2.630 | 0.707 | OK | 1.614 | h_raw[350] |
 
 ### mvn_10 — Coherence ruling: FALSE ALARM (TL-ratified 2026-07-13)
 
@@ -161,3 +161,25 @@ Per TL directive 2026-07-13:
   The 9 flags are recipe-verdict questions, not GT-quality questions.
 
 Re-emission results: see `experiments/gt_migration_reemit_results.json`.
+
+---
+
+## stoch_vol A3 Addendum (2026-07-13)
+
+A3 run (seed=20260715, ta=0.95): PASS (rhat 1.00041, ESS 32601, div 21/100k=0.021%).
+Folded into #228 as the 14th migrated model per JP ruling.
+
+**Coherence (old single-chain 40k vs A3 10×10k):**
+
+D=503, null_E=3.719, C_max=2.630 (h_raw[350]), ratio=0.707 → COHERENT.
+max_R=1.614 (SE tightening from multichain between-chain SE vs nominal SE on 40k draws).
+
+**Margins screen (8 PASS recipes, slack=0.5):**
+
+All 8 PASS recipes safe: worst_z = z × 1.614 + 0.5 ≤ 3.326 (far below FLAG=4.0 threshold).
+Zero FLAG_FAIL, zero re-emission needed.
+
+**ta=0.95 requirement:**
+Default ta=0.80 underadapts stoch_vol's funnel-neck step, causing 0.12–0.16% structural
+divergences (two independent seeds: 124 and 161 div). ta=0.95 cures this: 21 div (0.021%).
+Pinned in summary_v2.json provenance `target_accept_note`.
