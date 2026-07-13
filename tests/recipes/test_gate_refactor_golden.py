@@ -562,3 +562,36 @@ def test_corpus_size():
     """Corpus has at least 20 cases."""
     corpus = _build_corpus()
     assert len(corpus) >= 20, f"Corpus too small: {len(corpus)} cases"
+
+
+# ---------------------------------------------------------------------------
+# Real-emission fixture (conditional on file presence)
+# ---------------------------------------------------------------------------
+
+_REAL_NPZ_PATH = (
+    "/home/jp/blackjax-devs/worklog/data"
+    "/gpu-chees-meads-2026-07-11/emissions-2026-07-12/nc128_V_emit.npz"
+)
+
+
+@pytest.mark.skipif(
+    not __import__("os").path.exists(_REAL_NPZ_PATH),
+    reason="nc128_V_emit.npz not present on this machine (GPU artifact)",
+)
+def test_gate_refactor_exact_equality_real_nc128_emit():
+    """Exact equality on real nc=128 emit draw (irt_2pl, V_emit variant).
+
+    The NPZ persists a flat (nc, ns, d) array under key ``arr`` produced
+    by the disentangle script's ``pos_to_ncnsd`` helper.  We wrap it in a
+    single-key samples dict and call both impls; exact float equality must
+    hold (same as the synthetic corpus).
+
+    This test skips when the GPU artifact is not present on the machine —
+    the synthetic corpus covers the same nc=128 code paths.
+    """
+    data = np.load(_REAL_NPZ_PATH)
+    arr = data["arr"]  # shape (nc, ns, d)
+    samples = {"_flat": arr}
+    old = _ref.auto_gate(samples, None)
+    new = _new.auto_gate(samples, None)
+    _assert_exact_equal(old, new, label="real_nc128_V_emit")
