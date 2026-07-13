@@ -118,7 +118,7 @@ class TestEightSchoolsNCP:
         assert self.entry.analytic_sampler is None
 
     def test_posteriordb_id(self) -> None:
-        assert self.entry.posteriordb_id == "8_schools-eight_schools_noncentered"
+        assert self.entry.posteriordb_id == "eight_schools-eight_schools_noncentered"
 
     def test_build_logdensity_fn_finite(self) -> None:
         init_pos, logdensity_fn, _ = build_logdensity_fn(self.key, self.entry)
