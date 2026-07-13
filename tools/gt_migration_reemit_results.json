@@ -110,5 +110,20 @@
     "min_bulk_ess": 767.3764500122558,
     "n_divergences": 0,
     "gt_cert_coverage": "full_posterior"
+  },
+  "radon/medium__dynamic_hmc__chees": {
+    "model": "radon",
+    "stem": "medium__dynamic_hmc__chees",
+    "old_verdict": "PASS",
+    "old_z": 3.0093398226179846,
+    "new_verdict": "PASS",
+    "new_z": 3.740706680485548,
+    "flip": "unchanged",
+    "elapsed_s": 89.8,
+    "rhat_max": 1.0034672808977592,
+    "min_bulk_ess": 31679.61261051914,
+    "n_divergences": 0,
+    "gt_cert_coverage": "full_posterior",
+    "note": "Run on colossus GPU1 (num_chains=128). Earlier attempt with old CHEES (lr=0.01) produced rhat=2.53 (colossus main at c60ffb9 predates PR #218 CHEES fix lr=0.05 b1=0 b2=0.95). Re-run with fixed CHEES: rhat=1.003, ess=31679. z ticked up 3.01->3.74 because new GT has smaller se_gt (between_chain_se-based); still inside Sidak PASS threshold 3.824 for D=390."
   }
 }
