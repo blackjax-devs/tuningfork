@@ -1,6 +1,7 @@
 """Multi-chain ground-truth regeneration driver (staging only; no catalog writes).
 
-Extends gt_regen_driver_with_target_accept.py with posterior-scale dispersed init.
+Extends gt_regen_driver_with_target_accept.py with posterior-scale dispersed init
+and jax-tap progress checkpoints.
 
 DESIGN REQUIREMENT (--init-posterior flag):
   Dispersion must be WIDE enough that between-chain R-hat is meaningful
@@ -13,6 +14,27 @@ DESIGN REQUIREMENT (--init-posterior flag):
   REJECTED because it yields R-hat-hollow chains (all start near the same
   point → between-chain variance is an artifact of jitter width, not
   genuine posterior uncertainty).
+
+PROGRESS CHECKPOINTS:
+  A few [progress] lines are emitted to STDERR during the run so the
+  runjob.sh monitor sees real progress (not just [start]…[GATE]).
+  Checkpoints: warmup complete, then draws at ~25/50/75/100%.
+
+  Mechanism (vmap-multichain mode):
+  - Warmup checkpoint: plain print after jax.block_until_ready; warmup is
+    a single blocking vmap call so no intra-warmup visibility is needed.
+  - Draws checkpoints: jaxtap.record() wraps jax.vmap(one_sample)(...)
+    with ops=("scan",), sample_every=ns//4.  This patches jax.lax.scan
+    (visible to blackjax.util.run_inference_algorithm via module-attribute
+    replacement) and fires a host callback every ns//4 steps of the outer
+    inference scan (not the inner NUTS while_loop tree-expansion).  The
+    step-0 event fires when JIT compilation completes and real execution
+    begins — valuable for models with long compile times (lotka ≈28 min).
+  - The runjob.sh harness uses `cmd > job.log 2>&1`, so STDERR and STDOUT
+    both land in job.log and are readable via tail/grep.
+
+  Sequential mode: plain prints after each chain's warmup and sampling
+  (the Python for-loop already provides per-chain granularity; no tap).
 
 New flags added to this driver:
 
@@ -182,6 +204,36 @@ def build_perchain_inits_posterior_dispersed(
 
 
 # --------------------------------------------------------------------------- #
+# progress reporting (jax-tap)
+# --------------------------------------------------------------------------- #
+def _make_progress_cb(t0: float, label: str, total_steps: int):
+    """Return a jaxtap on_step callback that emits [progress] lines to STDERR.
+
+    Used for vmap-multichain sampling: fires at every sample_every steps of
+    the outer inference scan (jax.lax.scan of length ns in
+    blackjax.util.run_inference_algorithm).  step is 0-based; step 0 fires
+    when JIT compilation is done and real execution begins — the most
+    important checkpoint for long-compile models like lotka_volterra.
+
+    The callback emits to sys.stderr so it lands in job.log via runjob.sh's
+    `2>&1` redirect and is grep/tail-visible without full stdout scrollback.
+    """
+
+    def cb(event):
+        step = event.step  # 0-based step in the scan
+        total = event.total if event.total is not None else total_steps
+        pct = int(100 * (step + 1) / total) if total > 0 else 0
+        elapsed = time.perf_counter() - t0
+        print(
+            f"[progress] {label} {step + 1}/{total} ({pct}%) elapsed={elapsed:.0f}s",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    return cb
+
+
+# --------------------------------------------------------------------------- #
 # nuts run
 # --------------------------------------------------------------------------- #
 def run_nuts_multichain(
@@ -252,12 +304,19 @@ def run_nuts_multichain(
         sj = jax.jit(one_sample)
         pos_l, div_l, en_l, acc_l, ss_l = [], [], [], [], []
         warmup_wall = sampling_wall = 0.0
+        t_seq_start = time.perf_counter()
         for i in range(nc):
             init_i = jax.tree.map(lambda x, _i=i: x[_i], inits)
             t0 = time.perf_counter()
             st, pr = wj(warm_keys[i], init_i)
             jax.block_until_ready((st, pr))
             warmup_wall += time.perf_counter() - t0
+            print(
+                f"[progress] warmup chain {i + 1}/{nc} done "
+                f"elapsed={time.perf_counter() - t_seq_start:.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
             t0 = time.perf_counter()
             p, d, en, ac = sj(
                 samp_keys[i], st, pr["step_size"], pr["inverse_mass_matrix"]
@@ -269,8 +328,15 @@ def run_nuts_multichain(
             en_l.append(en)
             acc_l.append(ac)
             ss_l.append(float(pr["step_size"]))
+            pct_chains = int(100 * (i + 1) / nc)
             print(
                 f"[seq] chain {i + 1}/{nc} done div={int(np.asarray(d).sum())}",
+                flush=True,
+            )
+            print(
+                f"[progress] draws chain {i + 1}/{nc} ({pct_chains}%) "
+                f"elapsed={time.perf_counter() - t_seq_start:.0f}s",
+                file=sys.stderr,
                 flush=True,
             )
         positions = {
@@ -281,16 +347,37 @@ def run_nuts_multichain(
         accept = np.stack([np.asarray(x) for x in acc_l], 0)
         step_size = np.asarray(ss_l)
     else:
+        import jaxtap as tap  # lazy: only when vmap path is active
+
         t0 = time.perf_counter()
         states, params = jax.vmap(one_warmup)(warm_keys, inits)
         jax.block_until_ready((states, params))
         warmup_wall = time.perf_counter() - t0
-        t0 = time.perf_counter()
-        positions, is_div, energy, accept = jax.vmap(one_sample)(
-            samp_keys, states, params["step_size"], params["inverse_mass_matrix"]
+        print(
+            f"[progress] warmup {nw}/{nw} done elapsed={warmup_wall:.0f}s",
+            file=sys.stderr,
+            flush=True,
         )
-        jax.block_until_ready((positions, is_div, energy, accept))
+
+        checkpoint_every = max(1, ns // 4)
+        t0 = time.perf_counter()
+        progress_cb = _make_progress_cb(t0, "draws", ns)
+        with tap.record(
+            select=lambda _: (),
+            sample_every=checkpoint_every,
+            ops=("scan",),
+            on_step=progress_cb,
+        ):
+            positions, is_div, energy, accept = jax.vmap(one_sample)(
+                samp_keys, states, params["step_size"], params["inverse_mass_matrix"]
+            )
+            jax.block_until_ready((positions, is_div, energy, accept))
         sampling_wall = time.perf_counter() - t0
+        print(
+            f"[progress] draws {ns}/{ns} (100%) elapsed={sampling_wall:.0f}s",
+            file=sys.stderr,
+            flush=True,
+        )
         positions = {s: np.asarray(a) for s, a in positions.items()}
         step_size = np.asarray(params["step_size"])
 
