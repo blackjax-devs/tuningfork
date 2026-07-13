@@ -224,7 +224,7 @@ class RecipeFailedError(RuntimeError):
 # ── init_strategy validation ──────────────────────────────────────────────────
 
 _VALID_INIT_STRATEGY_TYPES: frozenset[str] = frozenset(
-    {"prior_sample", "zero", "uniform"}
+    {"prior_sample", "zero", "uniform", "zero_perchain", "uniform_perchain"}
 )
 
 
@@ -241,7 +241,8 @@ def validate_init_strategy(v: dict[str, Any] | None) -> None:
     ------
     ValueError
         If ``v`` is not ``None``, not a ``dict``, uses an unknown ``"type"``,
-        or is a ``"uniform"`` spec with ``low >= high`` or missing bounds.
+        or is a ``"uniform"`` / ``"uniform_perchain"`` spec with ``low >= high``
+        or missing bounds.
     """
     if v is None:
         return
@@ -255,17 +256,26 @@ def validate_init_strategy(v: dict[str, Any] | None) -> None:
             f"init_strategy type {type_!r} not recognised. "
             f"Valid types: {sorted(_VALID_INIT_STRATEGY_TYPES)!r}"
         )
-    if type_ == "uniform":
+    if type_ in ("uniform", "uniform_perchain"):
         if "low" not in v or "high" not in v:
             raise ValueError(
-                "init_strategy type='uniform' requires both 'low' and 'high' keys"
+                f"init_strategy type='{type_}' requires both 'low' and 'high' keys"
             )
         low, high = float(v["low"]), float(v["high"])
         if low >= high:
             raise ValueError(
-                f"init_strategy type='uniform' requires low < high; "
+                f"init_strategy type='{type_}' requires low < high; "
                 f"got low={v['low']!r}, high={v['high']!r}"
             )
+    if type_ == "zero_perchain":
+        # Jitter scale is optional; default is 0.5
+        if "jitter" in v:
+            jitter = float(v["jitter"])
+            if jitter < 0:
+                raise ValueError(
+                    f"init_strategy type='zero_perchain' jitter must be >= 0; "
+                    f"got jitter={v['jitter']!r}"
+                )
 
 
 def validate_warmup_num_chains(v: list[int] | None, n_phases: int) -> None:

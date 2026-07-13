@@ -111,6 +111,28 @@ _RECIPE_PROVENANCE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Warmups that support ensemble-based initialization (pre-batched per-chain inits).
+# Per-chain init_strategy types (uniform_perchain, zero_perchain) are designed for
+# these ensemble methods. Single-point warmups (pathfinder, multipathfinder, VI
+# variants) expect scalar init positions and handle replication internally;
+# combining them with per-chain init strategies produces a shape mismatch.
+# Used to validate init_strategy at emit/run time (fail-loud).
+_ENSEMBLE_FRIENDLY_WARMUPS: frozenset[str] = frozenset(
+    {
+        "window_adaptation_diag_imm",
+        "window_adaptation_dense_imm",
+        "window_adaptation_low_rank_imm",
+        "mclmc_tuning",
+        "mclmc_lrd_tuning",
+        "adjusted_mclmc_tuning",
+        "adjusted_mclmc_trajectory_tuning",
+        "no_warmup",
+        "multipathfinder_window_adaptation",
+        "meads",
+        "chees",
+    }
+)
+
 
 def _extract_laplace_optimizer_kwargs(
     primary: dict[str, Any], fallback: dict[str, Any] | None = None
@@ -142,6 +164,49 @@ def _extract_laplace_optimizer_kwargs(
         elif fallback is not None and key in fallback:
             result[key] = fallback[key]
     return result
+
+
+def _validate_init_strategy_warmup_compatibility(
+    init_strategy: dict[str, Any] | None, warmup_name: str
+) -> None:
+    """Validate that per-chain init_strategy is only used with ensemble warmups.
+
+    Per-chain init strategies (uniform_perchain, zero_perchain) produce pre-batched
+    (num_chains, ...shape) output designed for ensemble methods. Single-point warmups
+    (pathfinder, multipathfinder, meanfield_vi, fullrank_vi) expect scalar init
+    positions and handle replication internally, producing a shape mismatch.
+
+    Raises ValueError with a clear message if an incompatible combination is detected.
+
+    Parameters
+    ----------
+    init_strategy
+        Init strategy dict (or None). If type is per-chain and warmup is not
+        ensemble-friendly, raises ValueError.
+    warmup_name
+        Name of the warmup (e.g., "pathfinder").
+
+    Raises
+    ------
+    ValueError
+        If init_strategy type is uniform_perchain or zero_perchain and warmup_name
+        is not in _ENSEMBLE_FRIENDLY_WARMUPS.
+    """
+    if init_strategy is None:
+        return
+
+    strategy_type = init_strategy.get("type")
+    if strategy_type not in ("uniform_perchain", "zero_perchain"):
+        return
+
+    if warmup_name not in _ENSEMBLE_FRIENDLY_WARMUPS:
+        raise ValueError(
+            f"init_strategy type={strategy_type!r} is designed for ensemble warmups "
+            f"(ChEES, MEADS, window adaptations, etc.) but warmup {warmup_name!r} is "
+            f"a single-point method that expects scalar init positions. "
+            f"Use legacy types instead: {{'type': 'zero'}} or "
+            f"{{'type': 'uniform', 'low': ..., 'high': ...}}."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +485,7 @@ def _apply_init_strategy(
     strategy: dict[str, Any],
     init_position: Any,
     rng_key: Any,
+    num_chains: int = 1,
 ) -> Any:
     """Override ``init_position`` according to an ``init_strategy`` spec.
 
@@ -437,20 +503,43 @@ def _apply_init_strategy(
         Starting position produced by ``build_logdensity_fn`` (or the phi-init
         from the laplace transformation).  A pytree of JAX arrays.
     rng_key
-        JAX random key used when ``strategy["type"] == "uniform"``.
+        JAX random key used when ``strategy["type"]`` involves randomness.
+    num_chains
+        Number of chains; used only for per-chain init strategies (default 1).
 
     Returns
     -------
     Any
         A pytree with the same structure as ``init_position``, modified per
-        the strategy spec.
+        the strategy spec. For legacy types (``"uniform"``, ``"zero"``, ``"prior_sample"``),
+        the shape is unchanged. For per-chain types (``"uniform_perchain"``,
+        ``"zero_perchain"``), the result has a leading batch dimension of
+        ``num_chains``, e.g. ``(num_chains, *original_shape)``.
+
+    Notes
+    -----
+    **Legacy clustered semantics (``"uniform"``, ``"zero"`)**: construct a
+    single center point on the unconstrained space, then replicate and jitter
+    at the warmup level. All chains start from a common region, differing only
+    by small N(0, 0.5) jitter. See :py:func:`~tuningfork.warmup._base._maybe_replicate`
+    for how the replication is handled.
+
+    **Per-chain semantics (``"uniform_perchain"``, ``"zero_perchain"`)**: draw
+    ``num_chains`` independent random vectors, each scaled/jittered on the
+    unconstrained space. Produces a pre-batched ``(num_chains, ...shape)`` array
+    that bypasses replication at the warmup level (detected via
+    :py:func:`~tuningfork.warmup._base._maybe_replicate`'s pre-batch check).
+    Useful for ensemble methods (e.g., ChEES, MEADS) when initialization
+    dispersion matters for convergence.
     """
     type_ = strategy.get("type", "prior_sample")
     if type_ == "prior_sample":
         return init_position
     elif type_ == "zero":
+        # Legacy clustered semantics: single center at zero, replicated + jittered at warmup
         return jax.tree.map(lambda x: jnp.zeros_like(x), init_position)
     elif type_ == "uniform":
+        # Legacy clustered semantics: single uniform draw, replicated + jittered at warmup
         low = float(strategy["low"])
         high = float(strategy["high"])
         leaves, treedef = jax.tree_util.tree_flatten(init_position)
@@ -460,6 +549,68 @@ def _apply_init_strategy(
             for k, leaf in zip(keys, leaves)
         ]
         return treedef.unflatten(new_leaves)
+    elif type_ == "zero_perchain":
+        # Per-chain semantics: num_chains independent draws from N(0, jitter²)
+        jitter = float(strategy.get("jitter", 0.5))
+        leaves, treedef = jax.tree_util.tree_flatten(init_position)
+        # Split keys: one for each chain × leaf
+        keys = jax.random.split(rng_key, num_chains * len(leaves))
+        keys_per_chain = keys.reshape((num_chains, len(leaves)))
+
+        new_leaves_list = []
+        for chain_idx in range(num_chains):
+            chain_leaves = []
+            for leaf_idx, leaf in enumerate(leaves):
+                # Create N(0, jitter²) jitter with leading chain dimension
+                new_shape = (1,) + leaf.shape
+                chain_leaves.append(
+                    jitter
+                    * jax.random.normal(
+                        keys_per_chain[chain_idx, leaf_idx],
+                        new_shape,
+                        dtype=leaf.dtype,
+                    )
+                )
+            new_leaves_list.append(chain_leaves)
+
+        # Stack across chains: [(nc, *leaf.shape) for each leaf]
+        stacked_leaves = [
+            jnp.concatenate([new_leaves_list[i][j] for i in range(num_chains)], axis=0)
+            for j in range(len(leaves))
+        ]
+        return treedef.unflatten(stacked_leaves)
+    elif type_ == "uniform_perchain":
+        # Per-chain semantics: num_chains independent uniform draws over [low, high]
+        low = float(strategy["low"])
+        high = float(strategy["high"])
+        leaves, treedef = jax.tree_util.tree_flatten(init_position)
+        # Split keys: one for each chain × leaf
+        keys = jax.random.split(rng_key, num_chains * len(leaves))
+        keys_per_chain = keys.reshape((num_chains, len(leaves)))
+
+        new_leaves_list = []
+        for chain_idx in range(num_chains):
+            chain_leaves = []
+            for leaf_idx, leaf in enumerate(leaves):
+                # Create uniform draw with leading chain dimension
+                new_shape = (1,) + leaf.shape
+                chain_leaves.append(
+                    jax.random.uniform(
+                        keys_per_chain[chain_idx, leaf_idx],
+                        new_shape,
+                        dtype=leaf.dtype,
+                        minval=low,
+                        maxval=high,
+                    )
+                )
+            new_leaves_list.append(chain_leaves)
+
+        # Stack across chains: [(nc, *leaf.shape) for each leaf]
+        stacked_leaves = [
+            jnp.concatenate([new_leaves_list[i][j] for i in range(num_chains)], axis=0)
+            for j in range(len(leaves))
+        ]
+        return treedef.unflatten(stacked_leaves)
     else:
         # Should not reach here — validate_init_strategy catches unknown types at load.
         raise ValueError(f"Unknown init_strategy type: {type_!r}")  # pragma: no cover
@@ -1130,8 +1281,15 @@ def emit_low_recipe_for_cell(
         position returned by ``build_logdensity_fn`` — the current backward-
         compatible behavior.  Non-None values are validated by
         :py:func:`~tuningfork.recipes._base.validate_init_strategy` before use.
-        Valid specs: ``{"type": "prior_sample"}``, ``{"type": "zero"}``,
-        ``{"type": "uniform", "low": float, "high": float}``.
+
+        Valid specs (see :py:func:`_apply_init_strategy` for semantics):
+
+        - Legacy clustered semantics (single center + jitter at warmup):
+          ``{"type": "prior_sample"}``, ``{"type": "zero"}``,
+          ``{"type": "uniform", "low": float, "high": float}``
+        - Per-chain semantics (independent draws, pre-batched):
+          ``{"type": "zero_perchain", "jitter": float}`` (default jitter=0.5),
+          ``{"type": "uniform_perchain", "low": float, "high": float}``
 
     Returns
     -------
@@ -1342,9 +1500,10 @@ def emit_low_recipe_for_cell(
         from tuningfork.recipes._base import validate_init_strategy
 
         validate_init_strategy(init_strategy)
+        _validate_init_strategy_warmup_compatibility(init_strategy, warmup_name)
         _override_key = jax.random.fold_in(init_key, 42)
         init_position = _apply_init_strategy(
-            init_strategy, init_position, _override_key
+            init_strategy, init_position, _override_key, num_chains=num_chains
         )
 
     # --- Warmup (multi-chain via warmup.runner's internal vmap) ---
@@ -2357,9 +2516,12 @@ def run_recipe_to_idata(
     # Applied after the laplace phi-space transformation so the override acts on
     # the same position space that the warmup kernel will operate on.
     if recipe.init_strategy is not None:
+        _validate_init_strategy_warmup_compatibility(
+            recipe.init_strategy, recipe.warmup_name
+        )
         _override_key = jax.random.fold_in(init_key, 42)
         init_position = _apply_init_strategy(
-            recipe.init_strategy, init_position, _override_key
+            recipe.init_strategy, init_position, _override_key, num_chains=num_chains
         )
 
     # Validate skip_warmup constraints upfront (before touching JAX / warmup).
