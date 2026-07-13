@@ -720,9 +720,10 @@ def auto_gate(
                 )
                 _n_dims = sum(1 for z in _all_z_dim_scores if math.isfinite(z))
 
-            # bias_sigma_max_at_z4: max bias effect size where z <= 4
+            # bias_sigma_max_at_z4: max bias effect size among failing dims (z >= 4.0).
+            # This is what reviewers use to judge whether z≥4 excursions are material.
             if _bias_sigmas:
-                z4_mask = [z <= 4.0 for z in _all_z_dim_scores]
+                z4_mask = [z >= 4.0 for z in _all_z_dim_scores]
                 if any(z4_mask):
                     _bias_sigma_max_at_z4 = float(
                         max(b for b, mask in zip(_bias_sigmas, z4_mask) if mask)

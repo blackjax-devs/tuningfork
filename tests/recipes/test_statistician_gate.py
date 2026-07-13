@@ -934,27 +934,54 @@ def test_z_advisory_bias_sigma_fields_present():
 
 
 def test_z_advisory_bias_sigma_numerically_correct():
-    """Hand-constructed case validates bias_sigma computation."""
-    rng = np.random.RandomState(107)
-    n_chains, n_samples, dim = 4, 1000, 1
+    """Multi-dim case pins bias_sigma_max_at_z4 semantics (max among z>=4 dims).
 
-    # Create samples with bias = 0.2 (mean=0.2) and std=1.0
-    # GT: mean=0, std=1.0
-    samples = {"x": rng.normal(loc=0.2, scale=1.0, size=(n_chains, n_samples, dim))}
+    Case: 2D parameter.
+    - Dim 0: mean=0.025, std=0.1; GT mean=0, std=5
+      bias_sigma=0.025/5=0.005; z≈5 (FAILS threshold ≥4)
+    - Dim 1: mean=0.048, std=1.0; GT mean=0, std=1
+      bias_sigma=0.048/1=0.048; z≈3 (PASSES threshold <4)
+
+    Expected: bias_sigma_max_at_z4 = 0.005 (max among failing dims z≥4).
+    This test pins the fix for the inverted mask bug: z >= 4.0 (not z <= 4.0).
+    """
+    rng = np.random.RandomState(107)
+    n_chains, n_samples = 4, 1000
+
+    # 2D samples: dim 0 high-z (failing), dim 1 moderate-z (passing)
+    samples = {
+        "x": np.concatenate(
+            [
+                rng.normal(loc=0.025, scale=0.1, size=(n_chains, n_samples, 1)),
+                rng.normal(loc=0.048, scale=1.0, size=(n_chains, n_samples, 1)),
+            ],
+            axis=2,
+        )
+    }
     info = _make_info(n_chains, n_samples, n_divergences=0)
     gt = {
-        "x": {"mean": np.array([0.0]), "std": np.array([1.0]), "n_samples": 1_000_000}
+        "x": {
+            "mean": np.array([0.0, 0.0]),
+            "std": np.array([5.0, 1.0]),
+            "n_samples": 1_000_000,
+        }
     }
 
     verdict = auto_gate(samples, info, ground_truth_summaries=gt)
     assert "max_abs_mean_z" in verdict.margins
     margins_z = verdict.margins["max_abs_mean_z"]
 
-    # bias_sigma_at_argmax_z should be ≈ 0.2 (|sample_mean - gt_mean| / gt_std)
-    if "bias_sigma_at_argmax_z" in margins_z:
-        bias_sigma = margins_z["bias_sigma_at_argmax_z"]
-        # Expected: |0.2 - 0| / 1.0 = 0.2
-        assert abs(bias_sigma - 0.2) < 0.1, f"bias_sigma={bias_sigma}, expected ≈0.2"
+    # bias_sigma_max_at_z4: only dims with z >= 4 count.
+    # Dim 0 (z≈5, failing) has bias_sigma ≈ 0.005.
+    # Dim 1 (z≈3, passing) has bias_sigma ≈ 0.048.
+    # Expected: max among failing = 0.005 (from dim 0, NOT 0.048 from passing dim).
+    if "bias_sigma_max_at_z4" in margins_z:
+        bias_sigma_max_z4 = margins_z["bias_sigma_max_at_z4"]
+        # Should be close to 0.005 (from dim 0), NOT 0.048 (from dim 1).
+        # This pins the semantic: max among z>=4 failing dims.
+        assert (
+            0.003 < bias_sigma_max_z4 < 0.010
+        ), f"bias_sigma_max_at_z4={bias_sigma_max_z4}, expected ≈0.005 (from failing dim z≥4)"
 
 
 def test_z_advisory_cost_block_optional():
