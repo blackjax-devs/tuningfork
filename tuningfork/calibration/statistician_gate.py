@@ -32,7 +32,10 @@ Metrics evaluated:
                          see ``DEFAULT_THRESHOLDS["n_divergences"]``).
   - ``max_abs_mean_z`` : max |sample_mean - gt_mean| / max(SE_sample, SE_gt)
                          across all params/dims; only when ground truth is
-                         available.
+                         available. At ensemble scale (min_bulk_ess > 6400),
+                         z-driven FAILs are demoted to REVIEW (advisory realm;
+                         see issue #223). Small-realm (ess ≤ 6400): NHST verdict
+                         unchanged.
 
 Per-model threshold overrides are applied via ``Posterior.tags``; see
 ``resolve_thresholds`` for the recognised tag → relaxation mapping.
@@ -50,10 +53,27 @@ import numpy as np
 __all__ = [
     "AutoGateVerdict",
     "DEFAULT_THRESHOLDS",
+    "Z_VERDICT_ESS_CEILING",
     "auto_gate",
     "resolve_thresholds",
     "sidak_t_pass",
 ]
+
+# ---------------------------------------------------------------------------
+# Z-test verdict boundary
+# ---------------------------------------------------------------------------
+
+Z_VERDICT_ESS_CEILING: int = 6400
+"""ESS ceiling above which z-test is advisory (ensemble scale), not verdict-bearing.
+
+Rationale: above this resolution, a point-null z-test rejects any fixed discrepancy
+including the GT's own MC error (issue #223). The boundary equals (4/0.05)² where
+z≥4 crosses a 0.05σ effect — the gate's own MCSE at ESS=400 PASS floor.
+
+Below Z_VERDICT_ESS_CEILING (small-realm sampling): z-test drives FAIL verdicts as
+before. Above it (ensemble scale): z-driven FAILs demote to REVIEW, and z is marked
+advisory in margins with human-readable bias_sigma diagnostics.
+"""
 
 # ---------------------------------------------------------------------------
 # Default thresholds
@@ -442,6 +462,9 @@ def auto_gate(
     num_integration_steps: int | None = None,
     vi_sampler_mode: bool = False,
     multichain: bool | None = None,
+    ess_per_grad: float | None = None,
+    total_grad_evals: int | None = None,
+    wall_seconds: float | None = None,
 ) -> AutoGateVerdict:
     """Compute MCMC quality metrics and render a 3-band verdict.
 
@@ -505,6 +528,15 @@ def auto_gate(
         the heuristic in ``_samples_to_multichain`` (ndim ≥ 3 is definitively
         multichain; ndim < 3 uses shape[0] < 64 fallback).  The emit path should
         pass ``True`` when it knowingly provides multichain positions.
+    ess_per_grad
+        Optional bulk-ESS per gradient evaluation (cost metric).  When provided,
+        echoed to ``margins["cost"]["ess_per_grad"]``.
+    total_grad_evals
+        Optional total number of gradient evaluations (cost metric).  When provided,
+        echoed to ``margins["cost"]["total_grad_evals"]``.
+    wall_seconds
+        Optional wall-clock runtime in seconds (cost metric).  When provided,
+        echoed to ``margins["cost"]["wall_seconds"]``.
 
     Returns
     -------
@@ -582,7 +614,7 @@ def auto_gate(
             # no HMC-style divergent transition concept → 0 by definition.
             n_divergences = 0
 
-    # --- max_abs_mean_z + frac_z2 ---
+    # --- max_abs_mean_z + frac_z2 + bias_sigma margins ---
     max_abs_mean_z: float | None = None
     # frac_z2: fraction of *scalar dimensions* with |z_d| > 2 across all sites,
     # flattened.  Secondary diagnostic — never alters verdict.
@@ -596,10 +628,21 @@ def auto_gate(
     # band via sidak_t_pass(n_dims).  See
     # worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
     _n_dims = 0
+    # Margins fields: bias_sigma_* (effect sizes in GT-σ units)
+    _bias_sigma_at_argmax_z: float | None = None
+    _bias_sigma_max_at_z4: float | None = None
+    _achieved_bias_bound_sigma: float | None = None
     if ground_truth_summaries is not None and mc_samples:
         z_values: list[float] = []
         # Per-dimension z-scores accumulated across all sites for frac_z2.
         _all_z_dim_scores: list[float] = []
+        # Track bias_sigma values for margin computation.
+        _bias_sigmas: list[float] = []
+        # Track SE and GT std at argmax_z dimension for achieved_bias_bound.
+        _argmax_z_idx = -1
+        _se_sample_at_argmax: float | None = None
+        _se_gt_at_argmax: float | None = None
+        _gt_std_at_argmax: float | None = None
         for name, arr in mc_samples.items():
             if name not in ground_truth_summaries:
                 continue
@@ -643,9 +686,28 @@ def auto_gate(
             # Avoid division by zero
             denom = np.where(denom > 0, denom, 1.0)
             z_scores = np.abs(sample_mean - gt_mean) / denom
+
+            # Compute bias_sigma: |mean - gt_mean| / gt_std (effect size in GT-σ units)
+            # Avoid division by zero in gt_std
+            gt_std_safe = np.where(gt_std > 0, gt_std, 1.0)
+            bias_sigmas = np.abs(sample_mean - gt_mean) / gt_std_safe
+
             z_values.append(float(np.max(np.asarray(z_scores))))
             # Accumulate per-dimension z-scores for frac_z2 (dimension-level).
             _all_z_dim_scores.extend(float(z) for z in np.asarray(z_scores).ravel())
+            _bias_sigmas.extend(float(b) for b in np.asarray(bias_sigmas).ravel())
+
+            # Track the dimension with argmax z for bias_sigma_at_argmax_z.
+            z_flat = np.asarray(z_scores).ravel()
+            bias_flat = np.asarray(bias_sigmas).ravel()
+            if len(z_flat) > 0:
+                local_argmax = np.argmax(z_flat)
+                if _argmax_z_idx == -1 or z_flat[local_argmax] > z_values[0]:
+                    _argmax_z_idx = len(_all_z_dim_scores) - len(z_flat) + local_argmax
+                    _bias_sigma_at_argmax_z = float(bias_flat[local_argmax])
+                    _se_sample_at_argmax = float(se_sample.ravel()[local_argmax])
+                    _se_gt_at_argmax = float(se_gt.ravel()[local_argmax])
+                    _gt_std_at_argmax = float(np.asarray(gt_std).ravel()[local_argmax])
 
         if z_values:
             max_abs_mean_z = float(max(z_values))
@@ -657,6 +719,28 @@ def auto_gate(
                     / len(_all_z_dim_scores)
                 )
                 _n_dims = sum(1 for z in _all_z_dim_scores if math.isfinite(z))
+
+            # bias_sigma_max_at_z4: max bias effect size where z <= 4
+            if _bias_sigmas:
+                z4_mask = [z <= 4.0 for z in _all_z_dim_scores]
+                if any(z4_mask):
+                    _bias_sigma_max_at_z4 = float(
+                        max(b for b, mask in zip(_bias_sigmas, z4_mask) if mask)
+                    )
+
+            # achieved_bias_bound_sigma: t_pass(d) * max(se_sample, se_gt) / gt_std
+            # at the argmax dimension
+            if (
+                _se_sample_at_argmax is not None
+                and _se_gt_at_argmax is not None
+                and _gt_std_at_argmax is not None
+            ):
+                if _n_dims >= 1 and _gt_std_at_argmax > 0:
+                    t_pass = sidak_t_pass(_n_dims)
+                    se_max = max(_se_sample_at_argmax, _se_gt_at_argmax)
+                    _achieved_bias_bound_sigma = float(
+                        t_pass * se_max / _gt_std_at_argmax
+                    )
 
     # --- Resonance warning (fixed-L HMC only; does not alter verdict) ---
     # True danger zones are the 2kπ resonances where fixed-L HMC exhibits
@@ -705,7 +789,7 @@ def auto_gate(
         )
         overall_verdict = _worst(overall_verdict, band)
 
-    # max_abs_mean_z
+    # max_abs_mean_z with z-advisory demotion in ensemble realm
     if max_abs_mean_z is not None and "max_abs_mean_z" in thresholds:
         z_bands = thresholds["max_abs_mean_z"]
         if not vi_sampler_mode and _n_dims >= 1:
@@ -722,12 +806,69 @@ def auto_gate(
             z_bands["pass"] = (0.0, t_pass)
             z_bands["review"] = (t_pass, z_bands.get("review", (2.0, 4.0))[1])
         band = _classify_metric(max_abs_mean_z, z_bands)
+
+        # Z-advisory realm demotion: at ensemble scale (min_bulk_ess > Z_VERDICT_ESS_CEILING),
+        # z-driven FAILs demote to REVIEW. The z-test rejects any fixed discrepancy
+        # at this resolution, including the GT's own MC error (issue #223).
+        # Small-realm (ess ≤ 6400): verdict bit-identical to previous behavior.
+        z_is_advisory = False
+        if (
+            band == "FAIL"
+            and min_bulk_ess is not None
+            and min_bulk_ess > Z_VERDICT_ESS_CEILING
+        ):
+            # Check if z is the driver of the FAIL (no other metric is already FAIL).
+            # If rhat or n_divergences is already FAIL, we keep FAIL.
+            # If only z is FAIL, demote to REVIEW.
+            has_other_fail = any(
+                m.get("band") == "FAIL" for m in margins.values() if isinstance(m, dict)
+            )
+            if not has_other_fail:
+                band = "REVIEW"
+                z_is_advisory = True
+
         margins["max_abs_mean_z"] = _build_margin(max_abs_mean_z, z_bands, band)
+        if z_is_advisory:
+            margins["max_abs_mean_z"]["z_advisory"] = True
+            margins["max_abs_mean_z"]["bias_sigma"] = (
+                f"z is advisory at this resolution (min_bulk_ess={min_bulk_ess:.0f} "
+                f"> {Z_VERDICT_ESS_CEILING}); see bias_sigma fields"
+            )
+
         if _frac_z2 is not None:
             # Secondary diagnostic: fraction of sites with |z| > 2.
             # Does NOT alter the verdict — purely informational for the statistician.
             margins["max_abs_mean_z"]["frac_z2"] = _frac_z2
+
+        # Add the new REPORTED margins (never verdict; bias effect sizes in GT-σ units)
+        if _bias_sigma_at_argmax_z is not None:
+            margins["max_abs_mean_z"][
+                "bias_sigma_at_argmax_z"
+            ] = _bias_sigma_at_argmax_z
+        if _bias_sigma_max_at_z4 is not None:
+            margins["max_abs_mean_z"]["bias_sigma_max_at_z4"] = _bias_sigma_max_at_z4
+        if _achieved_bias_bound_sigma is not None:
+            margins["max_abs_mean_z"][
+                "achieved_bias_bound_sigma"
+            ] = _achieved_bias_bound_sigma
+
         overall_verdict = _worst(overall_verdict, band)
+
+    # --- Add optional cost block to margins ---
+    if (
+        ess_per_grad is not None
+        or total_grad_evals is not None
+        or wall_seconds is not None
+    ):
+        cost: dict = {}
+        if ess_per_grad is not None:
+            cost["ess_per_grad"] = ess_per_grad
+        if total_grad_evals is not None:
+            cost["total_grad_evals"] = total_grad_evals
+        if wall_seconds is not None:
+            cost["wall_seconds"] = wall_seconds
+        if cost:
+            margins["cost"] = cost
 
     return AutoGateVerdict(
         rhat_max=rhat_max,
