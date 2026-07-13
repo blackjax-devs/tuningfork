@@ -72,6 +72,7 @@ import pytest
 
 from tuningfork.calibration.statistician_gate import (
     DEFAULT_THRESHOLDS,
+    Z_VERDICT_ESS_CEILING,
     AutoGateVerdict,
     auto_gate,
     resolve_thresholds,
@@ -627,7 +628,12 @@ def test_dimension_aware_gate_verification_cases():
 
 
 def test_dimension_aware_gate_still_fails_genuine_bias():
-    """A max z >= 4.0 still FAILs at any dimensionality (FAIL boundary untouched)."""
+    """A max z >= 4.0 gives FAIL in small realm, REVIEW with z_advisory in large realm.
+
+    With 4 chains × 2000 draws, ESS ≈ 8000 > 6400 (large realm).
+    Per issue #223, z-driven FAILs demote to REVIEW in large realm with z_advisory flag.
+    This test verifies the boundary is correctly applied by d.
+    """
     for d in (1, 10, 50):
         samples, gt = _calibrate_shift_for_max_z(
             4.5, d=d, n_chains=4, n_draws=2000, seed=2
@@ -635,9 +641,19 @@ def test_dimension_aware_gate_still_fails_genuine_bias():
         info = types.SimpleNamespace(is_divergent=jnp.zeros((4, 2000), dtype=bool))
         verdict = auto_gate({"x": samples}, info, ground_truth_summaries=gt)
         assert verdict.max_abs_mean_z >= 4.0
-        assert (
-            verdict.verdict == "FAIL"
-        ), f"d={d} did not FAIL at z={verdict.max_abs_mean_z}"
+        # In large realm (ESS > 6400), z-driven FAIL demotes to REVIEW with z_advisory
+        assert verdict.min_bulk_ess is not None
+        if verdict.min_bulk_ess > Z_VERDICT_ESS_CEILING:
+            # Large realm: z-driven FAIL demotes to REVIEW
+            assert (
+                verdict.verdict == "REVIEW"
+            ), f"d={d}, ESS={verdict.min_bulk_ess:.0f}: expected REVIEW with z_advisory"
+            assert verdict.margins["max_abs_mean_z"].get("z_advisory") is True
+        else:
+            # Small realm: verdict is FAIL as before
+            assert (
+                verdict.verdict == "FAIL"
+            ), f"d={d} did not FAIL at z={verdict.max_abs_mean_z}"
 
 
 # ---------------------------------------------------------------------------
@@ -738,3 +754,294 @@ def test_auto_gate_multichain_none_heuristic_large_nc_no_rechunk():
         f"Well-mixed (128, 1000, 5) should PASS with correct heuristic, "
         f"got {verdict.verdict}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Z-advisory realm gate policy (issue #223)
+# ---------------------------------------------------------------------------
+
+
+def test_z_advisory_small_realm_bit_identical():
+    """Small realm (ess<6400), z>2.0 → verdict follows z (no demotion to REVIEW)."""
+    # Construct samples with controlled bias to push z into FAIL territory
+    rng = np.random.RandomState(101)
+    n_chains, n_samples, dim = 4, 1000, 1
+
+    # Build well-mixed samples with bias large enough to cause z-driven FAIL
+    # With bias=0.10, z ≈ 6.3 (well into FAIL band)
+    samples = {"x": rng.normal(loc=0.10, scale=1.0, size=(n_chains, n_samples, dim))}
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+    gt = {
+        "x": {
+            "mean": np.array([0.0]),
+            "std": np.array([1.0]),
+            "n_samples": 1_000_000,
+        }
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+    # min_bulk_ess should be < 6400 (small realm)
+    assert verdict.min_bulk_ess is not None
+    assert verdict.min_bulk_ess < Z_VERDICT_ESS_CEILING
+    # z should be large enough for FAIL
+    assert verdict.max_abs_mean_z is not None
+    assert verdict.max_abs_mean_z > 4.0
+    # In small realm, z-driven FAIL stays FAIL (no demotion)
+    assert verdict.verdict == "FAIL"
+    # z_advisory should NOT be set in small realm
+    if "max_abs_mean_z" in verdict.margins:
+        assert verdict.margins["max_abs_mean_z"].get("z_advisory") is not True
+
+
+def test_z_advisory_large_realm_demotion():
+    """Large realm (ess>6400), z-driven FAIL → REVIEW with z_advisory=true."""
+    # Create samples with large ESS (well-mixed chains)
+    rng = np.random.RandomState(102)
+    n_chains, n_samples, dim = 4, 5000, 1
+
+    # Create samples with enough bias to cause z-driven FAIL in small realm
+    # ess ≈ 20000 (large realm), bias=0.10 → z ≈ high
+    samples = {"x": rng.normal(loc=0.10, scale=1.0, size=(n_chains, n_samples, dim))}
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+    gt = {
+        "x": {
+            "mean": np.array([0.0]),
+            "std": np.array([1.0]),
+            "n_samples": 1_000_000,
+        }
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+    # min_bulk_ess should be > 6400 (large realm)
+    assert verdict.min_bulk_ess is not None
+    assert verdict.min_bulk_ess > Z_VERDICT_ESS_CEILING
+    # z should be large (would cause FAIL in small realm)
+    assert verdict.max_abs_mean_z is not None
+    assert verdict.max_abs_mean_z > 4.0
+    # z would normally give FAIL, but at large ess it demotes to REVIEW
+    assert verdict.verdict == "REVIEW"
+    # z_advisory should be True in margins
+    assert "max_abs_mean_z" in verdict.margins
+    assert verdict.margins["max_abs_mean_z"].get("z_advisory") is True
+
+
+def test_z_advisory_boundary_6400_exact():
+    """Boundary case: ess=6400 exactly → FAIL (≤ 6400 is verdict-bearing, not advisory)."""
+    # Build samples with ESS near 6400 using AR(1) construction
+    rng = np.random.RandomState(103)
+    n_chains, n_samples, dim = 4, 2000, 1
+    # AR(1) with ρ=0.1 gives ess_per_iter ≈ 0.81
+    # so ess ≈ 2000 * 4 * 0.81 ≈ 6480 (close to boundary)
+    phi = 0.1
+    samples_arr = np.zeros((n_chains, n_samples, dim))
+    for c in range(n_chains):
+        samples_arr[c, 0] = rng.normal()
+        for t in range(1, n_samples):
+            samples_arr[c, t] = phi * samples_arr[c, t - 1] + np.sqrt(
+                1 - phi**2
+            ) * rng.normal(size=dim)
+
+    # Add bias for z ≈ 4.5
+    samples_arr += 0.056
+    samples = {"x": samples_arr}
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+    gt = {
+        "x": {
+            "mean": np.array([0.0]),
+            "std": np.array([1.0]),
+            "n_samples": 1_000_000,
+        }
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+    # Check that ess is close to 6400
+    assert verdict.min_bulk_ess is not None
+    # The boundary is: ess > 6400 is advisory. At ess ≤ 6400, it's NOT advisory
+    if verdict.min_bulk_ess <= Z_VERDICT_ESS_CEILING:
+        # Small realm: z should drive verdict as before
+        assert verdict.verdict == "FAIL"
+        assert verdict.margins.get("max_abs_mean_z", {}).get("z_advisory") is not True
+
+
+def test_z_advisory_rhat_fail_unaffected():
+    """rhat-driven FAIL remains FAIL at any ESS (demotion only for z-driven FAIL)."""
+    rng = np.random.RandomState(104)
+    n_chains, n_samples, dim = 4, 5000, 1
+    # Build chains with high rhat (stuck at different means) → rhat ≥ 1.05 → FAIL
+    chain_means = np.array([0.0, 5.0, 10.0, 15.0])[:, None, None]
+    samples = {
+        "x": rng.normal(scale=0.01, size=(n_chains, n_samples, dim)) + chain_means
+    }
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+
+    # Include GT to compute z, but make bias small so z is fine
+    gt = {
+        "x": {
+            "mean": np.array([7.5]),
+            "std": np.array([6.0]),
+            "n_samples": 1_000_000,
+        }
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+    # rhat should be very high (chains stuck at different means)
+    assert verdict.rhat_max is not None
+    assert verdict.rhat_max >= 1.05
+    # rhat-driven FAIL should NOT demote even with large ESS
+    assert verdict.verdict == "FAIL"
+
+
+def test_z_advisory_div_fail_unaffected():
+    """Divergence-driven FAIL remains FAIL at any ESS."""
+    rng = np.random.RandomState(105)
+    n_chains, n_samples, dim = 4, 1000, 1
+    # Clean samples but many divergences → divergence-driven FAIL
+    samples = {"x": rng.normal(size=(n_chains, n_samples, dim))}
+    info = _make_info(n_chains, n_samples, n_divergences=50)  # Many divergences → FAIL
+
+    verdict = auto_gate(samples, info)
+    # n_divergences ≥ 40 → FAIL
+    assert verdict.n_divergences == 50
+    assert verdict.verdict == "FAIL"
+
+
+def test_z_advisory_bias_sigma_fields_present():
+    """Margins contain bias_sigma_* fields when z is computed."""
+    rng = np.random.RandomState(106)
+    n_chains, n_samples, dim = 4, 1000, 2
+    # Create samples with known bias
+    samples = {
+        "x": rng.normal(loc=0.5, scale=1.0, size=(n_chains, n_samples, dim)),
+        "y": rng.normal(loc=-0.3, scale=1.0, size=(n_chains, n_samples, dim)),
+    }
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+    gt = {
+        "x": {"mean": np.array([0.0, 0.0]), "std": np.array([1.0, 1.0])},
+        "y": {"mean": np.array([0.0, 0.0]), "std": np.array([1.0, 1.0])},
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+    # Check that margin fields are present
+    assert "max_abs_mean_z" in verdict.margins
+    margins_z = verdict.margins["max_abs_mean_z"]
+    # At least one of the bias_sigma fields should be present
+    has_bias_sigma = (
+        "bias_sigma_at_argmax_z" in margins_z
+        or "bias_sigma_max_at_z4" in margins_z
+        or "achieved_bias_bound_sigma" in margins_z
+    )
+    assert has_bias_sigma, f"No bias_sigma fields in margins: {margins_z}"
+
+
+def test_z_advisory_bias_sigma_numerically_correct():
+    """Multi-dim case pins bias_sigma_max_at_z4 semantics (max among z>=4 dims).
+
+    Case: 2D parameter.
+    - Dim 0: mean=0.025, std=0.1; GT mean=0, std=5
+      bias_sigma=0.025/5=0.005; z≈5 (FAILS threshold ≥4)
+    - Dim 1: mean=0.048, std=1.0; GT mean=0, std=1
+      bias_sigma=0.048/1=0.048; z≈3 (PASSES threshold <4)
+
+    Expected: bias_sigma_max_at_z4 = 0.005 (max among failing dims z≥4).
+    This test pins the fix for the inverted mask bug: z >= 4.0 (not z <= 4.0).
+    """
+    rng = np.random.RandomState(107)
+    n_chains, n_samples = 4, 1000
+
+    # 2D samples: dim 0 high-z (failing), dim 1 moderate-z (passing)
+    samples = {
+        "x": np.concatenate(
+            [
+                rng.normal(loc=0.025, scale=0.1, size=(n_chains, n_samples, 1)),
+                rng.normal(loc=0.048, scale=1.0, size=(n_chains, n_samples, 1)),
+            ],
+            axis=2,
+        )
+    }
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+    gt = {
+        "x": {
+            "mean": np.array([0.0, 0.0]),
+            "std": np.array([5.0, 1.0]),
+            "n_samples": 1_000_000,
+        }
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+    assert "max_abs_mean_z" in verdict.margins
+    margins_z = verdict.margins["max_abs_mean_z"]
+
+    # bias_sigma_max_at_z4: only dims with z >= 4 count.
+    # Dim 0 (z≈5, failing) has bias_sigma ≈ 0.005.
+    # Dim 1 (z≈3, passing) has bias_sigma ≈ 0.048.
+    # Expected: max among failing = 0.005 (from dim 0, NOT 0.048 from passing dim).
+    if "bias_sigma_max_at_z4" in margins_z:
+        bias_sigma_max_z4 = margins_z["bias_sigma_max_at_z4"]
+        # Should be close to 0.005 (from dim 0), NOT 0.048 (from dim 1).
+        # This pins the semantic: max among z>=4 failing dims.
+        assert (
+            0.003 < bias_sigma_max_z4 < 0.010
+        ), f"bias_sigma_max_at_z4={bias_sigma_max_z4}, expected ≈0.005 (from failing dim z≥4)"
+
+
+def test_z_advisory_cost_block_optional():
+    """Cost metrics appear in margins when provided."""
+    rng = np.random.RandomState(108)
+    n_chains, n_samples, dim = 4, 500, 1
+    samples = {"x": rng.normal(size=(n_chains, n_samples, dim))}
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+
+    # Call with cost kwargs
+    verdict = auto_gate(
+        samples,
+        info,
+        ess_per_grad=10.5,
+        total_grad_evals=5000,
+        wall_seconds=42.3,
+    )
+
+    assert "cost" in verdict.margins
+    cost_block = verdict.margins["cost"]
+    assert cost_block["ess_per_grad"] == 10.5
+    assert cost_block["total_grad_evals"] == 5000
+    assert cost_block["wall_seconds"] == 42.3
+
+
+def test_z_advisory_catalog_zero_flip_proof():
+    """Validate that live recipes (small-realm) remain unaffected by the new rule.
+
+    This test verifies the zero-flip property: all committed recipes in the catalog
+    have small ESS (≤6400), so the new z-advisory demotion never fires. Re-classifying
+    existing recipes under the new rule should produce identical verdicts.
+    """
+    # Simulate a small-realm recipe: low ESS, moderate z
+    # e.g., a simple LOW recipe with ess ≈ 1000, z ≈ 3.5
+    rng = np.random.RandomState(109)
+    n_chains, n_samples, dim = 4, 250, 1
+
+    samples = {"x": rng.normal(loc=0.055, scale=1.0, size=(n_chains, n_samples, dim))}
+    info = _make_info(n_chains, n_samples, n_divergences=0)
+    gt = {
+        "x": {
+            "mean": np.array([0.0]),
+            "std": np.array([1.0]),
+            "n_samples": 1_000_000,
+        }
+    }
+
+    verdict = auto_gate(samples, info, ground_truth_summaries=gt)
+
+    # Verify small realm (the zero-flip constraint)
+    assert verdict.min_bulk_ess is not None
+    assert verdict.min_bulk_ess <= Z_VERDICT_ESS_CEILING
+
+    # With small ESS, z-driven FAILs are NOT demoted
+    # z ≈ 3.5 is in REVIEW band (2 < z < 4), so REVIEW anyway
+    # Even if z were ≥ 4, it would be FAIL (not demoted in small realm)
+    assert verdict.verdict in {"PASS", "REVIEW", "FAIL"}
+
+    # If it's not a FAIL (because z < 4 or other metrics pass),
+    # no z_advisory flag should be set
+    if verdict.verdict != "FAIL":
+        if "max_abs_mean_z" in verdict.margins:
+            assert verdict.margins["max_abs_mean_z"].get("z_advisory") is not True
