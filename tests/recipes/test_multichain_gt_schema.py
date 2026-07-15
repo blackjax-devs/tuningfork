@@ -15,7 +15,7 @@
 
 Covers:
 - Recipe.load correctly reads gt_schema_version and summary_v2_path for migrated models
-- Legacy models (gp_regression) load with gt_schema_version=None (backward-compat)
+- All models with groundtruth.json now use gt_schema_version='gt_v2_multichain' (16/16)
 - load_imm_sidecar(catalog_root) returns None for multichain GT recipes (null path)
 - list_recipes still enumerates groundtruth.json for migrated models
 - load_idata returns correctly-shaped multichain posterior on new schema (mock-based)
@@ -88,30 +88,34 @@ class TestMultichainGTSchemaLoad:
         assert result is None
 
 
-class TestLegacyGTSchemaUnchanged:
-    """Legacy single-chain GT models load with gt_schema_version=None."""
+class TestGPRegressionMultichainSchema:
+    """gp_regression migrated to gt_v2_multichain (16/16 complete)."""
 
-    def test_gp_regression_gt_schema_version_none(self) -> None:
-        """gp_regression groundtruth.json has gt_schema_version=None (legacy)."""
+    def test_gp_regression_gt_schema_version(self) -> None:
+        """gp_regression groundtruth.json has gt_schema_version='gt_v2_multichain'."""
         from tuningfork.recipes._base import Recipe
 
         recipe = Recipe.load(_CATALOG_ROOT / "gp_regression" / "groundtruth.json")
-        assert recipe.gt_schema_version is None
+        assert recipe.gt_schema_version == "gt_v2_multichain"
 
-    def test_gp_regression_summary_v2_path_none(self) -> None:
-        """gp_regression has no summary_v2_path (no multichain migration yet)."""
+    def test_gp_regression_summary_v2_path(self) -> None:
+        """gp_regression groundtruth.json has non-null summary_v2_path."""
         from tuningfork.recipes._base import Recipe
 
         recipe = Recipe.load(_CATALOG_ROOT / "gp_regression" / "groundtruth.json")
-        assert recipe.summary_v2_path is None
+        assert (
+            recipe.summary_v2_path
+            == "gp_regression/groundtruth_samples/blackjax/summary_v2.json"
+        )
 
-    def test_gp_regression_imm_sidecar_still_loads(self) -> None:
-        """Legacy gp_regression imm sidecar is unchanged and loads correctly."""
+    def test_gp_regression_no_imm_sidecar(self) -> None:
+        """gp_regression multichain GT: inverse_mass_matrix_path=null (marginal NUTS adapts per-chain IMM at runtime)."""
         from tuningfork.recipes._base import Recipe
 
         recipe = Recipe.load(_CATALOG_ROOT / "gp_regression" / "groundtruth.json")
-        assert recipe.inverse_mass_matrix_path is not None
-        assert recipe.base_method_params.get("inverse_mass_matrix") == "sidecar"
+        assert recipe.inverse_mass_matrix_path is None
+        result = recipe.load_imm_sidecar(_CATALOG_ROOT)
+        assert result is None
 
 
 class TestListRecipesEnumeration:
