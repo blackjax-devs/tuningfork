@@ -229,6 +229,7 @@ def _run_generate(args: argparse.Namespace) -> None:
             n_chains=args.n_chains,
             n_draws=args.n_draws,
             n_warmup=args.n_warmup,
+            sequential=args.sequential,
             smoke=args.smoke,
         )
     else:

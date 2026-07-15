@@ -168,6 +168,7 @@ def generate_groundtruth(
             n_chains=n_chains,
             n_draws=n_draws,
             n_warmup=n_warmup,
+            sequential=sequential,
             smoke=smoke,
         )
     else:
