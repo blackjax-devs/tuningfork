@@ -165,7 +165,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run_generate(args: argparse.Namespace) -> None:
     from tuningfork.groundtruth._dispatch import (
-        GTMethod,
         _resolve_gt_method,
         load_committed_summary,
     )
@@ -192,25 +191,12 @@ def _run_generate(args: argparse.Namespace) -> None:
         f"[generate] model={model} method={method.value} out_dir={out_dir}", flush=True
     )
 
-    if method is GTMethod.ANALYTIC_IID:
-        from tuningfork.groundtruth._analytic_iid import generate_analytic_iid
+    from tuningfork.groundtruth import generate_groundtruth
 
-        result = generate_analytic_iid(
+    try:
+        result = generate_groundtruth(
             model,
-            summary,
-            out_dir,
-            seed=args.seed,
-            n_chains=args.n_chains,
-            n_draws=args.n_draws,
-            smoke=args.smoke,
-        )
-    elif method in (GTMethod.STANDARD_MULTICHAIN_NUTS, GTMethod.EXPLICIT_POSITIONS):
-        from tuningfork.groundtruth._nuts_multichain import generate_nuts_multichain
-
-        result = generate_nuts_multichain(
-            model,
-            summary,
-            out_dir,
+            str(out_dir),
             seed=args.seed,
             n_chains=args.n_chains,
             n_draws=args.n_draws,
@@ -218,22 +204,8 @@ def _run_generate(args: argparse.Namespace) -> None:
             sequential=args.sequential,
             smoke=args.smoke,
         )
-    elif method is GTMethod.CLOSED_FORM_GP_MARGINAL:
-        from tuningfork.groundtruth._gp_marginal import generate_gp_marginal
-
-        result = generate_gp_marginal(
-            model,
-            summary,
-            out_dir,
-            seed=args.seed,
-            n_chains=args.n_chains,
-            n_draws=args.n_draws,
-            n_warmup=args.n_warmup,
-            sequential=args.sequential,
-            smoke=args.smoke,
-        )
-    else:
-        print(f"[error] unhandled method {method!r}", file=sys.stderr)
+    except ValueError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
         sys.exit(1)
 
     gate = result.get("quality_gate", {})
