@@ -220,6 +220,12 @@ def _make_progress_cb(t0: float, label: str, total_steps: int):
     """
 
     def cb(event):
+        # Filter to the outer draw scan only.  ops=("scan",) captures ALL
+        # lax.scan primitives including inner NUTS tree-expansion scans; those
+        # have event.total != total_steps and would flood the log (~60k events
+        # per run, 44 MB observed).  Only emit when total == total_steps.
+        if event.total is not None and int(event.total) != total_steps:
+            return
         step = event.step  # 0-based step in the scan
         total = event.total if event.total is not None else total_steps
         pct = int(100 * (step + 1) / total) if total > 0 else 0
