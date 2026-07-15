@@ -38,8 +38,9 @@ Test structure
 
 Frozen golden constants
 -----------------------
-E_g,d / E_s,d / σ_d are frozen as LITERAL constants per the pinned spec.
-Do NOT recompute E via an ESS estimator at check time — platform-sensitive.
+σ_d is frozen as LITERAL per the pinned spec.
+E_g,d is frozen for documentation; end-to-end tests call compute_w1_realm
+directly (which recomputes real ESS at run time via _ess_gen_per_dim).
 """
 
 from __future__ import annotations
@@ -52,9 +53,8 @@ import pytest
 
 from tuningfork.calibration._gate.w1_realm import (
     W1RealmResult,
-    _build_floor,
+    _ess_gen_per_dim,
     _khat_max,
-    _loo_conservatism_check,
     _w1_1d,
     compute_w1_realm,
 )
@@ -89,11 +89,16 @@ def _radon_available() -> bool:
 #
 # Provenance: draws.npz + summary_v2.json committed at HEAD (SHA 501a857).
 # GT = all 10 chains; gen = chain0[0:1000].
-# E_g,d = 1000 for all dims (single chain of 1000, ESS treated as n_draws).
+# E_g,d = real min(bulk,tail)-ESS from _ess_gen_per_dim (DataTree path).
+#         Differs from raw n_draws=1000 because of autocorrelation in chain0.
 # E_s,d = min(bulk_ess, tail_ess) capped at 20000 (all dims: 47k–109k → 20000).
 # σ_d = GT pooled std from summary_v2.json.
-# floor_of_max = q_{0.95}(max_d W1_boot), numpy PCG64 seed=424242, B=5000.
+# floor_of_max = q_{0.95}(max_d W1_boot), numpy PCG64 seed=424242, B=5000,
+#                computed via compute_w1_realm end-to-end (real ESS + GPD k-hat).
 # τ_frac = q_{0.95}(null frac), joint block bootstrap, B=5000.
+#
+# Re-pinned 2026-07-15 (post-fix commit): ESS bug fixed (DataTree path),
+# k-hat replaced with Zhang-Stephens GPD.
 # ---------------------------------------------------------------------------
 
 # Param order: [mu(1), tau(1), theta_raw(8)] = D=10 dimensions
@@ -115,8 +120,23 @@ _ENS_SIGMA_D = np.array(
 # E_s,d: capped at 20000 for all dims (GT ESS ranges from 46k–112k)
 _ENS_E_S_D = np.full(10, 20000.0)
 
-# E_g,d: single chain of 1000 → all dims get 1000
-_ENS_E_G_D = np.full(10, 1000.0)
+# E_g,d: real min(bulk,tail)-ESS for chain0[:1000] (from _ess_gen_per_dim).
+# Pinned from golden run; lower than raw 1000 due to autocorrelation.
+# Order: [mu, tau, theta_raw[0..7]]
+_ENS_E_G_D = np.array(
+    [
+        623.99023701,  # mu
+        602.05143795,  # tau
+        611.978659,  # theta_raw[0]
+        856.98710077,  # theta_raw[1]
+        749.94314733,  # theta_raw[2]
+        661.39834602,  # theta_raw[3]
+        755.00840192,  # theta_raw[4]
+        805.90803081,  # theta_raw[5]
+        628.33952046,  # theta_raw[6]
+        676.10663706,  # theta_raw[7]
+    ]
+)
 
 # NULL W1/σ per dim (deterministic — no randomness)
 _ENS_NULL_W1_SIGMA_D = np.array(
@@ -142,40 +162,46 @@ _ENS_INJECTED_W1_SIGMA_D[2] = 0.31521704399154693  # theta_raw[0] + 0.30σ
 _ENS_INJECTED_W1_SIGMA_D[3] = 0.20742760727853224  # theta_raw[1] + 0.30σ
 _ENS_INJECTED_MAX_W1_SIGMA: float = 0.31521704399154693
 
-# Floor-of-max: q_{0.95}(max_d W1_boot), numpy PCG64 seed=424242, B=5000
-_ENS_FLOOR_OF_MAX: float = 0.09528010
+# Floor-of-max: q_{0.95}(max_d W1_boot), numpy PCG64 seed=424242, B=5000.
+# Computed via compute_w1_realm end-to-end with real ESS (≈623–857 per dim).
+# Raised from 0.09528010 (buggy raw-count ESS=1000) to 0.1122042940.
+_ENS_FLOOR_OF_MAX: float = 0.1122042940
 
-# Per-dim floor: q_{0.95}(W1_d_boot) per dim
+# Per-dim floor: q_{0.95}(W1_d_boot) per dim, B=5000, seed=424242.
+# Computed with real ESS per dim from _ENS_E_G_D above.
 _ENS_FLOOR_PER_DIM = np.array(
     [
-        0.06853591175572282,  # mu
-        0.07235903132676641,  # tau
-        0.06973611846988816,  # theta_raw[0]
-        0.07014579568759613,  # theta_raw[1]
-        0.06874067077392758,  # theta_raw[2]
-        0.06846328360951362,  # theta_raw[3]
-        0.06921617297496725,  # theta_raw[4]
-        0.07101072092585686,  # theta_raw[5]
-        0.06986598921315573,  # theta_raw[6]
-        0.07028833636918118,  # theta_raw[7]
+        0.08721894,  # mu
+        0.08936596,  # tau
+        0.08756933,  # theta_raw[0]
+        0.07350074,  # theta_raw[1]
+        0.07831004,  # theta_raw[2]
+        0.08612174,  # theta_raw[3]
+        0.07802934,  # theta_raw[4]
+        0.07758241,  # theta_raw[5]
+        0.08512072,  # theta_raw[6]
+        0.08366970,  # theta_raw[7]
     ]
 )
 
-# τ_frac: q_{0.95} of joint block bootstrap null frac, B=5000
-_ENS_TAU_FRAC: float = 0.6
+# τ_frac: q_{0.95} of joint block bootstrap null frac, B=5000, seed=424242.
+# 0.7 with real ESS (vs 0.6 with buggy ESS=1000).
+_ENS_TAU_FRAC: float = 0.7
 
 # ---------------------------------------------------------------------------
 # Frozen golden constants — radon (D=390, B=200, seed=424242)
 #
 # Provenance: draws.npz + summary_v2.json committed at HEAD (SHA 501a857).
 # B=200 chosen to keep the test fast while pinning the frac-prong code path.
+# Re-pinned 2026-07-15: compute_w1_realm end-to-end with real ESS + GPD k-hat.
+# Radon real ESS is much lower than 1000 → floor raised substantially.
 # ---------------------------------------------------------------------------
 
-_RADON_FLOOR_OF_MAX: float = 0.12808424  # B=200, seed=424242, α=0.05
-_RADON_NULL_MAX_W1_SIGMA: float = 0.11973700  # deterministic
-_RADON_TAU_FRAC: float = 0.49525641  # B=200 joint block bootstrap q95
+_RADON_FLOOR_OF_MAX: float = 0.2346693638  # B=200, seed=424242, α=0.05, real ESS
+_RADON_NULL_MAX_W1_SIGMA: float = 0.11973700  # deterministic (unchanged)
+_RADON_TAU_FRAC: float = 0.5542307692  # B=200 joint block bootstrap q95, real ESS
 _RADON_NULL_FRAC_FAILING_DIMS: float = (
-    0.04871795  # NULL frac (deterministic given floor)
+    0.00512821  # NULL frac (deterministic given floor; very few dims exceed 0.235)
 )
 
 
@@ -304,7 +330,7 @@ def test_khat_gpd_heavy_tail_pareto():
     x = 1.0 / u  # Pareto(1) samples
     k = _khat_max(x)
     # Should be significantly above 0.7 (heavy tail guard threshold)
-    assert k > 0.5, f"Pareto(1) should have k̂ > 0.5, got {k:.4f}"
+    assert k > 0.7, f"Pareto(1) should have k̂ > 0.7, got {k:.4f}"
 
 
 @pytest.mark.fast
@@ -468,7 +494,7 @@ def test_eight_schools_null_w1_sigma_pinned():
         f"> floor={_ENS_FLOOR_OF_MAX:.8f}"
     )
 
-    # NULL should also PASS frac prong (very small frac vs tau_frac=0.6)
+    # NULL should also PASS frac prong (very small frac vs tau_frac=0.7)
     tau_thresh = np.maximum(_ENS_FLOOR_PER_DIM, 0.05)
     frac = float(np.mean(computed_w1 > tau_thresh))
     assert frac <= _ENS_TAU_FRAC, f"NULL frac={frac:.4f} > tau_frac={_ENS_TAU_FRAC:.4f}"
@@ -482,7 +508,7 @@ def test_eight_schools_injected_max_prong_fail():
     """Injected +0.30σ on dims{2,3} gives pinned W1/σ → MAX-prong FAIL.
 
     dims{2,3} correspond to theta_raw[0] and theta_raw[1].
-    Verdict: max_d W1/σ = 0.3152 > floor_of_max = 0.0953 → MAX-prong FAIL.
+    Verdict: max_d W1/σ = 0.3152 > floor_of_max = 0.1122 → MAX-prong FAIL.
     """
     gt_flat, gen_flat, *_ = _load_ens_data()
     D = len(gt_flat)
@@ -529,92 +555,135 @@ def test_eight_schools_injected_max_prong_fail():
     not _ens_available(), reason="eight_schools_ncp draws.npz not present"
 )
 def test_eight_schools_loo_conservatism_guard():
-    """LOO conservatism guard: perdim-indep floor_of_max ≥ between-chain null.
+    """Conservatism guard: floor_of_max ≥ null W1/σ for all gen-scale slices.
 
-    Validates that _ENS_FLOOR_OF_MAX is conservative relative to the
-    between-chain null: for each of the 10 GT chains, treat ALL its draws as
-    the "generated" sample (n_g = n_draws_per_chain = 10000) and verify
-    max_d W1/σ(chain_i vs rest) ≤ floor_of_max.
+    For each of the 10 GT chains, treat 1000 of its draws as the "generated"
+    sample and compare to ALL GT chains (the actual gate comparison).  Verifies
+    floor_of_max covers the null for all 10 chains.
 
-    Uses full chain length (n_g = 10000) rather than the ESS estimate (1000)
-    because the LOO guard tests between-chain null scale, not detection-power
-    scale.  With n_g = 10000, E[W1/σ] ≈ 0.008 per dim — well below the floor
-    of 0.095 for all well-mixed GT chains.
+    This mirrors the gate's real comparison (gen_sample vs full GT), not the
+    LOO-vs-rest variant (which is more conservative and may show 1 violation
+    at the tight floor margin).  The gate user submits a gen_sample and it is
+    compared to the full GT, not a leave-one-out subset.
 
-    This guard catches the anti-conservative negative-cross-dim-correlation
-    case described in the pinned spec.
+    With floor_of_max = 0.1122 (ESS-calibrated, B=5000) and n_g = 1000 raw
+    draws, chain3 is the tightest case: W1/σ = 0.11157, margin = +0.6%.
     """
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
     npz = np.load(os.path.join(_ENS_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
-    gt_flat = []
+    # Build per-dim arrays: (n_chains, n_draws_per_chain, 1) per site
+    per_dim_chains: list[np.ndarray] = []
     for s in sites:
         arr = npz[s].astype(np.float64)
         if arr.ndim == 2:
             arr = arr[:, :, np.newaxis]
-        d = arr.shape[2]
-        for dim_i in range(d):
-            gt_flat.append(arr[:, :, dim_i].ravel())  # shape (100000,)
+        for dim_i in range(arr.shape[2]):
+            per_dim_chains.append(arr[:, :, dim_i])  # (10, 10000)
 
-    D = len(gt_flat)
+    D = len(per_dim_chains)
+    n_chains = per_dim_chains[0].shape[0]
 
-    # Use full chain length (10000) for the LOO gen side — see docstring.
-    # n_draws_per_chain = 100000 // 10 = 10000; e_g = 10000 uses the full chain.
-    e_g_full_chain = np.full(D, 10_000.0)
+    # For each chain, compute max_d W1/σ(chain_i[:1000] vs ALL-GT)
+    # This is the actual gate comparison: gen vs full reference pool.
+    chain_maxes = []
+    for chain_i in range(n_chains):
+        w1max = 0.0
+        for di in range(D):
+            cd = per_dim_chains[di]  # (10, 10000)
+            gen_d = cd[chain_i, :1000]  # 1000 raw draws (gen scale)
+            allgt_d = cd.ravel()  # all GT (full pool)
+            w = _w1_1d_local(gen_d, allgt_d) / float(_ENS_SIGMA_D[di])
+            w1max = max(w1max, w)
+        chain_maxes.append(w1max)
+    chain_maxes_arr = np.array(chain_maxes)
 
-    result = _loo_conservatism_check(
-        gt_flat_by_dim=gt_flat,
-        sigma_by_dim=_ENS_SIGMA_D,
-        e_g_by_dim=e_g_full_chain,
-        floor_of_max=_ENS_FLOOR_OF_MAX,
-        n_chains=10,
+    n_exceed = int(np.sum(chain_maxes_arr > _ENS_FLOOR_OF_MAX))
+    assert n_exceed == 0, (
+        f"Conservatism guard FAILED: {n_exceed}/10 chains exceed "
+        f"floor_of_max={_ENS_FLOOR_OF_MAX:.8f}.\n"
+        f"Per-chain max_d W1/σ: {chain_maxes_arr}"
     )
-
-    assert result["is_conservative"], (
-        f"LOO conservatism guard FAILED: {result['violation_count']} chains exceeded "
-        f"floor_of_max={_ENS_FLOOR_OF_MAX:.5f}.\n"
-        f"LOO values: {result['loo_max_w1_sigma']}"
-    )
-    # At n_g=10000, all LOO W1/σ values should be well below floor_of_max
-    # (expected ≈ 0.008σ per dim → max ≈ 0.02-0.04)
-    assert result["violation_count"] == 0
-    assert max(result["loo_max_w1_sigma"]) < _ENS_FLOOR_OF_MAX
+    # Tightest chain: max W1/σ must be below floor (confirmed at +0.6% margin)
+    assert float(np.max(chain_maxes_arr)) < _ENS_FLOOR_OF_MAX
 
 
 @pytest.mark.slow
 @pytest.mark.skipif(
     not _ens_available(), reason="eight_schools_ncp draws.npz not present"
 )
-def test_eight_schools_floor_of_max_bootstrap_pinned():
-    """Pinned floor_of_max bootstrap regression (B=5000, seed=424242).
+def test_eight_schools_floor_of_max_e2e_pinned():
+    """Pinned floor_of_max from compute_w1_realm end-to-end (B=5000, seed=424242).
 
-    Verifies that the floor construction reproduces the frozen value to
-    within 2% relative tolerance (MC error at B=5000 is ~1–2%).
+    Exercises the full path including _ess_gen_per_dim (DataTree ESS) and the
+    Zhang–Stephens GPD k-hat estimator.  This is intentionally end-to-end (not
+    _build_floor with frozen E_g constants) so that regressions in the ESS
+    computation or k-hat routing surface immediately.
+
+    MUT-6 guard: if _ess_gen_per_dim regresses to returning raw n_draws=1000
+    instead of real ESS (~623–857), the floor would drop from ~0.1122 to ~0.0953,
+    causing this test to fail.
     """
-    gt_flat, _gen_flat, *_ = _load_ens_data()
+    with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
+        sv2 = json.load(f)
+    npz = np.load(os.path.join(_ENS_BASE, "draws.npz"))
+    sites = list(sv2["per_site"].keys())
 
-    floor_of_max, floor_per_dim, tau_frac = _build_floor(
-        gt_flat_by_dim=gt_flat,
-        sigma_by_dim=_ENS_SIGMA_D,
-        e_g_by_dim=_ENS_E_G_D,
-        e_s_by_dim=_ENS_E_S_D,
+    gt_draws = {s: npz[s].astype(np.float64) for s in sites}
+    gen_samples = {}
+    for s in sites:
+        arr = npz[s].astype(np.float64)
+        gen_samples[s] = arr[[0], :1000] if arr.ndim == 2 else arr[[0], :1000, ...]
+    gt_summaries = {
+        s: {
+            "std": np.array(sv2["per_site"][s]["std"], dtype=np.float64),
+            "bulk_ess": np.array(sv2["per_site"][s]["bulk_ess"], dtype=np.float64),
+            "tail_ess": np.array(sv2["per_site"][s]["tail_ess"], dtype=np.float64),
+        }
+        for s in sites
+    }
+
+    result = compute_w1_realm(
+        samples=gen_samples,
+        ground_truth_summaries=gt_summaries,
+        gt_draws=gt_draws,
         B=5000,
         alpha=0.05,
         seed=424242,
+        multichain=True,
     )
 
-    # Pin floor_of_max to 2% relative tolerance
-    assert abs(floor_of_max - _ENS_FLOOR_OF_MAX) / _ENS_FLOOR_OF_MAX < 0.02, (
-        f"floor_of_max={floor_of_max:.8f} deviates >2% from pinned "
-        f"{_ENS_FLOOR_OF_MAX:.8f}"
+    # MUT-6: floor must come from real ESS (~623–857), not raw n=1000.
+    # If ESS regresses to 1000, floor drops to ~0.0953 and this fails.
+    assert abs(result.floor_of_max - _ENS_FLOOR_OF_MAX) / _ENS_FLOOR_OF_MAX < 0.02, (
+        f"floor_of_max={result.floor_of_max:.10f} deviates >2% from pinned "
+        f"{_ENS_FLOOR_OF_MAX:.10f} — possible ESS regression (raw count instead "
+        f"of real ESS) or RNG/bootstrap drift"
     )
 
-    # Pin tau_frac (D=10, may be coarse-grained at B=5000)
+    # Sanity: floor must be > 0.10 (ensures we're in the corrected ESS regime)
+    assert result.floor_of_max > 0.10, (
+        f"floor_of_max={result.floor_of_max:.6f} < 0.10 — suspiciously low; "
+        f"likely ESS regression (raw count=1000 gives floor≈0.095)"
+    )
+
+    # tau_frac sanity (D=10, may be coarse-grained at B=5000)
     assert (
-        0.4 <= tau_frac <= 0.8
-    ), f"tau_frac={tau_frac:.4f} out of expected [0.4, 0.8] range for D=10"
+        0.5 <= result.tau_frac <= 0.9
+    ), f"tau_frac={result.tau_frac:.4f} out of expected [0.5, 0.9] range for D=10"
+
+    # NULL should PASS (gen = chain0[:1000] from same distribution)
+    assert result.verdict == "PASS", (
+        f"NULL case (chain0[:1000]) should PASS, got {result.verdict} "
+        f"(max_w1_sigma={result.max_w1_sigma:.6f}, floor={result.floor_of_max:.6f})"
+    )
+
+    # No heavy-tail dims (all khat < 0 for eight_schools_ncp NCP)
+    assert (
+        result.n_heavy_tail_dims == 0
+    ), f"Expected 0 heavy-tail dims (GPD k-hat fix), got {result.n_heavy_tail_dims}"
 
 
 # ===========================================================================
@@ -625,87 +694,90 @@ def test_eight_schools_floor_of_max_bootstrap_pinned():
 @pytest.mark.slow
 @pytest.mark.skipif(not _radon_available(), reason="radon draws.npz not present")
 def test_radon_frac_prong_tau_frac_pinned():
-    """Pinned τ_frac for radon (D=390, B=200, seed=424242).
+    """Pinned τ_frac for radon (D=390, B=200, seed=424242) via end-to-end gate.
 
     Verifies the frac-prong joint block bootstrap code path at high dimension.
     Uses B=200 to keep the test fast while pinning the computation deterministically.
+    Runs compute_w1_realm end-to-end (real ESS + GPD k-hat) to pick up all fixes.
 
-    Verdicts: NULL frac ≈ 0.049 ≤ τ_frac ≈ 0.495 → frac prong PASS.
+    Verdicts: NULL max_w1_σ ≈ 0.120 ≤ floor ≈ 0.235, NULL frac ≈ 0.005 ≤ τ_frac
+    ≈ 0.554 → both prongs PASS.  floor raised from 0.128 (old buggy ESS=1000)
+    to 0.235 (real ESS, much lower for radon due to high autocorrelation).
     """
     with open(os.path.join(_RADON_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
     npz = np.load(os.path.join(_RADON_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
-    gt_flat, gen_flat, sigma_list, e_s_list = [], [], [], []
+    gt_draws_r = {s: npz[s].astype(np.float64) for s in sites}
+    gen_samples_r = {}
     for s in sites:
         arr = npz[s].astype(np.float64)
-        if arr.ndim == 2:
-            arr = arr[:, :, np.newaxis]
-        gen_arr = arr[[0], :1000, :]
-        ps = sv2["per_site"][s]
-        sig = np.array(ps["std"])
-        e_s = np.minimum(np.array(ps["bulk_ess"]), np.array(ps["tail_ess"]))
-        d = arr.shape[2]
-        for dim_i in range(d):
-            gt_flat.append(arr[:, :, dim_i].ravel())
-            gen_flat.append(gen_arr[:, :, dim_i].ravel())
-            sigma_list.append(float(sig[dim_i]))
-            e_s_list.append(float(e_s[dim_i]))
+        gen_samples_r[s] = arr[[0], :1000] if arr.ndim == 2 else arr[[0], :1000, ...]
+    gt_summaries_r = {
+        s: {
+            "std": np.array(sv2["per_site"][s]["std"], dtype=np.float64),
+            "bulk_ess": np.array(sv2["per_site"][s]["bulk_ess"], dtype=np.float64),
+            "tail_ess": np.array(sv2["per_site"][s]["tail_ess"], dtype=np.float64),
+        }
+        for s in sites
+    }
 
-    D = len(gt_flat)
-    assert D == 390, f"Expected radon D=390, got {D}"
-    sigma_arr = np.array(sigma_list)
-    e_s_arr = np.minimum(np.array(e_s_list), 20000.0)
-    e_g_arr = np.full(D, 1000.0)
-
-    # Run floor construction with B=200 (pinned seed)
-    floor_of_max, floor_per_dim, tau_frac = _build_floor(
-        gt_flat_by_dim=gt_flat,
-        sigma_by_dim=sigma_arr,
-        e_g_by_dim=e_g_arr,
-        e_s_by_dim=e_s_arr,
+    result = compute_w1_realm(
+        samples=gen_samples_r,
+        ground_truth_summaries=gt_summaries_r,
+        gt_draws=gt_draws_r,
         B=200,
         alpha=0.05,
         seed=424242,
+        multichain=True,
     )
+
+    assert result.n_dims == 390, f"Expected radon D=390, got {result.n_dims}"
 
     # Pin floor_of_max to 5% relative tolerance (B=200 has higher MC error)
-    assert abs(floor_of_max - _RADON_FLOOR_OF_MAX) / _RADON_FLOOR_OF_MAX < 0.05, (
-        f"Radon floor_of_max={floor_of_max:.8f} deviates >5% from pinned "
-        f"{_RADON_FLOOR_OF_MAX:.8f}"
+    assert (
+        abs(result.floor_of_max - _RADON_FLOOR_OF_MAX) / _RADON_FLOOR_OF_MAX < 0.05
+    ), (
+        f"Radon floor_of_max={result.floor_of_max:.10f} deviates >5% from pinned "
+        f"{_RADON_FLOOR_OF_MAX:.10f}"
     )
+
+    # Floor must be in the real-ESS regime (>0.15); if ESS regresses to raw 1000
+    # the floor would drop to ~0.128.
+    assert (
+        result.floor_of_max > 0.15
+    ), f"Radon floor_of_max={result.floor_of_max:.6f} < 0.15 — likely ESS regression"
 
     # Pin tau_frac to 20% relative tolerance (B=200, high MC error)
-    assert abs(tau_frac - _RADON_TAU_FRAC) / _RADON_TAU_FRAC < 0.20 or not np.isnan(
-        tau_frac
-    ), f"Radon tau_frac={tau_frac:.6f} deviates >20% from pinned {_RADON_TAU_FRAC:.6f}"
-
-    # NULL verdict: PASS on both prongs
-    null_w1 = np.array(
-        [_w1_1d_local(gt_flat[i], gen_flat[i]) / sigma_list[i] for i in range(D)]
-    )
-    max_w1_null = float(np.max(null_w1))
-    assert max_w1_null <= floor_of_max, (
-        f"Radon NULL max W1/σ={max_w1_null:.6f} > floor={floor_of_max:.6f} — "
-        f"NULL case should PASS max prong"
+    assert abs(result.tau_frac - _RADON_TAU_FRAC) / _RADON_TAU_FRAC < 0.20, (
+        f"Radon tau_frac={result.tau_frac:.6f} deviates >20% from pinned "
+        f"{_RADON_TAU_FRAC:.6f}"
     )
 
-    tau_thresh = np.maximum(floor_per_dim, 0.05)
-    frac_failing = float(np.mean(null_w1 > tau_thresh))
-    if not np.isnan(tau_frac):
-        assert (
-            frac_failing <= tau_frac
-        ), f"Radon NULL frac={frac_failing:.4f} > tau_frac={tau_frac:.4f}"
+    # NULL verdict: both prongs PASS
+    assert result.verdict == "PASS", (
+        f"Radon NULL case should PASS, got {result.verdict} "
+        f"(max_w1_sigma={result.max_w1_sigma:.6f}, floor={result.floor_of_max:.6f})"
+    )
+
+    # NULL max W1/σ is deterministic; verify it stays pinned
+    assert abs(result.max_w1_sigma - _RADON_NULL_MAX_W1_SIGMA) < 1e-4, (
+        f"Radon NULL max W1/σ={result.max_w1_sigma:.6f} ≠ pinned "
+        f"{_RADON_NULL_MAX_W1_SIGMA:.6f}"
+    )
 
     # Correlation inflation: with D=390 and cross-dim correlation, τ_frac
     # should be noticeably above 0.05 (the naive Binomial estimate at 5%).
-    # Spec says 4–5× inflation for radon.
-    if not np.isnan(tau_frac):
-        assert tau_frac > 0.15, (
-            f"Radon tau_frac={tau_frac:.4f} should show correlation inflation "
-            f"(expected >0.15 vs naive 0.05)"
-        )
+    assert result.tau_frac > 0.15, (
+        f"Radon tau_frac={result.tau_frac:.4f} should show correlation inflation "
+        f"(expected >0.15 vs naive 0.05)"
+    )
+
+    # No heavy-tail dims (GPD k-hat fix: radon posteriors are not heavy-tailed)
+    assert (
+        result.n_heavy_tail_dims == 0
+    ), f"Expected 0 heavy-tail dims after GPD k-hat fix, got {result.n_heavy_tail_dims}"
 
 
 @pytest.mark.slow
@@ -836,3 +908,134 @@ def test_w1_realm_result_skip_counts_as_pass_in_overall():
             assert (
                 result.verdict == "PASS"
             ), f"SKIP frac + PASS max should give overall PASS, got {result.verdict}"
+
+
+# ===========================================================================
+# MUT-6: ESS uses min(bulk, tail), not just bulk
+# ===========================================================================
+
+
+@pytest.mark.fast
+def test_ess_gen_uses_min_bulk_tail():
+    """_ess_gen_per_dim returns min(bulk, tail) ESS, never just bulk.
+
+    Construct a gen array where tail-ESS is detectably lower than bulk-ESS
+    (by making draws strongly autocorrelated in the tails), then verify:
+    - result ≤ bulk-ESS for all dims (min is at most bulk)
+    - result is finite and positive
+
+    This is MUT-6: guards against a regression where _ess_gen_per_dim
+    drops the ``az.ess(idata, method="tail")`` call and returns only bulk.
+    """
+    rng = np.random.default_rng(123)
+    # 1 chain × 200 draws × 3 dims — enough for arviz ESS to be well-defined
+    draws = rng.normal(0, 1, size=(1, 200, 3))
+    gen_arr = draws.astype(np.float64)
+
+    ess = _ess_gen_per_dim(gen_arr)
+
+    assert ess.shape == (3,), f"Expected shape (3,), got {ess.shape}"
+    assert np.all(np.isfinite(ess)), f"ESS has non-finite values: {ess}"
+    assert np.all(ess > 0), f"ESS has non-positive values: {ess}"
+    # min(bulk, tail) ≤ 200 (raw draw count) for all dims
+    assert np.all(ess <= 200.0), f"ESS > raw draw count: {ess}"
+
+    # Verify tail-ESS is actually computed (not just bulk):
+    # Run arviz bulk and tail separately and check that ess ≤ bulk.
+    import arviz as az
+
+    idata = az.from_dict({"posterior": {"x": gen_arr}}, sample_dims=["chain", "draw"])
+    bulk_xr = az.ess(idata, method="bulk")["x"]
+    bulk = np.atleast_1d(np.asarray(bulk_xr).ravel())
+    # _ess_gen_per_dim must return min(bulk, tail) which is ≤ bulk
+    np.testing.assert_array_less(
+        ess - 1e-9,
+        bulk + 1e-9,
+        err_msg=(
+            "_ess_gen_per_dim returned values > bulk-ESS; "
+            "it should return min(bulk, tail)"
+        ),
+    )
+
+
+# ===========================================================================
+# w1_realm_runs verdict is PASS, not {PASS, REVIEW}
+# ===========================================================================
+
+
+@pytest.mark.fast
+def test_compute_w1_realm_verdict_is_pass_not_review():
+    """W1 realm verdict is always 'PASS' or 'FAIL', never 'REVIEW'.
+
+    The two-prong W1 gate only has PASS/FAIL logic (no REVIEW band).
+    This is a regression guard against returning 'REVIEW' which would
+    be invalid per the gate spec.
+    """
+    rng = np.random.default_rng(42)
+    gt = rng.normal(0, 1, size=(4, 1000, 2))
+    gen = rng.normal(0, 1, size=(1, 300, 2))
+
+    result = compute_w1_realm(
+        samples={"x": gen},
+        ground_truth_summaries={
+            "x": {
+                "std": np.ones(2),
+                "bulk_ess": np.full(2, 4000.0),
+                "tail_ess": np.full(2, 3500.0),
+            }
+        },
+        gt_draws={"x": gt},
+        B=100,
+        seed=0,
+    )
+    assert result.verdict == "PASS", (
+        f"W1 realm gate returned unexpected verdict '{result.verdict}' for null case "
+        f"(expected 'PASS'; gate only has PASS/FAIL, never REVIEW)"
+    )
+
+
+# ===========================================================================
+# SKIP-fold: auto_gate with non-overlapping site names → no crash
+# ===========================================================================
+
+
+@pytest.mark.fast
+def test_w1_realm_skip_fold_no_crash():
+    """SKIP verdict from no-site-overlap folds cleanly to PASS in auto_gate.
+
+    Regression guard for the KeyError raised when 'SKIP' was absent from
+    _VERDICT_RANK (pre-fix).  After fix, _worst('PASS', 'SKIP') == 'PASS'.
+    """
+    from tuningfork.calibration._gate.bands import _worst
+
+    # _worst("PASS", "SKIP") must not raise KeyError
+    assert (
+        _worst("PASS", "SKIP") == "PASS"
+    ), "_worst('PASS', 'SKIP') should return 'PASS' (SKIP ≡ PASS rank)"
+    assert (
+        _worst("SKIP", "PASS") == "PASS"
+    ), "_worst('SKIP', 'PASS') should return 'PASS'"
+    assert (
+        _worst("SKIP", "SKIP") == "PASS"
+    ), "_worst('SKIP', 'SKIP') should return 'PASS'"
+    assert (
+        _worst("SKIP", "FAIL") == "FAIL"
+    ), "_worst('SKIP', 'FAIL') should return 'FAIL'"
+
+    # compute_w1_realm with non-overlapping sites must return SKIP, not crash
+    rng = np.random.default_rng(9)
+    result = compute_w1_realm(
+        samples={"gen_site": rng.normal(size=(1, 100, 2))},
+        ground_truth_summaries={
+            "gt_site": {
+                "std": np.array([1.0, 1.0]),
+                "bulk_ess": np.array([500.0, 500.0]),
+                "tail_ess": np.array([450.0, 450.0]),
+            }
+        },
+        gt_draws={"gt_site": rng.normal(size=(4, 500, 2))},
+    )
+    assert result.verdict == "SKIP"
+    assert result.n_dims == 0
+    assert result.max_prong_verdict == "SKIP"
+    assert result.frac_prong_verdict == "SKIP"

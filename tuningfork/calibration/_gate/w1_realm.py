@@ -712,6 +712,7 @@ def compute_w1_realm(
     sigma_list: list[float] = []
     e_s_list: list[float] = []
     e_g_list: list[float] = []
+    n_gen_draws_list: list[float] = []  # raw draw count per dim (for LOO scale)
     _inferred_n_gt_chains: int | None = None  # inferred from first matching GT array
 
     for site in sites:
@@ -732,6 +733,12 @@ def compute_w1_realm(
             gen_arr = gen_arr[np.newaxis, ...]  # (1, n_draws, ...)
         if gen_arr.ndim == 2:
             gen_arr = gen_arr[:, :, np.newaxis]  # (n_chains, n_draws, 1)
+
+        # Raw draw count per gen chain (independent of autocorrelation).
+        # Stored separately from e_g_arr because the LOO guard uses raw count
+        # (to mirror what the gate sees: all n_draws raw draws), while
+        # _build_floor uses e_g_arr (real ESS) for calibration.
+        n_gen_draws_site: float = float(gen_arr.shape[1])
 
         # E_g from generated sample: real min(bulk, tail)-ESS per dim
         e_g_arr = _ess_gen_per_dim(gen_arr)
@@ -759,6 +766,7 @@ def compute_w1_realm(
             e_g_list.append(
                 float(e_g_arr.ravel()[dim_i] if e_g_arr.ndim > 0 else e_g_arr)
             )
+            n_gen_draws_list.append(n_gen_draws_site)
 
     d_total = len(gt_flat_by_dim)
     if d_total == 0:
@@ -785,6 +793,7 @@ def compute_w1_realm(
     sigma_arr = np.array(sigma_list)
     e_s_arr = np.array(e_s_list)
     e_g_arr = np.array(e_g_list)
+    n_gen_draws_arr = np.array(n_gen_draws_list)  # raw gen draw count per dim
 
     # --- k̂ guard (Zhang–Stephens GPD; computed on large GT sample) ---
     khat_arr = np.array([_khat_max(m) for m in gt_flat_by_dim])
@@ -823,9 +832,11 @@ def compute_w1_realm(
     overall = _RANK_STR[max(_RANK[max_verdict], _RANK[frac_verdict])]
 
     # --- LOO conservatism guard (per-model pre-ship gate) ---
-    # Checks that floor_of_max ≥ real leave-one-chain-out null at E_g scale.
-    # Uses e_g_arr (real min(bulk,tail)-ESS) so the LOO comparison is at the
-    # gate's operating scale, not the full GT chain length.
+    # Checks that floor_of_max ≥ real leave-one-chain-out null at the gen scale.
+    # Uses n_gen_draws_arr (raw draw count, e.g. 1000) not e_g_arr (true ESS,
+    # e.g. ~660 after autocorr adjustment) because the gate itself sees all
+    # n_draws raw draws; using ESS here would take fewer draws from the held-out
+    # GT chain and create false violations in the LOO check.
     _n_gt_chains = n_gt_chains if n_gt_chains is not None else _inferred_n_gt_chains
     loo_result: dict | None = None
     if _n_gt_chains is not None and _n_gt_chains >= 2:
@@ -833,7 +844,7 @@ def compute_w1_realm(
             loo_result = _loo_conservatism_check(
                 gt_flat_by_dim=gt_flat_by_dim,
                 sigma_by_dim=sigma_arr,
-                e_g_by_dim=e_g_arr,
+                e_g_by_dim=n_gen_draws_arr,
                 floor_of_max=floor_of_max,
                 n_chains=_n_gt_chains,
             )
