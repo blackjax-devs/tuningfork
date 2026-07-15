@@ -55,6 +55,7 @@ from tuningfork.calibration._gate.w1_realm import (
     W1RealmResult,
     _ess_gen_per_dim,
     _khat_max,
+    _loo_conservatism_check,
     _w1_1d,
     compute_w1_realm,
 )
@@ -555,59 +556,76 @@ def test_eight_schools_injected_max_prong_fail():
     not _ens_available(), reason="eight_schools_ncp draws.npz not present"
 )
 def test_eight_schools_loo_conservatism_guard():
-    """Conservatism guard: floor_of_max ≥ null W1/σ for all gen-scale slices.
+    """LOO conservatism guard via _loo_conservatism_check (convention A).
 
-    For each of the 10 GT chains, treat 1000 of its draws as the "generated"
-    sample and compare to ALL GT chains (the actual gate comparison).  Verifies
-    floor_of_max covers the null for all 10 chains.
+    Convention A: each held-out GT chain compared against the OTHER 9 chains
+    (leave-one-out), implemented by the gate's own ``_loo_conservatism_check``.
+    Uses the §3 k_crit criterion: k_crit=1 for n_chains=10, meaning one
+    violation is ALLOWED (the floor is a q_{0.95} quantile, so ~0.5/10
+    exceedances are expected; "0 violations" would reject a correctly-calibrated
+    floor ~40% of the time).
 
-    This mirrors the gate's real comparison (gen_sample vs full GT), not the
-    LOO-vs-rest variant (which is more conservative and may show 1 violation
-    at the tight floor margin).  The gate user submits a gen_sample and it is
-    compared to the full GT, not a leave-one-out subset.
+    eight_schools result under convention A: 1/10 violation at +1.9%.
+    count rule: 1 ≤ k_crit=1 → passes.
+    severity rule: +1.9% ≤ 5% → passes.
+    is_conservative: True.
 
-    With floor_of_max = 0.1122 (ESS-calibrated, B=5000) and n_g = 1000 raw
-    draws, chain3 is the tightest case: W1/σ = 0.11157, margin = +0.6%.
+    This replaces the R1 convention-C golden which used all-GT-self-included
+    (a ~2.4%-lower statistic that hid the real LOO violation).
     """
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
     npz = np.load(os.path.join(_ENS_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
-    # Build per-dim arrays: (n_chains, n_draws_per_chain, 1) per site
-    per_dim_chains: list[np.ndarray] = []
+    gt_flat: list[np.ndarray] = []
+    sigma_list: list[float] = []
     for s in sites:
         arr = npz[s].astype(np.float64)
         if arr.ndim == 2:
             arr = arr[:, :, np.newaxis]
+        sig = np.atleast_1d(np.array(sv2["per_site"][s]["std"], dtype=np.float64))
         for dim_i in range(arr.shape[2]):
-            per_dim_chains.append(arr[:, :, dim_i])  # (10, 10000)
+            gt_flat.append(arr[:, :, dim_i].ravel())
+            sigma_list.append(float(sig[dim_i]))
+    sigma_arr = np.array(sigma_list)
+    D = len(gt_flat)
+    n_chains = 10
 
-    D = len(per_dim_chains)
-    n_chains = per_dim_chains[0].shape[0]
+    # Use raw draw count (not ESS) per convention A spec.
+    e_g_raw = np.full(D, 1000.0)
 
-    # For each chain, compute max_d W1/σ(chain_i[:1000] vs ALL-GT)
-    # This is the actual gate comparison: gen vs full reference pool.
-    chain_maxes = []
-    for chain_i in range(n_chains):
-        w1max = 0.0
-        for di in range(D):
-            cd = per_dim_chains[di]  # (10, 10000)
-            gen_d = cd[chain_i, :1000]  # 1000 raw draws (gen scale)
-            allgt_d = cd.ravel()  # all GT (full pool)
-            w = _w1_1d_local(gen_d, allgt_d) / float(_ENS_SIGMA_D[di])
-            w1max = max(w1max, w)
-        chain_maxes.append(w1max)
-    chain_maxes_arr = np.array(chain_maxes)
-
-    n_exceed = int(np.sum(chain_maxes_arr > _ENS_FLOOR_OF_MAX))
-    assert n_exceed == 0, (
-        f"Conservatism guard FAILED: {n_exceed}/10 chains exceed "
-        f"floor_of_max={_ENS_FLOOR_OF_MAX:.8f}.\n"
-        f"Per-chain max_d W1/σ: {chain_maxes_arr}"
+    result = _loo_conservatism_check(
+        gt_flat_by_dim=gt_flat,
+        sigma_by_dim=sigma_arr,
+        e_g_by_dim=e_g_raw,
+        floor_of_max=_ENS_FLOOR_OF_MAX,
+        n_chains=n_chains,
     )
-    # Tightest chain: max W1/σ must be below floor (confirmed at +0.6% margin)
-    assert float(np.max(chain_maxes_arr)) < _ENS_FLOOR_OF_MAX
+
+    # k_crit=1 for n_chains=10 (P(Bin(10,0.05) >= 2) = 0.086 ≤ 0.10)
+    assert (
+        result["k_crit"] == 1
+    ), f"Expected k_crit=1 for n_chains=10, got {result['k_crit']}"
+    # Count rule: convention A gives exactly 1/10 violation (not 0/10 as in the
+    # R1 conv-C golden which compared each chain to all-GT including itself).
+    assert result["violation_count"] <= result["k_crit"], (
+        f"violation_count={result['violation_count']} > k_crit={result['k_crit']}: "
+        f"too many LOO exceedances.\n"
+        f"LOO values: {result['loo_max_w1_sigma']}\n"
+        f"floor_of_max={_ENS_FLOOR_OF_MAX:.8f}"
+    )
+    # Severity rule: max LOO null ≤ floor * 1.05 (1.9% overshoot < 5% limit).
+    max_loo = max(result["loo_max_w1_sigma"])
+    assert (
+        max_loo <= _ENS_FLOOR_OF_MAX * 1.05
+    ), f"Severity rule FAILED: max_loo={max_loo:.5f} > floor*1.05={_ENS_FLOOR_OF_MAX * 1.05:.5f}"
+    # is_conservative must be True (both count and severity rules pass).
+    assert result["is_conservative"] is True, (
+        f"is_conservative=False despite valid count ({result['violation_count']}) and "
+        f"severity ({max_loo:.5f} vs {_ENS_FLOOR_OF_MAX * 1.05:.5f}) — "
+        f"floor {_ENS_FLOOR_OF_MAX:.8f} is anti-conservative under convention A"
+    )
 
 
 @pytest.mark.slow

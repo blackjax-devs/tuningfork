@@ -237,8 +237,7 @@ def _assemble_verdict(
 
     # --- W1 realm block (stage 4.5 — runs only when gt_draws provided and stage-1 passes) ---
     if w1_realm_result is not None:
-        # Map SKIP → PASS for the verdict fold so _worst never sees "SKIP"
-        # (which is absent from _VERDICT_RANK; see constants.py for the rationale).
+        # _worst handles SKIP by mapping it to rank 0 (same as PASS); see _VERDICT_RANK.
         w1_verdict = w1_realm_result.verdict
         margins["w1_realm"] = {
             "verdict": w1_verdict,

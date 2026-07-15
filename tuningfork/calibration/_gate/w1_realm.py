@@ -489,8 +489,54 @@ def _compute_tau_frac(
 
 
 # ---------------------------------------------------------------------------
-# LOO conservatism guard (pre-ship validation)
+# LOO conservatism guard (pin-time validation)
 # ---------------------------------------------------------------------------
+
+
+def _k_crit_binom(n: int, p: float = _DEFAULT_ALPHA, fwer: float = 0.10) -> int:
+    """Smallest k such that P(Bin(n, p) >= k+1) <= fwer.
+
+    Used by ``_loo_conservatism_check`` to allow the expected exceedance rate
+    under a correctly-calibrated floor.  The floor is a q_{1-p} quantile,
+    so ~p * n_chains exceedances are expected in the LOO null distribution;
+    a "0 violations" rule would reject a correctly-calibrated floor with
+    probability ~40% for n_chains=10, p=0.05.
+
+    For n=10, p=0.05, fwer=0.10:
+        P(X >= 2) = 0.0861 <= 0.10 → k_crit = 1.
+
+    Parameters
+    ----------
+    n
+        Number of trials (n_chains).
+    p
+        Expected exceedance probability per chain (default α=0.05).
+    fwer
+        Family-wise error rate bound.  k_crit is the largest k for which
+        P(X >= k+1) <= fwer.
+
+    Returns
+    -------
+    int
+        Largest allowed violation count; 0 when the bound cannot be achieved
+        at k=0 (i.e., n is very large or p is high).
+    """
+    # Compute binomial PMF incrementally: P(X=j) = C(n,j) p^j (1-p)^{n-j}
+    q = 1.0 - p
+    pmf = [0.0] * (n + 1)
+    pmf[0] = q**n
+    for j in range(1, n + 1):
+        pmf[j] = pmf[j - 1] * ((n - j + 1) / j) * (p / q)
+    # Accumulate CDF
+    cdf = [0.0] * (n + 1)
+    cdf[0] = pmf[0]
+    for j in range(1, n + 1):
+        cdf[j] = cdf[j - 1] + pmf[j]
+    # Find smallest k s.t. P(X >= k+1) = 1 - CDF[k] <= fwer
+    for k in range(n + 1):
+        if 1.0 - cdf[k] <= fwer:
+            return k
+    return n
 
 
 def _loo_conservatism_check(
@@ -503,15 +549,27 @@ def _loo_conservatism_check(
     alpha: float = _DEFAULT_ALPHA,
     seed: int | None = None,
 ) -> dict:
-    """Validate floor_of_max ≥ real leave-one-chain-out null.
+    """Validate floor_of_max against the real leave-one-chain-out null.
+
+    **Pin-time guard only** — call once when pinning a model's floor, not on
+    every runtime invocation of ``compute_w1_realm``.
 
     Computes the LOO null by treating each GT chain in turn as the "generated
-    sample" and computing max_d W1/σ against the remaining (n_chains−1) chains.
-    Returns the LOO max_d W1/σ values and whether floor_of_max is conservative.
+    sample" (convention A: held chain vs the OTHER n_chains−1 chains) and
+    computing max_d W1/σ against the remaining chains.  Returns all LOO values
+    and whether floor_of_max is conservative under the §3 k_crit criterion.
 
-    This is the pre-ship guard from the pinned spec: if any LOO null exceeds
-    floor_of_max, the floor is anti-conservative (negative cross-dim correlation
-    case).
+    **PASS criterion (§3):**
+
+    ``is_conservative = (violations <= k_crit) AND (max_LOO <= floor_of_max * 1.05)``
+
+    where
+
+    * ``k_crit = _k_crit_binom(n_chains)`` — allows the expected exceedance rate
+      (floor is a q_{1-α} quantile, so ~0.5/10 exceedances are expected; "0
+      violations" rejects a correctly-calibrated floor ~40% of the time).
+    * severity rule ``max_LOO <= floor * 1.05`` — catches gross overshoots (e.g.
+      radon ESS-88 dim at +7.2% pre-fix fails; eight_schools at +1.9% passes).
 
     Parameters
     ----------
@@ -520,7 +578,8 @@ def _loo_conservatism_check(
     sigma_by_dim
         Shape (D,) — GT pooled std.
     e_g_by_dim
-        Shape (D,) — effective size used for generated sample (per dim).
+        Shape (D,) — raw draw count per dim for the held-out gen slice
+        (use raw n_draws, NOT effective ESS, to match the gate's comparison).
     floor_of_max
         The bootstrap floor_of_max to validate.
     n_chains
@@ -535,8 +594,9 @@ def _loo_conservatism_check(
     dict with keys:
         ``loo_max_w1_sigma``: list of float (one per held-out chain).
         ``floor_of_max``:     float (the input value, echoed).
-        ``is_conservative``:  bool (True when all LOO nulls ≤ floor_of_max).
+        ``is_conservative``:  bool — True when both count and severity rules pass.
         ``violation_count``:  int (number of chains where LOO > floor_of_max).
+        ``k_crit``:           int (allowed violation count for n_chains).
     """
     d = len(gt_flat_by_dim)
     # Infer n_draws per chain from total length
@@ -551,17 +611,18 @@ def _loo_conservatism_check(
 
     loo_max_values = []
     for held_out in range(n_chains):
-        # Split GT marginal per dim into held-out chain vs remaining
+        # Split GT marginal per dim into held-out chain vs the OTHER n_chains-1.
+        # Convention A: held chain vs the remaining chains (NOT all-GT self-included).
         gen_per_dim = []
         rest_per_dim = []
         for dim_i in range(d):
             marginal = gt_flat_by_dim[dim_i]
             reshaped = marginal.reshape(n_chains, n_draws_per_chain)
-            # Limit to effective size E_g (don't use full chain if ESS < n_draws)
+            # Limit to raw draw count E_g (not ESS — see docstring)
             n_g = max(1, int(round(float(e_g_by_dim[dim_i]))))
             n_g = min(n_g, n_draws_per_chain)
             gen_per_dim.append(reshaped[held_out, :n_g])
-            # Remaining chains flattened
+            # Remaining chains flattened (convention A: exclude held chain)
             rest_idx = [c for c in range(n_chains) if c != held_out]
             rest_per_dim.append(reshaped[rest_idx, :].ravel())
 
@@ -575,12 +636,19 @@ def _loo_conservatism_check(
             w1_vals[dim_i] = _w1_1d(gen_per_dim[dim_i], rest_per_dim[dim_i]) / sig
         loo_max_values.append(float(np.max(w1_vals)))
 
+    k_crit = _k_crit_binom(n_chains)
     violation_count = sum(v > floor_of_max for v in loo_max_values)
+    max_loo = max(loo_max_values)
+    # §3 criterion: count rule + severity rule
+    count_ok = violation_count <= k_crit
+    severity_ok = max_loo <= floor_of_max * 1.05
+    is_conservative = count_ok and severity_ok
     return {
         "loo_max_w1_sigma": loo_max_values,
         "floor_of_max": floor_of_max,
-        "is_conservative": violation_count == 0,
+        "is_conservative": is_conservative,
         "violation_count": violation_count,
+        "k_crit": k_crit,
     }
 
 
@@ -647,7 +715,9 @@ class W1RealmResult(NamedTuple):
     B: int
     n_dims: int
     n_heavy_tail_dims: int
-    loo_check: dict | None  # from _loo_conservatism_check; None if not applicable
+    loo_check: (
+        dict | None
+    )  # always None at runtime; use _loo_conservatism_check for pin-time guard
 
 
 # ---------------------------------------------------------------------------
@@ -696,8 +766,9 @@ def compute_w1_realm(
         ``(n_chains, n_draws, ...)`` layout.  When ``False``, the first axis
         is ``n_draws``.
     n_gt_chains
-        Number of chains in ``gt_draws``.  Inferred from the first array's
-        shape when ``None``.
+        Unused — kept for backward API compatibility.  The LOO conservatism
+        check has been moved to a pin-time helper (``_loo_conservatism_check``)
+        and is no longer called at runtime.
 
     Returns
     -------
@@ -712,8 +783,6 @@ def compute_w1_realm(
     sigma_list: list[float] = []
     e_s_list: list[float] = []
     e_g_list: list[float] = []
-    n_gen_draws_list: list[float] = []  # raw draw count per dim (for LOO scale)
-    _inferred_n_gt_chains: int | None = None  # inferred from first matching GT array
 
     for site in sites:
         if site not in ground_truth_summaries:
@@ -734,13 +803,8 @@ def compute_w1_realm(
         if gen_arr.ndim == 2:
             gen_arr = gen_arr[:, :, np.newaxis]  # (n_chains, n_draws, 1)
 
-        # Raw draw count per gen chain (independent of autocorrelation).
-        # Stored separately from e_g_arr because the LOO guard uses raw count
-        # (to mirror what the gate sees: all n_draws raw draws), while
-        # _build_floor uses e_g_arr (real ESS) for calibration.
-        n_gen_draws_site: float = float(gen_arr.shape[1])
-
-        # E_g from generated sample: real min(bulk, tail)-ESS per dim
+        # E_g from generated sample: real min(bulk, tail)-ESS per dim.
+        # _build_floor uses real ESS (not raw draw count) for calibration.
         e_g_arr = _ess_gen_per_dim(gen_arr)
         if e_g_arr.shape == ():
             e_g_arr = np.full(sigma_d.shape, float(e_g_arr))
@@ -749,10 +813,6 @@ def compute_w1_realm(
         gt_arr = np.asarray(gt_draws[site], dtype=np.float64)
         if gt_arr.ndim == 2:
             gt_arr = gt_arr[:, :, np.newaxis]  # (n_gt_chains, n_gt_draws, 1)
-
-        # Infer n_gt_chains from the first site encountered
-        if _inferred_n_gt_chains is None:
-            _inferred_n_gt_chains = gt_arr.shape[0]
 
         d = gt_arr.shape[2] if gt_arr.ndim > 2 else 1
 
@@ -766,7 +826,6 @@ def compute_w1_realm(
             e_g_list.append(
                 float(e_g_arr.ravel()[dim_i] if e_g_arr.ndim > 0 else e_g_arr)
             )
-            n_gen_draws_list.append(n_gen_draws_site)
 
     d_total = len(gt_flat_by_dim)
     if d_total == 0:
@@ -793,7 +852,6 @@ def compute_w1_realm(
     sigma_arr = np.array(sigma_list)
     e_s_arr = np.array(e_s_list)
     e_g_arr = np.array(e_g_list)
-    n_gen_draws_arr = np.array(n_gen_draws_list)  # raw gen draw count per dim
 
     # --- k̂ guard (Zhang–Stephens GPD; computed on large GT sample) ---
     khat_arr = np.array([_khat_max(m) for m in gt_flat_by_dim])
@@ -831,26 +889,11 @@ def compute_w1_realm(
     _RANK_STR = {0: "PASS", 1: "FAIL"}
     overall = _RANK_STR[max(_RANK[max_verdict], _RANK[frac_verdict])]
 
-    # --- LOO conservatism guard (per-model pre-ship gate) ---
-    # Checks that floor_of_max ≥ real leave-one-chain-out null at the gen scale.
-    # Uses n_gen_draws_arr (raw draw count, e.g. 1000) not e_g_arr (true ESS,
-    # e.g. ~660 after autocorr adjustment) because the gate itself sees all
-    # n_draws raw draws; using ESS here would take fewer draws from the held-out
-    # GT chain and create false violations in the LOO check.
-    _n_gt_chains = n_gt_chains if n_gt_chains is not None else _inferred_n_gt_chains
+    # LOO conservatism guard is a pin-time validation (call _loo_conservatism_check
+    # separately when pinning a new model floor).  Not run at runtime — it is 10×
+    # LOO-W1 over all dims (expensive), and a runtime gen has no leave-one-out to
+    # perform.  loo_check is always None in the runtime result.
     loo_result: dict | None = None
-    if _n_gt_chains is not None and _n_gt_chains >= 2:
-        try:
-            loo_result = _loo_conservatism_check(
-                gt_flat_by_dim=gt_flat_by_dim,
-                sigma_by_dim=sigma_arr,
-                e_g_by_dim=n_gen_draws_arr,
-                floor_of_max=floor_of_max,
-                n_chains=_n_gt_chains,
-            )
-        except (ValueError, ArithmeticError):
-            # n_total not divisible by n_gt_chains (unusual) → skip LOO check
-            loo_result = None
 
     return W1RealmResult(
         max_w1_sigma=max_w1_sigma,
