@@ -48,14 +48,14 @@
   "workflow": "Two-step:\n(1) Run marginal_gp_spike.py --mode full to generate 10x10000 phi samples + f reconstruction + f_raw conversion.\n(2) gt_draws.npz (output of script) is committed here as draws.npz (via LFS).\n\nSeed lineage (master_seed=20260715):\n  key_0 = jax.random.key(20260715)\n  key_0, wup_key = split(key_0)                    # per-chain warmup\n  key_1, samp_key = split(key_0)                   # sampling\n  chain_keys[i] = split(samp_key, 10)[i]           # per-chain NUTS\n  key_2, f_key = split(key_1)                      # f reconstruction\n  f_keys_all[i] = split(f_key, 100000)[i]          # per-draw conditional-f",
   "gate_evidence": {
     "auto": {
-      "rhat_max": null,
-      "min_bulk_ess": null,
-      "n_divergences": null,
+      "rhat_max": 1.000216,
+      "min_bulk_ess": 40501,
+      "n_divergences": 0,
       "min_e_bfmi": null,
       "max_abs_mean_z": null,
-      "verdict": "PENDING_10x10000_RUN",
+      "verdict": "PASS",
       "margins": {},
-      "note": "Gate values to be filled from actual 10x10000 colossus run + coherence check vs committed draws. Validation at n=40000 (pre-commit) confirmed phi |Delta mean| <= 0.0012, f RMSE 0.0001 -- EXACT. Formal gate pending draws transfer."
+      "note": "Gate computed from committed 10x10000 draws (colossus run, master_seed=20260715). min_e_bfmi=null: energy samples not shipped (draws.npz only). max_abs_mean_z not applicable to GT self-gate. rhat_max and min_bulk_ess span all 203 sites (3 phi + 200 f_raw dims). Full per-site diagnostics in summary_v2.json."
     },
     "override": {
       "reason": "",
