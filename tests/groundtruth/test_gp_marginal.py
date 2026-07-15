@@ -161,7 +161,8 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
     for site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
         if site not in per_site or site not in committed_draws.files:
             continue
-        new_mean = float(np.asarray(per_site[site]["mean"]))
+        # per_site[site]["mean"] is a list (possibly 1-element for scalar sites)
+        new_mean = float(np.asarray(per_site[site]["mean"]).ravel()[0])
         comm_arr = committed_draws[site]
         comm_mean = float(comm_arr.mean())
         comm_std = float(comm_arr.std(ddof=1))
@@ -189,6 +190,8 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
     com_f_mean = com_f_arr.mean(axis=0)  # (200,)
     com_f_std = com_f_arr.std(axis=0, ddof=1)  # (200,)
 
+    # Gross sanity check: each dim within 10× committed posterior std.
+    # This catches NaN outputs, wrong scale, or completely wrong distribution.
     scale = np.maximum(com_f_std, 1e-12)
     f_devs = np.abs(gen_f_mean - com_f_mean) / scale  # (200,)
     max_f_dev = float(f_devs.max())
@@ -198,6 +201,19 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
         f"posterior std at dim {worst_dim} "
         f"(gen_mean={gen_f_mean[worst_dim]:.4f}, "
         f"committed_mean={com_f_mean[worst_dim]:.4f}±{com_f_std[worst_dim]:.4f}). "
-        "Likely cause: sign error in mu_f (_build_f_conditional_sampler) or "
-        "incorrect NCP re-whitening in _f_to_f_raw."
+        "Likely cause: sign error in mu_f or incorrect NCP re-whitening."
+    )
+
+    # Sign-flip check (M3 coverage): the dot product of gen_f_mean with
+    # com_f_mean must be positive.  A sign error in mu_f (e.g. mu_f = -A@alpha)
+    # shifts gen_f_mean to ≈ -com_f_mean, making the dot product strongly
+    # negative.  ||com_f_mean||² = 7.25 with noise-std ≈ 1.4 at smoke scale
+    # → SNR ≈ 5.2, so this check reliably detects the sign flip while having
+    # near-zero false-positive rate for correct code.
+    dot_product = float(np.dot(gen_f_mean, com_f_mean))
+    assert dot_product > 0.0, (
+        f"gp_regression.f_raw: gen_f_mean is anti-correlated with committed "
+        f"(dot={dot_product:.3f}).  "
+        "Likely cause: sign error in mu_f in _build_f_conditional_sampler "
+        "(mu_f = -A @ alpha instead of +A @ alpha)."
     )

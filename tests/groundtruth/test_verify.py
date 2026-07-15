@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from tuningfork.groundtruth._dispatch import committed_gt_dir, load_committed_summary
+from tuningfork.groundtruth._emit import compute_summary_stats
 from tuningfork.groundtruth._verify import (
     _check_coherence,
     _check_gate,
@@ -33,6 +34,46 @@ from tuningfork.groundtruth._verify import (
 )
 
 pytestmark = pytest.mark.fast
+
+# --------------------------------------------------------------------------- #
+# compute_summary_stats unit tests (M1 coverage)
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_summary_stats_between_chain_se_correct_axis() -> None:
+    """between_chain_se correctly uses chain axis=0, not draw axis=1 (M1 guard).
+
+    This test catches an nc/ns axis-swap bug in compute_summary_stats.
+
+    Setup: 2 chains, 20 draws each.  Chain 0 draws are all +10; chain 1 draws
+    are all -10.  With the correct formula (mean over draws per chain, then std
+    over chains), chain_means = [+10, -10] and:
+        between_chain_se = std([+10, -10], ddof=1) / sqrt(2) = sqrt(2) / sqrt(2) = 10.
+
+    With the M1 bug (axes swapped so nc=20, ns=2), "chain_means" would be 20
+    means of pairs of draws.  Pairs are interleaved [+10, -10] so "chain means"
+    alternate ~0, and std(20 × 0) / sqrt(20) ≈ 0 — clearly wrong.
+
+    Asserting be_se > 5 (vs near-0 for the bug) is a tight discriminator.
+    """
+    rng = np.random.default_rng(0)
+    ns = 20
+    # Chain 0: all +10; chain 1: all -10 (deterministic, no noise)
+    chain0 = np.full((ns, 1), 10.0) + rng.normal(0, 1e-6, (ns, 1))
+    chain1 = np.full((ns, 1), -10.0) + rng.normal(0, 1e-6, (ns, 1))
+    positions = {"x": np.stack([chain0, chain1], axis=0)}  # (2, 20, 1)
+
+    per_site, _, _ = compute_summary_stats(positions)
+    be_se = float(np.asarray(per_site["x"]["between_chain_se"]).ravel()[0])
+
+    # Correct formula: std(+10, -10, ddof=1) / sqrt(2) = (10 * sqrt(2)) / sqrt(2) = 10
+    # M1 bug: std of ~20 pairs averaging ≈ 0 / sqrt(20) ≈ 0
+    assert be_se > 5.0, (
+        f"between_chain_se={be_se:.4f} — expected ≈10.0 for 2 chains at ±10. "
+        "Likely cause: nc/ns axis swap in compute_summary_stats "
+        "(chain axis treated as draw axis)."
+    )
+
 
 # --------------------------------------------------------------------------- #
 # _check_gate unit tests
