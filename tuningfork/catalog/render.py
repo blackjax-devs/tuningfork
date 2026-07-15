@@ -31,7 +31,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tuningfork._cache_io import try_load_cached_chain_stats
+import numpy as np
+
+from tuningfork._cache_io import get_groundtruth_n_chains, try_load_cached_chain_stats
 from tuningfork.model import MODELS
 
 __all__ = ["load_samples", "load_chain_stats", "load_idata", "samples_to_idata"]
@@ -224,10 +226,29 @@ def load_idata(
             # Recipe schema mismatch or missing Effort enum — skip enrichment
             pass
 
+    # Detect multichain GT layout: models migrated to the multichain format
+    # (summary_v2.json present) ship draws as (n_chains, n_draws, *event).
+    # Without detection, samples_to_idata defaults to is_multichain=False and
+    # garbles the shape — treating n_chains=10 as n_draws=10 then trying to
+    # reshape (10,) into (n_chunks, per_chunk, ...) via the cert-protocol path.
+    is_multichain = False
+    try:
+        n_chains_gt = get_groundtruth_n_chains(
+            MODELS[recipe.model_name], cache_dir=cache_dir
+        )
+        if n_chains_gt is not None and samples:
+            first_arr = np.asarray(next(iter(samples.values())))
+            if first_arr.ndim >= 1 and first_arr.shape[0] == n_chains_gt:
+                is_multichain = True
+    except (KeyError, Exception):  # noqa: BLE001
+        # Unknown model or unexpected error — fall back to single-chain
+        pass
+
     # Resolve n_chunks from the recipe's warmup params (the cert protocol's
     # split-R̂ chunking — typically 4 — recorded under warmup_params at
-    # cert time). Default to 1 (no chunk split) for safety when absent.
-    n_chunks = int(recipe.warmup_params.get("n_chunks", 1) or 1)
+    # cert time). Only applies to single-chain draws; multichain draws are
+    # already in the correct (n_chains, n_draws, *event) shape.
+    n_chunks = 1 if is_multichain else int(recipe.warmup_params.get("n_chunks", 1) or 1)
 
     if n_chunks > 1:
         # Transparency: print the reshape ONCE per call so users know what
@@ -246,7 +267,9 @@ def load_idata(
             stacklevel=2,
         )
 
-    return samples_to_idata(samples, chain_stats=chain_stats, n_chunks=n_chunks)
+    return samples_to_idata(
+        samples, is_multichain=is_multichain, chain_stats=chain_stats, n_chunks=n_chunks
+    )
 
 
 def samples_to_idata(

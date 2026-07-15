@@ -94,6 +94,7 @@ __all__ = [
     "get_adaptation_params",
     "try_load_cached_draws",
     "try_load_cached_chain_stats",
+    "get_groundtruth_n_chains",
     "DEFAULT_CACHE_DIR",
 ]
 
@@ -181,6 +182,17 @@ def _lfs_chain_stats_path(
 ) -> Path:
     """Read-fallback path for LFS-shipped per-step chain_stats."""
     return cache_dir / name / "groundtruth_samples" / library / "chain_stats.npz"
+
+
+def _lfs_summary_v2_path(name: str, cache_dir: Path, library: str = "blackjax") -> Path:
+    """Path to the multichain GT summary_v2.json in the LFS-committed artifacts.
+
+    summary_v2.json is written when a model's groundtruth draws are generated
+    (or migrated) in multichain format (n_chains × n_draws_per_chain layout).
+    Its presence signals that draws.npz has shape (n_chains, n_draws, *event)
+    rather than the legacy (n_draws, *event) single-chain layout.
+    """
+    return cache_dir / name / "groundtruth_samples" / library / "summary_v2.json"
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -831,6 +843,46 @@ def try_load_cached_chain_stats(
         path = lfs_path
     data = np.load(str(path))
     return {k: np.asarray(data[k]) for k in data.files}
+
+
+def get_groundtruth_n_chains(
+    entry: Posterior,
+    *,
+    cache_dir: Path | None = None,
+) -> int | None:
+    """Return n_chains from summary_v2.json if the model's GT is multichain, else None.
+
+    summary_v2.json is committed when the model's groundtruth draws have been
+    generated (or migrated) in multichain format (n_chains × n_draws_per_chain).
+    Its presence signals that ``draws.npz`` has shape ``(n_chains, n_draws, *event)``
+    rather than the legacy ``(n_draws, *event)`` single-chain layout.
+
+    Returns None for legacy single-chain models (summary_v2.json absent) and
+    for any parse error — callers should treat None as "assume single-chain".
+
+    Parameters
+    ----------
+    entry : Posterior
+        The model registry entry.
+    cache_dir : Path | None
+        Override the cache directory (default: ``tuningfork/catalog/``).
+
+    Returns
+    -------
+    int or None
+        ``n_chains`` from ``summary_v2.json``, or None when the file is absent,
+        the ``n_chains`` field is missing, or the value cannot be parsed as int.
+    """
+    effective_dir = _resolve_cache_dir(cache_dir)
+    sv2_path = _lfs_summary_v2_path(entry.name, effective_dir)
+    if not sv2_path.exists():
+        return None
+    try:
+        sv2 = json.loads(sv2_path.read_text())
+        n_chains = sv2.get("n_chains")
+        return int(n_chains) if n_chains is not None else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def get_reference_summaries(
