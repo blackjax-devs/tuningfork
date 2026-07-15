@@ -101,14 +101,8 @@ def generate_groundtruth(
         Registry model name (e.g. ``"radon"``, ``"mvn_10"``).
     out_dir
         Output directory.  Defaults to a temporary directory.
-    seed
-        Master RNG seed.  Defaults to the committed GT seed.
-    n_chains
-        Number of chains.  Defaults to the committed value (10).
-    n_draws
-        Draws per chain.  Defaults to the committed value (10000).
-    n_warmup
-        Warmup steps per chain (NUTS models).  Defaults to committed value.
+    seed, n_chains, n_draws, n_warmup
+        Override committed defaults; ``None`` = use committed value.
     sequential
         Run NUTS chains sequentially instead of via vmap (NUTS models only).
     smoke

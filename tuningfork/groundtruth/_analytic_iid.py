@@ -52,34 +52,28 @@ def generate_analytic_iid(
 ) -> dict:
     """Generate analytic i.i.d. ground-truth draws.
 
-    Calls the model's ``analytic_sampler(rng_key, n) -> dict[site, Array]``
-    for each of ``n_chains`` independent batches and stacks the results into
-    the canonical ``(n_chains, n_draws, *event)`` shape.
+    Calls ``analytic_sampler(rng_key, n)`` for each of ``n_chains`` batches
+    and stacks into ``(n_chains, n_draws, *event)`` shape.
 
     Parameters
     ----------
     model_name
         Registry model name (e.g. ``"mvn_10"``).
     committed_summary
-        Parsed ``summary_v2.json`` for this model (used to read defaults for
-        ``n_chains``, ``n_draws``, and ``seed``).
+        Parsed ``summary_v2.json``; used to read defaults for ``n_chains``,
+        ``n_draws``, and ``seed``.
     out_dir
-        Directory where ``draws.npz`` and ``summary_v2.json`` are written.
-    seed
-        Master RNG seed.  Defaults to the committed GT seed so that the
-        default invocation reproduces the original configuration.
-    n_chains
-        Number of independent chains.  Defaults to the committed value (10).
-    n_draws
-        Draws per chain.  Defaults to the committed value (10000).
+        Output directory.
+    seed, n_chains, n_draws
+        Override committed defaults; ``None`` = use committed value.
     smoke
-        Run at tiny scale (2 chains × 50 draws) for fast CI validation.
-        Overrides ``n_chains``, ``n_draws``.
+        Tiny-scale run (2 chains × 50 draws); overrides ``n_chains``,
+        ``n_draws``.
 
     Returns
     -------
     dict
-        The parsed ``summary_v2.json`` dict for the generated GT.
+        Parsed ``summary_v2.json`` dict for the generated GT.
     """
     import jax
 

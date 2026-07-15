@@ -105,13 +105,7 @@ def _rbf_kernel(X, log_lengthscale, log_kernel_scale):
 
 
 def _build_marginal_logdensity(X, y):
-    """Return the 3-dim log-posterior for ``(log_ls, log_ks, log_ns)``.
-
-    Marginalises ``f`` analytically:
-    ``log p(y | θ) = log N(y; 0, A + σ²I)``
-    where ``A = K_θ + JITTER·I`` and adds Gaussian log-priors that match the
-    NumPyro model definition (see ``tuningfork.model.gp_regression``).
-    """
+    """Return the 3-dim log-posterior ``log p(y|θ) + log p(θ)``."""
     import jax.numpy as jnp
 
     n = len(y)
@@ -142,11 +136,10 @@ def _build_marginal_logdensity(X, y):
 
 
 def _build_f_conditional_sampler(X, y):
-    """Return a vmappable function that draws ``f | θ, y``.
+    """Return a vmappable ``f | θ, y`` sampler.
 
-    Each call allocates approximately ``7 × N_OBS × N_OBS`` float64
-    intermediates.  Call in chunks of ``CHUNK_F`` to keep peak allocation
-    bounded.
+    Each call allocates ~``7 × N_OBS²`` float64 intermediates;
+    call in chunks of ``_CHUNK_F`` to bound peak XLA memory.
     """
     import jax
     import jax.numpy as jnp
@@ -213,13 +206,13 @@ def _run_gp_marginal(
     Parameters
     ----------
     key
-        Master RNG key (split internally for NUTS and f-reconstruction).
+        Master RNG key.
     X, y
         Observed data arrays (float64).
     init_positions
         ``{site: [chain0_val, ...]}`` in unconstrained space.
     nc, nw, ns
-        Number of chains, warmup steps, draw steps.
+        Chains, warmup steps, draw steps.
     target_acceptance, max_doublings
         NUTS hyperparameters.
     sequential
@@ -227,14 +220,9 @@ def _run_gp_marginal(
 
     Returns
     -------
-    positions
-        ``{site: ndarray (nc, ns, *event)}`` with sites
-        ``log_lengthscale``, ``log_kernel_scale``, ``log_noise_scale``,
-        ``f_raw``.
-    diag
-        Per-chain diagnostics dict.
-    timing
-        ``{"warmup", "sampling", "f_reconstruction"}`` in seconds.
+    positions, diag, timing
+        ``{site: (nc, ns, *event)}`` incl. ``f_raw``, per-chain diag,
+        ``{"warmup", "sampling", "f_reconstruction"}`` seconds.
     """
     import jax
     import jax.numpy as jnp
@@ -359,9 +347,8 @@ def generate_gp_marginal(
 ) -> dict:
     """Generate GP regression ground-truth via closed-form marginal sampling.
 
-    Samples the 3-dim hyperparameter marginal posterior with NUTS, then
-    reconstructs ``f`` from the conditional Gaussian and re-whitens to NCP
-    coordinates.
+    Samples the 3-dim θ marginal with NUTS, reconstructs ``f`` from the
+    conditional Gaussian, and re-whitens to NCP coordinates.
 
     Parameters
     ----------
@@ -370,20 +357,14 @@ def generate_gp_marginal(
     committed_summary
         Parsed ``summary_v2.json`` for this model.
     out_dir
-        Directory where ``draws.npz`` and ``summary_v2.json`` are written.
-    seed
-        Master RNG seed.  Defaults to the committed seed.
-    n_chains
-        Number of parallel chains.  Defaults to the committed value.
-    n_draws
-        Draws per chain.  Defaults to the committed value.
-    n_warmup
-        Warmup steps per chain.  Defaults to the committed value.
+        Output directory.
+    seed, n_chains, n_draws, n_warmup
+        Override committed defaults; ``None`` = use committed value.
     sequential
         Run chains one at a time instead of via vmap.
     smoke
-        Run at tiny scale (2 chains × 50 draws × 100 warmup) for fast
-        validation.  Overrides ``n_chains``, ``n_draws``, ``n_warmup``.
+        Tiny-scale run (2 chains × 50 draws × 100 warmup); overrides
+        ``n_chains``, ``n_draws``, ``n_warmup``.
 
     Returns
     -------

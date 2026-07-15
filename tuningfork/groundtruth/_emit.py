@@ -44,13 +44,9 @@ def compute_summary_stats(
 
     Returns
     -------
-    per_site
-        Dict mapping site name to stats dict (mean, std, q05, q95,
-        between_chain_se, bulk_ess, tail_ess, rhat).
-    max_rhat
-        Worst rank-normalized split-R̂ across all sites and dimensions.
-    min_bulk_ess
-        Minimum bulk ESS across all sites and dimensions.
+    per_site, max_rhat, min_bulk_ess
+        Per-site stats dict (mean, std, q05, q95, between_chain_se,
+        bulk_ess, tail_ess, rhat), worst R̂, and minimum bulk ESS.
     """
     import arviz as az
 
@@ -132,8 +128,6 @@ def write_gt_artifacts(
         Dict with ``warmup``, ``sampling`` keys (float seconds; 0.0 if not applicable).
     generator
         The ``generator`` string to embed (e.g. ``"analytic_iid"``).
-    space
-        Coordinate space, always ``"unconstrained"``.
     sampler_config
         Sampler configuration dict to embed verbatim.
     seeds
@@ -144,8 +138,7 @@ def write_gt_artifacts(
     extra_provenance
         Additional key/value pairs merged into the provenance block.
     total_wall
-        Total wall time in seconds. If None, derived from ``timing["warmup"] +
-        timing["sampling"]``.
+        Total wall time (seconds); derived from timing if ``None``.
 
     Returns
     -------

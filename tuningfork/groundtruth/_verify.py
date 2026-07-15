@@ -62,10 +62,7 @@ _SE_FLOOR: float = 1e-8
 
 
 def _check_gate(generated_summary: dict) -> tuple[bool, dict[str, Any]]:
-    """Run the quality gate on generated_summary.
-
-    Returns (passed, details_dict).
-    """
+    """Run the quality gate; returns ``(passed, details_dict)``."""
     gate = generated_summary.get("quality_gate", {})
     generator = generated_summary.get("generator", "")
     is_nuts = generator not in ("analytic_iid",)
@@ -102,11 +99,7 @@ def _check_coherence(
     committed_summary: dict,
     z_threshold: float,
 ) -> tuple[bool, list[dict[str, Any]]]:
-    """Per-site coherence z-score vs committed GT.
-
-    Returns (all_pass, per_site_results).
-    Each result dict has keys: site, max_z, passed, details (per-dim z-scores).
-    """
+    """Per-site z-score coherence vs committed; returns ``(all_pass, per_site)``."""
     gen_per_site = generated_summary.get("per_site", {})
     com_per_site = committed_summary.get("per_site", {})
     results = []
@@ -154,23 +147,16 @@ def _check_coherence(
 def verify_groundtruth(
     model_name: str,
     generated_summary: dict,
-    generated_draws_path: Path,
+    generated_draws_path: Path | None = None,
     *,
     z_threshold: float = 3.0,
     print_results: bool = True,
 ) -> bool:
     """Check generated GT quality and coherence vs committed catalog GT.
 
-    Loads the committed ``summary_v2.json`` from the catalog and runs two
-    checks:
-
-    1. **Gate check** — max_rhat ≤ 1.01, min_bulk_ess ≥ 400,
-       divergence_rate ≤ 0.001, min_e_bfmi ≥ 0.3 (NUTS models).
-    2. **Coherence check** — per-site z-score ≤ ``z_threshold`` (default 3.0).
-
-    The ``generated_draws_path`` is accepted but not read by this function;
-    the file is expected to exist (written by the generator) and is logged
-    for reference only.
+    Runs two checks: (1) **Gate** — max_rhat ≤ 1.01, min_bulk_ess ≥ 400,
+    divergence_rate ≤ 0.001, min_e_bfmi ≥ 0.3 (NUTS models).
+    (2) **Coherence** — per-site mean z-score ≤ ``z_threshold`` vs committed.
 
     Parameters
     ----------
@@ -179,17 +165,16 @@ def verify_groundtruth(
     generated_summary
         Parsed ``summary_v2.json`` from the just-generated run.
     generated_draws_path
-        Path to the generated ``draws.npz`` (existence is logged; file
-        contents are not read by this function).
+        Path to ``draws.npz``; logged for reference, not read.
     z_threshold
-        Maximum allowed per-site z-score for mean coherence.  Default 3.0.
+        Per-site z-score threshold.  Default 3.0.
     print_results
         Print gate and coherence results to stdout.
 
     Returns
     -------
     bool
-        ``True`` if both gate and coherence checks pass.
+        ``True`` if gate + coherence both pass.
     """
     committed_summary = load_committed_summary(model_name)
     gt_dir = committed_gt_dir(model_name)

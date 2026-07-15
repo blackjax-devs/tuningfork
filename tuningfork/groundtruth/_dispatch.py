@@ -70,15 +70,7 @@ def _catalog_dir() -> Path:
 
 
 def committed_gt_dir(model_name: str) -> Path:
-    """Return the directory that holds committed GT artifacts for ``model_name``.
-
-    The returned path is ``tuningfork/catalog/<model>/groundtruth_samples/blackjax/``
-    and contains ``summary_v2.json`` and ``draws.npz``.
-
-    Parameters
-    ----------
-    model_name
-        Registry name, e.g. ``"radon"`` or ``"gp_regression"``.
+    """Return ``tuningfork/catalog/<model>/groundtruth_samples/blackjax/``.
 
     Raises
     ------
@@ -96,11 +88,6 @@ def committed_gt_dir(model_name: str) -> Path:
 
 def load_committed_summary(model_name: str) -> dict:
     """Load the committed ``summary_v2.json`` for ``model_name``.
-
-    Parameters
-    ----------
-    model_name
-        Registry name, e.g. ``"radon"``.
 
     Returns
     -------
@@ -137,11 +124,6 @@ def _resolve_gt_method(summary: dict) -> GTMethod:
     ``nuts_perchain`` models, checks ``provenance.init_positions`` presence to
     distinguish :attr:`~GTMethod.EXPLICIT_POSITIONS` (currently only
     ``lotka_volterra``) from :attr:`~GTMethod.STANDARD_MULTICHAIN_NUTS`.
-
-    Parameters
-    ----------
-    summary
-        Parsed ``summary_v2.json`` dict (schema ``gt_v2_multichain``).
 
     Returns
     -------

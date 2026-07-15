@@ -66,15 +66,8 @@ _SMOKE_N_WARMUP = 100
 def _build_perchain_inits_uniform(entry, key, num_chains: int) -> tuple[dict, Any]:
     """Per-chain init_to_uniform_radius2 (Stan/posteriordb convention).
 
-    Each chain gets an independent draw from uniform(-2, 2) in unconstrained
-    space via numpyro's default init strategy.
-
-    Returns
-    -------
-    stacked
-        Pytree ``{site: (num_chains, *shape)}`` of initial positions.
-    ld_fn
-        Log-density function for the model.
+    Returns ``(stacked, ld_fn)`` where ``stacked`` is
+    ``{site: (num_chains, *shape)}`` and ``ld_fn`` is the model log-density.
     """
     import jax
     import jax.numpy as jnp
@@ -102,31 +95,12 @@ def _build_perchain_inits_uniform(entry, key, num_chains: int) -> tuple[dict, An
 def _build_perchain_inits_from_positions(
     entry, key, positions_dict: dict
 ) -> tuple[dict, Any, int]:
-    """Init from explicit per-chain positions embedded in provenance.
+    """Init from ``provenance.init_positions.positions`` (explicit_positions path).
 
-    Used by the explicit_positions path (lotka_volterra).  The positions are
-    stored verbatim in ``summary_v2.json``'s
-    ``provenance.init_positions.positions``, making regeneration fully
-    self-contained.
-
-    Parameters
-    ----------
-    entry
-        Model registry entry.
-    key
-        RNG key (used only to construct the logdensity function).
-    positions_dict
-        ``{site: [chain0_val, chain1_val, ...]}`` in unconstrained space.
-
-    Returns
-    -------
-    stacked
-        Pytree ``{site: (n_chains, *shape)}`` of initial positions.
-    ld_fn
-        Log-density function for the model.
-    n_chains
-        The number of chains encoded in the positions dict (overrides
-        any ``--n-chains`` flag passed by the caller).
+    Used by the ``explicit_positions`` path (lotka_volterra) to make
+    regeneration self-contained.  Returns ``(stacked, ld_fn, n_chains)``
+    where ``n_chains`` is read from ``positions_dict`` and overrides any
+    caller-supplied value.
     """
     import jax
     import jax.numpy as jnp
@@ -155,17 +129,9 @@ def _build_perchain_inits_from_positions(
 
 
 def _load_explicit_positions(committed_summary: dict) -> dict:
-    """Extract per-chain starting positions from the provenance block.
+    """Return ``provenance.init_positions.positions`` from ``committed_summary``.
 
-    Returns
-    -------
-    dict
-        ``{site: [chain0_val, chain1_val, ...]}`` in unconstrained space.
-
-    Raises
-    ------
-    KeyError
-        If the provenance block does not contain ``init_positions.positions``.
+    Raises ``KeyError`` if the block is missing.
     """
     provenance = committed_summary.get("provenance", {})
     init_positions = provenance.get("init_positions", {})
@@ -234,13 +200,13 @@ def _run_nuts_multichain(
     Parameters
     ----------
     key
-        Master RNG key (split internally for warmup and sampling).
+        Master RNG key.
     inits
-        Stacked initial positions pytree ``{site: (nc, *shape)}``.
+        Stacked positions ``{site: (nc, *shape)}``.
     ld_fn
-        Log-density function for the model.
+        Log-density function.
     nc, nw, ns
-        Number of chains, warmup steps, draw steps.
+        Chains, warmup steps, draw steps.
     target_acceptance
         NUTS target acceptance rate.
     max_doublings
@@ -252,12 +218,9 @@ def _run_nuts_multichain(
 
     Returns
     -------
-    positions
-        ``{site: ndarray (nc, ns, *event)}``
-    diag
-        Per-chain diagnostics dict.
-    timing
-        ``{"warmup": float, "sampling": float}`` in seconds.
+    positions, diag, timing
+        ``{site: (nc, ns, *event)}``, per-chain diagnostics dict,
+        ``{"warmup": float, "sampling": float}`` seconds.
     """
     import blackjax
     import jax
@@ -415,8 +378,8 @@ def generate_nuts_multichain(
     """Generate multi-chain NUTS ground-truth draws.
 
     Handles both ``standard_multichain_nuts`` (init_to_uniform_radius2) and
-    ``explicit_positions`` (init from committed provenance block) dispatch
-    paths.  The path is selected automatically from ``committed_summary``.
+    ``explicit_positions`` paths; the path is selected from
+    ``committed_summary``'s generator field.
 
     Parameters
     ----------
@@ -425,20 +388,14 @@ def generate_nuts_multichain(
     committed_summary
         Parsed ``summary_v2.json`` for this model.
     out_dir
-        Directory where ``draws.npz`` and ``summary_v2.json`` are written.
-    seed
-        Master RNG seed.  Defaults to the committed seed.
-    n_chains
-        Number of parallel chains.  Defaults to the committed value (10).
-    n_draws
-        Draws per chain.  Defaults to the committed value (10000).
-    n_warmup
-        Warmup steps per chain.  Defaults to the committed value (2000).
+        Output directory.
+    seed, n_chains, n_draws, n_warmup
+        Override committed defaults; ``None`` = use committed value.
     sequential
         Run chains one at a time instead of via vmap.
     smoke
-        Run at tiny scale (2 chains × 100 draws × 100 warmup) for fast
-        validation.  Overrides ``n_chains``, ``n_draws``, ``n_warmup``.
+        Tiny-scale run (2 chains × 100 draws × 100 warmup); overrides
+        ``n_chains``, ``n_draws``, ``n_warmup``.
 
     Returns
     -------
