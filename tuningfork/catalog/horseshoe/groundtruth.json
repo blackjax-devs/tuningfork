@@ -1,36 +1,52 @@
 {
   "model_name": "horseshoe",
   "base_method_name": "nuts",
-  "warmup_name": "window_adaptation_diag_imm",
   "effort": "groundtruth",
+  "gt_schema_version": "gt_v2_multichain",
   "base_method_params": {
-    "step_size": 0.0033476960379630327,
-    "inverse_mass_matrix": "sidecar"
+    "step_size": null
   },
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_chains": 10,
+        "n_warmup_per_chain": 2000,
+        "target_acceptance": 0.8,
+        "init_strategy": "per_chain_init_to_uniform_radius2",
+        "master_seed": 20260713
+      }
+    }
+  ],
   "warmup_params": {
-    "n_warmup": 5000,
-    "n_chunks": 4,
-    "target_acceptance": 0.99,
-    "max_num_doublings": 15
+    "n_chains": 10,
+    "n_warmup_per_chain": 2000,
+    "target_acceptance": 0.8,
+    "init_strategy": "per_chain_init_to_uniform_radius2",
+    "master_seed": 20260713
   },
+  "summary_v2_path": "horseshoe/groundtruth_samples/blackjax/summary_v2.json",
+  "inverse_mass_matrix_path": null,
   "headline_metric": null,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 366.30557647597743,
-    "n_warmup": 5000,
-    "n_samples": 40000
+    "wall_seconds_estimate": 1042.042,
+    "n_chains": 10,
+    "n_warmup_per_chain": 2000,
+    "n_draws_per_chain": 10000,
+    "n_total": 100000
   },
   "difficulty": null,
-  "instructions": "**Ground-truth reference recipe** for `horseshoe`. Sampled via a single long NUTS chain (1\u00d740000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.99). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/draws/horseshoe.npz` (gitignored \u2014 40000 samples \u00d7 dim=204). Load via:\n\n    from tuningfork.reference._io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['horseshoe'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
+  "instructions": "**Ground-truth reference recipe** for `horseshoe` \u2014 multichain protocol (10 \u00d7 10,000 post-warmup draws, GT v2).\n\nGenerated with 10 independent NUTS chains, each initialised from `per_chain_init_to_uniform_radius2` (uniform draw on unconstrained sphere of radius 2, per chain, from `master_seed=20260713`), then warmed up with per-chain `window_adaptation_diag_imm` (2000 steps, `target_acceptance=0.8`). Certified to rank-normalised split-R\u0302 \u2264 1.01, min bulk-ESS \u2265 24,228, 0 divergences, min E-BFMI \u2265 0.734 across 10 real chains.\n\nThe committed draws live at `horseshoe/groundtruth_samples/blackjax/draws.npz` (shape `(10, 10000, dim)`). Load via:\n\n    from tuningfork.catalog import load_recipe, load_idata\n    recipe = load_recipe('tuningfork/catalog/horseshoe/groundtruth.json')\n    idata = load_idata(recipe)\n\nFull provenance (per-chain step_sizes, e_bfmi, between-chain SE, per-site marginals) is in `summary_v2_path`.",
   "notes": "",
-  "inverse_mass_matrix_path": "horseshoe/groundtruth__nuts__window_adaptation_diag_imm.imm.npz",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0002695322036743,
-      "min_bulk_ess": 2482.859130859375,
+      "rhat_max": 1.0004293168699976,
+      "min_bulk_ess": 24228.61010908338,
       "n_divergences": 0,
+      "min_e_bfmi": 0.7343677282333374,
       "max_abs_mean_z": null,
       "verdict": "PASS",
       "margins": {}
@@ -41,9 +57,9 @@
       "decision": ""
     }
   },
-  "tuning_seed": 20260517,
+  "tuning_seed": 20260713,
   "tuningfork_version": "0.0.0.dev0",
-  "blackjax_version": "1.6.dev68+g820718a91",
-  "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-17T21:47:13Z"
+  "blackjax_version": "1.6.dev114+g2ad3a801d",
+  "jax_version": "0.10.1",
+  "timestamp_utc": "2026-07-13T05:34:03Z"
 }
