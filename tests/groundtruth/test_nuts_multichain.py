@@ -131,15 +131,15 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
     # --- draws.npz shape ---
     draws_path = tmp_path / "draws.npz"
     assert draws_path.exists()
-    draws = np.load(str(draws_path), allow_pickle=True)
-    for site in draws.files:
-        shape = draws[site].shape
-        assert (
-            shape[0] == _SMOKE_N_CHAINS
-        ), f"{model_name}.{site}: expected n_chains={_SMOKE_N_CHAINS}, got {shape[0]}"
-        assert (
-            shape[1] == _SMOKE_N_DRAWS
-        ), f"{model_name}.{site}: expected n_draws={_SMOKE_N_DRAWS}, got {shape[1]}"
+    with np.load(str(draws_path), allow_pickle=True) as draws:
+        for site in draws.files:
+            shape = draws[site].shape
+            assert (
+                shape[0] == _SMOKE_N_CHAINS
+            ), f"{model_name}.{site}: expected n_chains={_SMOKE_N_CHAINS}, got {shape[0]}"
+            assert (
+                shape[1] == _SMOKE_N_DRAWS
+            ), f"{model_name}.{site}: expected n_draws={_SMOKE_N_DRAWS}, got {shape[1]}"
 
     # --- crude mean coherence vs committed GT ---
     # At 2×100 draws, use 10× posterior std as the tolerance.
@@ -147,24 +147,26 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
         pytest.skip(
             "committed draws.npz is an unsmudged LFS pointer (no LFS in this env)"
         )
-    committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
-    per_site = result["per_site"]
-    for site in per_site:
-        if site not in committed_draws.files:
-            continue
-        new_mean = np.asarray(per_site[site]["mean"]).ravel()
-        comm_arr = committed_draws[site]
-        comm_mean = comm_arr.reshape(-1, *comm_arr.shape[2:]).mean(axis=0).ravel()
-        comm_std = comm_arr.reshape(-1, *comm_arr.shape[2:]).std(axis=0, ddof=1).ravel()
-        scale = np.maximum(comm_std, 1e-12)
-        max_dev = float(np.max(np.abs(new_mean - comm_mean) / scale))
-        assert max_dev < 10.0, (
-            f"{model_name}.{site}: new mean deviates "
-            f"{max_dev:.2f}× committed posterior std"
-        )
-        assert np.all(
-            np.isfinite(new_mean)
-        ), f"{model_name}.{site}: new mean contains non-finite values"
+    with np.load(str(committed_gt / "draws.npz"), allow_pickle=True) as committed_draws:
+        per_site = result["per_site"]
+        for site in per_site:
+            if site not in committed_draws.files:
+                continue
+            new_mean = np.asarray(per_site[site]["mean"]).ravel()
+            comm_arr = committed_draws[site]
+            comm_mean = comm_arr.reshape(-1, *comm_arr.shape[2:]).mean(axis=0).ravel()
+            comm_std = (
+                comm_arr.reshape(-1, *comm_arr.shape[2:]).std(axis=0, ddof=1).ravel()
+            )
+            scale = np.maximum(comm_std, 1e-12)
+            max_dev = float(np.max(np.abs(new_mean - comm_mean) / scale))
+            assert max_dev < 10.0, (
+                f"{model_name}.{site}: new mean deviates "
+                f"{max_dev:.2f}× committed posterior std"
+            )
+            assert np.all(
+                np.isfinite(new_mean)
+            ), f"{model_name}.{site}: new mean contains non-finite values"
 
 
 @pytest.mark.slow
@@ -195,12 +197,12 @@ def test_nuts_multichain_smoke_radon_sequential(tmp_path: Path) -> None:
 
     draws_path = tmp_path / "draws.npz"
     assert draws_path.exists()
-    draws = np.load(str(draws_path), allow_pickle=True)
-    for site in draws.files:
-        assert draws[site].shape[0] == _SMOKE_N_CHAINS, (
-            f"sequential.{site}: expected n_chains={_SMOKE_N_CHAINS} in axis 0, "
-            f"got shape {draws[site].shape}"
-        )
+    with np.load(str(draws_path), allow_pickle=True) as draws:
+        for site in draws.files:
+            assert draws[site].shape[0] == _SMOKE_N_CHAINS, (
+                f"sequential.{site}: expected n_chains={_SMOKE_N_CHAINS} in axis 0, "
+                f"got shape {draws[site].shape}"
+            )
 
 
 @pytest.mark.slow
@@ -224,9 +226,11 @@ def test_nuts_multichain_custom_seed_differs(tmp_path: Path) -> None:
     generate_nuts_multichain("radon", committed, out1, seed=1, smoke=True)
     generate_nuts_multichain("radon", committed, out2, seed=99, smoke=True)
 
-    d1 = np.load(str(out1 / "draws.npz"), allow_pickle=True)
-    d2 = np.load(str(out2 / "draws.npz"), allow_pickle=True)
-    site = d1.files[0]
-    assert not np.allclose(
-        d1[site], d2[site]
-    ), "Different seeds produced identical draws — RNG not working correctly"
+    with (
+        np.load(str(out1 / "draws.npz"), allow_pickle=True) as d1,
+        np.load(str(out2 / "draws.npz"), allow_pickle=True) as d2,
+    ):
+        site = d1.files[0]
+        assert not np.allclose(
+            d1[site], d2[site]
+        ), "Different seeds produced identical draws — RNG not working correctly"

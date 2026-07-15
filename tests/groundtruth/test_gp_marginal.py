@@ -133,92 +133,97 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
     # --- draws.npz shape: hyperparameters + f_raw ---
     draws_path = tmp_path / "draws.npz"
     assert draws_path.exists()
-    draws = np.load(str(draws_path), allow_pickle=True)
+    with np.load(str(draws_path), allow_pickle=True) as draws:
+        # Hyperparameter sites must have shape (nc, nd)
+        for hp_site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
+            assert hp_site in draws.files, f"{hp_site} missing from draws.npz"
+            shape = draws[hp_site].shape
+            assert shape == (
+                _SMOKE_N_CHAINS,
+                _SMOKE_N_DRAWS,
+            ), f"{hp_site}: expected ({_SMOKE_N_CHAINS}, {_SMOKE_N_DRAWS}), got {shape}"
 
-    # Hyperparameter sites must have shape (nc, nd)
-    for hp_site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
-        assert hp_site in draws.files, f"{hp_site} missing from draws.npz"
-        shape = draws[hp_site].shape
-        assert shape == (
+        # f_raw must have shape (nc, nd, 200)
+        assert "f_raw" in draws.files, "f_raw missing from draws.npz"
+        f_raw_shape = draws["f_raw"].shape
+        assert f_raw_shape == (
             _SMOKE_N_CHAINS,
             _SMOKE_N_DRAWS,
-        ), f"{hp_site}: expected ({_SMOKE_N_CHAINS}, {_SMOKE_N_DRAWS}), got {shape}"
+            200,
+        ), f"f_raw: expected ({_SMOKE_N_CHAINS}, {_SMOKE_N_DRAWS}, 200), got {f_raw_shape}"
 
-    # f_raw must have shape (nc, nd, 200)
-    assert "f_raw" in draws.files, "f_raw missing from draws.npz"
-    f_raw_shape = draws["f_raw"].shape
-    assert f_raw_shape == (
-        _SMOKE_N_CHAINS,
-        _SMOKE_N_DRAWS,
-        200,
-    ), f"f_raw: expected ({_SMOKE_N_CHAINS}, {_SMOKE_N_DRAWS}, 200), got {f_raw_shape}"
+        # f_raw must be finite
+        assert np.all(np.isfinite(draws["f_raw"])), "f_raw contains non-finite values"
 
-    # f_raw must be finite
-    assert np.all(np.isfinite(draws["f_raw"])), "f_raw contains non-finite values"
+        # --- crude mean coherence for hyperparameters vs committed GT ---
+        if _is_lfs_pointer(committed_gt / "draws.npz"):
+            pytest.skip(
+                "committed draws.npz is an unsmudged LFS pointer (no LFS in this env)"
+            )
+        with np.load(
+            str(committed_gt / "draws.npz"), allow_pickle=True
+        ) as committed_draws:
+            per_site = result["per_site"]
+            for site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
+                if site not in per_site or site not in committed_draws.files:
+                    continue
+                # per_site[site]["mean"] is a list (possibly 1-element for scalar sites)
+                new_mean = float(np.asarray(per_site[site]["mean"]).ravel()[0])
+                comm_arr = committed_draws[site]
+                comm_mean = float(comm_arr.mean())
+                comm_std = float(comm_arr.std(ddof=1))
+                if comm_std < 1e-12:
+                    continue
+                dev = abs(new_mean - comm_mean) / comm_std
+                assert dev < 10.0, (
+                    f"gp_regression.{site}: new mean deviates {dev:.2f}× posterior std "
+                    f"(new={new_mean:.4f}, committed={comm_mean:.4f}±{comm_std:.4f})"
+                )
 
-    # --- crude mean coherence for hyperparameters vs committed GT ---
-    if _is_lfs_pointer(committed_gt / "draws.npz"):
-        pytest.skip(
-            "committed draws.npz is an unsmudged LFS pointer (no LFS in this env)"
-        )
-    committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
-    per_site = result["per_site"]
-    for site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
-        if site not in per_site or site not in committed_draws.files:
-            continue
-        # per_site[site]["mean"] is a list (possibly 1-element for scalar sites)
-        new_mean = float(np.asarray(per_site[site]["mean"]).ravel()[0])
-        comm_arr = committed_draws[site]
-        comm_mean = float(comm_arr.mean())
-        comm_std = float(comm_arr.std(ddof=1))
-        if comm_std < 1e-12:
-            continue
-        dev = abs(new_mean - comm_mean) / comm_std
-        assert dev < 10.0, (
-            f"gp_regression.{site}: new mean deviates {dev:.2f}× posterior std "
-            f"(new={new_mean:.4f}, committed={comm_mean:.4f}±{comm_std:.4f})"
-        )
+            # --- f_raw mean coherence vs committed GT (M3 coverage) ---
+            # This is the only test that exercises the f-reconstruction math end-to-end.
+            # A sign error in mu_f (e.g. mu_f = -A @ alpha instead of +A @ alpha) would
+            # flip the conditional mean, producing f_raw values with the wrong sign.
+            # The committed GT has 10 chains × 10k draws; at 2×50 smoke scale the
+            # per-dim std of f_raw is roughly the posterior std, so 10× that is a wide
+            # but meaningful sanity bound.
+            assert (
+                "f_raw" in committed_draws.files
+            ), "committed draws.npz missing f_raw site"
+            gen_f_raw = draws["f_raw"]  # shape (nc, nd, 200)
+            com_f_raw = committed_draws["f_raw"]  # shape (nc_com, nd_com, 200)
 
-    # --- f_raw mean coherence vs committed GT (M3 coverage) ---
-    # This is the only test that exercises the f-reconstruction math end-to-end.
-    # A sign error in mu_f (e.g. mu_f = -A @ alpha instead of +A @ alpha) would
-    # flip the conditional mean, producing f_raw values with the wrong sign.
-    # The committed GT has 10 chains × 10k draws; at 2×50 smoke scale the
-    # per-dim std of f_raw is roughly the posterior std, so 10× that is a wide
-    # but meaningful sanity bound.
-    assert "f_raw" in committed_draws.files, "committed draws.npz missing f_raw site"
-    gen_f_raw = draws["f_raw"]  # shape (nc, nd, 200)
-    com_f_raw = committed_draws["f_raw"]  # shape (nc_com, nd_com, 200)
+            gen_f_mean = gen_f_raw.reshape(-1, gen_f_raw.shape[-1]).mean(
+                axis=0
+            )  # (200,)
+            com_f_arr = com_f_raw.reshape(-1, com_f_raw.shape[-1])  # (nc*nd, 200)
+            com_f_mean = com_f_arr.mean(axis=0)  # (200,)
+            com_f_std = com_f_arr.std(axis=0, ddof=1)  # (200,)
 
-    gen_f_mean = gen_f_raw.reshape(-1, gen_f_raw.shape[-1]).mean(axis=0)  # (200,)
-    com_f_arr = com_f_raw.reshape(-1, com_f_raw.shape[-1])  # (nc*nd, 200)
-    com_f_mean = com_f_arr.mean(axis=0)  # (200,)
-    com_f_std = com_f_arr.std(axis=0, ddof=1)  # (200,)
+            # Gross sanity check: each dim within 10× committed posterior std.
+            # This catches NaN outputs, wrong scale, or completely wrong distribution.
+            scale = np.maximum(com_f_std, 1e-12)
+            f_devs = np.abs(gen_f_mean - com_f_mean) / scale  # (200,)
+            max_f_dev = float(f_devs.max())
+            worst_dim = int(f_devs.argmax())
+            assert max_f_dev < 10.0, (
+                f"gp_regression.f_raw: max deviation from committed GT is {max_f_dev:.2f}× "
+                f"posterior std at dim {worst_dim} "
+                f"(gen_mean={gen_f_mean[worst_dim]:.4f}, "
+                f"committed_mean={com_f_mean[worst_dim]:.4f}±{com_f_std[worst_dim]:.4f}). "
+                "Likely cause: sign error in mu_f or incorrect NCP re-whitening."
+            )
 
-    # Gross sanity check: each dim within 10× committed posterior std.
-    # This catches NaN outputs, wrong scale, or completely wrong distribution.
-    scale = np.maximum(com_f_std, 1e-12)
-    f_devs = np.abs(gen_f_mean - com_f_mean) / scale  # (200,)
-    max_f_dev = float(f_devs.max())
-    worst_dim = int(f_devs.argmax())
-    assert max_f_dev < 10.0, (
-        f"gp_regression.f_raw: max deviation from committed GT is {max_f_dev:.2f}× "
-        f"posterior std at dim {worst_dim} "
-        f"(gen_mean={gen_f_mean[worst_dim]:.4f}, "
-        f"committed_mean={com_f_mean[worst_dim]:.4f}±{com_f_std[worst_dim]:.4f}). "
-        "Likely cause: sign error in mu_f or incorrect NCP re-whitening."
-    )
-
-    # Sign-flip check (M3 coverage): the dot product of gen_f_mean with
-    # com_f_mean must be positive.  A sign error in mu_f (e.g. mu_f = -A@alpha)
-    # shifts gen_f_mean to ≈ -com_f_mean, making the dot product strongly
-    # negative.  ||com_f_mean||² = 7.25 with noise-std ≈ 1.4 at smoke scale
-    # → SNR ≈ 5.2, so this check reliably detects the sign flip while having
-    # near-zero false-positive rate for correct code.
-    dot_product = float(np.dot(gen_f_mean, com_f_mean))
-    assert dot_product > 0.0, (
-        f"gp_regression.f_raw: gen_f_mean is anti-correlated with committed "
-        f"(dot={dot_product:.3f}).  "
-        "Likely cause: sign error in mu_f in _build_f_conditional_sampler "
-        "(mu_f = -A @ alpha instead of +A @ alpha)."
-    )
+            # Sign-flip check (M3 coverage): the dot product of gen_f_mean with
+            # com_f_mean must be positive.  A sign error in mu_f (e.g. mu_f = -A@alpha)
+            # shifts gen_f_mean to ≈ -com_f_mean, making the dot product strongly
+            # negative.  ||com_f_mean||² = 7.25 with noise-std ≈ 1.4 at smoke scale
+            # → SNR ≈ 5.2, so this check reliably detects the sign flip while having
+            # near-zero false-positive rate for correct code.
+            dot_product = float(np.dot(gen_f_mean, com_f_mean))
+            assert dot_product > 0.0, (
+                f"gp_regression.f_raw: gen_f_mean is anti-correlated with committed "
+                f"(dot={dot_product:.3f}).  "
+                "Likely cause: sign error in mu_f in _build_f_conditional_sampler "
+                "(mu_f = -A @ alpha instead of +A @ alpha)."
+            )
