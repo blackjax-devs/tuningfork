@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.groundtruth.conftest import _is_lfs_pointer
 from tuningfork.groundtruth._analytic_iid import generate_analytic_iid
 from tuningfork.groundtruth._dispatch import committed_gt_dir, load_committed_summary
 
@@ -96,6 +97,10 @@ def test_analytic_iid_smoke(model_name: str, tmp_path: Path) -> None:
     # 100k draws).  We check instead that new_mean is within 10 × committed_std
     # of committed_mean — a sanity check that the sampler is drawing from the
     # right distribution without being sensitive to the small sample size.
+    if _is_lfs_pointer(committed_gt / "draws.npz"):
+        pytest.skip(
+            "committed draws.npz is an unsmudged LFS pointer (no LFS in this env)"
+        )
     committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
     per_site = result["per_site"]
     for site in per_site:

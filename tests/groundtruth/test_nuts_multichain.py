@@ -35,6 +35,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.groundtruth.conftest import _is_lfs_pointer
 from tuningfork.groundtruth._dispatch import committed_gt_dir, load_committed_summary
 from tuningfork.groundtruth._nuts_multichain import (
     _load_explicit_positions,
@@ -142,6 +143,10 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
 
     # --- crude mean coherence vs committed GT ---
     # At 2×100 draws, use 10× posterior std as the tolerance.
+    if _is_lfs_pointer(committed_gt / "draws.npz"):
+        pytest.skip(
+            "committed draws.npz is an unsmudged LFS pointer (no LFS in this env)"
+        )
     committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
     per_site = result["per_site"]
     for site in per_site:

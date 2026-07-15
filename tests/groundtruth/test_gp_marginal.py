@@ -31,6 +31,7 @@ import jax
 import numpy as np
 import pytest
 
+from tests.groundtruth.conftest import _is_lfs_pointer
 from tuningfork.groundtruth._dispatch import committed_gt_dir, load_committed_summary
 from tuningfork.groundtruth._gp_marginal import (
     _load_explicit_positions,
@@ -156,6 +157,10 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
     assert np.all(np.isfinite(draws["f_raw"])), "f_raw contains non-finite values"
 
     # --- crude mean coherence for hyperparameters vs committed GT ---
+    if _is_lfs_pointer(committed_gt / "draws.npz"):
+        pytest.skip(
+            "committed draws.npz is an unsmudged LFS pointer (no LFS in this env)"
+        )
     committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
     per_site = result["per_site"]
     for site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
