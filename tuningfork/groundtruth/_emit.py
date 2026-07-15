@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import platform
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -204,6 +205,7 @@ def write_gt_artifacts(
         "device": jax.devices()[0].platform,
         "platform": platform.platform(),
         "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "code_sha": _git_sha(),
     }
     if reproduced_from is not None:
         provenance["reproduced_from"] = reproduced_from
@@ -254,3 +256,19 @@ def _arviz_version() -> str:
         return az.__version__
     except ImportError:
         return "unknown"
+
+
+def _git_sha() -> str:
+    """Return the short HEAD SHA of the tuningfork repo, or 'unknown'."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return "unknown"
