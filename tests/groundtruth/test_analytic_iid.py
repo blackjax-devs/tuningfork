@@ -121,6 +121,41 @@ def test_analytic_iid_smoke(model_name: str, tmp_path: Path) -> None:
         ), f"{model_name}.{site}: new mean contains non-finite values"
 
 
+def test_analytic_iid_verify_integration(tmp_path: Path) -> None:
+    """Integration: verify_groundtruth passes on freshly generated analytic_iid.
+
+    This test exercises the full generate → compute_summary_stats → coherence
+    z-score pipeline end-to-end for the analytic path.  Without it, a bug in
+    compute_summary_stats (e.g. swapping the nc/ns axes when computing
+    between_chain_se) could silently produce wrong SE values without any test
+    catching it.
+
+    Uses mvn_10 (well-behaved MVN) and z_threshold=5.0: at 2×50 IID draws the
+    per-chain SE is large, so z is naturally small for a correct implementation;
+    the inflated threshold keeps the test non-flaky while still catching
+    coherence formula breakages.
+    """
+    from tuningfork.groundtruth._verify import verify_groundtruth
+
+    model_name = "mvn_10"
+    committed = load_committed_summary(model_name)
+
+    result = generate_analytic_iid(
+        model_name,
+        committed,
+        tmp_path,
+        smoke=True,
+    )
+
+    draws_path = tmp_path / "draws.npz"
+    ok = verify_groundtruth(model_name, result, draws_path, z_threshold=5.0)
+    assert ok, (
+        f"verify_groundtruth failed on freshly generated analytic_iid for {model_name}. "
+        "Possible cause: bug in compute_summary_stats (axis ordering, SE formula) "
+        "or coherence z-score computation in _verify.py."
+    )
+
+
 def test_analytic_iid_output_files(tmp_path: Path) -> None:
     """Output directory contains exactly draws.npz and summary_v2.json."""
     committed = load_committed_summary("mvn_10")
