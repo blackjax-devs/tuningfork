@@ -85,5 +85,12 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
 # Verdict ranking
 # ---------------------------------------------------------------------------
 
-_VERDICT_RANK: dict[str, int] = {"PASS": 0, "REVIEW": 1, "FAIL": 2}
-_RANK_VERDICT: dict[int, str] = {v: k for k, v in _VERDICT_RANK.items()}
+_VERDICT_RANK: dict[str, int] = {"PASS": 0, "SKIP": 0, "REVIEW": 1, "FAIL": 2}
+"""Verdict rank lookup.
+
+"SKIP" maps to rank 0 (same as "PASS") so ``_worst("PASS", "SKIP")`` and
+``_worst("SKIP", "SKIP")`` return "PASS".  This prevents a KeyError when
+``compute_w1_realm`` returns ``verdict="SKIP"`` (no-site-overlap case) and
+``_assemble_verdict`` folds it via ``_worst``.
+"""
+_RANK_VERDICT: dict[int, str] = {0: "PASS", 1: "REVIEW", 2: "FAIL"}

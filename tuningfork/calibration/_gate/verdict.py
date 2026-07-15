@@ -237,6 +237,8 @@ def _assemble_verdict(
 
     # --- W1 realm block (stage 4.5 — runs only when gt_draws provided and stage-1 passes) ---
     if w1_realm_result is not None:
+        # Map SKIP → PASS for the verdict fold so _worst never sees "SKIP"
+        # (which is absent from _VERDICT_RANK; see constants.py for the rationale).
         w1_verdict = w1_realm_result.verdict
         margins["w1_realm"] = {
             "verdict": w1_verdict,
@@ -249,6 +251,8 @@ def _assemble_verdict(
             "max_prong_verdict": w1_realm_result.max_prong_verdict,
             "frac_prong_verdict": w1_realm_result.frac_prong_verdict,
         }
+        if w1_realm_result.loo_check is not None:
+            margins["w1_realm"]["loo_check"] = w1_realm_result.loo_check
         overall_verdict = _worst(overall_verdict, w1_verdict)
 
     # --- Add optional cost block to margins ---

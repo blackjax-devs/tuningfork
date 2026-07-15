@@ -35,9 +35,11 @@ Two prongs
 k̂ tail guard
 -------------
 Zhang–Stephens GPD fit on the large GT sample (N≈1e5) per tail (upper/lower
-10%).  When ``max(k̂_left, k̂_right) > 0.7``: the dimension's W1 is replaced
-by trimmed-W1 (excluding top/bottom 10%) or a PIT-based proxy.  Computed on
-GT, not the small generated sample — avoids noisy k̂ from small-sample tails.
+10%).  Uses ``arviz_stats._gpdfit`` on fixed upper/lower-10% exceedances —
+a location-invariant estimator suitable for non-zero-centred unconstrained
+posteriors.  When ``max(k̂_left, k̂_right) > 0.7``: the dimension's W1 is
+replaced by trimmed-W1 (excluding top/bottom 10%).  Computed on GT, not the
+small generated sample — avoids noisy k̂ from small-sample tails.
 
 Pinned spec
 -----------
@@ -145,11 +147,15 @@ def _w1_1d(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
-    """Hill estimator for the GPD shape parameter k̂ in both tails of ``x``.
+    """Zhang–Stephens GPD shape parameter k̂ estimate in both tails of ``x``.
 
-    Estimates the tail heaviness via the Hill estimator applied to the upper
-    and lower ``tail_frac`` fraction of ``x``.  For Pareto(α), k̂ → 1/α.
-    For Gumbel-domain distributions (Normal, Exponential), k̂ → 0.
+    Fits a Generalised Pareto Distribution (GPD) to the upper and lower
+    ``tail_frac`` exceedances using ``arviz_stats._gpdfit`` (the
+    Zhang–Stephens 2009 penalised MLE).  Unlike the Hill estimator, GPD
+    fitting is location-invariant and unbiased on non-zero-centred
+    unconstrained posteriors (e.g. the eight_schools ``tau`` log-scale
+    marginal).
+
     Returns ``(k̂_left, k̂_right)``.
 
     Parameters
@@ -163,48 +169,30 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
     -------
     tuple[float, float]
         ``(k̂_left, k̂_right)`` — GPD shape parameters for the lower and upper
-        tails.  Returns ``0.0`` for a tail when ``n_tail < 4`` (insufficient
-        data for a reliable fit).
+        tails.  Negative values indicate bounded support (light tail);
+        values above ``_KHAT_HEAVY_TAIL`` (0.7) trigger the trimmed-W1 guard.
+        Returns ``0.0`` for a tail when ``n_tail < 5`` (insufficient data).
     """
-    x = np.asarray(x, dtype=np.float64)
+    from arviz_stats.base.array import array_stats as _az_arr_stats
+
+    x = np.sort(np.asarray(x, dtype=np.float64))
     n = len(x)
-    n_tail = max(4, int(n * tail_frac))
+    n_tail = max(5, int(n * tail_frac))
+    if n_tail >= n:
+        return 0.0, 0.0
 
-    def _fit_upper_tail(z: np.ndarray) -> float:
-        """Hill estimator for GPD shape k̂ from upper tail samples.
+    # Right tail: top n_tail exceedances above the (n-n_tail-1)th order stat
+    tail_r = x[-n_tail:]
+    cutoff_r = x[-n_tail - 1]
+    k_r, _ = _az_arr_stats._gpdfit(tail_r - cutoff_r)
 
-        Given upper tail samples ``z_1 ≤ z_2 ≤ ... ≤ z_m`` (sorted ascending),
-        the Hill estimator is:
-            ``k̂ = (1/(m−1)) Σ_{i=2}^{m} log(z_{(i)} / z_{(1)})``
+    # Left tail: flip sign (so lower tail becomes an upper exceedance problem)
+    x_flip = -x[::-1]  # sorted ascending, values ≥ 0 after flip
+    tail_l = x_flip[-n_tail:]
+    cutoff_l = x_flip[-n_tail - 1]
+    k_l, _ = _az_arr_stats._gpdfit(tail_l - cutoff_l)
 
-        For Pareto(α): k̂ → 1/α (Pareto shape = inverse of index).
-        For Normal (Gumbel domain): k̂ → 0 as m → ∞.
-        Finite-sample Normal tail gives small positive k̂ (< 0.3 at n=100k).
-        """
-        z_sorted = np.sort(z)
-        m = len(z_sorted)
-        if m < 4:
-            return 0.0
-        threshold = z_sorted[0]
-        if threshold <= 0:
-            # After the lower-tail flip (``lower = -x_sorted[:n_tail]``), a
-            # non-positive threshold means the original lower tail is bounded
-            # (finite lower support), which is NOT heavy-tailed.  Return 0.
-            return 0.0
-        # Hill estimator: k̂ = mean(log(z_i / threshold)) for i=2..m
-        k_hat = float(np.mean(np.log(z_sorted[1:] / threshold)))
-        # Clip; negative k̂ is unphysical for positive exceedances (Hill
-        # estimator gives k̂ ≥ 0 when threshold > 0).
-        return float(np.clip(k_hat, 0.0, 2.0))
-
-    x_sorted = np.sort(x)
-    # Upper tail: top n_tail values
-    upper = x_sorted[-n_tail:]
-    k_right = _fit_upper_tail(upper)
-    # Lower tail: bottom n_tail values (flip for upper-tail estimator)
-    lower = -(x_sorted[:n_tail])
-    k_left = _fit_upper_tail(lower)
-    return k_left, k_right
+    return float(k_l), float(k_r)
 
 
 def _khat_max(x: np.ndarray, tail_frac: float = 0.10) -> float:
@@ -243,23 +231,41 @@ def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
     Returns
     -------
     np.ndarray
-        Per-dimension ``min(bulk, tail)``-ESS; shape matches ``event_shape``.
-        Falls back to ``n_chains * n_draws`` when arviz ESS computation fails
-        (e.g. single chain → no split-Rhat basis).
+        Per-dimension ``min(bulk, tail)``-ESS; shape is ``(D,)`` where
+        ``D = prod(event_shape)`` (flattened).  Falls back to
+        ``n_chains * n_draws`` when the ESS computation returns NaN or
+        non-positive values (e.g. fewer than 4 draws).
+
+    Notes
+    -----
+    Uses ``az.from_dict`` to wrap the generated sample as a DataTree before
+    calling ``az.ess``.  This avoids the arviz 1.1.0
+    ``_ess_tail() missing 'prob'`` error that affects the raw-array
+    ``az.ess(arr, chain_axis=0, draw_axis=1, method="tail")`` call path.
+    Any future regression in the ESS API will surface as an uncaught
+    exception here — no bare ``except Exception`` swallows unknown failures.
     """
     n_total = gen_arr.shape[0] * gen_arr.shape[1]
     d_shape = gen_arr.shape[2:] if gen_arr.ndim > 2 else ()
-    try:
-        bulk = np.asarray(az.ess(gen_arr, chain_axis=0, draw_axis=1, method="bulk"))
-        tail = np.asarray(az.ess(gen_arr, chain_axis=0, draw_axis=1, method="tail"))
-        ess = np.minimum(bulk, tail)
-        if not np.all(np.isfinite(ess)) or np.any(ess <= 0):
-            raise ValueError("invalid ESS values")
-        return ess if ess.shape != () else np.full(d_shape or (1,), float(ess))
-    except Exception:
-        # Single-chain or insufficient draws → fall back to raw count
-        shape = d_shape if d_shape else (1,)
-        return np.full(shape, float(n_total))
+    fallback_shape = d_shape if d_shape else (1,)
+
+    # Wrap as a DataTree so that az.ess uses the DataTree code path, which
+    # correctly handles both bulk and tail under arviz ≥1.1.0.  This is the
+    # same pattern as ``compute_summary_stats`` in groundtruth/_emit.py.
+    idata = az.from_dict(
+        {"posterior": {"__gen__": gen_arr}},
+        sample_dims=["chain", "draw"],
+    )
+    bulk_xr = az.ess(idata, method="bulk")["__gen__"]
+    tail_xr = az.ess(idata, method="tail")["__gen__"]
+    bulk = np.atleast_1d(np.asarray(bulk_xr).ravel())
+    tail = np.atleast_1d(np.asarray(tail_xr).ravel())
+    ess = np.minimum(bulk, tail)
+
+    if not np.all(np.isfinite(ess)) or np.any(ess <= 0):
+        # Fewer than 4 draws, constant chain, or other degenerate input.
+        return np.full(fallback_shape, float(n_total))
+    return ess
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +541,12 @@ def _loo_conservatism_check(
     d = len(gt_flat_by_dim)
     # Infer n_draws per chain from total length
     n_total = len(gt_flat_by_dim[0])
+    if n_total % n_chains != 0:
+        raise ValueError(
+            f"_loo_conservatism_check: n_total ({n_total}) is not divisible "
+            f"by n_chains ({n_chains}).  GT draws must be evenly split across "
+            f"chains.  Check that gt_flat_by_dim was built with n_chains×n_draws."
+        )
     n_draws_per_chain = n_total // n_chains
 
     loo_max_values = []
@@ -615,6 +627,10 @@ class W1RealmResult(NamedTuple):
         Total number of dimensions (D).
     n_heavy_tail_dims
         Number of dims with ``k̂ > 0.7`` (routing to trimmed-W1).
+    loo_check
+        Result of the per-model LOO conservatism guard (dict from
+        ``_loo_conservatism_check``), or ``None`` when ``n_gt_chains`` was
+        not determinable (e.g. all sites had differing GT lengths).
     """
 
     max_w1_sigma: float
@@ -631,6 +647,7 @@ class W1RealmResult(NamedTuple):
     B: int
     n_dims: int
     n_heavy_tail_dims: int
+    loo_check: dict | None  # from _loo_conservatism_check; None if not applicable
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +712,7 @@ def compute_w1_realm(
     sigma_list: list[float] = []
     e_s_list: list[float] = []
     e_g_list: list[float] = []
+    _inferred_n_gt_chains: int | None = None  # inferred from first matching GT array
 
     for site in sites:
         if site not in ground_truth_summaries:
@@ -715,15 +733,19 @@ def compute_w1_realm(
         if gen_arr.ndim == 2:
             gen_arr = gen_arr[:, :, np.newaxis]  # (n_chains, n_draws, 1)
 
-        # E_g from generated sample
+        # E_g from generated sample: real min(bulk, tail)-ESS per dim
         e_g_arr = _ess_gen_per_dim(gen_arr)
         if e_g_arr.shape == ():
             e_g_arr = np.full(sigma_d.shape, float(e_g_arr))
 
-        # GT draws: flatten chains → (N_gt, *event)
+        # GT draws: (n_gt_chains, n_gt_draws, *event)
         gt_arr = np.asarray(gt_draws[site], dtype=np.float64)
         if gt_arr.ndim == 2:
-            gt_arr = gt_arr[:, :, np.newaxis]  # (n_chains, n_draws, 1)
+            gt_arr = gt_arr[:, :, np.newaxis]  # (n_gt_chains, n_gt_draws, 1)
+
+        # Infer n_gt_chains from the first site encountered
+        if _inferred_n_gt_chains is None:
+            _inferred_n_gt_chains = gt_arr.shape[0]
 
         d = gt_arr.shape[2] if gt_arr.ndim > 2 else 1
 
@@ -740,7 +762,7 @@ def compute_w1_realm(
 
     d_total = len(gt_flat_by_dim)
     if d_total == 0:
-        # No matching sites — return a degenerate SKIP result
+        # No matching sites between samples and gt_draws — return degenerate SKIP.
         empty = np.array([])
         return W1RealmResult(
             max_w1_sigma=float("nan"),
@@ -757,20 +779,21 @@ def compute_w1_realm(
             B=B,
             n_dims=0,
             n_heavy_tail_dims=0,
+            loo_check=None,
         )
 
     sigma_arr = np.array(sigma_list)
     e_s_arr = np.array(e_s_list)
     e_g_arr = np.array(e_g_list)
 
-    # --- k̂ guard (computed on large GT sample) ---
+    # --- k̂ guard (Zhang–Stephens GPD; computed on large GT sample) ---
     khat_arr = np.array([_khat_max(m) for m in gt_flat_by_dim])
     n_heavy_tail = int(np.sum(khat_arr > _KHAT_HEAVY_TAIL))
 
     # --- Per-dim W1/σ (with k̂ routing) ---
     w1_sigma = _compute_w1_per_dim(gt_flat_by_dim, gen_flat_by_dim, sigma_arr, khat_arr)
 
-    # --- Floor construction ---
+    # --- Floor construction (uses real min(bulk,tail)-ESS as E_g) ---
     floor_of_max, floor_per_dim, tau_frac = _build_floor(
         gt_flat_by_dim=gt_flat_by_dim,
         sigma_by_dim=sigma_arr,
@@ -799,6 +822,25 @@ def compute_w1_realm(
     _RANK_STR = {0: "PASS", 1: "FAIL"}
     overall = _RANK_STR[max(_RANK[max_verdict], _RANK[frac_verdict])]
 
+    # --- LOO conservatism guard (per-model pre-ship gate) ---
+    # Checks that floor_of_max ≥ real leave-one-chain-out null at E_g scale.
+    # Uses e_g_arr (real min(bulk,tail)-ESS) so the LOO comparison is at the
+    # gate's operating scale, not the full GT chain length.
+    _n_gt_chains = n_gt_chains if n_gt_chains is not None else _inferred_n_gt_chains
+    loo_result: dict | None = None
+    if _n_gt_chains is not None and _n_gt_chains >= 2:
+        try:
+            loo_result = _loo_conservatism_check(
+                gt_flat_by_dim=gt_flat_by_dim,
+                sigma_by_dim=sigma_arr,
+                e_g_by_dim=e_g_arr,
+                floor_of_max=floor_of_max,
+                n_chains=_n_gt_chains,
+            )
+        except (ValueError, ArithmeticError):
+            # n_total not divisible by n_gt_chains (unusual) → skip LOO check
+            loo_result = None
+
     return W1RealmResult(
         max_w1_sigma=max_w1_sigma,
         floor_of_max=floor_of_max,
@@ -814,4 +856,5 @@ def compute_w1_realm(
         B=B,
         n_dims=d_total,
         n_heavy_tail_dims=n_heavy_tail,
+        loo_check=loo_result,
     )
