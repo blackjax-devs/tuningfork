@@ -155,8 +155,14 @@ def write_gt_artifacts(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # --- persist draws first (pre-postprocessing, per smoke-E2E discipline) ---
+    # Explicitly convert to plain numpy arrays before saving.  JAX DeviceArrays
+    # saved directly via np.savez are stored as object-pickled arrays in older
+    # JAX/numpy combinations; np.asarray forces concrete float/int dtype so the
+    # .npz never requires allow_pickle to load.
     draws_path = out_dir / "draws.npz"
-    np.savez_compressed(str(draws_path), **positions)
+    np.savez_compressed(
+        str(draws_path), **{s: np.asarray(arr) for s, arr in positions.items()}
+    )
 
     # --- compute diagnostics ---
     per_site, max_rhat, min_bulk = compute_summary_stats(positions)

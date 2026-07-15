@@ -132,7 +132,7 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
     # --- draws.npz shape: hyperparameters + f_raw ---
     draws_path = tmp_path / "draws.npz"
     assert draws_path.exists()
-    draws = np.load(str(draws_path))
+    draws = np.load(str(draws_path), allow_pickle=True)
 
     # Hyperparameter sites must have shape (nc, nd)
     for hp_site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
@@ -156,7 +156,7 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
     assert np.all(np.isfinite(draws["f_raw"])), "f_raw contains non-finite values"
 
     # --- crude mean coherence for hyperparameters vs committed GT ---
-    committed_draws = np.load(str(committed_gt / "draws.npz"))
+    committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
     per_site = result["per_site"]
     for site in ("log_lengthscale", "log_kernel_scale", "log_noise_scale"):
         if site not in per_site or site not in committed_draws.files:

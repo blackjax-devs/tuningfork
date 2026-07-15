@@ -130,7 +130,7 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
     # --- draws.npz shape ---
     draws_path = tmp_path / "draws.npz"
     assert draws_path.exists()
-    draws = np.load(str(draws_path))
+    draws = np.load(str(draws_path), allow_pickle=True)
     for site in draws.files:
         shape = draws[site].shape
         assert (
@@ -142,7 +142,7 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
 
     # --- crude mean coherence vs committed GT ---
     # At 2×100 draws, use 10× posterior std as the tolerance.
-    committed_draws = np.load(str(committed_gt / "draws.npz"))
+    committed_draws = np.load(str(committed_gt / "draws.npz"), allow_pickle=True)
     per_site = result["per_site"]
     for site in per_site:
         if site not in committed_draws.files:
@@ -183,8 +183,8 @@ def test_nuts_multichain_custom_seed_differs(tmp_path: Path) -> None:
     generate_nuts_multichain("radon", committed, out1, seed=1, smoke=True)
     generate_nuts_multichain("radon", committed, out2, seed=99, smoke=True)
 
-    d1 = np.load(str(out1 / "draws.npz"))
-    d2 = np.load(str(out2 / "draws.npz"))
+    d1 = np.load(str(out1 / "draws.npz"), allow_pickle=True)
+    d2 = np.load(str(out2 / "draws.npz"), allow_pickle=True)
     site = d1.files[0]
     assert not np.allclose(
         d1[site], d2[site]
