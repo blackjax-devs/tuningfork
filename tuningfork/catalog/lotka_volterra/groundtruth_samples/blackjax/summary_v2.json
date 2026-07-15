@@ -1,0 +1,382 @@
+{
+  "model_name": "lotka_volterra",
+  "schema_version": "gt_v2_multichain",
+  "generator": "nuts_perchain",
+  "space": "unconstrained",
+  "n_chains": 10,
+  "n_draws_per_chain": 10000,
+  "n_total": 100000,
+  "sampler_config": {
+    "sampler": "nuts",
+    "warmup": "window_adaptation_diag_imm_perchain",
+    "n_warmup_per_chain": 2000,
+    "target_acceptance": 0.8,
+    "max_num_doublings": 10,
+    "init_strategy": "dispersed_gaussian_scale1.5",
+    "execution": "vmap"
+  },
+  "seeds": {
+    "master_seed": 20260716,
+    "derivation": "key=jax.random.key(seed); split->(init,warmup,sample); per-chain=split(k,n_chains)"
+  },
+  "az_method": {
+    "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+    "tail_ess": "az.ess(idata, method='tail')",
+    "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+    "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)"
+  },
+  "quality_gate": {
+    "rhat_threshold": 1.01,
+    "max_rhat": 1.000455823420255,
+    "min_bulk_ess": 22024.22937108497,
+    "total_divergences": 0,
+    "divergence_rate": 0.0,
+    "min_e_bfmi": 0.9497616765348366,
+    "passed": true
+  },
+  "diagnostics_per_chain": {
+    "step_size": [
+      0.07793904145658956,
+      0.08207015594297958,
+      0.09002393867832786,
+      0.08183182576885702,
+      0.1029328635815667,
+      0.08830169738497515,
+      0.1082949355906277,
+      0.07289187426791668,
+      0.09471727559905936,
+      0.08049717803376155
+    ],
+    "divergences_per_chain": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "e_bfmi_per_chain": [
+      0.9497616765348366,
+      0.9729386884085289,
+      1.0259898810428227,
+      0.9734639262522758,
+      0.993996081679721,
+      1.0294253068249024,
+      1.012893751516959,
+      0.9964413371002706,
+      0.9954467303819969,
+      0.9806391613156779
+    ],
+    "mean_acceptance_per_chain": [
+      0.9481148166287592,
+      0.933461845128274,
+      0.925110045388144,
+      0.9306723341437515,
+      0.89862416543365,
+      0.9294180247096648,
+      0.894769037884026,
+      0.945884181659227,
+      0.9141417999631533,
+      0.9405807909997264
+    ],
+    "total_divergences": 0
+  },
+  "timing_seconds": {
+    "warmup": 54.11762638899381,
+    "sampling": 607.2143089870224,
+    "total": 669.2725034180039
+  },
+  "provenance": {
+    "tuningfork_version": "0.0.0.dev0",
+    "code_sha": "unset",
+    "jax_version": "0.10.1",
+    "blackjax_version": "1.6.dev114+g2ad3a801d",
+    "arviz_version": "1.1.0",
+    "x64_enabled": true,
+    "device": "cpu",
+    "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+    "timestamp_utc": "2026-07-13T19:11:51Z",
+    "init_note": "Option-B posterior-dispersed init: N(mean, (1.5*std)^2) per site from catalog/lotka_volterra/reference/summary.json. Dispersion at posterior scale (~2.25x posterior variance at scale=1.5): wide enough for genuine un-hollowed between-chain R-hat, narrow enough to stay within the posterior support and avoid ODE-unstable regions. SUPERSEDES the failed radius-2 prior-scale dispersed run (seed 20260714: R-hat=2.67, 8686 divergences \u2014 prior-scale init poisoned 4 of 10 chains into ODE-unstable regions). This run (seed 20260716, ta=default) shows that dispersed-init failure was a scale issue, not a lotka-geometry issue: posterior-scale dispersion converges cleanly (0 divergences, R-hat 1.00046).",
+    "init_positions": {
+      "space": "unconstrained",
+      "n_chains": 10,
+      "md5_checksum_f64": "baa9bb72a82c6980fe6c1d9a1aa10c1b",
+      "derivation": "jax.random.key(seed) -> split(3) -> k_init; split(k_init, n_chains+1) -> [k_struct, *k_chains]; per chain: split(k_chain, n_sites) -> k_sites; pos[site] = mean[site] + scale * std[site] * normal(k_site)",
+      "note": "Exact per-chain starting positions for the committed 10x10k run (draws.npz at commit 61eb996). Deterministic from master_seed=20260716 and the dispersed-Gaussian init (scale=1.5) applied to reference/summary.json mean/std. Embedding here makes the GT recipe self-contained: regeneration with --init-positions <this-file> no longer reads reference/summary.json.",
+      "positions": {
+        "alpha": [
+          -0.7117998572527271,
+          -0.7743345458000087,
+          -0.7214060122359889,
+          -0.7221275595468342,
+          -0.7992790696510003,
+          -0.6960083586236995,
+          -0.8527789552068487,
+          -0.796195966381838,
+          -0.6386809785615349,
+          -0.7928947018998067
+        ],
+        "beta": [
+          -3.0710045856758357,
+          -3.0128135523895145,
+          -3.066933731375665,
+          -3.0344041023305053,
+          -3.0405251438990457,
+          -3.0911871241137487,
+          -3.006415353106011,
+          -3.008937749925676,
+          -3.0003572803889917,
+          -2.9901741831170985
+        ],
+        "delta": [
+          -2.9333739263519965,
+          -2.9029415946264274,
+          -2.991210552857723,
+          -2.8954162998515622,
+          -2.987788663158468,
+          -2.8700109421500053,
+          -2.944024348033404,
+          -3.0000129876963486,
+          -2.9844653827762544,
+          -3.0260163009142933
+        ],
+        "gamma": [
+          -0.5516919754219112,
+          -0.6556928050242449,
+          -0.6042201296251528,
+          -0.6511052975416035,
+          -0.5693830641275492,
+          -0.621999144789139,
+          -0.6444197874987365,
+          -0.6211111228753106,
+          -0.6085601705132424,
+          -0.6174315353204978
+        ],
+        "sigma_obs": [
+          -0.4276594201445604,
+          -0.5457403848908222,
+          -0.624678178553139,
+          -0.6109277396057062,
+          -0.755257279698749,
+          -0.25561943887192623,
+          -0.6268062826778185,
+          -0.47770553786212994,
+          -0.4125875556502994,
+          -0.3842002423870319
+        ],
+        "u0": [
+          2.2938223522979047,
+          2.3191339220106553,
+          2.3257039137226934,
+          2.328846241063529,
+          2.3427526825767497,
+          2.279404257548383,
+          2.2703806327989464,
+          2.2855873442652306,
+          2.275075884203353,
+          2.3134365225814553
+        ],
+        "v0": [
+          1.608301836074727,
+          1.6498603465629185,
+          1.5639638285821917,
+          1.5425866163087356,
+          1.5414854391228883,
+          1.650447814457302,
+          1.6245480591961412,
+          1.5506038824820896,
+          1.6254248302450056,
+          1.5393811440966942
+        ]
+      }
+    }
+  },
+  "per_site": {
+    "alpha": {
+      "mean": [
+        -0.7413692076917622
+      ],
+      "std": [
+        0.03319660235801495
+      ],
+      "q05": [
+        -0.7960550649220958
+      ],
+      "q95": [
+        -0.6869847341741224
+      ],
+      "between_chain_se": [
+        0.0002282484042717557
+      ],
+      "bulk_ess": [
+        22024.22937108497
+      ],
+      "tail_ess": [
+        29363.965297765924
+      ],
+      "rhat": [
+        1.0004217584549149
+      ]
+    },
+    "beta": {
+      "mean": [
+        -3.036794679780993
+      ],
+      "std": [
+        0.03126256328565562
+      ],
+      "q05": [
+        -3.0880797359039196
+      ],
+      "q95": [
+        -2.985487112360042
+      ],
+      "between_chain_se": [
+        0.00020795128231494543
+      ],
+      "bulk_ess": [
+        23673.419420287624
+      ],
+      "tail_ess": [
+        32047.673574097567
+      ],
+      "rhat": [
+        1.0003772762018845
+      ]
+    },
+    "delta": {
+      "mean": [
+        -2.953039180305202
+      ],
+      "std": [
+        0.030929412041773283
+      ],
+      "q05": [
+        -3.0037686405309176
+      ],
+      "q95": [
+        -2.9019295435486026
+      ],
+      "between_chain_se": [
+        0.00021317942814543065
+      ],
+      "bulk_ess": [
+        23061.811374724857
+      ],
+      "tail_ess": [
+        30333.310631645058
+      ],
+      "rhat": [
+        1.0004155608792353
+      ]
+    },
+    "gamma": {
+      "mean": [
+        -0.641460988591575
+      ],
+      "std": [
+        0.03343057444887092
+      ],
+      "q05": [
+        -0.6962720078389746
+      ],
+      "q95": [
+        -0.5863390243566687
+      ],
+      "between_chain_se": [
+        0.00023415375548153217
+      ],
+      "bulk_ess": [
+        22556.16095686153
+      ],
+      "tail_ess": [
+        30190.880889955122
+      ],
+      "rhat": [
+        1.000455823420255
+      ]
+    },
+    "sigma_obs": {
+      "mean": [
+        -0.564503477292605
+      ],
+      "std": [
+        0.08283110545748998
+      ],
+      "q05": [
+        -0.6966260926412066
+      ],
+      "q95": [
+        -0.42526910476084184
+      ],
+      "between_chain_se": [
+        0.0003488757379050819
+      ],
+      "bulk_ess": [
+        49004.95576991405
+      ],
+      "tail_ess": [
+        51504.691779615176
+      ],
+      "rhat": [
+        1.0001478262746497
+      ]
+    },
+    "u0": {
+      "mean": [
+        2.307490172394468
+      ],
+      "std": [
+        0.015994525356288782
+      ],
+      "q05": [
+        2.281090388851736
+      ],
+      "q95": [
+        2.3336231409645514
+      ],
+      "between_chain_se": [
+        5.845481688942415e-05
+      ],
+      "bulk_ess": [
+        45736.978365682364
+      ],
+      "tail_ess": [
+        51133.75004722444
+      ],
+      "rhat": [
+        1.000182455903848
+      ]
+    },
+    "v0": {
+      "mean": [
+        1.5880826132587944
+      ],
+      "std": [
+        0.02365175291986934
+      ],
+      "q05": [
+        1.548954273768035
+      ],
+      "q95": [
+        1.6267960940929909
+      ],
+      "between_chain_se": [
+        0.00012182203058482487
+      ],
+      "bulk_ess": [
+        34438.56390451476
+      ],
+      "tail_ess": [
+        46588.41557254874
+      ],
+      "rhat": [
+        1.0002368028110888
+      ]
+    }
+  }
+}
