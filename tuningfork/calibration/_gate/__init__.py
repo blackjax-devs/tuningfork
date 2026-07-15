@@ -24,6 +24,7 @@ layout     — ``_samples_to_multichain`` (single→multichain reshaping).
 mixing     — ``_compute_mixing_stats`` (R̂, ESS, divergences).
 gt_compare — ``_compute_gt_compare`` (z-scores, bias-sigma fields).
 verdict    — ``AutoGateVerdict``, ``_assemble_verdict`` (classify + aggregate).
+w1_realm   — ``W1RealmResult``, ``compute_w1_realm`` (W1/σ two-prong gate).
 """
 
 from .bands import (
@@ -39,20 +40,36 @@ from .gt_compare import _compute_gt_compare, _GtCompareResult
 from .layout import _samples_to_multichain
 from .mixing import _compute_mixing_stats
 from .verdict import AutoGateVerdict, _assemble_verdict
+from .w1_realm import (
+    W1RealmResult,
+    _build_floor,
+    _compute_tau_frac,
+    _khat_max,
+    _loo_conservatism_check,
+    _w1_1d,
+    compute_w1_realm,
+)
 
 __all__ = [
     "AutoGateVerdict",
     "DEFAULT_THRESHOLDS",
+    "W1RealmResult",
     "Z_VERDICT_ESS_CEILING",
     "_GtCompareResult",
     "_apply_vi_mode_thresholds",
     "_assemble_verdict",
+    "_build_floor",
     "_build_margin",
     "_classify_metric",
     "_compute_gt_compare",
     "_compute_mixing_stats",
+    "_compute_tau_frac",
+    "_khat_max",
+    "_loo_conservatism_check",
     "_samples_to_multichain",
+    "_w1_1d",
     "_worst",
+    "compute_w1_realm",
     "resolve_thresholds",
     "sidak_t_pass",
 ]
