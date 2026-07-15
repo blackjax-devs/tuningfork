@@ -579,6 +579,20 @@ class Recipe:
     # adapted inverse mass matrix when it's too large to inline (e.g., diagonal IMM
     # > ~50 entries, or any dense IMM). HIGH recipes for high-dim models populate
     # this; LOW/MEDIUM typically leave it None.
+    # For multichain GT recipes (gt_schema_version="gt_v2_multichain"), this is always
+    # None — per-chain IMMs are adapted at runtime, not stored.
+
+    # ---- Multichain GT schema discriminator (schema extension 2026-07-15) ----
+    # Absent / None → LEGACY single-chain GT or non-GT recipe (backward-compat).
+    # "gt_v2_multichain" → migrated multichain groundtruth (10×10k draws, per-chain
+    # window_adaptation).  Allows consumers to distinguish protocol at the JSON level
+    # without a filesystem lookup to groundtruth_samples/blackjax/summary_v2.json.
+    gt_schema_version: str | None = None
+
+    # Relative path (catalog-root-relative) to the authoritative summary_v2.json for
+    # this multichain GT recipe.  None for legacy recipes.  Allows a consumer to
+    # navigate from recipe → diagnostics without hard-coding the path derivation rule.
+    summary_v2_path: str | None = None
 
     workflow: str = ""
     # Long-form Bayesian-workflow narrative (markdown). HIGH recipes populate this
@@ -852,6 +866,10 @@ class Recipe:
         d.setdefault("instructions", "")
         # Backward-compat: headline_basis absent in recipes emitted before Gap-1 (2026-05-30).
         d.setdefault("headline_basis", None)
+        # Schema extension 2026-07-15: multichain GT discriminator + summary_v2 pointer.
+        # None = legacy single-chain GT or non-GT recipe (backward-compat).
+        d.setdefault("gt_schema_version", None)
+        d.setdefault("summary_v2_path", None)
         # Strip unknown keys (e.g. triage-only annotations like 'revisit_as') so
         # cls(**d) doesn't raise on non-standard fields from manual recipe edits.
         _known_fields = {f.name for f in fields(cls)}
