@@ -203,6 +203,56 @@ def build_perchain_inits_posterior_dispersed(
     return stacked, ld_fn, pp_fn
 
 
+def build_perchain_inits_from_positions(entry, key, positions_dict):
+    """Build per-chain inits from explicit recorded positions (self-contained regen).
+
+    positions_dict: {site: [chain0_val, chain1_val, ...]} in unconstrained space.
+    Accepts the JSON structure stored in summary_v2.json
+    provenance.init_positions.positions — a flat scalar or list per chain.
+
+    Self-containment guarantee: no read of reference/summary.json or any
+    other external GT artefact.  The positions are the literal starting
+    points of the committed run and are reproduced bit-for-bit.
+    """
+    k_struct = jax.random.split(key, 1)[0]
+    mi = initialize_model(
+        k_struct,
+        entry.numpyro_model,
+        model_args=entry.model_args,
+        model_kwargs=entry.model_kwargs,
+        dynamic_args=False,
+    )
+    pf = mi.potential_fn
+    ld_fn = lambda p, _pf=pf: -_pf(p)  # noqa: E731
+    pp_fn = mi.postprocess_fn
+
+    sites = list(positions_dict.keys())
+    n_chains = len(positions_dict[sites[0]])
+    position_list = []
+    for i in range(n_chains):
+        z = {site: jnp.asarray(positions_dict[site][i]) for site in sites}
+        position_list.append(z)
+
+    stacked = jax.tree.map(lambda *xs: jnp.stack(xs, axis=0), *position_list)
+    return stacked, ld_fn, pp_fn, n_chains
+
+
+def _load_positions_dict(path: str) -> dict:
+    """Load per-chain positions dict from a JSON file.
+
+    Accepts two formats:
+      - summary_v2.json (schema_version='gt_v2_multichain'):
+        extracts provenance.init_positions.positions
+      - Plain {site: [c0, ..., cn]} dict
+    Returns {site: list[float|list]} suitable for build_perchain_inits_from_positions.
+    """
+    with open(path) as f:
+        raw = json.load(f)
+    if raw.get("schema_version") == "gt_v2_multichain":
+        return raw["provenance"]["init_positions"]["positions"]
+    return raw
+
+
 # --------------------------------------------------------------------------- #
 # progress reporting (jax-tap)
 # --------------------------------------------------------------------------- #
@@ -253,10 +303,18 @@ def run_nuts_multichain(
     sequential=False,
     init_posterior=None,
     dispersion_scale=1.5,
+    init_positions=None,
 ):
     """Per-chain warmup + sampling (vmap, or sequential loop). Returns (positions, diag, timing)."""
     k_init, k_warm, k_sample = jax.random.split(key, 3)
-    if init_posterior is not None:
+    if init_positions is not None:
+        # Self-contained path: explicit per-chain positions (no reference/summary.json).
+        # nc is overridden by the number of chains stored in the positions file.
+        positions_dict = _load_positions_dict(init_positions)
+        inits, ld_fn, _pp, nc = build_perchain_inits_from_positions(
+            entry, k_init, positions_dict
+        )
+    elif init_posterior is not None:
         path = Path(init_posterior)
         if path.suffix == ".npz":
             inits, ld_fn, _pp = build_perchain_inits_from_draws(
@@ -493,6 +551,17 @@ def main():
         help="Multiplier on posterior std for dispersed-Gaussian mode. "
         "Default 1.5 (~2.25x posterior variance).  Ignored for .npz draws.",
     )
+    ap.add_argument(
+        "--init-positions",
+        default=None,
+        metavar="PATH",
+        help="Path to explicit per-chain starting positions (JSON).  "
+        "Accepts a summary_v2.json (positions extracted from "
+        "provenance.init_positions.positions) or a plain "
+        "{site: [c0, ..., cn]} dict.  Self-contained regen path: "
+        "does NOT read reference/summary.json.  n_chains is determined "
+        "by the number of positions in the file, overriding --n-chains.",
+    )
     args = ap.parse_args()
 
     if args.smoke:
@@ -517,7 +586,15 @@ def main():
         )
         sys.exit(2)
 
-    if args.init_posterior is not None:
+    if args.init_positions is not None:
+        _init_mode = "explicit_positions"
+        _init_note = (
+            f"explicit per-chain starting positions loaded from {args.init_positions} "
+            "(provenance.init_positions.positions in summary_v2.json). "
+            "Self-contained regen: no read of reference/summary.json."
+        )
+        print(f"[init] explicit_positions: {args.init_positions}", flush=True)
+    elif args.init_posterior is not None:
         path = Path(args.init_posterior)
         if path.suffix == ".npz":
             _init_mode = "draws"
@@ -561,6 +638,7 @@ def main():
             sequential=args.sequential,
             init_posterior=args.init_posterior,
             dispersion_scale=args.dispersion_scale,
+            init_positions=args.init_positions,
         )
     else:
         positions, diag, timing = run_analytic_multichain(
@@ -586,9 +664,18 @@ def main():
         )
 
     # --- post-processing (arviz) ---
+    # Derive actual nc from positions: --init-positions overrides --n-chains so
+    # we must read the shape from the draws array, not from args.
+    actual_nc = next(iter(positions.values())).shape[0]
+    if actual_nc != args.n_chains:
+        print(
+            f"[note] --init-positions overrode --n-chains: "
+            f"args.n_chains={args.n_chains} -> actual_nc={actual_nc}",
+            flush=True,
+        )
     per_site, max_rhat, min_bulk = summarize(positions)
     total_div = diag.get("total_divergences", 0)
-    n_total = args.n_chains * args.n_draws
+    n_total = actual_nc * args.n_draws
     min_ebfmi = min(diag["e_bfmi_per_chain"]) if is_nuts else None
     gate_pass = (max_rhat <= 1.01) and (
         not is_nuts
@@ -604,7 +691,7 @@ def main():
         "schema_version": SCHEMA_VERSION,
         "generator": "nuts_perchain" if is_nuts else "analytic_iid",
         "space": "unconstrained",
-        "n_chains": args.n_chains,
+        "n_chains": actual_nc,
         "n_draws_per_chain": args.n_draws,
         "n_total": n_total,
         "sampler_config": {

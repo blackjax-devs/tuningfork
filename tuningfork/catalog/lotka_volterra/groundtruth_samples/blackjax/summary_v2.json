@@ -100,7 +100,100 @@
     "device": "cpu",
     "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
     "timestamp_utc": "2026-07-13T19:11:51Z",
-    "init_note": "Option-B posterior-dispersed init: N(mean, (1.5*std)^2) per site from catalog/lotka_volterra/reference/summary.json. Dispersion at posterior scale (~2.25x posterior variance at scale=1.5): wide enough for genuine un-hollowed between-chain R-hat, narrow enough to stay within the posterior support and avoid ODE-unstable regions. SUPERSEDES the failed radius-2 prior-scale dispersed run (seed 20260714: R-hat=2.67, 8686 divergences \u2014 prior-scale init poisoned 4 of 10 chains into ODE-unstable regions). This run (seed 20260716, ta=default) shows that dispersed-init failure was a scale issue, not a lotka-geometry issue: posterior-scale dispersion converges cleanly (0 divergences, R-hat 1.00046)."
+    "init_note": "Option-B posterior-dispersed init: N(mean, (1.5*std)^2) per site from catalog/lotka_volterra/reference/summary.json. Dispersion at posterior scale (~2.25x posterior variance at scale=1.5): wide enough for genuine un-hollowed between-chain R-hat, narrow enough to stay within the posterior support and avoid ODE-unstable regions. SUPERSEDES the failed radius-2 prior-scale dispersed run (seed 20260714: R-hat=2.67, 8686 divergences \u2014 prior-scale init poisoned 4 of 10 chains into ODE-unstable regions). This run (seed 20260716, ta=default) shows that dispersed-init failure was a scale issue, not a lotka-geometry issue: posterior-scale dispersion converges cleanly (0 divergences, R-hat 1.00046).",
+    "init_positions": {
+      "space": "unconstrained",
+      "n_chains": 10,
+      "md5_checksum_f64": "baa9bb72a82c6980fe6c1d9a1aa10c1b",
+      "derivation": "jax.random.key(seed) -> split(3) -> k_init; split(k_init, n_chains+1) -> [k_struct, *k_chains]; per chain: split(k_chain, n_sites) -> k_sites; pos[site] = mean[site] + scale * std[site] * normal(k_site)",
+      "note": "Exact per-chain starting positions for the committed 10x10k run (draws.npz at commit 61eb996). Deterministic from master_seed=20260716 and the dispersed-Gaussian init (scale=1.5) applied to reference/summary.json mean/std. Embedding here makes the GT recipe self-contained: regeneration with --init-positions <this-file> no longer reads reference/summary.json.",
+      "positions": {
+        "alpha": [
+          -0.7117998572527271,
+          -0.7743345458000087,
+          -0.7214060122359889,
+          -0.7221275595468342,
+          -0.7992790696510003,
+          -0.6960083586236995,
+          -0.8527789552068487,
+          -0.796195966381838,
+          -0.6386809785615349,
+          -0.7928947018998067
+        ],
+        "beta": [
+          -3.0710045856758357,
+          -3.0128135523895145,
+          -3.066933731375665,
+          -3.0344041023305053,
+          -3.0405251438990457,
+          -3.0911871241137487,
+          -3.006415353106011,
+          -3.008937749925676,
+          -3.0003572803889917,
+          -2.9901741831170985
+        ],
+        "delta": [
+          -2.9333739263519965,
+          -2.9029415946264274,
+          -2.991210552857723,
+          -2.8954162998515622,
+          -2.987788663158468,
+          -2.8700109421500053,
+          -2.944024348033404,
+          -3.0000129876963486,
+          -2.9844653827762544,
+          -3.0260163009142933
+        ],
+        "gamma": [
+          -0.5516919754219112,
+          -0.6556928050242449,
+          -0.6042201296251528,
+          -0.6511052975416035,
+          -0.5693830641275492,
+          -0.621999144789139,
+          -0.6444197874987365,
+          -0.6211111228753106,
+          -0.6085601705132424,
+          -0.6174315353204978
+        ],
+        "sigma_obs": [
+          -0.4276594201445604,
+          -0.5457403848908222,
+          -0.624678178553139,
+          -0.6109277396057062,
+          -0.755257279698749,
+          -0.25561943887192623,
+          -0.6268062826778185,
+          -0.47770553786212994,
+          -0.4125875556502994,
+          -0.3842002423870319
+        ],
+        "u0": [
+          2.2938223522979047,
+          2.3191339220106553,
+          2.3257039137226934,
+          2.328846241063529,
+          2.3427526825767497,
+          2.279404257548383,
+          2.2703806327989464,
+          2.2855873442652306,
+          2.275075884203353,
+          2.3134365225814553
+        ],
+        "v0": [
+          1.608301836074727,
+          1.6498603465629185,
+          1.5639638285821917,
+          1.5425866163087356,
+          1.5414854391228883,
+          1.650447814457302,
+          1.6245480591961412,
+          1.5506038824820896,
+          1.6254248302450056,
+          1.5393811440966942
+        ]
+      }
+    }
   },
   "per_site": {
     "alpha": {
