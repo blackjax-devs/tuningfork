@@ -153,7 +153,7 @@
         "runner": "run_recipe_to_idata",
         "note": "Official production recert via run_recipe_to_idata path. ESS/s floor 0.28 (sampling-only), amortized 0.19, ~11.3x NUTS amortized. Source: /tmp/recert_results.json."
       },
-      "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)",
+      "gt_cert_coverage": "phi_and_f_validated_vs_40k_nuts_gt (n=40000: phi |Dmean|<=0.0012, f RMSE mean=0.0001 std=0.0001 — EXACT; formal re-gate vs 10x10k GT pending draws transfer)",
       "lbfgs_mean_iter_num": 62.28975
     },
     "history": {

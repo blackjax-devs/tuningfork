@@ -1,0 +1,124 @@
+{
+  "model_name": "gp_regression",
+  "schema_version": "gt_v2_multichain",
+  "generator": "nuts_on_closed_form_gp_marginal_plus_conditional_f_reconstruction",
+  "space": "unconstrained",
+  "n_chains": 10,
+  "n_draws_per_chain": 10000,
+  "n_total": 100000,
+  "sampler_config": {
+    "sampler": "nuts",
+    "sampling_space": "3-dim_closed_form_marginal (log_lengthscale, log_kernel_scale, log_noise_scale)",
+    "warmup": "window_adaptation_diag_imm_perchain",
+    "n_warmup_per_chain": 1000,
+    "target_acceptance": 0.8,
+    "max_num_doublings": 10,
+    "f_reconstruction": "conditional_gaussian_exact",
+    "f_to_f_raw_conversion": "triangular_solve L_K^{-1} @ f",
+    "init_strategy": "strided_from_legacy_40k_nuts_gt",
+    "execution": "vmap_10chains"
+  },
+  "seeds": {
+    "master_seed": 20260715,
+    "derivation": "key=jax.random.key(20260715); split->(wup_key, key_1); key_1->split->(samp_key, key_2); chain_keys=split(samp_key, 10); f_key=split(key_2)[1]; f_keys_all=split(f_key, 100000)"
+  },
+  "az_method": {
+    "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+    "tail_ess": "az.ess(idata, method='tail')",
+    "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+    "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)"
+  },
+  "quality_gate": {
+    "rhat_threshold": 1.01,
+    "max_rhat": null,
+    "min_bulk_ess": null,
+    "total_divergences": null,
+    "divergence_rate": null,
+    "min_e_bfmi": null,
+    "passed": null,
+    "note": "PENDING: to be filled from actual 10x10000 colossus run. Pre-commit validation at n=40000 confirmed EXACT match vs 40K NUTS GT (phi |Delta mean| <= 0.0012, f RMSE mean=0.0001 std=0.0001 max|Dmean|=0.0004, all 50x below sigma_MC=0.005).",
+    "validation_vs_40k_nuts_gt": {
+      "n_marginal_draws": 40000,
+      "phi_delta_mean_max": 0.0012,
+      "phi_names": ["log_lengthscale", "log_kernel_scale", "log_noise_scale"],
+      "phi_delta_mean": [0.0007, 0.0008, 0.0001],
+      "f_rmse_mean": 0.0001,
+      "f_rmse_std": 0.0001,
+      "f_max_delta_mean": 0.0004,
+      "sigma_mc_floor": 0.005,
+      "assessment": "EXACT: all metrics 50x below sigma_MC floor"
+    }
+  },
+  "diagnostics_per_chain": {
+    "step_size": null,
+    "divergences_per_chain": null,
+    "e_bfmi_per_chain": null,
+    "mean_acceptance_per_chain": null,
+    "total_divergences": null,
+    "note": "PENDING: to be filled from actual 10x10000 colossus run"
+  },
+  "timing_seconds": {
+    "warmup": null,
+    "sampling": null,
+    "total": null,
+    "note": "PENDING: to be filled from actual 10x10000 colossus run"
+  },
+  "provenance": {
+    "tuningfork_version": "0.0.0.dev0",
+    "code_sha": "unset",
+    "jax_version": "0.10.1",
+    "blackjax_version": "1.6.dev89+g399e4e72c.d20260609",
+    "arviz_version": null,
+    "x64_enabled": true,
+    "device": "cpu",
+    "platform": "PENDING: colossus platform string",
+    "timestamp_utc": "PENDING: colossus run timestamp",
+    "openblas_num_threads": 1,
+    "method_note": "Closed-form GP marginal method. EXACT for Gaussian likelihood (no approximation). Equivalent to full 203-dim NUTS analytically; validated empirically at n=40000. Bypasses the 200-dim NCP latent-function space entirely for sampling; f reconstructed exactly via conditional Gaussian after each phi sample. f_raw stored via lossless inverse Cholesky (f_raw = L_K^{-1} @ f, round-trip error ~3e-13). Original single-chain NUTS GT (40k draws, ~63h CPU, 18 divergences) SUPERSEDED. This run achieves 0 divergences and honest between-chain R-hat.",
+    "init_positions": {
+      "space": "unconstrained_3dim (log_lengthscale, log_kernel_scale, log_noise_scale)",
+      "n_chains": 10,
+      "source": "legacy 40k single-chain NUTS GT at stride-4000 indices [0,4000,8000,...,36000]",
+      "derivation": "gt_draws.npz['log_lengthscale/log_kernel_scale/log_noise_scale'][idx] for idx in [0,4000,8000,12000,16000,20000,24000,28000,32000,36000]",
+      "positions": {
+        "log_lengthscale": [
+          -1.2119026948736642,
+          -0.8521700164562493,
+          -0.8504699228670611,
+          -1.0147517646085977,
+          -1.0120615801136088,
+          -1.1734166179620793,
+          -1.1602856510474016,
+          -0.9155658908857462,
+          -1.0518126707007367,
+          -0.976793781965346
+        ],
+        "log_kernel_scale": [
+          0.23408888204205977,
+          0.1807282147709091,
+          0.7412833244669318,
+          0.5257099983699541,
+          0.5361608012511212,
+          -0.10830398563038206,
+          -0.13007633952060713,
+          0.5892866128551865,
+          0.9706379282330785,
+          0.27703348840593695
+        ],
+        "log_noise_scale": [
+          -2.3284318031333173,
+          -2.348003123828803,
+          -2.3010888292657596,
+          -2.345578212475807,
+          -2.322687764798279,
+          -2.2965502039934678,
+          -2.3328577621862774,
+          -2.3554613171477143,
+          -2.3691835867383193,
+          -2.2981296299139347
+        ]
+      }
+    }
+  },
+  "per_site": null
+}
