@@ -60,7 +60,6 @@ the same distribution.
 
 from __future__ import annotations
 
-import json
 import sys
 import time
 from pathlib import Path
@@ -68,7 +67,7 @@ from typing import Any
 
 import numpy as np
 
-from tuningfork.groundtruth._emit import write_gt_artifacts
+from tuningfork.groundtruth._emit import _provenance_lineage, write_gt_artifacts
 from tuningfork.groundtruth._nuts_multichain import (
     _load_explicit_positions,
     _run_nuts_multichain,
@@ -490,17 +489,12 @@ def generate_gp_marginal(
             "f_keys_all=split(k_f, total_draws)"
         ),
     }
-    reproduced_from = {
-        "timestamp_utc": committed_summary.get("provenance", {}).get("timestamp_utc"),
-        "tuningfork_version": committed_summary.get("provenance", {}).get(
-            "tuningfork_version"
-        ),
-    }
+    reproduced_from = _provenance_lineage(committed_summary)
     extra_prov: dict[str, Any] = {
         "init_positions": committed_summary["provenance"]["init_positions"],
     }
 
-    _, summary_path = write_gt_artifacts(
+    _, summary = write_gt_artifacts(
         out_dir,
         model_name=model_name,
         positions=positions,
@@ -515,4 +509,4 @@ def generate_gp_marginal(
         total_wall=time.perf_counter() - t_all,
     )
 
-    return json.loads(summary_path.read_text())
+    return summary

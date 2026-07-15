@@ -29,7 +29,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["compute_summary_stats", "write_gt_artifacts"]
+__all__ = ["compute_summary_stats", "write_gt_artifacts", "_provenance_lineage"]
 
 
 def compute_summary_stats(
@@ -89,6 +89,15 @@ def compute_summary_stats(
     return per_site, max_rhat, min_bulk
 
 
+def _provenance_lineage(committed_summary: dict) -> dict:
+    """Return the ``reproduced_from`` provenance block for a regeneration run."""
+    prov = committed_summary.get("provenance", {})
+    return {
+        "timestamp_utc": prov.get("timestamp_utc"),
+        "tuningfork_version": prov.get("tuningfork_version"),
+    }
+
+
 def write_gt_artifacts(
     out_dir: Path,
     *,
@@ -100,11 +109,10 @@ def write_gt_artifacts(
     space: str,
     sampler_config: dict[str, Any],
     seeds: dict[str, Any],
-    az_method: dict[str, str] | None = None,
     reproduced_from: dict[str, Any] | None = None,
     extra_provenance: dict[str, Any] | None = None,
     total_wall: float | None = None,
-) -> tuple[Path, Path]:
+) -> tuple[Path, dict]:
     """Write ``draws.npz`` and ``summary_v2.json`` to ``out_dir``.
 
     Produces artifacts byte-shaped identically to the committed catalog GT.
@@ -130,9 +138,6 @@ def write_gt_artifacts(
         Sampler configuration dict to embed verbatim.
     seeds
         Seeds dict with ``master_seed`` and ``derivation`` keys.
-    az_method
-        Override for the ``az_method`` block. Defaults to the standard
-        rank-normalized split-R̂ + ArviZ bulk/tail ESS description.
     reproduced_from
         Optional dict describing which committed GT this run reproduces
         (``timestamp_utc``, ``code_sha``).  Included in provenance for lineage.
@@ -144,8 +149,8 @@ def write_gt_artifacts(
 
     Returns
     -------
-    draws_path, summary_path
-        Paths to the written files.
+    draws_path, summary
+        Path to the draws file and the in-memory parsed summary dict.
     """
     import blackjax
     import jax
@@ -188,13 +193,12 @@ def write_gt_artifacts(
     )
 
     # --- build summary ---
-    if az_method is None:
-        az_method = {
-            "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
-            "tail_ess": "az.ess(idata, method='tail')",
-            "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
-            "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)",
-        }
+    az_method = {
+        "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+        "tail_ess": "az.ess(idata, method='tail')",
+        "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+        "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)",
+    }
 
     provenance: dict[str, Any] = {
         "tuningfork_version": tuningfork.__version__,
@@ -246,7 +250,7 @@ def write_gt_artifacts(
     summary_path = out_dir / "summary_v2.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
 
-    return draws_path, summary_path
+    return draws_path, summary
 
 
 def _arviz_version() -> str:

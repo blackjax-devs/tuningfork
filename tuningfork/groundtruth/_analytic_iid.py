@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-from tuningfork.groundtruth._emit import write_gt_artifacts
+from tuningfork.groundtruth._emit import _provenance_lineage, write_gt_artifacts
 
 __all__ = ["generate_analytic_iid"]
 
@@ -127,14 +127,9 @@ def generate_analytic_iid(
         ),
     }
 
-    reproduced_from = {
-        "timestamp_utc": committed_summary.get("provenance", {}).get("timestamp_utc"),
-        "tuningfork_version": committed_summary.get("provenance", {}).get(
-            "tuningfork_version"
-        ),
-    }
+    reproduced_from = _provenance_lineage(committed_summary)
 
-    _, summary_path = write_gt_artifacts(
+    _, summary = write_gt_artifacts(
         out_dir,
         model_name=model_name,
         positions=positions,
@@ -148,6 +143,4 @@ def generate_analytic_iid(
         total_wall=time.perf_counter() - t0,
     )
 
-    import json
-
-    return json.loads(summary_path.read_text())
+    return summary

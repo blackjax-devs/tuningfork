@@ -42,7 +42,6 @@ Environment flags
 
 from __future__ import annotations
 
-import json
 import sys
 import time
 from pathlib import Path
@@ -50,7 +49,7 @@ from typing import Any
 
 import numpy as np
 
-from tuningfork.groundtruth._emit import write_gt_artifacts
+from tuningfork.groundtruth._emit import _provenance_lineage, write_gt_artifacts
 
 __all__ = ["generate_nuts_multichain"]
 
@@ -531,17 +530,12 @@ def generate_nuts_multichain(
             "warm_keys=split(k_warm, n_chains); samp_keys=split(k_sample, n_chains)"
         ),
     }
-    reproduced_from = {
-        "timestamp_utc": committed_summary.get("provenance", {}).get("timestamp_utc"),
-        "tuningfork_version": committed_summary.get("provenance", {}).get(
-            "tuningfork_version"
-        ),
-    }
+    reproduced_from = _provenance_lineage(committed_summary)
     extra_prov: dict[str, Any] = {}
     if method is GTMethod.EXPLICIT_POSITIONS:
         extra_prov["init_positions"] = committed_summary["provenance"]["init_positions"]
 
-    _, summary_path = write_gt_artifacts(
+    _, summary = write_gt_artifacts(
         out_dir,
         model_name=model_name,
         positions=positions,
@@ -556,4 +550,4 @@ def generate_nuts_multichain(
         total_wall=time.perf_counter() - t_all,
     )
 
-    return json.loads(summary_path.read_text())
+    return summary
