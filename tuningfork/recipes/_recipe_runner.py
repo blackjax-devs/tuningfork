@@ -2728,7 +2728,18 @@ def run_recipe_to_idata(
         # Bug fix: for D>50 models the recipe stores inverse_mass_matrix="sidecar"
         # (a string path token) — jnp.asarray("sidecar") raises.  Load the actual
         # array via load_imm_sidecar when the value is not array-like.
-        _imm_raw = recipe.base_method_params["inverse_mass_matrix"]
+        # Defensive: multichain GT recipes (gt_v2_multichain) have no
+        # inverse_mass_matrix key — per-chain IMM is adapted at runtime.  Use .get()
+        # to avoid KeyError, then raise a clear error so the user knows why
+        # skip_warmup is unsupported on those recipes.
+        _imm_raw = recipe.base_method_params.get("inverse_mass_matrix")
+        if _imm_raw is None:
+            raise ValueError(
+                f"skip_warmup=True: recipe for {recipe.model_name!r} has no "
+                "'inverse_mass_matrix' in base_method_params. "
+                "Multichain GT recipes (gt_schema_version='gt_v2_multichain') adapt "
+                "IMM per-chain at runtime and cannot use the skip_warmup path."
+            )
         if _imm_raw == "sidecar":
             _stored_imm = recipe.load_imm_sidecar(catalog_root)
             if _stored_imm is None:

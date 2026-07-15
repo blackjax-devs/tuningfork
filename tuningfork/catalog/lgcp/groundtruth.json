@@ -2,46 +2,51 @@
   "model_name": "lgcp",
   "base_method_name": "nuts",
   "effort": "groundtruth",
+  "gt_schema_version": "gt_v2_multichain",
   "base_method_params": {
-    "step_size": 0.1945572942495346,
-    "inverse_mass_matrix": "sidecar"
+    "step_size": null
   },
-  "headline_metric": null,
-  "sample_quality": null,
-  "calibration_budget": {
-    "trials": 0,
-    "wall_seconds_estimate": 191.57606902101543,
-    "n_warmup": 5000,
-    "n_samples": 80000,
-    "warmup_wall_seconds": 14.25418680999428,
-    "sampling_wall_seconds": 162.29112498403993
-  },
-  "difficulty": null,
-  "instructions": "**Ground-truth reference recipe** for `lgcp`. Sampled via a single long NUTS chain (1\u00d780000 post-warmup, 5000-step Stan window adaptation, target_acceptance=0.9). Certified to split-R\u0302 \u2264 1.01, min per-chunk bulk-ESS \u2265 400, 0 divergences, E-BFMI \u2265 0.3 across 4 contiguous chunks.\n\nThe samples themselves live at `tuningfork/reference/lgcp/draws.npz` (gitignored \u2014 80000 samples \u00d7 dim=1600). Load via:\n\n    from tuningfork._cache_io import get_reference_draws\n    from tuningfork.model import MODELS\n    draws = get_reference_draws(MODELS['lgcp'])\n\nOr, via the diagnostics notebook, set RECIPE_PATH to this recipe and the notebook's load-or-run path will short-circuit to the cache.",
-  "notes": "",
-  "headline_basis": null,
-  "step_policy": null,
   "warmups": [
     {
       "name": "window_adaptation_diag_imm",
       "params": {
-        "n_warmup": 5000,
-        "n_chunks": 4,
+        "n_chains": 10,
+        "n_warmup_per_chain": 2000,
         "target_acceptance": 0.9,
-        "max_num_doublings": 10
+        "init_strategy": "per_chain_init_to_uniform_radius2",
+        "master_seed": 20260713
       }
     }
   ],
-  "warmup_inner_kernel": null,
-  "warmup_num_chains": null,
-  "init_strategy": null,
-  "inverse_mass_matrix_path": "lgcp/groundtruth.imm.npz",
+  "warmup_params": {
+    "n_chains": 10,
+    "n_warmup_per_chain": 2000,
+    "target_acceptance": 0.9,
+    "init_strategy": "per_chain_init_to_uniform_radius2",
+    "master_seed": 20260713
+  },
+  "summary_v2_path": "lgcp/groundtruth_samples/blackjax/summary_v2.json",
+  "inverse_mass_matrix_path": null,
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 150.73,
+    "n_chains": 10,
+    "n_warmup_per_chain": 2000,
+    "n_draws_per_chain": 10000,
+    "n_total": 100000
+  },
+  "difficulty": null,
+  "instructions": "**Ground-truth reference recipe** for `lgcp` \u2014 multichain protocol (10 \u00d7 10,000 post-warmup draws, GT v2).\n\nGenerated with 10 independent NUTS chains, each initialised from `per_chain_init_to_uniform_radius2` (uniform draw on unconstrained sphere of radius 2, per chain, from `master_seed=20260713`), then warmed up with per-chain `window_adaptation_diag_imm` (2000 steps, `target_acceptance=0.9`). Certified to rank-normalised split-R\u0302 \u2264 1.01, min bulk-ESS \u2265 237,834, 0 divergences, min E-BFMI \u2265 0.983 across 10 real chains.\n\nThe committed draws live at `lgcp/groundtruth_samples/blackjax/draws.npz` (shape `(10, 10000, dim)`). Load via:\n\n    from tuningfork.catalog import load_recipe, load_idata\n    recipe = load_recipe('tuningfork/catalog/lgcp/groundtruth.json')\n    idata = load_idata(recipe)\n\nFull provenance (per-chain step_sizes, e_bfmi, between-chain SE, per-site marginals) is in `summary_v2_path`.",
+  "notes": "",
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0000373125076294,
-      "min_bulk_ess": 37201.47265625,
+      "rhat_max": 1.0005654488457538,
+      "min_bulk_ess": 237834.75805589565,
       "n_divergences": 0,
+      "min_e_bfmi": 0.9832974076271057,
       "max_abs_mean_z": null,
       "verdict": "PASS",
       "margins": {}
@@ -52,11 +57,9 @@
       "decision": ""
     }
   },
-  "tuning_seed": 0,
+  "tuning_seed": 20260713,
   "tuningfork_version": "0.0.0.dev0",
-  "blackjax_version": "1.6.dev87+g5549a0b9c",
+  "blackjax_version": "1.6.dev114+g2ad3a801d",
   "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-07T06:47:55Z",
-  "failure_diagnosis": null,
-  "attempted_configurations": []
+  "timestamp_utc": "2026-07-13T05:20:28Z"
 }
