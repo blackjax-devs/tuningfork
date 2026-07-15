@@ -153,7 +153,7 @@
         "runner": "run_recipe_to_idata",
         "note": "Official production recert via run_recipe_to_idata path. ESS/s floor 0.28 (sampling-only), amortized 0.19, ~11.3x NUTS amortized. Source: /tmp/recert_results.json."
       },
-      "gt_cert_coverage": "phi_and_f_validated_vs_40k_nuts_gt + 10x10k_multichain_gt_committed (n=40000: phi |Dmean|<=0.0012, f RMSE mean=0.0001 std=0.0001 — EXACT; new GT: max_rhat=1.000216, min_bulk_ess=40501, 0 divergences, PASSED; z=2.014 computed vs OLD GT, expected stable vs new GT — GT means shift <0.003*std from 40k run; formal z-rescore PENDING_REDRAW: no cached recipe draws at migration time)",
+      "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)",
       "lbfgs_mean_iter_num": 62.28975
     },
     "history": {
