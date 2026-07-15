@@ -84,6 +84,99 @@ def test_compute_max_abs_mean_z_dict_orientation(tmp_path) -> None:
     assert result == 0.3  # non-None confirms the bug is fixed
 
 
+def test_compute_max_abs_mean_z_preserves_n_samples(tmp_path) -> None:
+    """compute_max_abs_mean_z must pass n_samples through to auto_gate.
+
+    Without n_samples, the gate falls back to n_chains * n_draws from the benchmark
+    run (1 * 1000 = 1000), making se_gt = std / sqrt(1000) — 6× too large, so the
+    correctness check is far too lenient.  With n_samples=40000 (the true GT count),
+    se_gt = std / sqrt(40000) — a 6× tighter gate.
+
+    This test pins the se_gt denominator: auto_gate must receive
+    {"x": {"mean": 0.0, "std": 1.0, "n_samples": 40000}}.
+    """
+    import json
+
+    import numpy as np
+
+    # Write a summary.json with n_samples (the standard single-chain GT format)
+    model_dir = tmp_path / "test_model" / "reference"
+    model_dir.mkdir(parents=True)
+    summary = {"mean": {"x": 0.0}, "std": {"x": 1.0}, "n_samples": 40000}
+    (model_dir / "summary.json").write_text(json.dumps(summary))
+
+    # Mock idata with 'x' draws
+    idata = MagicMock()
+    idata.posterior.data_vars = ["x"]
+    idata.posterior.__getitem__ = lambda self, k: MagicMock(values=np.zeros((1, 1000)))
+
+    captured: dict = {}
+
+    class _FakeVerdict:
+        max_abs_mean_z = 0.5
+
+    def mock_auto_gate(samples, info, *, ground_truth_summaries=None, **kw):
+        captured["gt"] = ground_truth_summaries
+        return _FakeVerdict()
+
+    with (
+        patch(
+            "tuningfork.calibration.statistician_gate.auto_gate",
+            side_effect=mock_auto_gate,
+        ),
+        patch("benchmarks._benchmark_helpers._CATALOG_ROOT", tmp_path),
+    ):
+        result = compute_max_abs_mean_z(idata, "test_model")
+
+    # n_samples must be forwarded: se_gt denominator is 40000, not 1*1000
+    assert captured.get("gt") == {"x": {"mean": 0.0, "std": 1.0, "n_samples": 40000}}
+    assert result == 0.5
+
+
+def test_compute_max_abs_mean_z_no_n_samples_still_works(tmp_path) -> None:
+    """compute_max_abs_mean_z must work when summary.json lacks n_samples.
+
+    Legacy summary.json files may omit n_samples.  The gate falls back to
+    n_chains * n_draws from the benchmark run — this is acceptable (the function
+    should not crash; the gate will just be more lenient).
+    """
+    import json
+
+    import numpy as np
+
+    model_dir = tmp_path / "test_model" / "reference"
+    model_dir.mkdir(parents=True)
+    # No n_samples key
+    summary = {"mean": {"x": 0.0}, "std": {"x": 1.0}}
+    (model_dir / "summary.json").write_text(json.dumps(summary))
+
+    idata = MagicMock()
+    idata.posterior.data_vars = ["x"]
+    idata.posterior.__getitem__ = lambda self, k: MagicMock(values=np.zeros((1, 1000)))
+
+    captured: dict = {}
+
+    class _FakeVerdict:
+        max_abs_mean_z = 0.5
+
+    def mock_auto_gate(samples, info, *, ground_truth_summaries=None, **kw):
+        captured["gt"] = ground_truth_summaries
+        return _FakeVerdict()
+
+    with (
+        patch(
+            "tuningfork.calibration.statistician_gate.auto_gate",
+            side_effect=mock_auto_gate,
+        ),
+        patch("benchmarks._benchmark_helpers._CATALOG_ROOT", tmp_path),
+    ):
+        result = compute_max_abs_mean_z(idata, "test_model")
+
+    # Without n_samples in summary.json, the per-param dict omits it too
+    assert captured.get("gt") == {"x": {"mean": 0.0, "std": 1.0}}
+    assert result == 0.5
+
+
 # ---------------------------------------------------------------------------
 # Seed scheme
 # ---------------------------------------------------------------------------

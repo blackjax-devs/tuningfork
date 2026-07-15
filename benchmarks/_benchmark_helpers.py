@@ -73,8 +73,23 @@ def compute_max_abs_mean_z(idata: Any, model_name: str) -> float | None:
 
     # P0 bug fix: summary.json has {"mean": {"param": v}, "std": {"param": v}} but
     # auto_gate expects {"param": {"mean": v, "std": v}}.  Restructure before passing.
+    #
+    # Also include n_samples (top-level scalar in summary.json) per param so the
+    # gate can compute se_gt = std / sqrt(n_samples) using the TRUE reference count
+    # (e.g. 40000 for a single-chain GT run) rather than falling back to
+    # n_chains * n_draws from the benchmark run (1 * 1000 = 1000), which would
+    # make se_gt 6× too large and the correctness check too lenient.
+    #
+    # Note: models with summary_v2.json (multichain GT) still route through
+    # reference/summary.json here (legacy SE).  A follow-up PR should upgrade
+    # migrated models to use between_chain_se from summary_v2.json.
+    n_samples_gt = gt_summaries.get("n_samples")
     gt_per_param = {
-        param: {stat: gt_summaries[stat][param] for stat in ("mean", "std")}
+        param: {
+            "mean": gt_summaries["mean"][param],
+            "std": gt_summaries["std"][param],
+            **({"n_samples": n_samples_gt} if n_samples_gt is not None else {}),
+        }
         for param in gt_summaries.get("mean", {})
         if param in mc_samples
     }

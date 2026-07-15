@@ -377,6 +377,22 @@ XFAIL_CELLS: dict[str, str] = {
     # Root cause was _recipe_runner.py omitting is_mass_matrix_diagonal at the
     # inner-kernel call sites → NUTS step collapsed (1752× gradient mismatch).
     # Fixed in fix/imm-diagonal-inner-kernel; z=3.033 (3/3 seeds PASS).
+    #
+    # 2026-07-15: RECURRING — step-collapse returns for different seeds.
+    # window_adaptation_dense_imm warmup fails for certain nightly seeds on
+    # lotka's stiff ODE (seed=20260714 confirmed z=27.7, seed=20260712 partial).
+    # Root cause: inherent seed-sensitivity in warmup initialisation; warmup
+    # collapses adapted step_size, post-warmup samples land 22–95 σ from GT.
+    # Previously xfailed 2026-06-13 (233cf0b), removed 2026-06-16 (e645664).
+    # Cell still runs for timing; only the z<4.0 assert is expected-failure.
+    # Tracked: github.com/blackjax-devs/tuningfork/issues/232
+    "tier2-lotka_volterra-low__hmc__window_adaptation_dense_imm__inner_nuts-e2e": (
+        "step-collapse recurrence (issue #232): window_adaptation_dense_imm warmup "
+        "fails for some nightly seeds on lotka's stiff ODE. Seed 20260714 confirmed "
+        "z=27.7 (samples 22–95 σ from GT). Previously xfailed 2026-06-13 (233cf0b), "
+        "removed 2026-06-16 after is_mass_matrix_diagonal fix (e645664), now recurring "
+        "with different seeds. Root cause: inherent warmup seed-sensitivity on stiff ODE."
+    ),
 }
 
 PINNED_SEEDS: dict[str, int] = {
