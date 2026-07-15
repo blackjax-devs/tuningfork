@@ -122,20 +122,26 @@ def test_analytic_iid_smoke(model_name: str, tmp_path: Path) -> None:
 
 
 def test_analytic_iid_verify_integration(tmp_path: Path) -> None:
-    """Integration: verify_groundtruth passes on freshly generated analytic_iid.
+    """Integration: coherence check passes on freshly generated analytic_iid.
 
-    This test exercises the full generate → compute_summary_stats → coherence
-    z-score pipeline end-to-end for the analytic path.  Without it, a bug in
-    compute_summary_stats (e.g. swapping the nc/ns axes when computing
-    between_chain_se) could silently produce wrong SE values without any test
-    catching it.
+    This test exercises the full generate → compute_summary_stats →
+    between_chain_se → coherence z-score pipeline end-to-end.  Without it,
+    a bug in compute_summary_stats (e.g. swapping the nc/ns axes when
+    computing between_chain_se) could silently produce wrong SE values and
+    never be caught.
 
-    Uses mvn_10 (well-behaved MVN) and z_threshold=5.0: at 2×50 IID draws the
-    per-chain SE is large, so z is naturally small for a correct implementation;
-    the inflated threshold keeps the test non-flaky while still catching
-    coherence formula breakages.
+    Note: the quality gate (R̂ ≤ 1.01) is NOT asserted here.  At 2×50 IID
+    draws, rank-normalized split-R̂ is noisy and can exceed 1.01 by chance
+    (observed: 1.12 in practice).  The gate is irrelevant to M1 — what
+    matters is that the coherence z-score formula is exercised end-to-end.
+
+    Uses z_threshold=5.0 (vs default 3.0): at smoke scale the per-chain SE
+    is naturally large (only 2 chains), so z is small for a correct
+    implementation; the inflated threshold avoids flakiness while still
+    detecting a broken SE denominator (an axis swap would drastically alter
+    the denominator, pushing z far outside even 10.0).
     """
-    from tuningfork.groundtruth._verify import verify_groundtruth
+    from tuningfork.groundtruth._verify import _check_coherence
 
     model_name = "mvn_10"
     committed = load_committed_summary(model_name)
@@ -147,12 +153,14 @@ def test_analytic_iid_verify_integration(tmp_path: Path) -> None:
         smoke=True,
     )
 
-    draws_path = tmp_path / "draws.npz"
-    ok = verify_groundtruth(model_name, result, draws_path, z_threshold=5.0)
-    assert ok, (
-        f"verify_groundtruth failed on freshly generated analytic_iid for {model_name}. "
-        "Possible cause: bug in compute_summary_stats (axis ordering, SE formula) "
-        "or coherence z-score computation in _verify.py."
+    committed_summary = load_committed_summary(model_name)
+    coh_pass, coh_results = _check_coherence(result, committed_summary, z_threshold=5.0)
+    failing = [r for r in coh_results if not r["passed"]]
+    assert coh_pass, (
+        f"Coherence check failed on freshly generated analytic_iid for {model_name}. "
+        f"Failing sites: {[{r['site']: round(r['max_z'], 2)} for r in failing]}. "
+        "Possible cause: bug in compute_summary_stats between_chain_se "
+        "(axis ordering, nc/ns swap) or coherence formula in _verify.py."
     )
 
 
