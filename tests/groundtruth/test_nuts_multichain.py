@@ -163,6 +163,42 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
 
 
 @pytest.mark.slow
+def test_nuts_multichain_smoke_radon_sequential(tmp_path: Path) -> None:
+    """Smoke: sequential=True runs without error and produces 2 chains.
+
+    The vmap path is the default; the sequential path has entirely separate
+    JIT-compiled per-chain kernels.  A bug that dropped a chain (e.g. wrong
+    scan length) would be caught here via the n_chains assertion.
+    """
+    model_name = "radon"
+    committed = load_committed_summary(model_name)
+
+    result = generate_nuts_multichain(
+        model_name,
+        committed,
+        tmp_path,
+        sequential=True,
+        smoke=True,
+    )
+
+    assert result["n_chains"] == _SMOKE_N_CHAINS, (
+        f"sequential path: expected n_chains={_SMOKE_N_CHAINS}, "
+        f"got {result['n_chains']}"
+    )
+    assert result["n_draws_per_chain"] == _SMOKE_N_DRAWS
+    assert result["sampler_config"]["execution"] == "sequential"
+
+    draws_path = tmp_path / "draws.npz"
+    assert draws_path.exists()
+    draws = np.load(str(draws_path), allow_pickle=True)
+    for site in draws.files:
+        assert draws[site].shape[0] == _SMOKE_N_CHAINS, (
+            f"sequential.{site}: expected n_chains={_SMOKE_N_CHAINS} in axis 0, "
+            f"got shape {draws[site].shape}"
+        )
+
+
+@pytest.mark.slow
 def test_nuts_multichain_output_files(tmp_path: Path) -> None:
     """Output directory contains exactly draws.npz and summary_v2.json."""
     committed = load_committed_summary("radon")

@@ -172,3 +172,32 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
             f"gp_regression.{site}: new mean deviates {dev:.2f}× posterior std "
             f"(new={new_mean:.4f}, committed={comm_mean:.4f}±{comm_std:.4f})"
         )
+
+    # --- f_raw mean coherence vs committed GT (M3 coverage) ---
+    # This is the only test that exercises the f-reconstruction math end-to-end.
+    # A sign error in mu_f (e.g. mu_f = -A @ alpha instead of +A @ alpha) would
+    # flip the conditional mean, producing f_raw values with the wrong sign.
+    # The committed GT has 10 chains × 10k draws; at 2×50 smoke scale the
+    # per-dim std of f_raw is roughly the posterior std, so 10× that is a wide
+    # but meaningful sanity bound.
+    assert "f_raw" in committed_draws.files, "committed draws.npz missing f_raw site"
+    gen_f_raw = draws["f_raw"]  # shape (nc, nd, 200)
+    com_f_raw = committed_draws["f_raw"]  # shape (nc_com, nd_com, 200)
+
+    gen_f_mean = gen_f_raw.reshape(-1, gen_f_raw.shape[-1]).mean(axis=0)  # (200,)
+    com_f_arr = com_f_raw.reshape(-1, com_f_raw.shape[-1])  # (nc*nd, 200)
+    com_f_mean = com_f_arr.mean(axis=0)  # (200,)
+    com_f_std = com_f_arr.std(axis=0, ddof=1)  # (200,)
+
+    scale = np.maximum(com_f_std, 1e-12)
+    f_devs = np.abs(gen_f_mean - com_f_mean) / scale  # (200,)
+    max_f_dev = float(f_devs.max())
+    worst_dim = int(f_devs.argmax())
+    assert max_f_dev < 10.0, (
+        f"gp_regression.f_raw: max deviation from committed GT is {max_f_dev:.2f}× "
+        f"posterior std at dim {worst_dim} "
+        f"(gen_mean={gen_f_mean[worst_dim]:.4f}, "
+        f"committed_mean={com_f_mean[worst_dim]:.4f}±{com_f_std[worst_dim]:.4f}). "
+        "Likely cause: sign error in mu_f (_build_f_conditional_sampler) or "
+        "incorrect NCP re-whitening in _f_to_f_raw."
+    )
