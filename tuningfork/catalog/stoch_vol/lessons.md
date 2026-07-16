@@ -49,7 +49,7 @@ numpyro.factor("phi_beta44_factor", dist.Beta(4.0, 4.0).log_prob((phi + 1.0) / 2
 ```
 This is equivalent: the total unconstrained log-density for phi under both formulations differs only by an additive constant `log(0.5) + log(2) = 0`.
 
-**Historical multi-mode warmup-capture (pre-PR-#27, no longer a concern)**: under the original Uniform/Cauchy priors the AR(1) posterior had a bad-attractor mode at the unit-root tail (phi ≈ 0.9999) that single-stage `window_adaptation_diag_imm` (init from NumPyro's default `init_to_uniform`) could be captured by during the first ~50 warmup steps (step_size collapses to ~10⁻⁶, post-warmup chain stuck). A 2026-05-18 multi-seed sweep showed **44 % gate failure rate under bare `window_adaptation_diag_imm`** at the recert seeds vs **25 % under the `multipathfinder → window_adaptation_diag_imm` two-stage pipeline** with 4 paths + PSIS resampling. A 2026-05-18 warmup ladder compared three approaches at 7–8 seeds each under the original Uniform/Cauchy priors:
+**Historical multi-mode warmup-capture (pre-PR-#27, no longer a concern)**: under the original Uniform/Cauchy priors the AR(1) posterior had a bad-attractor mode at the unit-root tail (phi ≈ 0.9999) that single-stage `window_adaptation_diag_imm` (init from NumPyro's default `init_to_uniform`) could be captured by during the first ~50 warmup steps (step_size collapses to ~10⁻⁶, post-warmup chain stuck). A 2026-05-18 multi-seed sweep showed **44 % gate failure rate under bare `window_adaptation_diag_imm`** at the recertification seeds vs **25 % under the `multipathfinder → window_adaptation_diag_imm` two-stage pipeline** with 4 paths + PSIS resampling. A 2026-05-18 warmup ladder compared three approaches at 7–8 seeds each under the original Uniform/Cauchy priors:
 
 | Warmup | Pass rate | Mean div rate | Catastrophic captures |
 |---|---:|---:|---:|
@@ -221,7 +221,7 @@ The following case studies document the investigation path and distilled lessons
 - 2026-05-12: Cluster analysis showing 92%/78% tail concentration at mu/phi extremes; identifies unit-root as primary driver
 - 2026-05-12: Hypothesis (tighten prior to suppress phi→1 tail) tested and failed; correct diagnosis ≠ straightforward fix
 - 2026-05-17: Re-cert at seed=20260517 fails catastrophically (R̂≈5, ESS≈0.5); original "PRNG fragility" framing; **superseded by 2026-05-18**
-- 2026-05-18: 7-seed sweep at recert config under the *original* Uniform/Cauchy priors reveals 44 % gate-failure rate; warmup-adaptation capture by unit-root attractor is the mechanism; **Pathfinder→NUTS rescues the failing seed**; led to the multipathfinder pin (subsequently retired 2026-05-19 once PR #27 priors made the attractor unreachable)
+- 2026-05-18: 7-seed sweep at the recertification config under the *original* Uniform/Cauchy priors reveals 44 % gate-failure rate; warmup-adaptation capture by unit-root attractor is the mechanism; **Pathfinder→NUTS rescues the failing seed**; led to the multipathfinder pin (subsequently retired 2026-05-19 once PR #27 priors made the attractor unreachable)
 - 2026-05-18: 7-variant init-range sweep; **no winner** for diverse-init multipathfinder; archival now that the multipathfinder pre-stage is retired
 - 2026-05-18: PR #27 prior revision: Beta(4,4) factor on phi + Normal(0,5) on mu. Trial-level divergences 1.22 % → 0.03 %. The bulk-shift is what enabled the 2026-05-19 simplification back to bare `window_adaptation_diag_imm`
 

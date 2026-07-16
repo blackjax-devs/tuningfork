@@ -30,7 +30,7 @@ Trial cert at `n_warmup=500, ta=0.80` produced step_size=3.5e-6 (three orders of
 
 **Cascade.** BlackJAX's `window_adaptation` covariance windows are calibrated for d ≤ ~50. At d=203 the windows are too short to accumulate meaningful per-dim statistics → IMM stays uniform → step_size dual-averaging targets the uniform-IMM geometry instead of actual anisotropy → step_size is microscopic → NUTS hits the max-tree-depth ceiling on every trajectory. The chain looks statistically valid (0 divergences, R̂≈1 between chunks) but is geometrically stuck near the prior.
 
-**Complete fix.** Raising n_warmup to 2000 unblocked the depth-saturation pathology, but a 16 % steady-state divergence rate persisted at ta=0.80. A chunk-1 A/B at the same warmup state confirmed the missing lever: `ta=0.80` → 160/1000 divergences; `ta=0.99` → 0 divergences. The production fix requires **both**: `n_warmup ≥ 5000` and `target_acceptance = 0.99`.
+**Complete fix.** Raising n_warmup to 2000 unblocked the depth-saturation pathology, but a 16 % steady-state divergence rate persisted at ta=0.80. A side-by-side trial at the same warmup state confirmed the missing lever: `ta=0.80` → 160/1000 divergences; `ta=0.99` → 0 divergences. The production fix requires **both**: `n_warmup ≥ 5000` and `target_acceptance = 0.99`.
 
 **Generalizable rule.** For d > 100, plan `n_warmup ≥ 2000` and `max_num_doublings = 12–15`. The pair matters — better IMM adaptation lowers condition number, and the tree-depth ceiling must give room to traverse whatever condition number the chain actually adapts to.
 
