@@ -181,7 +181,7 @@ def _assemble_verdict(
             # never shrinks, and the FAIL >= 4.0 boundary is untouched.
             # vi_sampler_mode uses its own dedicated pivotal-z band (z<4.0
             # PASS, no FAIL) and is deliberately left alone here.
-            # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+            # See sidak_t_pass for the derivation.
             t_pass = sidak_t_pass(_n_dims)
             z_bands = dict(z_bands)
             z_bands["pass"] = (0.0, t_pass)

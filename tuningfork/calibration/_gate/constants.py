@@ -57,11 +57,9 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # else FAIL
     },
     "n_divergences": {
-        # Amended 2026-05-12: strict zero relaxed to small absolute count
-        # for PASS (rationale per certify_reference._DIVERGENCE_RATE_TOLERANCE
-        # comment + decision doc 2026-05-11-phase0-reference-protocol-
-        # refinements § 8). A few divergences in a long chain reflects
-        # geometry (e.g. funnel-neck visits), not adaptation failure.
+        # Amended: strict zero relaxed to small absolute count for PASS.
+        # A few divergences in a long chain reflects geometry (e.g.
+        # funnel-neck visits), not adaptation failure.
         "pass": (0, 6),  # x ≤ 5 → PASS (interval [0,6) i.e. x < 6)
         "review": (6, 40),  # 6 ≤ x < 40 → REVIEW
         # else FAIL
@@ -74,7 +72,7 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # value here only matters when ``max_abs_mean_z`` is classified
         # directly against ``DEFAULT_THRESHOLDS`` without going through
         # ``auto_gate`` (e.g. ``resolve_thresholds`` callers, docs, tests).
-        # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+        # See sidak_t_pass for the dimension-aware band derivation.
         "pass": (0.0, 2.0),  # x < 2 → PASS (d=1 case; d>1 loosens via Šidák)
         "review": (2.0, 4.0),  # 2 ≤ x < 4 → REVIEW
         # else FAIL
