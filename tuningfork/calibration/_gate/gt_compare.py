@@ -66,15 +66,13 @@ def _compute_gt_compare(
     max_abs_mean_z: float | None = None
     # frac_z2: fraction of *scalar dimensions* with |z_d| > 2 across all sites,
     # flattened.  Secondary diagnostic — never alters verdict.
-    # Amendment (2026-05-29): dimension-level granularity, not site-level.
+    # Amendment: dimension-level granularity, not site-level.
     # Site-level collapsed to {0,1} for single-vector-param models (e.g. mvn_10
-    # x: 10-D = 1 site × 10 dims) — uninformative.  See decision doc
-    # 2026-05-28-max-abs-mean-z-threshold.md § Amendment.
+    # x: 10-D = 1 site × 10 dims) — uninformative.
     _frac_z2: float | None = None
     # n_dims: count of finite per-dimension z-scores the max_abs_mean_z max is
     # taken over (across all sites) — feeds the dimension-aware Šidák PASS
-    # band via sidak_t_pass(n_dims).  See
-    # worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+    # band via sidak_t_pass(n_dims).
     _n_dims = 0
     # Margins fields: bias_sigma_* (effect sizes in GT-σ units)
     _bias_sigma_at_argmax_z: float | None = None
