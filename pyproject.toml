@@ -16,6 +16,16 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+# Install tuningfork[viz] to enable catalog diagnostic plots, InferenceData
+# helpers, and the marimo catalog explorer.  The core library (including all
+# calibration and gate logic) does not require arviz.
+viz = [
+    "arviz",
+    "arviz-plots>=0.6",
+    "matplotlib",
+]
+
 # The `bench` group is the canonical install for running benchmarks.
 # Mirrors sampling-book's `book` group so model implementations port cleanly,
 # plus optuna (hyperparameter optimization) and posteriordb (reference cross-validation for shared models).
