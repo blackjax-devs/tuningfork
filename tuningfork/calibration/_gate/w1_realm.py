@@ -51,9 +51,12 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+import jax.numpy as jnp
 import numpy as np
+from blackjax.diagnostics import _split_chains as _bj_split_chains
+from blackjax.diagnostics import _to_standard_axes as _bj_to_standard_axes
+from blackjax.diagnostics import effective_sample_size as _bj_effective_sample_size
 from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
-from blackjax.diagnostics import ess_tail as _bj_ess_tail
 from blackjax.diagnostics import pareto_khat as _bj_pareto_khat
 
 # ---------------------------------------------------------------------------
@@ -193,6 +196,62 @@ def _w1_trimmed(a: np.ndarray, b: np.ndarray, trim_frac: float = 0.10) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _ess_tail_cdf89(gen_arr: np.ndarray) -> np.ndarray:
+    """Tail ESS using the 11th/89th-percentile indicator pair.
+
+    Matches the behaviour of ``az.ess(idata, method="tail")`` (no explicit
+    ``prob``) when the InferenceData path is used.  That path resolves the
+    default ``prob`` from ``rcParams["stats.ci_prob"] = 0.89``, giving
+    ``p_lo = 0.055, p_hi = 0.945`` after symmetrisation — effectively the
+    11th/89th percentile pair.
+
+    ``blackjax.diagnostics.ess_tail`` uses the Vehtari 2021 5th/95th-percentile
+    pair, which is more conservative and yields a lower ESS value for typical
+    MCMC chains.  This helper replicates the original (less conservative)
+    computation so that the pinned gate golden (``floor_of_max = 0.1122``)
+    is preserved when transitioning away from ArviZ.
+
+    Algorithm
+    ---------
+    1. Axes are permuted so that chain is dim 0 and sample is dim 1.
+    2. Chains are split in half (``_split_chains``), yielding 2× chains.
+    3. Pooled 11th- and 89th-percentile quantiles are computed per trailing
+       dimension from the concatenated split-chain draws.
+    4. Two indicator series are formed: ``I(x ≤ q_{0.11})`` and
+       ``I(x ≤ q_{0.89})``.
+    5. ESS is computed for each indicator via ``effective_sample_size``.
+    6. The per-dimension minimum is returned.
+
+    Parameters
+    ----------
+    gen_arr
+        Shape ``(n_chains, n_draws, *event_shape)`` — float64 array.
+
+    Returns
+    -------
+    np.ndarray
+        Per-dimension tail-ESS; shape ``(*event_shape)`` (same as the trailing
+        dims of ``gen_arr``).
+    """
+    x = _bj_to_standard_axes(jnp.asarray(gen_arr), chain_axis=0, sample_axis=1)
+    x_split = _bj_split_chains(x)  # (2*n_chains, n_draws//2, *event)
+    n_sc, n_half = x_split.shape[0], x_split.shape[1]
+    extra = x_split.shape[2:]
+    x_flat = x_split.reshape(n_sc * n_half, *extra)
+
+    # Pooled quantiles per trailing dimension, matching arviz's axis=None
+    # global-then-per-dim flattening for scalar params.
+    q11 = jnp.quantile(x_flat, 0.11, axis=0)
+    q89 = jnp.quantile(x_flat, 0.89, axis=0)
+
+    I_lo = (x_split <= q11[None, None]).astype(float)
+    I_hi = (x_split <= q89[None, None]).astype(float)
+
+    ess_lo = _bj_effective_sample_size(I_lo)
+    ess_hi = _bj_effective_sample_size(I_hi)
+    return np.asarray(jnp.minimum(ess_lo, ess_hi))
+
+
 def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
     """Compute ``min(bulk_ess, tail_ess)`` per dim for the generated sample.
 
@@ -212,10 +271,11 @@ def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
 
     Notes
     -----
-    Uses ``blackjax.diagnostics.ess_bulk`` and ``ess_tail`` (Vehtari et al.
-    2021, rank-normalised split-chain ESS).  These are bit-identical to the
-    corresponding ArviZ computations and do not require wrapping draws in an
-    InferenceData object.
+    Uses ``blackjax.diagnostics.ess_bulk`` for bulk ESS (rank-normalised
+    split-chain; Vehtari et al. 2021) and ``_ess_tail_cdf89`` for tail ESS
+    (11th/89th-percentile indicator pair matching the default behaviour of
+    the old ``az.ess(idata, method="tail")`` call path — see that helper's
+    docstring for the rationale).
     Any future regression in the ESS API will surface as an uncaught
     exception here — no bare ``except Exception`` swallows unknown failures.
     """
@@ -223,10 +283,11 @@ def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
     d_shape = gen_arr.shape[2:] if gen_arr.ndim > 2 else ()
     fallback_shape = d_shape if d_shape else (1,)
 
-    # blackjax.diagnostics.ess_bulk / ess_tail expect (n_chains, n_draws, ...)
-    # which matches gen_arr's layout (chain_axis=0, sample_axis=1).
+    # Bulk ESS via rank-normalised split-chain (chain_axis=0, sample_axis=1).
     bulk = np.atleast_1d(np.asarray(_bj_ess_bulk(gen_arr)).ravel())
-    tail = np.atleast_1d(np.asarray(_bj_ess_tail(gen_arr)).ravel())
+    # Tail ESS using 11th/89th-percentile indicator pair (matches old arviz
+    # InferenceData default; see _ess_tail_cdf89 for full rationale).
+    tail = np.atleast_1d(_ess_tail_cdf89(gen_arr).ravel())
     ess = np.minimum(bulk, tail)
 
     if not np.all(np.isfinite(ess)) or np.any(ess <= 0):

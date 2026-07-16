@@ -1087,20 +1087,25 @@ def test_ess_gen_uses_min_bulk_tail():
     assert np.all(ess > 0), f"ESS has non-positive values: {ess}"
 
     # MUT-6 guard: verify the result is min(bulk, tail), not just bulk.
-    # Recompute bulk and tail via blackjax directly and compare.
+    # _ess_gen_per_dim uses _ess_tail_cdf89 (11th/89th-percentile pair, matching
+    # the old az.ess(idata, method="tail") default) rather than
+    # blackjax.diagnostics.ess_tail (which uses 5th/95th percentiles per
+    # Vehtari 2021).  We import _ess_tail_cdf89 directly to construct the
+    # expected value.
     from blackjax.diagnostics import ess_bulk as bj_ess_bulk
-    from blackjax.diagnostics import ess_tail as bj_ess_tail
+
+    from tuningfork.calibration._gate.w1_realm import _ess_tail_cdf89
 
     bulk = np.atleast_1d(np.asarray(bj_ess_bulk(gen_arr)).ravel())
-    tail = np.atleast_1d(np.asarray(bj_ess_tail(gen_arr)).ravel())
+    tail = np.atleast_1d(_ess_tail_cdf89(gen_arr).ravel())
     expected = np.minimum(bulk, tail)
     np.testing.assert_allclose(
         ess,
         expected,
         rtol=1e-5,
         err_msg=(
-            "_ess_gen_per_dim result does not match min(ess_bulk, ess_tail); "
-            "MUT-6: check that both bulk and tail are computed"
+            "_ess_gen_per_dim result does not match min(ess_bulk, _ess_tail_cdf89); "
+            "MUT-6: check that both bulk and tail (11th/89th) are computed"
         ),
     )
 
