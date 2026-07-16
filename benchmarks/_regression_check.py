@@ -1,7 +1,6 @@
 """Cross-date regression check for the nightly benchmark suite.
 
-Implements the revised criterion from worklog/threads/benchmark-regression-criterion.md
-(§ MOCK VALIDATION RESULTS — mock superseded the pre-mock 0/1/2 exact-comparison scheme).
+Implements the revised criterion (§ MOCK VALIDATION RESULTS — mock superseded the pre-mock 0/1/2 exact-comparison scheme).
 
 **Revised criterion:**
 

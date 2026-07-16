@@ -48,7 +48,7 @@ Tests
 15. test_resolve_thresholds_high_correlation_tag
         Posterior with tags=("high-correlation",) → rhat_max review upper = 1.10.
 
-Dimension-aware (Šidák) PASS band — worklog/decisions/2026-07-03-dimension-aware-pass-band.md
+Dimension-aware (Šidák) PASS band
 -----------------------------------------------------------------------------------------------
 17. test_sidak_t_pass_monotone_floor_cap
         t_pass(d) non-decreasing in d; t_pass(1) == 2.0; capped at 4.0 for large d.
@@ -579,7 +579,7 @@ def test_sidak_t_pass_loosen_only():
 
 
 def test_sidak_t_pass_spot_values():
-    """Spot values (worklog/decisions/2026-07-03-dimension-aware-pass-band.md)."""
+    """Spot values for the dimension-aware Šidák pass-band."""
     assert sidak_t_pass(10) == pytest.approx(2.80, abs=1e-2)
     assert sidak_t_pass(50) == pytest.approx(3.28, abs=1e-2)
     assert sidak_t_pass(200) == pytest.approx(3.66, abs=1e-2)

@@ -80,8 +80,8 @@ def _(mo):
     3. Diagnostic plots auto-render: trace + pair on headline parameters
        (hyperpriors), forest on the rest.
 
-    See [catalog README](../README.md) for the broader API + the
-    [headline_params decision doc](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-18-headline-params-per-model.md)
+    See [catalog README](../README.md) for the broader API and the
+    `headline_params` / `headline_coords` fields on each model's `Posterior` dataclass
     for what counts as "headline" per model.
     """
     )

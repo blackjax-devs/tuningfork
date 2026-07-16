@@ -50,3 +50,11 @@ repos:
   hooks:
     - id: gitlint
     - id: gitlint-ci
+- repo: local
+  hooks:
+    - id: no-internal-refs
+      name: no internal agent-config references
+      language: script
+      entry: tools/check_no_internal_refs.sh
+      pass_filenames: false
+      always_run: true

@@ -20,18 +20,16 @@ Dense RBF kernel matrix (`200 × 200` points on [0,1]) with float32 + JITTER=1e-
 
 Recorded FAILs not discussed above: all 2 failed recipes are now documented above.
 
-If sampling pathologies emerge as recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/gp_regression/`.
+If sampling pathologies emerge as recipe sweeps execute, case studies will be documented here.
 
 ## History
 
 The following case studies document the investigation path and distilled lessons:
 
-- [2026-05-12-under-warmupped-imm-203d-latent.md](worklog/lessons/case-studies/gp_regression/2026-05-12-under-warmupped-imm-203d-latent.md) — 500 warmup steps insufficient for d=203 adaptation; covariance windows too short; fixed by n_warmup≥5000
-- [2026-05-12-float32-precision-cholesky-trap.md](worklog/lessons/case-studies/gp_regression/2026-05-12-float32-precision-cholesky-trap.md) — JITTER=1e-6 + float32 produces NaN in Cholesky; silent trap caught by post-hoc warmup inspection; fix is float64 + JITTER≥1e-4
-- [2026-05-13-the-labeling-bug.md](worklog/lessons/case-studies/gp_regression/2026-05-13-the-labeling-bug.md) — IMM-index diagnostic error pattern (jax.flatten_util.ravel_pytree for correct site labeling); false-alarm high hyperparameter IMM variance was actually latent variance
-- [2026-05-13-encode-posterior-correlation-as-prior.md](worklog/lessons/case-studies/gp_regression/2026-05-13-encode-posterior-correlation-as-prior.md) — posterior ridge is identifiability issue, not prior misspecification; durable Bayesian-modeling lesson (what NOT to do)
-
-See `worklog/lessons/case-studies/gp_regression/README.md` for the index and quick summary.
+- 2026-05-12: 500 warmup steps insufficient for d=203 adaptation; covariance windows too short; fixed by n_warmup≥5000
+- 2026-05-12: JITTER=1e-6 + float32 produces NaN in Cholesky; silent trap caught by post-hoc warmup inspection; fix is float64 + JITTER≥1e-4
+- 2026-05-13: IMM-index diagnostic error pattern (jax.flatten_util.ravel_pytree for correct site labeling); false-alarm high hyperparameter IMM variance was actually latent variance
+- 2026-05-13: Posterior ridge is identifiability issue, not prior misspecification; durable Bayesian-modeling lesson (what NOT to do)
 
 ## Citations
 

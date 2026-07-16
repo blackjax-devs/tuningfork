@@ -84,7 +84,7 @@ Recorded FAILs not discussed above: all 9 failed recipes are now covered above.
 
 2026-06-08: MCLMC family Category C evaluation (recipes-mclmc-cat-c.md experimental
 findings). Full attempted-configurations ladder committed to catalog recipes.
-@statistician override: stat-2026-06-08. See `catalog/mclmc-routing-taxonomy.md` §4.
+Reviewed and approved 2026-06-08. See `catalog/mclmc-routing-taxonomy.md` §4.
 
 ## Citations
 

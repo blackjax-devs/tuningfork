@@ -120,8 +120,7 @@ class Posterior:
     Remaining sites go to az.plot_forest. None = no filtering (show all,
     appropriate for small-dim models). Every name MUST be a numpyro.sample
     site (NOT numpyro.deterministic) — deterministics aren't materialised
-    into draws.npz / data_vars. See worklog/decisions/2026-05-18-headline-
-    params-per-model.md for ratified per-model values."""
+    into draws.npz / data_vars."""
 
     headline_coords: dict[str, list[int]] | None = None
     """Per-model 'interesting indices' within multi-dim sites. E.g.,

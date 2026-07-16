@@ -99,7 +99,7 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "Honest FAIL: MFVI tau-collapse on eight_schools_ncp hierarchical posterior. z=6.36 far exceeds the 18-dim sampling-noise floor (E[max|N(0,1)|_18]=2.65). MFVI's independence assumption cannot represent the tau-scale-mean coupling in NCP parameterisation; the variational posterior systematically underestimates tau leading to biased school-effect means. This is a structural failure of MFVI on hierarchical posteriors, not sampling noise. See worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "reason": "Honest FAIL: MFVI tau-collapse on eight_schools_ncp hierarchical posterior. z=6.36 far exceeds the 18-dim sampling-noise floor (E[max|N(0,1)|_18]=2.65). MFVI's independence assumption cannot represent the tau-scale-mean coupling in NCP parameterisation; the variational posterior systematically underestimates tau leading to biased school-effect means. This is a structural failure of MFVI on hierarchical posteriors, not sampling noise.",
       "statistician_id": "",
       "decision": "FAIL"
     }

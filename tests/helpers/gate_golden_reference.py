@@ -114,7 +114,6 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # value here only matters when ``max_abs_mean_z`` is classified
         # directly against ``DEFAULT_THRESHOLDS`` without going through
         # ``auto_gate`` (e.g. ``resolve_thresholds`` callers, docs, tests).
-        # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
         "pass": (0.0, 2.0),  # x < 2 → PASS (d=1 case; d>1 loosens via Šidák)
         "review": (2.0, 4.0),  # 2 ≤ x < 4 → REVIEW
         # else FAIL
@@ -140,7 +139,7 @@ def sidak_t_pass(n_dims: int, alpha: float = 0.05) -> float:
     only ever *loosens* relative to the historical fixed PASS<2.0 boundary
     and never crosses the fixed FAIL>=4.0 boundary.
 
-    See ``worklog/decisions/2026-07-03-dimension-aware-pass-band.md`` for the
+    See the dimension-aware Šidák pass-band design for the
     derivation, the empirical trigger, and the full verification table.
 
     Parameters
@@ -388,8 +387,7 @@ def _samples_to_multichain(
     **Precondition**: Callers must call ``jax.block_until_ready(samples)`` before
     invoking this function. JAX arrays passed in are expected to be fully
     materialised; ``np.asarray`` here is used for shape inspection and conversion
-    to ArviZ input format only.  See
-    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
+    to ArviZ input format only.
 
     Parameters
     ----------
@@ -560,8 +558,7 @@ def auto_gate(
     **Precondition**: Callers must call ``jax.block_until_ready((samples, info))``
     before invoking this function. All JAX array materialisations below (``np.asarray``,
     ``int(jnp_scalar)``, ``float(jnp_scalar)``) rely on this precondition to avoid
-    buffer-pool contention. See
-    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
+    buffer-pool contention.
     """
     thresholds = resolve_thresholds(posterior)
 
@@ -625,8 +622,7 @@ def auto_gate(
     _frac_z2: float | None = None
     # n_dims: count of finite per-dimension z-scores the max_abs_mean_z max is
     # taken over (across all sites) — feeds the dimension-aware Šidák PASS
-    # band via sidak_t_pass(n_dims).  See
-    # worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+    # band via sidak_t_pass(n_dims).
     _n_dims = 0
     # Margins fields: bias_sigma_* (effect sizes in GT-σ units)
     _bias_sigma_at_argmax_z: float | None = None
@@ -755,8 +751,7 @@ def auto_gate(
     # catch-all to true 2kπ intervals only.  L=25 at ε≈0.31 gives L·ε≈7.85
     # (≈ 5π/2, outside both zones → no warning); L=30 at same ε gives ≈9.4
     # (≈ 3π, also outside both zones — but produces z=2.78 bias for other
-    # reasons).  Lesson: worklog/lessons/code-patterns/
-    # 2026-05-29-fixed-L-hmc-resonance-at-2pi.md
+    # reasons).
     _resonance_warning: bool | None = None
     if step_size is not None and num_integration_steps is not None:
         _leps = num_integration_steps * step_size
@@ -801,7 +796,6 @@ def auto_gate(
             # never shrinks, and the FAIL >= 4.0 boundary is untouched.
             # vi_sampler_mode uses its own dedicated pivotal-z band (z<4.0
             # PASS, no FAIL) and is deliberately left alone here.
-            # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
             t_pass = sidak_t_pass(_n_dims)
             z_bands = dict(z_bands)
             z_bands["pass"] = (0.0, t_pass)

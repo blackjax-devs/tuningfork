@@ -39,8 +39,7 @@ Corpus design
 
 Note on real-draw fixture
 -------------------------
-The brief also mentions
-``worklog/data/gpu-chees-meads-2026-07-11/emissions-2026-07-12/nc128_V_emit.npz``.
+The brief also mentions a GPU-run emissions artifact (nc128_V_emit.npz).
 That file is not present in the current checkout (GPU run artifacts are not
 committed).  The synthetic corpus below is sufficient to cover all code paths;
 the missing file is noted as a follow-up for when the artifact is available.
@@ -821,8 +820,7 @@ def test_z_fail_plus_other_fail_no_advisory_demotion():
 # ---------------------------------------------------------------------------
 
 _REAL_NPZ_PATH = (
-    "/home/jp/blackjax-devs/worklog/data"
-    "/gpu-chees-meads-2026-07-11/emissions-2026-07-12/nc128_V_emit.npz"
+    "/home/jp/blackjax-devs" "/gpu-chees-meads-emissions-2026-07-12/nc128_V_emit.npz"
 )
 
 

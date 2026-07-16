@@ -198,8 +198,7 @@ def auto_gate(
     # catch-all to true 2kπ intervals only.  L=25 at ε≈0.31 gives L·ε≈7.85
     # (≈ 5π/2, outside both zones → no warning); L=30 at same ε gives ≈9.4
     # (≈ 3π, also outside both zones — but produces z=2.78 bias for other
-    # reasons).  Lesson: worklog/lessons/code-patterns/
-    # 2026-05-29-fixed-L-hmc-resonance-at-2pi.md
+    # reasons).
     _resonance_warning: bool | None = None
     if step_size is not None and num_integration_steps is not None:
         _leps = num_integration_steps * step_size

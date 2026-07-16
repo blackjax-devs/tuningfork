@@ -99,7 +99,7 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "Honest FAIL: genuine MFVI posterior-mean bias on logistic_synthetic. z=14.4 far exceeds the 26-dim pivotal sampling-noise floor (E[max|N(0,1)|_26]=2.81). frvi<mfvi ordering (fr z=5.2 vs mf z=14.4) confirms correlation-induced bias: the logistic likelihood creates posterior correlations between coefficients that MFVI's independence assumption cannot represent; the mean of the marginal approximation diverges from the joint posterior mean. This is intrinsic VI-on-logistic bias, not sampling noise. Same failure class as gp_regression (z=325) and neals_funnel. See worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "reason": "Honest FAIL: genuine MFVI posterior-mean bias on logistic_synthetic. z=14.4 far exceeds the 26-dim pivotal sampling-noise floor (E[max|N(0,1)|_26]=2.81). frvi<mfvi ordering (fr z=5.2 vs mf z=14.4) confirms correlation-induced bias: the logistic likelihood creates posterior correlations between coefficients that MFVI's independence assumption cannot represent; the mean of the marginal approximation diverges from the joint posterior mean. This is intrinsic VI-on-logistic bias, not sampling noise. Same failure class as gp_regression (z=325) and neals_funnel.",
       "statistician_id": "",
       "decision": "FAIL"
     }

@@ -295,7 +295,7 @@ medium__dynamic_hmc__window_adaptation_diag_imm__policy_v7-empirical-oracle.json
 medium__dynamic_hmc__window_adaptation_diag_imm__policy_v2-long.json              ← V2 parametric
 ```
 
-The `<slug>` matches a variant in the policy catalog (see worklog for step_policy inventory). Slug-to-anchor mapping is 1:1 with the catalog.
+The `<slug>` matches a variant in the policy catalog. Slug-to-anchor mapping is 1:1 with the catalog.
 
 ## §5 — Filename composition
 
@@ -357,8 +357,8 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 
 ## §10 — Related documents
 
-- **Active research thread**: [`worklog/threads/d-hmc-integration-steps-fn-matrix.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/threads/d-hmc-integration-steps-fn-matrix.md) — step_policy variant catalog, per-cell prediction matrix, NUTS-harvested step_policy work execution log
-- **Effort taxonomy** decision: [`worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-10-effort-taxonomy-canonical-c.md)
+- **step_policy variant catalog**: step_policy variant catalog, per-cell prediction matrix, NUTS-harvested step_policy work execution log
+- **Effort taxonomy** decision: effort-taxonomy-canonical-c (2026-05-10)
 - **Catalog README**: [`catalog/README.md`](README.md) — user-facing consumption guide
 - **Inspection API**: [`catalog/notebooks/inspect_README.md`](notebooks/inspect_README.md)
 - **Recipe runner source**: [`recipes/_recipe_runner.py`](../recipes/_recipe_runner.py) — runtime implementation
@@ -367,5 +367,5 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 
 | Date | Change |
 |---|---|
-| 2026-05-21 | Initial schema doc. Extracted from `worklog/threads/d-hmc-integration-steps-fn-matrix.md` §5, §10, §12. Added §2 repeated-warmup proposal (per user direction). |
+| 2026-05-21 | Initial schema doc. Extracted from the step_policy design thread §5, §10, §12. Added §2 repeated-warmup proposal (per user direction). |
 | 2026-05-21 (same day, later) | Locked all 5 §8 open questions per user direction: Q1 immediate-deprecate; Q2 `mix_warmup_v{N}` glossary in lieu of separator-concatenation; Q3 defer `warmup_inner_kwargs`; Q4 ravel across chains; Q5 always-compress empirical spec with ≤24-entry cap. §2.5 mix-warmup glossary section added (initially empty pending first real use). `max_values` default in `harvest_step_policy_from_*` updated 512 → 24. |

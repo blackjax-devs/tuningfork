@@ -99,7 +99,7 @@
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "Honest FAIL: MFVI stochastic-optimizer failure \u2014 \u03ba=1000 condition number makes ELBO-gradient noise dominate signal in ill-conditioned eigendirections; ELBO converges (10k/50k/100k Adam steps) but the variational mean does not reach the posterior mean (z=4.4-6.8, no downward trend with budget). The analytical MFVI optimum is exact for a Gaussian, so this is an optimizer limitation (would need >=100 MC samples/step), NOT a VI-family bias \u2014 conceptually distinct from the logistic/hierarchical intrinsic-bias FAILs. See statistician probe results and worklog/decisions/2026-06-04-vi-sampler-pivotal-z-review-gate.md.",
+      "reason": "Honest FAIL: MFVI stochastic-optimizer failure \u2014 \u03ba=1000 condition number makes ELBO-gradient noise dominate signal in ill-conditioned eigendirections; ELBO converges (10k/50k/100k Adam steps) but the variational mean does not reach the posterior mean (z=4.4-6.8, no downward trend with budget). The analytical MFVI optimum is exact for a Gaussian, so this is an optimizer limitation (would need >=100 MC samples/step), NOT a VI-family bias \u2014 conceptually distinct from the logistic/hierarchical intrinsic-bias FAILs. See the probe results in the recipe notes.",
       "statistician_id": "",
       "decision": "FAIL"
     }

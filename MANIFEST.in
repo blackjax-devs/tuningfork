@@ -2,7 +2,7 @@
 #
 # Policy (docs-shipping decision 2026-05-31):
 #   SHIP:     README.md, LICENSE, CONTRIBUTING.md (user-facing)
-#   INTERNAL: CLAUDE.md, RECIPE_GENERATION.md, worklog/, experiments/
+#   INTERNAL: CLAUDE.md, RECIPE_GENERATION.md, experiments/
 #             (developer docs; stay in repo for contributors, not in sdist/wheel)
 #
 # setuptools.packages.find handles Python package inclusion.

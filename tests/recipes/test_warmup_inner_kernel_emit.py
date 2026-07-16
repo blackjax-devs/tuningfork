@@ -72,8 +72,8 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     # This test is a SMOKE check: did the emit_low_recipe_for_cell pipeline run
     # correctly and produce sane output?  It is NOT a quality certificate.
     #
-    # Per worklog/lessons/code-patterns/2026-05-11-single-realization-mc-noisy-assertion.md
-    # (META lesson n=4; promoted 2026-05-11): single-realization MC tests on small chains
+    # Per single-realization MC noisy-assertion guidance
+    # (META lesson n=4; 2026-05-11): single-realization MC tests on small chains
     # (n=4 chains × 1000 samples) are inherently noisy.  The rhat_max on any one run can
     # drift into REVIEW (≥1.01) or FAIL (≥1.05) bands from pure MC variance, not from an
     # algorithm regression.  Witnessed in CI: rhat_max=1.068 on a 0-divergence run
@@ -104,8 +104,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
             "recipe not emitted on non-PASS, so filename + Recipe.load checks are "
             "unreachable.  Hard structural gates (n_div=0, finite rhat, ess>0) all "
             "passed — this is MC noise on a 4×1000-sample run, not an algorithm "
-            "regression.  See worklog/lessons/code-patterns/"
-            "2026-05-11-single-realization-mc-noisy-assertion.md."
+            "regression.  This is MC noise on a 4×1000-sample run per the noisy-assertion guidance."
         )
 
     # --- Filename must include __inner_nuts tag (§3.5) ---

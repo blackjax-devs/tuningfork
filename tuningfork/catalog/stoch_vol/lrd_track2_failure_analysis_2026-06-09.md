@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-09
 **Branch:** feat/calibrated-emission @ a08abc4
-**Author:** @statistician
+**Author:** statistician review
 
 ## Verdict: 0/3 FAIL — mission fallback applies, track STOPS
 
@@ -32,7 +32,7 @@ runs — no samples, no R-hat, no ESS.
 **This is a production code bug**, not a stoch_vol geometry limitation. It would affect
 ANY model with mixed-rank parameter pytrees. Needs fix in `_run_cert_seed` (or its
 chain-stacking utility): reshape each leaf to 1D before concatenating, or use
-`jax.tree_util.tree_map` with per-leaf reshaping. Reported to @swe.
+`jax.tree_util.tree_map` with per-leaf reshaping. Reported to the engineering team.
 
 ## Consequence for Mission
 

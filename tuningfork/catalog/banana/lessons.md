@@ -51,7 +51,7 @@ Recorded FAILs not discussed above: all 13 failed recipes are covered above.
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/banana/`.
+No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps, case studies will be documented here.
 
 ## Dynamic-L Sweep (avg ladder)
 

@@ -51,7 +51,7 @@ Recorded FAILs not discussed above: all 14 failed recipes are covered above.
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/lotka_volterra/`.
+No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps, case studies will be documented here.
 
 ## Citations
 
