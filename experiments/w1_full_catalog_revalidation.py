@@ -416,8 +416,10 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
 
     # Warmups whose adapted_params include non-serialisable callables
     # (integration_steps_fn, next_random_arg_fn) — skip_warmup=True fails for
-    # these; they need a full re-warmup (path C).
+    # these.  Small-nc recipes (nc ≤ CPU_NC_LIMIT) go to path C (re-warmup);
+    # large-nc recipes (originally run on GPU) go to SK — infeasible on CPU.
     FULL_WARMUP_REQUIRED = frozenset({"chees", "meads"})
+    CPU_NC_LIMIT = 32  # nc > this → SK for chees/meads (GPU-scale recipe)
 
     def classify(recipe_path: pathlib.Path) -> tuple[bool, str]:
         model = recipe_path.parent.parent.name
@@ -457,7 +459,11 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
         parts = recipe_path.stem.split("__")
         warmup_name = parts[2] if len(parts) >= 3 else ""
         if warmup_name in FULL_WARMUP_REQUIRED:
-            # CHEES / MEADS adapted_params contain callables → must re-run warmup
+            # CHEES / MEADS adapted_params contain callables → must re-run warmup.
+            # Large-nc recipes (GPU-scale) are infeasible on CPU → SK.
+            nc = d.get("calibration_budget", {}).get("num_chains", 0)
+            if nc > CPU_NC_LIMIT:
+                return True, "SK"
             return True, "C"
 
         # Check for sidecar IMM: stored as "sidecar" in base_method_params (new
