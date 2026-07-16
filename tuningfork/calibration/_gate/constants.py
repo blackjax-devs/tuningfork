@@ -57,11 +57,9 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # else FAIL
     },
     "n_divergences": {
-        # Amended 2026-05-12: strict zero relaxed to small absolute count
-        # for PASS (rationale per certify_reference._DIVERGENCE_RATE_TOLERANCE
-        # comment + decision doc 2026-05-11-phase0-reference-protocol-
-        # refinements § 8). A few divergences in a long chain reflects
-        # geometry (e.g. funnel-neck visits), not adaptation failure.
+        # Amended: strict zero relaxed to small absolute count for PASS.
+        # A few divergences in a long chain reflects geometry (e.g.
+        # funnel-neck visits), not adaptation failure.
         "pass": (0, 6),  # x ≤ 5 → PASS (interval [0,6) i.e. x < 6)
         "review": (6, 40),  # 6 ≤ x < 40 → REVIEW
         # else FAIL
@@ -74,7 +72,7 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
         # value here only matters when ``max_abs_mean_z`` is classified
         # directly against ``DEFAULT_THRESHOLDS`` without going through
         # ``auto_gate`` (e.g. ``resolve_thresholds`` callers, docs, tests).
-        # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+        # See sidak_t_pass for the dimension-aware band derivation.
         "pass": (0.0, 2.0),  # x < 2 → PASS (d=1 case; d>1 loosens via Šidák)
         "review": (2.0, 4.0),  # 2 ≤ x < 4 → REVIEW
         # else FAIL
@@ -85,5 +83,12 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, tuple]] = {
 # Verdict ranking
 # ---------------------------------------------------------------------------
 
-_VERDICT_RANK: dict[str, int] = {"PASS": 0, "REVIEW": 1, "FAIL": 2}
-_RANK_VERDICT: dict[int, str] = {v: k for k, v in _VERDICT_RANK.items()}
+_VERDICT_RANK: dict[str, int] = {"PASS": 0, "SKIP": 0, "REVIEW": 1, "FAIL": 2}
+"""Verdict rank lookup.
+
+"SKIP" maps to rank 0 (same as "PASS") so ``_worst("PASS", "SKIP")`` and
+``_worst("SKIP", "SKIP")`` return "PASS".  This prevents a KeyError when
+``compute_w1_realm`` returns ``verdict="SKIP"`` (no-site-overlap case) and
+``_assemble_verdict`` folds it via ``_worst``.
+"""
+_RANK_VERDICT: dict[int, str] = {0: "PASS", 1: "REVIEW", 2: "FAIL"}

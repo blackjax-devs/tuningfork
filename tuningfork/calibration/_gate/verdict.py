@@ -13,11 +13,17 @@
 # limitations under the License.
 """Verdict assembly — classify metrics, build margins, return AutoGateVerdict."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .bands import _build_margin, _classify_metric, _worst, sidak_t_pass
 from .constants import Z_VERDICT_ESS_CEILING
 from .gt_compare import _GtCompareResult
+
+if TYPE_CHECKING:
+    from .w1_realm import W1RealmResult
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,7 @@ class AutoGateVerdict:
     resonance_warning: bool | None = (
         None  # True when L·ε ∈ 2kπ danger zone (fixed-L HMC only)
     )
+    w1_realm_result: W1RealmResult | None = None  # populated when gt_draws provided
 
     def to_dict(self) -> dict:
         """Render in the exact shape ``Recipe.gate_evidence['auto']`` expects.
@@ -69,6 +76,7 @@ class AutoGateVerdict:
             ``rhat_max``, ``min_bulk_ess``, ``n_divergences``,
             ``max_abs_mean_z``, ``verdict``, ``margins``.
             ``resonance_warning`` included when not ``None``.
+            ``margins["w1_realm"]`` included when ``w1_realm_result`` is not ``None``.
         """
         d = {
             "rhat_max": self.rhat_max,
@@ -95,6 +103,7 @@ def _assemble_verdict(
     ess_per_grad: float | None,
     total_grad_evals: int | None,
     wall_seconds: float | None,
+    w1_realm_result: W1RealmResult | None = None,
 ) -> AutoGateVerdict:
     """Classify each metric, assemble margins, and build AutoGateVerdict.
 
@@ -172,7 +181,7 @@ def _assemble_verdict(
             # never shrinks, and the FAIL >= 4.0 boundary is untouched.
             # vi_sampler_mode uses its own dedicated pivotal-z band (z<4.0
             # PASS, no FAIL) and is deliberately left alone here.
-            # See worklog/decisions/2026-07-03-dimension-aware-pass-band.md.
+            # See sidak_t_pass for the derivation.
             t_pass = sidak_t_pass(_n_dims)
             z_bands = dict(z_bands)
             z_bands["pass"] = (0.0, t_pass)
@@ -226,6 +235,25 @@ def _assemble_verdict(
 
         overall_verdict = _worst(overall_verdict, band)
 
+    # --- W1 realm block (stage 4.5 — runs only when gt_draws provided and stage-1 passes) ---
+    if w1_realm_result is not None:
+        # _worst handles SKIP by mapping it to rank 0 (same as PASS); see _VERDICT_RANK.
+        w1_verdict = w1_realm_result.verdict
+        margins["w1_realm"] = {
+            "verdict": w1_verdict,
+            "max_w1_sigma": float(w1_realm_result.max_w1_sigma),
+            "floor_of_max": float(w1_realm_result.floor_of_max),
+            "frac_failing_dims": float(w1_realm_result.frac_failing_dims),
+            "tau_frac": float(w1_realm_result.tau_frac),
+            "n_dims": int(w1_realm_result.n_dims),
+            "n_heavy_tail_dims": int(w1_realm_result.n_heavy_tail_dims),
+            "max_prong_verdict": w1_realm_result.max_prong_verdict,
+            "frac_prong_verdict": w1_realm_result.frac_prong_verdict,
+        }
+        if w1_realm_result.loo_check is not None:
+            margins["w1_realm"]["loo_check"] = w1_realm_result.loo_check
+        overall_verdict = _worst(overall_verdict, w1_verdict)
+
     # --- Add optional cost block to margins ---
     if (
         ess_per_grad is not None
@@ -250,4 +278,5 @@ def _assemble_verdict(
         verdict=overall_verdict,
         margins=margins,
         resonance_warning=resonance_warning,
+        w1_realm_result=w1_realm_result,
     )

@@ -65,9 +65,11 @@ from tuningfork.calibration._gate import (
     AutoGateVerdict,
     _apply_vi_mode_thresholds,
     _assemble_verdict,
+    _classify_metric,
     _compute_gt_compare,
     _compute_mixing_stats,
     _samples_to_multichain,
+    compute_w1_realm,
     resolve_thresholds,
     sidak_t_pass,
 )
@@ -87,6 +89,7 @@ def auto_gate(
     info=None,
     *,
     ground_truth_summaries: dict | None = None,
+    gt_draws: dict | None = None,
     posterior=None,
     n_chunks: int = 4,
     step_size: float | None = None,
@@ -103,6 +106,23 @@ def auto_gate(
     documentation.  The signature and return value are identical to the
     pre-refactor monolith — this is an orchestrator only.
 
+    Parameters
+    ----------
+    samples
+        Post-warmup chain output, dict of arrays.
+    info
+        Optional sampler info (e.g. NUTSInfo) with ``is_divergent`` field.
+    ground_truth_summaries
+        Per-site summary stats (mean, std, bulk_ess, tail_ess) from the
+        multichain GT.  Required for the mean-z and W1 realm stages.
+    gt_draws
+        Per-site raw GT draw arrays, shape ``(n_gt_chains, n_gt_draws, *event)``.
+        When provided together with ``ground_truth_summaries``, triggers the
+        W1/σ two-prong equivalence gate (Stage 4.5) — ONLY after R̂/ESS/div PASS.
+    posterior, n_chunks, step_size, num_integration_steps, vi_sampler_mode,
+    multichain, ess_per_grad, total_grad_evals, wall_seconds
+        Unchanged from previous interface.
+
     Stages (in order):
     1. ``resolve_thresholds`` + optional VI-mode override (``_gate.bands``).
     2. ``_samples_to_multichain`` (``_gate.layout``).
@@ -110,6 +130,8 @@ def auto_gate(
        (``_gate.mixing``).
     4. ``_compute_gt_compare`` → max_abs_mean_z + bias-sigma fields
        (``_gate.gt_compare``), when ground truth is provided.
+    4.5 ``compute_w1_realm`` → W1/σ two-prong equivalence gate (``_gate.w1_realm``),
+        when ``gt_draws`` is provided AND R̂/ESS/div all PASS (second-stage).
     5. Resonance warning (inline; 3 lines; does not alter verdict).
     6. ``_assemble_verdict`` → ``AutoGateVerdict`` (``_gate.verdict``).
     """
@@ -134,6 +156,35 @@ def auto_gate(
         gt_result = _compute_gt_compare(
             mc_samples, ground_truth_summaries, min_bulk_ess
         )
+
+    # --- Stage 4.5: W1/σ two-prong equivalence gate (SECOND-STAGE) ---
+    # Runs only when gt_draws + ground_truth_summaries are provided AND
+    # Stage-3 metrics are all NOT-FAIL (R̂/ESS/div must pass).
+    # VI-sampler mode is excluded — W1 is not defined for VI in this build.
+    _w1_realm_result = None
+    if (
+        gt_draws is not None
+        and ground_truth_summaries is not None
+        and mc_samples
+        and not vi_sampler_mode
+    ):
+        _rhat_ok = rhat_max is None or (
+            _classify_metric(rhat_max, thresholds.get("rhat_max", {})) != "FAIL"
+        )
+        _ess_ok = min_bulk_ess is None or (
+            _classify_metric(min_bulk_ess, thresholds.get("min_bulk_ess", {})) != "FAIL"
+        )
+        _div_ok = n_divergences is None or (
+            _classify_metric(float(n_divergences), thresholds.get("n_divergences", {}))
+            != "FAIL"
+        )
+        if _rhat_ok and _ess_ok and _div_ok:
+            _w1_realm_result = compute_w1_realm(
+                mc_samples,
+                ground_truth_summaries,
+                gt_draws,
+                multichain=True,
+            )
 
     # --- Stage 5: resonance warning (fixed-L HMC only; does not alter verdict) ---
     # True danger zones are the 2kπ resonances where fixed-L HMC exhibits
@@ -168,4 +219,5 @@ def auto_gate(
         ess_per_grad=ess_per_grad,
         total_grad_evals=total_grad_evals,
         wall_seconds=wall_seconds,
+        w1_realm_result=_w1_realm_result,
     )
