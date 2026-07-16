@@ -34,12 +34,11 @@ Two prongs
 k̂ tail guard
 -------------
 Zhang–Stephens GPD fit on the large GT sample (N≈1e5) per tail (upper/lower
-10%).  Uses ``blackjax.diagnostics._gpdfit`` on fixed upper/lower-10%
-exceedances — a location-invariant estimator suitable for non-zero-centred
-unconstrained posteriors.  When ``max(k̂_left, k̂_right) > 0.7``: the
-dimension's W1 is replaced by trimmed-W1 (excluding top/bottom 10%).
-Computed on GT, not the small generated sample — avoids noisy k̂ from
-small-sample tails.
+10%).  Uses ``arviz_stats._gpdfit`` on fixed upper/lower-10% exceedances —
+a location-invariant estimator suitable for non-zero-centred unconstrained
+posteriors.  When ``max(k̂_left, k̂_right) > 0.7``: the dimension's W1 is
+replaced by trimmed-W1 (excluding top/bottom 10%).  Computed on GT, not the
+small generated sample — avoids noisy k̂ from small-sample tails.
 
 Public API
 ----------
@@ -144,7 +143,7 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
     """Zhang–Stephens GPD shape parameter k̂ estimate in both tails of ``x``.
 
     Fits a Generalised Pareto Distribution (GPD) to the upper and lower
-    ``tail_frac`` exceedances using ``blackjax.diagnostics._gpdfit`` (the
+    ``tail_frac`` exceedances using ``arviz_stats._gpdfit`` (the
     Zhang–Stephens 2009 penalised MLE).  Unlike the Hill estimator, GPD
     fitting is location-invariant and unbiased on non-zero-centred
     unconstrained posteriors (e.g. the eight_schools ``tau`` log-scale
@@ -167,7 +166,7 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
         values above ``_KHAT_HEAVY_TAIL`` (0.7) trigger the trimmed-W1 guard.
         Returns ``0.0`` for a tail when ``n_tail < 5`` (insufficient data).
     """
-    from blackjax.diagnostics import _gpdfit as _bj_gpdfit
+    from arviz_stats.base.array import array_stats as _az_arr_stats
 
     x = np.sort(np.asarray(x, dtype=np.float64))
     n = len(x)
@@ -178,13 +177,13 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
     # Right tail: top n_tail exceedances above the (n-n_tail-1)th order stat
     tail_r = x[-n_tail:]
     cutoff_r = x[-n_tail - 1]
-    k_r, _ = _bj_gpdfit(tail_r - cutoff_r)
+    k_r, _ = _az_arr_stats._gpdfit(tail_r - cutoff_r)
 
     # Left tail: flip sign (so lower tail becomes an upper exceedance problem)
     x_flip = -x[::-1]  # sorted ascending, values ≥ 0 after flip
     tail_l = x_flip[-n_tail:]
     cutoff_l = x_flip[-n_tail - 1]
-    k_l, _ = _bj_gpdfit(tail_l - cutoff_l)
+    k_l, _ = _az_arr_stats._gpdfit(tail_l - cutoff_l)
 
     return float(k_l), float(k_r)
 

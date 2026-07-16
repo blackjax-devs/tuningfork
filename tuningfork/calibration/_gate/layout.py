@@ -40,7 +40,8 @@ def _samples_to_multichain(
     **Precondition**: Callers must call ``jax.block_until_ready(samples)`` before
     invoking this function. JAX arrays passed in are expected to be fully
     materialised; ``np.asarray`` here is used for shape inspection and conversion
-    to ArviZ input format only.
+    to ArviZ input format only.  See
+    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
 
     Parameters
     ----------

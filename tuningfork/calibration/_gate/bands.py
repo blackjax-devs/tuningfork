@@ -41,8 +41,8 @@ def sidak_t_pass(n_dims: int, alpha: float = 0.05) -> float:
     only ever *loosens* relative to the historical fixed PASS<2.0 boundary
     and never crosses the fixed FAIL>=4.0 boundary.
 
-    The Šidák correction is applied to the per-dimension significance level
-    so the family-wise error rate over ``n_dims`` comparisons is ``≤ alpha``.
+    See ``worklog/decisions/2026-07-03-dimension-aware-pass-band.md`` for the
+    derivation, the empirical trigger, and the full verification table.
 
     Parameters
     ----------
