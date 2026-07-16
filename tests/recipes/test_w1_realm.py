@@ -230,20 +230,21 @@ def _load_ens_data():
     """Load eight_schools_ncp draws and build per-dim flat lists."""
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
-    npz = np.load(os.path.join(_ENS_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
-
-    gt_flat, gen_flat = [], []
-    for s in sites:
-        arr = npz[s].astype(np.float64)
-        if arr.ndim == 2:
-            arr = arr[:, :, np.newaxis]
-        gen_arr = arr[[0], :1000, :]  # chain0[:1000]
-        d = arr.shape[2]
-        for dim_i in range(d):
-            gt_flat.append(arr[:, :, dim_i].ravel())
-            gen_flat.append(gen_arr[:, :, dim_i].ravel())
-    return gt_flat, gen_flat, sites, sv2, npz
+    # allow_pickle=True: committed catalog draws.npz contain pickled DeviceArrays.
+    # Context manager ensures the NpzFile FD is closed (avoids PytestUnraisableExceptionWarning).
+    with np.load(os.path.join(_ENS_BASE, "draws.npz"), allow_pickle=True) as npz:
+        gt_flat, gen_flat = [], []
+        for s in sites:
+            arr = npz[s].astype(np.float64)
+            if arr.ndim == 2:
+                arr = arr[:, :, np.newaxis]
+            gen_arr = arr[[0], :1000, :]  # chain0[:1000]
+            d = arr.shape[2]
+            for dim_i in range(d):
+                gt_flat.append(arr[:, :, dim_i].ravel())
+                gen_flat.append(gen_arr[:, :, dim_i].ravel())
+    return gt_flat, gen_flat, sites, sv2
 
 
 def _quantile_sorted_local(x_sorted: np.ndarray, t: np.ndarray) -> np.ndarray:
@@ -590,19 +591,19 @@ def test_eight_schools_loo_conservatism_guard():
     """
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
-    npz = np.load(os.path.join(_ENS_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
     gt_flat: list[np.ndarray] = []
     sigma_list: list[float] = []
-    for s in sites:
-        arr = npz[s].astype(np.float64)
-        if arr.ndim == 2:
-            arr = arr[:, :, np.newaxis]
-        sig = np.atleast_1d(np.array(sv2["per_site"][s]["std"], dtype=np.float64))
-        for dim_i in range(arr.shape[2]):
-            gt_flat.append(arr[:, :, dim_i].ravel())
-            sigma_list.append(float(sig[dim_i]))
+    with np.load(os.path.join(_ENS_BASE, "draws.npz"), allow_pickle=True) as npz:
+        for s in sites:
+            arr = npz[s].astype(np.float64)
+            if arr.ndim == 2:
+                arr = arr[:, :, np.newaxis]
+            sig = np.atleast_1d(np.array(sv2["per_site"][s]["std"], dtype=np.float64))
+            for dim_i in range(arr.shape[2]):
+                gt_flat.append(arr[:, :, dim_i].ravel())
+                sigma_list.append(float(sig[dim_i]))
     sigma_arr = np.array(sigma_list)
     D = len(gt_flat)
     n_chains = 10
@@ -661,14 +662,14 @@ def test_eight_schools_floor_of_max_e2e_pinned():
     """
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
-    npz = np.load(os.path.join(_ENS_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
-    gt_draws = {s: npz[s].astype(np.float64) for s in sites}
-    gen_samples = {}
-    for s in sites:
-        arr = npz[s].astype(np.float64)
-        gen_samples[s] = arr[[0], :1000] if arr.ndim == 2 else arr[[0], :1000, ...]
+    with np.load(os.path.join(_ENS_BASE, "draws.npz"), allow_pickle=True) as npz:
+        gt_draws = {s: npz[s].astype(np.float64) for s in sites}
+        gen_samples = {}
+        for s in sites:
+            arr = npz[s].astype(np.float64)
+            gen_samples[s] = arr[[0], :1000] if arr.ndim == 2 else arr[[0], :1000, ...]
     gt_summaries = {
         s: {
             "std": np.array(sv2["per_site"][s]["std"], dtype=np.float64),
@@ -739,14 +740,16 @@ def test_radon_frac_prong_tau_frac_pinned():
     """
     with open(os.path.join(_RADON_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
-    npz = np.load(os.path.join(_RADON_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
-    gt_draws_r = {s: npz[s].astype(np.float64) for s in sites}
-    gen_samples_r = {}
-    for s in sites:
-        arr = npz[s].astype(np.float64)
-        gen_samples_r[s] = arr[[0], :1000] if arr.ndim == 2 else arr[[0], :1000, ...]
+    with np.load(os.path.join(_RADON_BASE, "draws.npz"), allow_pickle=True) as npz:
+        gt_draws_r = {s: npz[s].astype(np.float64) for s in sites}
+        gen_samples_r = {}
+        for s in sites:
+            arr = npz[s].astype(np.float64)
+            gen_samples_r[s] = (
+                arr[[0], :1000] if arr.ndim == 2 else arr[[0], :1000, ...]
+            )
     gt_summaries_r = {
         s: {
             "std": np.array(sv2["per_site"][s]["std"], dtype=np.float64),
@@ -823,23 +826,23 @@ def test_radon_null_max_w1_sigma_deterministic():
     """Radon NULL max_d W1/σ is deterministic (no bootstrap); pin it."""
     with open(os.path.join(_RADON_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
-    npz = np.load(os.path.join(_RADON_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
     w1_max = 0.0
-    for s in sites:
-        arr = npz[s].astype(np.float64)
-        if arr.ndim == 2:
-            arr = arr[:, :, np.newaxis]
-        gen_arr = arr[[0], :1000, :]
-        ps = sv2["per_site"][s]
-        sig = np.array(ps["std"])
-        d = arr.shape[2]
-        for dim_i in range(d):
-            gt_d = arr[:, :, dim_i].ravel()
-            gen_d = gen_arr[:, :, dim_i].ravel()
-            w1 = _w1_1d_local(gt_d, gen_d) / float(sig[dim_i])
-            w1_max = max(w1_max, w1)
+    with np.load(os.path.join(_RADON_BASE, "draws.npz"), allow_pickle=True) as npz:
+        for s in sites:
+            arr = npz[s].astype(np.float64)
+            if arr.ndim == 2:
+                arr = arr[:, :, np.newaxis]
+            gen_arr = arr[[0], :1000, :]
+            ps = sv2["per_site"][s]
+            sig = np.array(ps["std"])
+            d = arr.shape[2]
+            for dim_i in range(d):
+                gt_d = arr[:, :, dim_i].ravel()
+                gen_d = gen_arr[:, :, dim_i].ravel()
+                w1 = _w1_1d_local(gt_d, gen_d) / float(sig[dim_i])
+                w1_max = max(w1_max, w1)
 
     assert (
         abs(w1_max - _RADON_NULL_MAX_W1_SIGMA) < 1e-4
@@ -868,19 +871,19 @@ def test_radon_loo_conservatism_guard():
     """
     with open(os.path.join(_RADON_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
-    npz = np.load(os.path.join(_RADON_BASE, "draws.npz"))
     sites = list(sv2["per_site"].keys())
 
     gt_flat: list[np.ndarray] = []
     sigma_list: list[float] = []
-    for s in sites:
-        arr = npz[s].astype(np.float64)
-        if arr.ndim == 2:
-            arr = arr[:, :, np.newaxis]
-        sig = np.atleast_1d(np.array(sv2["per_site"][s]["std"], dtype=np.float64))
-        for dim_i in range(arr.shape[2]):
-            gt_flat.append(arr[:, :, dim_i].ravel())
-            sigma_list.append(float(sig[dim_i]))
+    with np.load(os.path.join(_RADON_BASE, "draws.npz"), allow_pickle=True) as npz:
+        for s in sites:
+            arr = npz[s].astype(np.float64)
+            if arr.ndim == 2:
+                arr = arr[:, :, np.newaxis]
+            sig = np.atleast_1d(np.array(sv2["per_site"][s]["std"], dtype=np.float64))
+            for dim_i in range(arr.shape[2]):
+                gt_flat.append(arr[:, :, dim_i].ravel())
+                sigma_list.append(float(sig[dim_i]))
     sigma_arr = np.array(sigma_list)
     D = len(gt_flat)
     n_chains = 10
