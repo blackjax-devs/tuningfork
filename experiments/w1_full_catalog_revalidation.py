@@ -446,6 +446,13 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
         if cache.exists():
             return True, "A"
 
+        # Laplace methods (laplace_hmc, laplace_mhmc, …) require MAP initialisation;
+        # run_recipe_to_idata(skip_warmup=False) starts from the prior, which is far
+        # from the MAP, so 500-draw re-runs don't mix → false W1 FAILs.  Without a
+        # cached result we can't do a reliable W1 test → skip.
+        if bm in LAPLACE_METHODS:
+            return True, "SK"
+
         # Derive warmup from recipe stem: level__method__warmup[__extra]
         parts = recipe_path.stem.split("__")
         warmup_name = parts[2] if len(parts) >= 3 else ""
@@ -464,7 +471,7 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
 
         if bm in SKIP_WARMUP_METHODS:
             return True, "B"
-        if bm in MCLMC_METHODS or bm in LAPLACE_METHODS:
+        if bm in MCLMC_METHODS:
             return True, "C"
         return True, "SK"
 
