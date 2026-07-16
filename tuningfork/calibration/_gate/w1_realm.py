@@ -696,9 +696,9 @@ class W1RealmResult(NamedTuple):
     n_heavy_tail_dims
         Number of dims with ``k̂ > 0.7`` (routing to trimmed-W1).
     loo_check
-        Result of the per-model LOO conservatism guard (dict from
-        ``_loo_conservatism_check``), or ``None`` when ``n_gt_chains`` was
-        not determinable (e.g. all sites had differing GT lengths).
+        Always ``None`` at runtime — the LOO conservatism guard is a
+        pin-time validation (call ``_loo_conservatism_check`` separately
+        when pinning a new model floor, not on each runtime invocation).
     """
 
     max_w1_sigma: float
