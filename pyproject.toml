@@ -33,10 +33,9 @@ bench = [
     # [progress] extra pulls in tqdm>=4.66, required by blackjax.progress_bar()'s
     # display thread (blackjax #964) -- emitted recipe scripts wrap their
     # warmup/sampling calls in this context manager when warmup_progress_bar=True.
-    # Pinned to the SHA that includes PR #994 (ess_bulk / ess_tail / pareto_khat
-    # in blackjax.diagnostics), used by w1_realm.py to avoid the arviz dep.
-    # Bump to a PyPI release once one ships that includes those symbols.
-    "blackjax[progress] @ git+https://github.com/blackjax-devs/blackjax.git@e0d74558d662de2eb5c2dad50519fa3b21b18ef7",
+    # 1.6.1 is the first PyPI release with ess_bulk / ess_tail / pareto_khat
+    # (PR #994) + rank-normalised split-R̂ (PR #995) in blackjax.diagnostics.
+    "blackjax[progress]>=1.6.1",
     "aeppl",
     "aesara",
     "arviz",

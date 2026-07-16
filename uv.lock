@@ -378,8 +378,8 @@ wheels = [
 
 [[package]]
 name = "blackjax"
-version = "1.7.dev19+ge0d74558d"
-source = { git = "https://github.com/blackjax-devs/blackjax.git?rev=e0d74558d662de2eb5c2dad50519fa3b21b18ef7#e0d74558d662de2eb5c2dad50519fa3b21b18ef7" }
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
@@ -387,6 +387,10 @@ dependencies = [
     { name = "optax" },
     { name = "scipy" },
     { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/46/ea/2c1eff196089fbd1a2d99d45f9275315409030767deff598cb6ab7868075/blackjax-1.6.1.tar.gz", hash = "sha256:47e8b601951b61f93ac4c824822fa9b7b123066ebff2aa776d233f0f0c68249e", size = 5295470, upload-time = "2026-07-16T08:29:01.62Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/54/2e/938152689643216bd0ce71594329592b8d23979d038ea036cf9f0af604f5/blackjax-1.6.1-py3-none-any.whl", hash = "sha256:9f3583b39466780f09713696cb84aaf30083bc08bf5d91a426e989591cdd8055", size = 4913020, upload-time = "2026-07-16T08:28:59.431Z" },
 ]
 
 [package.optional-dependencies]
@@ -3836,7 +3840,7 @@ bench = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], git = "https://github.com/blackjax-devs/blackjax.git?rev=e0d74558d662de2eb5c2dad50519fa3b21b18ef7" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6.1" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
@@ -3865,7 +3869,7 @@ bench-perf = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], git = "https://github.com/blackjax-devs/blackjax.git?rev=e0d74558d662de2eb5c2dad50519fa3b21b18ef7" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6.1" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
@@ -3895,7 +3899,7 @@ notebook = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], git = "https://github.com/blackjax-devs/blackjax.git?rev=e0d74558d662de2eb5c2dad50519fa3b21b18ef7" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6.1" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },

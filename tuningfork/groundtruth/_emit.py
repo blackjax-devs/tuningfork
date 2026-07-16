@@ -35,7 +35,7 @@ __all__ = ["compute_summary_stats", "write_gt_artifacts", "_provenance_lineage"]
 def compute_summary_stats(
     positions: dict[str, np.ndarray],
 ) -> tuple[dict[str, Any], float, float]:
-    """Compute per-site ArviZ diagnostics + gate scalars.
+    """Compute per-site diagnostics + gate scalars.
 
     Parameters
     ----------
@@ -48,27 +48,33 @@ def compute_summary_stats(
         Per-site stats dict (mean, std, q05, q95, between_chain_se,
         bulk_ess, tail_ess, rhat), worst R̂, and minimum bulk ESS.
     """
-    import arviz as az
-
-    idata = az.from_dict({"posterior": positions}, sample_dims=["chain", "draw"])
-    ess_bulk = az.ess(idata, method="bulk")
-    ess_tail = az.ess(idata, method="tail")
-    rhat = az.rhat(idata, method="rank")
+    from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
+    from blackjax.diagnostics import ess_tail as _bj_ess_tail
+    from blackjax.diagnostics import rhat as _bj_rhat
 
     per_site: dict[str, Any] = {}
     max_rhat = 0.0
     min_bulk = float("inf")
 
     for site, arr in positions.items():
-        a = np.asarray(arr)
+        a = np.asarray(arr, dtype=np.float64)
         nc, ns = a.shape[0], a.shape[1]
         flat = a.reshape(nc, ns, -1)
         chain_means = flat.mean(axis=1)
         pooled = flat.reshape(-1, flat.shape[-1])
         be_se = chain_means.std(axis=0, ddof=1) / np.sqrt(nc)
-        b_ess = np.atleast_1d(np.asarray(ess_bulk[site])).ravel()
-        t_ess = np.atleast_1d(np.asarray(ess_tail[site])).ravel()
-        r = np.atleast_1d(np.asarray(rhat[site])).ravel()
+        # Diagnostics: rank-normalised split-chain ESS (Vehtari 2021) and R̂.
+        # bj_ess_bulk / rhat: bit-identical to az.ess(bulk) / az.rhat(rank)
+        # at rel diff ≤ 1e-6.  bj_ess_tail: uses 5th/95th percentile pair
+        # (Vehtari 2021), slightly more conservative than the old
+        # az.ess(idata, method="tail") DataTree default (11th/89th).
+        b_ess = np.atleast_1d(
+            np.asarray(_bj_ess_bulk(a, chain_axis=0, sample_axis=1))
+        ).ravel()
+        t_ess = np.atleast_1d(
+            np.asarray(_bj_ess_tail(a, chain_axis=0, sample_axis=1))
+        ).ravel()
+        r = np.atleast_1d(np.asarray(_bj_rhat(a, chain_axis=0, sample_axis=1))).ravel()
         per_site[site] = {
             "mean": pooled.mean(axis=0).tolist(),
             "std": pooled.std(axis=0, ddof=1).tolist(),
@@ -187,9 +193,9 @@ def write_gt_artifacts(
 
     # --- build summary ---
     az_method = {
-        "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
-        "tail_ess": "az.ess(idata, method='tail')",
-        "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+        "bulk_ess": "blackjax.diagnostics.ess_bulk (rank-norm split-chain, Vehtari 2021)",
+        "tail_ess": "blackjax.diagnostics.ess_tail (5th/95th-pct indicator pair)",
+        "rhat": "blackjax.diagnostics.rhat (rank-norm split-R̂, Vehtari 2021)",
         "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)",
     }
 
@@ -247,12 +253,18 @@ def write_gt_artifacts(
 
 
 def _arviz_version() -> str:
+    """Return the installed arviz version, or 'not-installed' if absent.
+
+    arviz is an optional ``[viz]`` extra — compute paths no longer require it.
+    The version is retained in provenance for backward compatibility with
+    summary_v2.json files generated before the arviz→blackjax diagnostics swap.
+    """
     try:
         import arviz as az
 
         return az.__version__
     except ImportError:
-        return "unknown"
+        return "not-installed"
 
 
 def _git_sha() -> str:

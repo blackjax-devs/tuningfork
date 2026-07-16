@@ -549,24 +549,24 @@ def _run_cert_seed(
     # Compute diagnostics.
     # positions_batched: pytree with leading dims (num_chains, n_samples, ...)
     #
-    # GATE diagnostics: use ArviZ az.rhat + az.ess(method="bulk") — the same
-    # estimators as statistician_gate.auto_gate (calibrated to GATE_ESS_PASS=400).
-    # Using the BlackJAX estimator here caused a measurement mismatch: the BlackJAX
-    # ESS uses a different lag-autocorrelation formula than ArviZ's bulk-ESS, producing
-    # values 3–10× lower on models with slow mixing (e.g. german_credit minESS 88–104
-    # via blackjax vs 1750+ via az.ess).  The gate threshold was calibrated on the
-    # ArviZ basis, so the blackjax-basis gate was an invalid measurement.
+    # GATE diagnostics: blackjax.diagnostics.ess_bulk (rank-normalised split-chain
+    # ESS, Vehtari 2021) is bit-identical to az.ess(bulk) at rel diff ≤ 1e-6
+    # since blackjax 1.6.1.  The historical mismatch (3–10× lower values for slow-
+    # mixing models) was caused by the old effective_sample_size using a different
+    # autocorrelation formula — ess_bulk (1.6.1+) fixes this.
     #
     # Headline ESS/grad: computed via blackjax.diagnostics.effective_sample_size
-    # (per headline.py contract — headline basis is blackjax by design).
-    import arviz as az
+    # (per headline.py contract — headline basis is blackjax by design; the two
+    # estimators differ by rank-normalisation, intentionally).
+    from blackjax.diagnostics import ess_bulk as _bj_ess_bulk_gate
+    from blackjax.diagnostics import rhat as _bj_rhat_gate
 
     rhat_values: list[float] = []
     ess_values_gate: list[float] = []
     for leaf in jax.tree.leaves(positions_batched):
         arr_np = np.asarray(leaf)  # shape (num_chains, n_samples, *event_shape)
-        rhat_arr = az.rhat(arr_np, chain_axis=0, draw_axis=1)
-        ess_arr = az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
+        rhat_arr = _bj_rhat_gate(arr_np, chain_axis=0, sample_axis=1)
+        ess_arr = _bj_ess_bulk_gate(arr_np, chain_axis=0, sample_axis=1)
         rhat_values.append(float(np.max(np.asarray(rhat_arr))))
         ess_values_gate.append(float(np.min(np.asarray(ess_arr))))
 
