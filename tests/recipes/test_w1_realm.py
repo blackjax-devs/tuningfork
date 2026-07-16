@@ -1073,10 +1073,10 @@ def test_ess_gen_uses_min_bulk_tail():
     - result is finite and positive
 
     This is MUT-6: guards against a regression where _ess_gen_per_dim
-    drops the ``az.ess(idata, method="tail")`` call and returns only bulk.
+    drops the ``ess_tail`` call and returns only bulk.
     """
     rng = np.random.default_rng(123)
-    # 1 chain × 200 draws × 3 dims — enough for arviz ESS to be well-defined
+    # 1 chain × 200 draws × 3 dims — enough for ESS to be well-defined
     draws = rng.normal(0, 1, size=(1, 200, 3))
     gen_arr = draws.astype(np.float64)
 
@@ -1085,23 +1085,22 @@ def test_ess_gen_uses_min_bulk_tail():
     assert ess.shape == (3,), f"Expected shape (3,), got {ess.shape}"
     assert np.all(np.isfinite(ess)), f"ESS has non-finite values: {ess}"
     assert np.all(ess > 0), f"ESS has non-positive values: {ess}"
-    # min(bulk, tail) ≤ 200 (raw draw count) for all dims
-    assert np.all(ess <= 200.0), f"ESS > raw draw count: {ess}"
 
-    # Verify tail-ESS is actually computed (not just bulk):
-    # Run arviz bulk and tail separately and check that ess ≤ bulk.
-    import arviz as az
+    # MUT-6 guard: verify the result is min(bulk, tail), not just bulk.
+    # Recompute bulk and tail via blackjax directly and compare.
+    from blackjax.diagnostics import ess_bulk as bj_ess_bulk
+    from blackjax.diagnostics import ess_tail as bj_ess_tail
 
-    idata = az.from_dict({"posterior": {"x": gen_arr}}, sample_dims=["chain", "draw"])
-    bulk_xr = az.ess(idata, method="bulk")["x"]
-    bulk = np.atleast_1d(np.asarray(bulk_xr).ravel())
-    # _ess_gen_per_dim must return min(bulk, tail) which is ≤ bulk
-    np.testing.assert_array_less(
-        ess - 1e-9,
-        bulk + 1e-9,
+    bulk = np.atleast_1d(np.asarray(bj_ess_bulk(gen_arr)).ravel())
+    tail = np.atleast_1d(np.asarray(bj_ess_tail(gen_arr)).ravel())
+    expected = np.minimum(bulk, tail)
+    np.testing.assert_allclose(
+        ess,
+        expected,
+        rtol=1e-5,
         err_msg=(
-            "_ess_gen_per_dim returned values > bulk-ESS; "
-            "it should return min(bulk, tail)"
+            "_ess_gen_per_dim result does not match min(ess_bulk, ess_tail); "
+            "MUT-6: check that both bulk and tail are computed"
         ),
     )
 
