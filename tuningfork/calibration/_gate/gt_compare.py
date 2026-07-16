@@ -16,8 +16,8 @@
 import math
 from dataclasses import dataclass
 
-import arviz as az
 import numpy as np
+from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
 
 from .bands import sidak_t_pass
 
@@ -104,12 +104,12 @@ def _compute_gt_compare(
         # inaccurate: for a model where most dims mix at ESS=2000 but
         # the worst dim has ESS=450, applying ESS=450 to all dims
         # over-inflates SE → z-scores too small → gate too lenient.
-        # Fix: compute az.ess per-dim; fall back to min_bulk_ess only
-        # if the computation fails (e.g., insufficient samples).
+        # Fix: compute per-dim bulk ESS via blackjax.diagnostics.ess_bulk;
+        # fall back to min_bulk_ess only if the computation fails (e.g.,
+        # insufficient samples).  blackjax's ess_bulk is bit-identical to
+        # arviz's az.ess(method="bulk").
         try:
-            per_dim_ess = np.asarray(
-                az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
-            )
+            per_dim_ess = np.asarray(_bj_ess_bulk(arr_np, chain_axis=0, sample_axis=1))
             per_dim_ess = np.maximum(per_dim_ess, 1.0)
             if per_dim_ess.shape == ():
                 per_dim_ess = np.full(sample_mean.shape, float(per_dim_ess))
