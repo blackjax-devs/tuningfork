@@ -13,8 +13,7 @@
 # limitations under the License.
 """W1/σ two-prong equivalence gate realm (SECOND-STAGE, post-#227 _gate/ package).
 
-Implements the W1/σ distribution equivalence gate ratified 2026-07-13 (D1)
-and fully pinned 2026-07-15 (memoires A/B #17).  Runs only after R̂/ESS/div
+Implements the W1/σ distribution equivalence gate.  Runs only after R̂/ESS/div
 PASS.  Compares the generated sample to the multichain GT via per-dim
 Wasserstein-1 (W1) normalised by the GT pooled standard deviation (σ_d).
 
@@ -35,17 +34,12 @@ Two prongs
 k̂ tail guard
 -------------
 Zhang–Stephens GPD fit on the large GT sample (N≈1e5) per tail (upper/lower
-10%).  Uses ``arviz_stats._gpdfit`` on fixed upper/lower-10% exceedances —
-a location-invariant estimator suitable for non-zero-centred unconstrained
-posteriors.  When ``max(k̂_left, k̂_right) > 0.7``: the dimension's W1 is
-replaced by trimmed-W1 (excluding top/bottom 10%).  Computed on GT, not the
-small generated sample — avoids noisy k̂ from small-sample tails.
-
-Pinned spec
------------
-``worklog/decisions/2026-07-15-w1-floor-construction-pinned.md`` is the
-authoritative statistical reference.  Do not re-derive parameters in this
-module.
+10%).  Uses ``blackjax.diagnostics._gpdfit`` on fixed upper/lower-10%
+exceedances — a location-invariant estimator suitable for non-zero-centred
+unconstrained posteriors.  When ``max(k̂_left, k̂_right) > 0.7``: the
+dimension's W1 is replaced by trimmed-W1 (excluding top/bottom 10%).
+Computed on GT, not the small generated sample — avoids noisy k̂ from
+small-sample tails.
 
 Public API
 ----------
@@ -150,7 +144,7 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
     """Zhang–Stephens GPD shape parameter k̂ estimate in both tails of ``x``.
 
     Fits a Generalised Pareto Distribution (GPD) to the upper and lower
-    ``tail_frac`` exceedances using ``arviz_stats._gpdfit`` (the
+    ``tail_frac`` exceedances using ``blackjax.diagnostics._gpdfit`` (the
     Zhang–Stephens 2009 penalised MLE).  Unlike the Hill estimator, GPD
     fitting is location-invariant and unbiased on non-zero-centred
     unconstrained posteriors (e.g. the eight_schools ``tau`` log-scale
@@ -173,7 +167,7 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
         values above ``_KHAT_HEAVY_TAIL`` (0.7) trigger the trimmed-W1 guard.
         Returns ``0.0`` for a tail when ``n_tail < 5`` (insufficient data).
     """
-    from arviz_stats.base.array import array_stats as _az_arr_stats
+    from blackjax.diagnostics import _gpdfit as _bj_gpdfit
 
     x = np.sort(np.asarray(x, dtype=np.float64))
     n = len(x)
@@ -184,13 +178,13 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
     # Right tail: top n_tail exceedances above the (n-n_tail-1)th order stat
     tail_r = x[-n_tail:]
     cutoff_r = x[-n_tail - 1]
-    k_r, _ = _az_arr_stats._gpdfit(tail_r - cutoff_r)
+    k_r, _ = _bj_gpdfit(tail_r - cutoff_r)
 
     # Left tail: flip sign (so lower tail becomes an upper exceedance problem)
     x_flip = -x[::-1]  # sorted ascending, values ≥ 0 after flip
     tail_l = x_flip[-n_tail:]
     cutoff_l = x_flip[-n_tail - 1]
-    k_l, _ = _az_arr_stats._gpdfit(tail_l - cutoff_l)
+    k_l, _ = _bj_gpdfit(tail_l - cutoff_l)
 
     return float(k_l), float(k_r)
 
@@ -555,11 +549,12 @@ def _loo_conservatism_check(
     every runtime invocation of ``compute_w1_realm``.
 
     Computes the LOO null by treating each GT chain in turn as the "generated
-    sample" (convention A: held chain vs the OTHER n_chains−1 chains) and
-    computing max_d W1/σ against the remaining chains.  Returns all LOO values
-    and whether floor_of_max is conservative under the §3 k_crit criterion.
+    sample" (each held-out chain is compared against the OTHER n_chains−1
+    chains) and computing max_d W1/σ against the remaining chains.  Returns all
+    LOO values and whether floor_of_max is conservative under the
+    count-and-severity criterion.
 
-    **PASS criterion (§3):**
+    **PASS criterion:**
 
     ``is_conservative = (violations <= k_crit) AND (max_LOO <= floor_of_max * 1.05)``
 
@@ -611,8 +606,8 @@ def _loo_conservatism_check(
 
     loo_max_values = []
     for held_out in range(n_chains):
-        # Split GT marginal per dim into held-out chain vs the OTHER n_chains-1.
-        # Convention A: held chain vs the remaining chains (NOT all-GT self-included).
+        # Split GT marginal per dim into held-out chain vs the OTHER n_chains-1
+        # (leave-one-out: held chain compared to the remaining chains only).
         gen_per_dim = []
         rest_per_dim = []
         for dim_i in range(d):
@@ -622,7 +617,7 @@ def _loo_conservatism_check(
             n_g = max(1, int(round(float(e_g_by_dim[dim_i]))))
             n_g = min(n_g, n_draws_per_chain)
             gen_per_dim.append(reshaped[held_out, :n_g])
-            # Remaining chains flattened (convention A: exclude held chain)
+            # Remaining chains flattened (leave-one-out: exclude held chain)
             rest_idx = [c for c in range(n_chains) if c != held_out]
             rest_per_dim.append(reshaped[rest_idx, :].ravel())
 
@@ -639,7 +634,7 @@ def _loo_conservatism_check(
     k_crit = _k_crit_binom(n_chains)
     violation_count = sum(v > floor_of_max for v in loo_max_values)
     max_loo = max(loo_max_values)
-    # §3 criterion: count rule + severity rule
+    # Count-and-severity criterion: count rule + severity rule
     count_ok = violation_count <= k_crit
     severity_ok = max_loo <= floor_of_max * 1.05
     is_conservative = count_ok and severity_ok

@@ -13,8 +13,8 @@
 # limitations under the License.
 """Tests for the W1/σ two-prong equivalence gate realm.
 
-Spec reference: ``worklog/decisions/2026-07-15-w1-floor-construction-pinned.md``
-(memoires A/B #17 adjudication).
+Statistic: per-dim W1/σ, where W1 is the exact 1-D Wasserstein-1 distance
+and σ is the GT pooled standard deviation in unconstrained space.
 
 Test structure
 --------------
@@ -32,7 +32,7 @@ Test structure
 **Secondary golden regression** (radon, slow — loads draws.npz):
     - Frac-prong τ_frac pinned at B=2000 (high-D path, verifies frac logic)
     - NULL frac verdict: PASS
-    - LOO conservatism guard (conv A): 1/10 violation at committed floor 0.242 →
+    - LOO conservatism guard (leave-one-out): 1/10 violation at committed floor 0.242 →
       passes k_crit=1 count and severity (0.25155 ≤ 0.242×1.05 = 0.25410)
 
 **Floor bootstrap regression** (slow):
@@ -40,7 +40,7 @@ Test structure
 
 Frozen golden constants
 -----------------------
-σ_d is frozen as LITERAL per the pinned spec.
+σ_d is frozen as a literal constant.
 E_g,d is frozen for documentation; end-to-end tests call compute_w1_realm
 directly (which recomputes real ESS at run time via _ess_gen_per_dim).
 """
@@ -101,7 +101,7 @@ def _radon_available() -> bool:
 #                computed via compute_w1_realm end-to-end (real ESS + GPD k-hat).
 # τ_frac = q_{0.95}(null frac), joint block bootstrap, B=5000.
 #
-# Re-pinned 2026-07-15 (post-fix commit): ESS bug fixed (DataTree path),
+# Re-pinned (post-fix): ESS bug fixed (DataTree path),
 # k-hat replaced with Zhang-Stephens GPD.
 # ---------------------------------------------------------------------------
 
@@ -196,7 +196,7 @@ _ENS_TAU_FRAC: float = 0.7
 # Frozen golden constants — radon (D=390, B=2000, seed=424242)
 #
 # Provenance: draws.npz + summary_v2.json committed at HEAD (SHA 501a857).
-# Re-pinned 2026-07-16 (R2): raised B from 200 → 2000 for pin stability
+# Re-pinned at B=2000 for stability: raised B from 200 → 2000
 # (B=200 had SD≈3.5% across seeds; B=2000 drops this to ≈1.1%).
 # Real ESS for chain0[:1000]: min=88, median=670, max=903 (autocorrelation).
 #
@@ -578,22 +578,23 @@ def test_eight_schools_injected_max_prong_fail():
     not _ens_available(), reason="eight_schools_ncp draws.npz not present"
 )
 def test_eight_schools_loo_conservatism_guard():
-    """LOO conservatism guard via _loo_conservatism_check (convention A).
+    """LOO conservatism guard via _loo_conservatism_check (leave-one-out).
 
-    Convention A: each held-out GT chain compared against the OTHER 9 chains
-    (leave-one-out), implemented by the gate's own ``_loo_conservatism_check``.
-    Uses the §3 k_crit criterion: k_crit=1 for n_chains=10, meaning one
-    violation is ALLOWED (the floor is a q_{0.95} quantile, so ~0.5/10
+    Each held-out GT chain is compared against the OTHER 9 chains (honest
+    leave-one-out), implemented by the gate's own ``_loo_conservatism_check``.
+    Uses the count-and-severity criterion: k_crit=1 for n_chains=10, meaning
+    one violation is ALLOWED (the floor is a q_{0.95} quantile, so ~0.5/10
     exceedances are expected; "0 violations" would reject a correctly-calibrated
     floor ~40% of the time).
 
-    eight_schools result under convention A: 1/10 violation at +1.9%.
+    eight_schools result: 1/10 violation at +1.9%.
     count rule: 1 ≤ k_crit=1 → passes.
     severity rule: +1.9% ≤ 5% → passes.
     is_conservative: True.
 
-    This replaces the R1 convention-C golden which used all-GT-self-included
-    (a ~2.4%-lower statistic that hid the real LOO violation).
+    An earlier in-sample-biased variant compared each chain to all chains
+    including the held-out one, producing a ~2.4%-lower statistic that hid the
+    real LOO violation; this test uses the honest leave-one-out.
     """
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
@@ -619,7 +620,7 @@ def test_eight_schools_loo_conservatism_guard():
     D = len(gt_flat)
     n_chains = 10
 
-    # Use raw draw count (not ESS) per convention A spec.
+    # Use raw draw count (not ESS) — raw count matches the LOO held-out slice size.
     e_g_raw = np.full(D, 1000.0)
 
     result = _loo_conservatism_check(
@@ -634,8 +635,7 @@ def test_eight_schools_loo_conservatism_guard():
     assert (
         result["k_crit"] == 1
     ), f"Expected k_crit=1 for n_chains=10, got {result['k_crit']}"
-    # Count rule: convention A gives exactly 1/10 violation (not 0/10 as in the
-    # R1 conv-C golden which compared each chain to all-GT including itself).
+    # Count rule: exactly 1/10 violation (leave-one-out gives the honest null).
     assert result["violation_count"] <= result["k_crit"], (
         f"violation_count={result['violation_count']} > k_crit={result['k_crit']}: "
         f"too many LOO exceedances.\n"
@@ -651,7 +651,7 @@ def test_eight_schools_loo_conservatism_guard():
     assert result["is_conservative"] is True, (
         f"is_conservative=False despite valid count ({result['violation_count']}) and "
         f"severity ({max_loo:.5f} vs {_ENS_FLOOR_OF_MAX * 1.05:.5f}) — "
-        f"floor {_ENS_FLOOR_OF_MAX:.8f} is anti-conservative under convention A"
+        f"floor {_ENS_FLOOR_OF_MAX:.8f} is anti-conservative for this LOO null"
     )
 
 
@@ -878,22 +878,22 @@ def test_radon_null_max_w1_sigma_deterministic():
 @pytest.mark.slow
 @pytest.mark.skipif(not _radon_available(), reason="radon draws.npz not present")
 def test_radon_loo_conservatism_guard():
-    """LOO conservatism guard for radon at committed floor 0.242 (conv A).
+    """LOO conservatism guard for radon at committed floor 0.242 (leave-one-out).
 
-    Convention A: each held-out GT chain compared against the OTHER 9 chains.
-    Uses the committed floor ``_RADON_FLOOR_OF_MAX = 0.242``, which provides
-    margin above the severity minimum (0.2396 = 0.25155/1.05) — the IID
-    bootstrap structurally under-estimates the ESS-88 dim outlier (real
-    conv-A LOO null = 0.25155), so the committed floor is set with headroom.
+    Each held-out GT chain is compared against the OTHER 9 chains (honest
+    leave-one-out).  Uses the committed floor ``_RADON_FLOOR_OF_MAX = 0.242``,
+    which provides margin above the severity minimum (0.2396 = 0.25155/1.05) —
+    the IID bootstrap structurally under-estimates the ESS-88 dim outlier (real
+    LOO null = 0.25155), so the committed floor is set with headroom.
 
-    Result under §3 k_crit criterion:
+    Result under the count-and-severity criterion:
       - 1/10 violation (0.25155 > 0.242)
       - count rule: 1 ≤ k_crit=1 → passes
       - severity rule: 0.25155 ≤ 0.242 × 1.05 = 0.25410 → passes (~3.9% below limit)
       - is_conservative: True
 
-    This test closes the gap identified in R2: with the old floor=0.2347,
-    the violation exceeded 5% (+7.2%), so the severity rule failed.
+    With the earlier floor=0.2347, the violation exceeded 5% (+7.2%), so the
+    severity rule failed; the committed floor 0.242 restores the margin.
     """
     with open(os.path.join(_RADON_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
@@ -919,7 +919,7 @@ def test_radon_loo_conservatism_guard():
     D = len(gt_flat)
     n_chains = 10
 
-    # Use raw draw count (not ESS) per convention A spec.
+    # Use raw draw count (not ESS) — raw count matches the LOO held-out slice size.
     e_g_raw = np.full(D, 1000.0)
 
     result = _loo_conservatism_check(
