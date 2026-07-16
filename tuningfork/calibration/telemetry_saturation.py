@@ -20,7 +20,6 @@ may have unusable telemetry if the sampler's adaptive machinery (tree-depth
 control via max_num_doublings) is pinned at a cap, yielding censored
 near-constant trajectories instead of geometry-driven signals.
 
-See worklog/lessons/process/2026-07-03-cert-gate-blind-to-treedepth-saturation.md
 """
 
 import numpy as np

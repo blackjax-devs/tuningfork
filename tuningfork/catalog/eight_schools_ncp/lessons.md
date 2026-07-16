@@ -16,7 +16,7 @@ Well-conditioned post-NCP geometry; library defaults pass at LOW. Notable supers
 
 ## Known-bad combinations
 
-- **`laplace_hmc` + `window_adaptation_dense_imm`** (REVIEW): fixed-L HMC on the marginal log-density under a dense 2×2 IMM under-mixes; min_bulk_ESS=241 misses the 400 gate. The `laplace_dhmc` (dynamic-L) variant of the same cell PASSes cleanly. Prefer dhmc/dmhmc for laplace cells whenever the trajectory-length distribution matters — confirmed by the wadapt-hmc-sweep investigation (`worklog/threads/wadapt-hmc-sweep.md` § 11 surprise #5).
+- **`laplace_hmc` + `window_adaptation_dense_imm`** (REVIEW): fixed-L HMC on the marginal log-density under a dense 2×2 IMM under-mixes; min_bulk_ESS=241 misses the 400 gate. The `laplace_dhmc` (dynamic-L) variant of the same cell PASSes cleanly. Prefer dhmc/dmhmc for laplace cells whenever the trajectory-length distribution matters — confirmed by the wadapt-hmc-sweep investigation.
   [boundary: REVIEW at LOW effort (d=10, n_warmup=1000); dynamic-L variant PASSes cleanly at same budget]
 - **`laplace_hmc` + `window_adaptation_low_rank_imm`**: **FAIL** (REVIEW gate, rhat=1.0185, not run to PASS).
   See `recipes/failed__laplace_hmc__window_adaptation_low_rank_imm.json`.

@@ -120,7 +120,7 @@ def stoch_vol_model(returns: jnp.ndarray, T: int = T_LENGTH) -> None:
         by shifting the posterior bulk from phi_con ≈ 0.987 to ≈ 0.961 — enough
         to make unit-root excursions negligible. Acknowledged interpretation change:
         the model now assumes weaker persistence by default; the data still drives
-        phi to ~0.96. See worklog/lessons/case-studies/stoch_vol/ for full forensics.
+        phi to ~0.96. See `catalog/stoch_vol/lessons.md` for full forensics.
 
     Data: real SP500 daily returns from ``numpyro.examples.datasets.SP500``,
     first 500 entries, mean-centered. Replaces the prior synthetic data

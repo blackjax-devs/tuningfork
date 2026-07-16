@@ -51,11 +51,11 @@ summarize_recipe(recipe)
 
 ```{code-cell} ipython3
 # Only NUTS / HMC groundtruth recipes are handled in this notebook.
-# For other families, see worklog/threads/notebook-arviz-redesign.md § 3.
+# Other sampler families require separate notebook templates.
 assert recipe.base_method_name in {"nuts", "hmc"}, (
     f"This notebook handles only NUTS/HMC recipes. "
     f"Got {recipe.base_method_name!r}. "
-    "For other sampler families see worklog/threads/notebook-arviz-redesign.md"
+    "For other sampler families, use the appropriate notebook template."
 )
 ```
 

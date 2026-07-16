@@ -480,8 +480,7 @@ class Recipe:
     #
     #   {"kind": "empirical", "values": [...], "weights": [...]}  # V7 NUTS-harvested
     #
-    # See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md`` §5 for the
-    # full spec.  See also ``tuningfork.base_method._step_policy_registry.build_step_policy``.
+    # See also ``tuningfork.base_method._step_policy_registry.build_step_policy``.
     step_policy: dict[str, Any] | None = None
 
     # ---- Warmup sequence (schema extension for warmups list) ----
@@ -540,7 +539,6 @@ class Recipe:
     # Use W=1 (single-chain warmup + broadcast) to avoid the vmap-of-while_loop
     # worst-case-iteration penalty for expensive-logprob models such as
     # gp_regression × laplace_mhmc (7× slower under vmap; deadlock at scale).
-    # See worklog/lessons/code-patterns/2026-05-28-vmap-warmup-logprob-cost-tradeoff.md.
     warmup_num_chains: list[int] | None = None
 
     # ---- Init strategy (schema extension) ----

@@ -48,7 +48,7 @@ Recorded FAILs not discussed above: none — all three failed recipes are covere
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps execute, case studies will be logged to `worklog/lessons/case-studies/irt_2pl/`.
+No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps, case studies will be documented here.
 2026-05-30: dense IMM failure recorded at d=144, n_warmup=2000 (statistician-id stat-2026-05-30).
 
 ## Citations

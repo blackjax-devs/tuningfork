@@ -32,8 +32,6 @@ adapted ``noise_scale`` within 14% of the true 0.10, IMM condition number
 than float32), RMSE-to-truth 0.025–0.030 (well below noise=0.1). Production
 cert wall projection: ~2–4 hours, not ~50 hours.
 
-See worklog/lessons/case-studies/gp_regression/2026-05-12-float32-precision-cholesky-trap.md
-for the full diagnosis (probe data + interpretation).
 """
 
 from pathlib import Path

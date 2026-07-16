@@ -327,7 +327,6 @@ _EBFMI_THRESHOLD = 0.3
 # adaptation failure. Strict zero forced gate-gaming (seed-roulette, brute n
 # bump). Threshold 0.001 means up to 1 divergence per 1000 samples — at the
 # default n_samples=40_000 this allows ≤40 divergences before fail. See
-# worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md § 8.
 _DIVERGENCE_RATE_TOLERANCE = 0.001
 
 
@@ -410,8 +409,7 @@ def _compute_warmup_health(
     **Precondition**: Callers must call ``jax.block_until_ready((adapted_state, warmup_info))``
     before invoking this function. All JAX array materialisations below
     (``np.asarray``, ``int(jnp_scalar)``, ``float(jnp_scalar)``) rely on this
-    precondition to avoid buffer-pool contention. See
-    ``worklog/lessons/code-patterns/2026-05-28-jax-host-materialization-and-block-until-ready.md``
+    precondition to avoid buffer-pool contention.
     """
     imm = np.asarray(adapted_params["inverse_mass_matrix"])
     step_size = float(adapted_params["step_size"])
@@ -547,7 +545,7 @@ def certify_reference_nuts(
         Raise to 12-15 for high-d models with naturally long trajectories
         (horseshoe priors, latent GPs) where the no-U-turn condition fires
         late. Empirically captured 2026-05-12 in the earlier statistician
-        investigation (worklog/threads/phase0-statistician-3holdouts.md).
+        investigation.
 
     Returns
     -------
@@ -655,7 +653,7 @@ def certify_reference_nuts(
         # Block until JAX async dispatch completes before stopping the clock.
         # Without this the timer measures dispatch latency, not actual compute —
         # the same artifact that caused the vmap "blowup" misdiagnosis in the
-        # gp arc (worklog/lessons/case-studies/laplace-family-vmap-compile-blowup.md).
+        # gp arc (vmap compile-time blowup with expensive logprob models).
         jax.block_until_ready((adapted_state, warmup_info))
         _warmup_wall = time.perf_counter() - _t_warmup0
         num_leapfrog_median = int(jnp.median(warmup_info.info.num_integration_steps))
@@ -786,8 +784,7 @@ def certify_reference_nuts(
     # --- Non-gating telemetry saturation check ---
     # Detect if num_integration_steps is saturated/degenerate despite passing
     # certification gates. This is a warning tripwire: "certified" = sample quality,
-    # not telemetry usability. See
-    # worklog/lessons/process/2026-07-03-cert-gate-blind-to-treedepth-saturation.md
+    # not telemetry usability.
     telemetry_saturation: dict[str, object] = {}
     if "num_integration_steps" in chain_stats:
         telemetry_saturation = check_telemetry_saturation(

@@ -30,12 +30,6 @@ NUTS-harvested + parametric step_policy work (this module):
 - ``spec["kind"] == "log_uniform_int"`` → V5 log-uniform broad spread.
 - ``spec["kind"] == "pow2_choice"`` → V6 power-of-2 discrete choice grid.
 
-References
-----------
-- ``worklog/threads/d-hmc-integration-steps-fn-matrix.md`` §5 — full spec
-  (Path A parametric + Path B empirical).
-- ``worklog/decisions/2026-05-21-step-policy-catalog.md`` — design-doc
-  anchors (not yet created; deferred per §10 of the plan).
 """
 
 from __future__ import annotations

@@ -223,7 +223,7 @@ def _validate_init_strategy_warmup_compatibility(
 #   eight_schools_ncp: phi=(mu, tau), theta=(theta_raw,)
 #   gp_regression:     phi=(log_lengthscale, log_kernel_scale, log_noise_scale),
 #                      theta=(f_raw,)    — NCP base variable; Laplace is exact
-#                      (see worklog/decisions/2026-05-24-gp-regression-laplace-factorisation.md)
+#
 #
 # radon and irt_2pl are predicted MEDIUM (not LOW) — not needed here yet.
 # This table is extended as more recipe sweeps add models.
@@ -1277,8 +1277,7 @@ def emit_low_recipe_for_cell(
     num_chains
         Number of independent chains run in parallel via ``jax.vmap``
         (default ``RECIPE_NUM_CHAINS`` = 4).  The non-groundtruth recipe
-        protocol (per `worklog/decisions/2026-05-11-phase6-visualization-
-        diagnostics.md` § Section 0) is 4 chains × 1000 quick mode.
+        protocol is 4 chains × 1000 quick mode.
     seed
         Master JAX random seed (default ``RECIPE_SEED`` = 20260517).
     n_chunks
@@ -1317,8 +1316,7 @@ def emit_low_recipe_for_cell(
         round-trips through JSON without closure capture.
 
         For non-``dynamic_hmc`` / non-``dmhmc`` samplers, this parameter is
-        ignored.  See ``worklog/threads/d-hmc-integration-steps-fn-matrix.md``
-        §5 for valid spec formats.
+        ignored.
     policy_tag
         Optional filename tag for policy-variant MEDIUM recipes, e.g.
         ``"policy_v7-empirical-oracle"``.  When provided, the emitted recipe
@@ -2098,7 +2096,7 @@ def emit_low_recipe_for_cell(
         "override": {"reason": "", "statistician_id": "", "decision": ""},
     }
     # Surface the structural scope of the GT comparison so downstream readers can
-    # branch on it.  Decision doc: worklog/decisions/2026-05-28-max-abs-mean-z-threshold.md §3.
+    # branch on it.
     # Laplace: only phi marginals are gate-verified; theta is analytically marginalised
     # and absent from positions — the theta block is NOT certified against the GT.
     # Full-posterior: all posterior sites in positions are compared to the GT reference.

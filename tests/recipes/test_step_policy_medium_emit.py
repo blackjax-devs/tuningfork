@@ -74,7 +74,7 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
 
     # mvn_10 with any sane step_policy passes the auto-gate cleanly at
     # canonical 1000/1000/4 sample budget (on-disk recipe: rhat=1.0037).
-    # Per worklog/lessons/code-patterns/2026-05-11-single-realization-mc-noisy-assertion.md
+    # Per single-realization MC noisy-assertion guidance
     # (META lesson n=4), accept REVIEW as well (PASS/REVIEW distinction is noise at n=4).
     assert result.verdict in ("PASS", "REVIEW"), (
         f"Expected PASS or REVIEW for mvn_10×dynamic_hmc with empirical policy; "
@@ -156,7 +156,7 @@ def test_medium_with_policy_tag_none_preserves_low(tmp_path):
         # policy_tag=None (default), effort=Effort.LOW (default)
     )
 
-    # Per worklog/lessons/code-patterns/2026-05-11-single-realization-mc-noisy-assertion.md,
+    # Per single-realization MC noisy-assertion guidance,
     # accept REVIEW as well (PASS/REVIEW distinction is noise at n=4 chains).
     assert result.verdict in (
         "PASS",

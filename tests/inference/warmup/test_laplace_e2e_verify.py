@@ -19,8 +19,8 @@ Runs the full recipe-style pipeline at n_warmup=500, n_samples=1000 and asserts:
 3. After sampling with the adapted params: divergence rate < 5%.
 4. ESS (lag-1 approximation) is plausible (> 10 for a 1000-step chain).
 
-This is the E2E verification prescribed by the Phase 2a DoD in
-worklog/threads/wadapt-hmc-sweep.md.  The test takes ~60 s on CPU.
+This is the E2E verification for the laplace warmup phase 2a definition of done.
+The test takes ~60 s on CPU.
 """
 
 import blackjax

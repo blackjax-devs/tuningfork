@@ -106,7 +106,7 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "calibrated",
     ),
     # adjusted_mclmc_dynamic -- logistic_synthetic cells REMOVED 2026-06-04:
-    # Both recipes demoted to honest-null per @statistician (diagonal IMM cannot
+    # Both recipes demoted to honest-null (diagonal IMM cannot
     # capture logistic posterior's correlated geometry; anharmonic curvature).
     # ESS 9-13%, failing 3/3 nightly seeds. See recipe notes for full diagnosis.
     # laplace family — e2e only (phi-space GT-means mismatch for skip_warmup)
@@ -370,7 +370,7 @@ SPEED_SEED: int = _today_seed()
 # ---------------------------------------------------------------------------
 XFAIL_CELLS: dict[str, str] = {
     # (empty — adjusted_mclmc_dynamic/logistic_synthetic cells removed from suite
-    # on 2026-06-04; recipes formally demoted to honest-null per @statistician.
+    # on 2026-06-04; recipes formally demoted to honest-null.
     # The stop-gap xfail entry is no longer needed — cell is no longer in FAST_CELLS.)
     #
     # 2026-06-16: lotka_volterra-hmc-dense_imm-inner_nuts-e2e xfail REMOVED.

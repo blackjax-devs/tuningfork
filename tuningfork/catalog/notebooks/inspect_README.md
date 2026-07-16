@@ -51,8 +51,7 @@ stoch_vol) render as `az.plot_trace` + `az.plot_pair` plots; bulk params
 entries (avoid 500-row forest plots on high-dim models like stoch_vol).
 
 Per-model headline_params + headline_coords are declared as fields on the
-`Posterior` dataclass — see [`worklog/decisions/2026-05-18-headline-params-per-model.md`](https://github.com/blackjax-devs/claude-config/blob/main/project/worklog/decisions/2026-05-18-headline-params-per-model.md)
-for the ratified per-model values + rationale.
+`Posterior` dataclass (see each model's `Posterior` definition for the ratified per-model values + rationale).
 
 For the jupytext / Jupyter flow (papermill-batch-compatible, no widgets),
 keep using `recipe_diagnostics.md` (in this directory).

@@ -39,9 +39,7 @@ benchmarks/results.json
 #      _diag_imm.draws.npz`).
 #
 # The whole `_cache/` dir is workflow artifact — never gate-bearing,
-# never committed. See:
-#   - worklog/decisions/2026-05-11-phase0-reference-protocol-refinements.md § 3
-#   - PR #37 for the resample-cache layout
+# never committed. See PR #37 for the resample-cache layout.
 tuningfork/catalog/*/_cache/
 
 # Warmup checkpoints — workflow artifact written by certify_reference_nuts
@@ -95,8 +93,7 @@ reproduce_*.py
 
 # Local-only Claude scratchpads
 CLAUDE.md.local
-# CLAUDE.md is a local symlink into claude-config/project/tuningfork/ (agent
-# config; not committed/shipped) — matches the blackjax/sampling-book convention.
+# CLAUDE.md is a local agent-config symlink (not committed/shipped).
 CLAUDE.md
 
 # Per-user-device agent transcripts and consolidated timelines.
@@ -106,7 +103,6 @@ CLAUDE.md
 __marimo__/
 
 # Calibration / diagnostic experiment scripts — scratch-only.
-# Learning captured descriptively in worklog/lessons/; retain-worthy executable
-# code (figure generation, lesson companions) graduates to a sampling-book
-# case study. See worklog/decisions/2026-05-25-experiments-gitignored-learning-in-lessons.md
+# Retain-worthy executable code (figure generation, lesson companions) graduates
+# to a sampling-book case study.
 experiments/

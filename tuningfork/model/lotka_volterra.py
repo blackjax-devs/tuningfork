@@ -23,7 +23,7 @@ default init.  Under float64 the 1752× gradient-scale mismatch is handled
 exactly → clean warmup from default prior init across all tested seeds.
 
 Strictly analogous to the gp_regression x64 fix (dense-Cholesky precision).
-Ratified @tl 2026-05-26T16:56.  See worklog/threads/lotka-volterra-cert-regression.md §9.
+Ratified 2026-05-26T16:56.
 """
 
 import functools as ft

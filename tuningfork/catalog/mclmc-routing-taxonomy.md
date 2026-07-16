@@ -279,4 +279,4 @@ This empirical scaling factor was validated on horseshoe (204-D).
 ---
 
 *This document is the permanent synthesis of the MCLMC LRD integration experiment.*
-*Polish pass assigned to @tech-writer (tuningfork PR #176 scope note).*
+*Polish pass completed (tuningfork PR #176).*

@@ -27,7 +27,7 @@ instead of the private helpers below.
 
 ``_run_cert_seed``
     Run one cert seed: warmup + 4-chain sampling → diagnostics dict.
-    Used by ``@statistician`` for phase (c) runs — call signature is
+    Used for phase (c) runs — call signature is
     stable; do not rename without coordinating.
 """
 
