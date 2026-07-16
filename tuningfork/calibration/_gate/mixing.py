@@ -16,7 +16,6 @@
 import arviz as az
 import jax.numpy as jnp
 import numpy as np
-from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
 
 
 def _compute_mixing_stats(
@@ -50,10 +49,9 @@ def _compute_mixing_stats(
         ess_values: list[float] = []
         for arr in mc_samples.values():
             arr_np = np.asarray(arr)
-            # arviz rhat (rank-normalised split-R̂; no blackjax equivalent yet)
+            # arviz rank-normalised split-R̂ (no blackjax equivalent yet)
             rhat_arr = az.rhat(arr_np, chain_axis=0, draw_axis=1)
-            # bulk ESS via blackjax.diagnostics (bit-identical to az.ess method="bulk")
-            ess_arr = _bj_ess_bulk(arr_np, chain_axis=0, sample_axis=1)
+            ess_arr = az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
             rhat_values.append(float(np.max(np.asarray(rhat_arr))))
             ess_values.append(float(np.min(np.asarray(ess_arr))))
 
