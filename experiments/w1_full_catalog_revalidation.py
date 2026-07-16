@@ -421,6 +421,12 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
     FULL_WARMUP_REQUIRED = frozenset({"chees", "meads"})
     CPU_NC_LIMIT = 32  # nc > this → SK for chees/meads (GPU-scale recipe)
 
+    # VI-based warmups (fullrank_vi, meanfield_vi as WARMUP — not as base method)
+    # are seed-sensitive; a fresh re-run from scratch can converge differently to
+    # the stored optimum and produce biased samples → false W1 FAILs.  Without
+    # cached draws only path A is reliable.
+    VI_WARMUP_METHODS = frozenset({"fullrank_vi", "meanfield_vi"})
+
     def classify(recipe_path: pathlib.Path) -> tuple[bool, str]:
         model = recipe_path.parent.parent.name
         try:
@@ -465,6 +471,12 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
             if nc > CPU_NC_LIMIT:
                 return True, "SK"
             return True, "C"
+
+        if warmup_name in VI_WARMUP_METHODS:
+            # VI-warmup cells (NUTS + fullrank_vi / meanfield_vi warmup) are
+            # seed-sensitive — a fresh re-run may converge to a different optimum
+            # and produce biased samples.  Only path A (cached draws) is reliable.
+            return True, "SK"
 
         # Check for sidecar IMM: stored as "sidecar" in base_method_params (new
         # schema) OR top-level inverse_mass_matrix (old schema).  skip_warmup=True
