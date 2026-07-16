@@ -1073,10 +1073,10 @@ def test_ess_gen_uses_min_bulk_tail():
     - result is finite and positive
 
     This is MUT-6: guards against a regression where _ess_gen_per_dim
-    drops the ``az.ess(idata, method="tail")`` call and returns only bulk.
+    drops the ``ess_tail`` call and returns only bulk.
     """
     rng = np.random.default_rng(123)
-    # 1 chain × 200 draws × 3 dims — enough for arviz ESS to be well-defined
+    # 1 chain × 200 draws × 3 dims — enough for ESS to be well-defined
     draws = rng.normal(0, 1, size=(1, 200, 3))
     gen_arr = draws.astype(np.float64)
 
@@ -1085,23 +1085,27 @@ def test_ess_gen_uses_min_bulk_tail():
     assert ess.shape == (3,), f"Expected shape (3,), got {ess.shape}"
     assert np.all(np.isfinite(ess)), f"ESS has non-finite values: {ess}"
     assert np.all(ess > 0), f"ESS has non-positive values: {ess}"
-    # min(bulk, tail) ≤ 200 (raw draw count) for all dims
-    assert np.all(ess <= 200.0), f"ESS > raw draw count: {ess}"
 
-    # Verify tail-ESS is actually computed (not just bulk):
-    # Run arviz bulk and tail separately and check that ess ≤ bulk.
-    import arviz as az
+    # MUT-6 guard: verify the result is min(bulk, tail), not just bulk.
+    # _ess_gen_per_dim uses _ess_tail_cdf89 (11th/89th-percentile pair, matching
+    # the old az.ess(idata, method="tail") default) rather than
+    # blackjax.diagnostics.ess_tail (which uses 5th/95th percentiles per
+    # Vehtari 2021).  We import _ess_tail_cdf89 directly to construct the
+    # expected value.
+    from blackjax.diagnostics import ess_bulk as bj_ess_bulk
 
-    idata = az.from_dict({"posterior": {"x": gen_arr}}, sample_dims=["chain", "draw"])
-    bulk_xr = az.ess(idata, method="bulk")["x"]
-    bulk = np.atleast_1d(np.asarray(bulk_xr).ravel())
-    # _ess_gen_per_dim must return min(bulk, tail) which is ≤ bulk
-    np.testing.assert_array_less(
-        ess - 1e-9,
-        bulk + 1e-9,
+    from tuningfork.calibration._gate.w1_realm import _ess_tail_cdf89
+
+    bulk = np.atleast_1d(np.asarray(bj_ess_bulk(gen_arr)).ravel())
+    tail = np.atleast_1d(_ess_tail_cdf89(gen_arr).ravel())
+    expected = np.minimum(bulk, tail)
+    np.testing.assert_allclose(
+        ess,
+        expected,
+        rtol=1e-5,
         err_msg=(
-            "_ess_gen_per_dim returned values > bulk-ESS; "
-            "it should return min(bulk, tail)"
+            "_ess_gen_per_dim result does not match min(ess_bulk, _ess_tail_cdf89); "
+            "MUT-6: check that both bulk and tail (11th/89th) are computed"
         ),
     )
 

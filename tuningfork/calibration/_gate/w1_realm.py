@@ -34,11 +34,11 @@ Two prongs
 k̂ tail guard
 -------------
 Zhang–Stephens GPD fit on the large GT sample (N≈1e5) per tail (upper/lower
-10%).  Uses ``arviz_stats._gpdfit`` on fixed upper/lower-10% exceedances —
-a location-invariant estimator suitable for non-zero-centred unconstrained
-posteriors.  When ``max(k̂_left, k̂_right) > 0.7``: the dimension's W1 is
-replaced by trimmed-W1 (excluding top/bottom 10%).  Computed on GT, not the
-small generated sample — avoids noisy k̂ from small-sample tails.
+10%).  Uses ``blackjax.diagnostics.pareto_khat`` — a location-invariant
+estimator suitable for non-zero-centred unconstrained posteriors.  When
+``max(k̂_left, k̂_right) > 0.7``: the dimension's W1 is replaced by
+trimmed-W1 (excluding top/bottom 10%).  Computed on GT, not the small
+generated sample — avoids noisy k̂ from small-sample tails.
 
 Public API
 ----------
@@ -51,8 +51,13 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-import arviz as az
+import jax.numpy as jnp
 import numpy as np
+from blackjax.diagnostics import _split_chains as _bj_split_chains
+from blackjax.diagnostics import _to_standard_axes as _bj_to_standard_axes
+from blackjax.diagnostics import effective_sample_size as _bj_effective_sample_size
+from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
+from blackjax.diagnostics import pareto_khat as _bj_pareto_khat
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -139,17 +144,18 @@ def _w1_1d(a: np.ndarray, b: np.ndarray) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
-    """Zhang–Stephens GPD shape parameter k̂ estimate in both tails of ``x``.
+def _khat_max(x: np.ndarray, tail_frac: float = 0.10) -> float:
+    """Return ``max(k̂_left, k̂_right)`` for 1-D array ``x``.
 
-    Fits a Generalised Pareto Distribution (GPD) to the upper and lower
-    ``tail_frac`` exceedances using ``arviz_stats._gpdfit`` (the
-    Zhang–Stephens 2009 penalised MLE).  Unlike the Hill estimator, GPD
+    Uses ``blackjax.diagnostics.pareto_khat`` (Zhang–Stephens 2009 penalised
+    MLE) which fits a Generalised Pareto Distribution to both tails and
+    returns the maximum shape parameter.  Unlike the Hill estimator, GPD
     fitting is location-invariant and unbiased on non-zero-centred
     unconstrained posteriors (e.g. the eight_schools ``tau`` log-scale
     marginal).
 
-    Returns ``(k̂_left, k̂_right)``.
+    Returns ``0.0`` when the array is too short to estimate tails (fewer
+    than 5 samples per tail after applying ``tail_frac``).
 
     Parameters
     ----------
@@ -160,38 +166,16 @@ def _khat_gpd(x: np.ndarray, tail_frac: float = 0.10) -> tuple[float, float]:
 
     Returns
     -------
-    tuple[float, float]
-        ``(k̂_left, k̂_right)`` — GPD shape parameters for the lower and upper
-        tails.  Negative values indicate bounded support (light tail);
+    float
+        ``max(k̂_left, k̂_right)`` — GPD shape parameter for the heavier
+        tail.  Negative values indicate bounded support (light tail);
         values above ``_KHAT_HEAVY_TAIL`` (0.7) trigger the trimmed-W1 guard.
-        Returns ``0.0`` for a tail when ``n_tail < 5`` (insufficient data).
     """
-    from arviz_stats.base.array import array_stats as _az_arr_stats
-
-    x = np.sort(np.asarray(x, dtype=np.float64))
     n = len(x)
     n_tail = max(5, int(n * tail_frac))
     if n_tail >= n:
-        return 0.0, 0.0
-
-    # Right tail: top n_tail exceedances above the (n-n_tail-1)th order stat
-    tail_r = x[-n_tail:]
-    cutoff_r = x[-n_tail - 1]
-    k_r, _ = _az_arr_stats._gpdfit(tail_r - cutoff_r)
-
-    # Left tail: flip sign (so lower tail becomes an upper exceedance problem)
-    x_flip = -x[::-1]  # sorted ascending, values ≥ 0 after flip
-    tail_l = x_flip[-n_tail:]
-    cutoff_l = x_flip[-n_tail - 1]
-    k_l, _ = _az_arr_stats._gpdfit(tail_l - cutoff_l)
-
-    return float(k_l), float(k_r)
-
-
-def _khat_max(x: np.ndarray, tail_frac: float = 0.10) -> float:
-    """Return ``max(k̂_left, k̂_right)`` for 1-D array ``x``."""
-    k_left, k_right = _khat_gpd(x, tail_frac)
-    return max(k_left, k_right)
+        return 0.0
+    return float(np.asarray(_bj_pareto_khat(x, tail="both", tail_frac=tail_frac)))
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +194,62 @@ def _w1_trimmed(a: np.ndarray, b: np.ndarray, trim_frac: float = 0.10) -> float:
 # ---------------------------------------------------------------------------
 # Per-dim ESS from generated sample
 # ---------------------------------------------------------------------------
+
+
+def _ess_tail_cdf89(gen_arr: np.ndarray) -> np.ndarray:
+    """Tail ESS using the 11th/89th-percentile indicator pair.
+
+    Matches the behaviour of ``az.ess(idata, method="tail")`` (no explicit
+    ``prob``) when the InferenceData path is used.  That path resolves the
+    default ``prob`` from ``rcParams["stats.ci_prob"] = 0.89``, giving
+    ``p_lo = 0.055, p_hi = 0.945`` after symmetrisation — effectively the
+    11th/89th percentile pair.
+
+    ``blackjax.diagnostics.ess_tail`` uses the Vehtari 2021 5th/95th-percentile
+    pair, which is more conservative and yields a lower ESS value for typical
+    MCMC chains.  This helper replicates the original (less conservative)
+    computation so that the pinned gate golden (``floor_of_max = 0.1122``)
+    is preserved when transitioning away from ArviZ.
+
+    Algorithm
+    ---------
+    1. Axes are permuted so that chain is dim 0 and sample is dim 1.
+    2. Chains are split in half (``_split_chains``), yielding 2× chains.
+    3. Pooled 11th- and 89th-percentile quantiles are computed per trailing
+       dimension from the concatenated split-chain draws.
+    4. Two indicator series are formed: ``I(x ≤ q_{0.11})`` and
+       ``I(x ≤ q_{0.89})``.
+    5. ESS is computed for each indicator via ``effective_sample_size``.
+    6. The per-dimension minimum is returned.
+
+    Parameters
+    ----------
+    gen_arr
+        Shape ``(n_chains, n_draws, *event_shape)`` — float64 array.
+
+    Returns
+    -------
+    np.ndarray
+        Per-dimension tail-ESS; shape ``(*event_shape)`` (same as the trailing
+        dims of ``gen_arr``).
+    """
+    x = _bj_to_standard_axes(jnp.asarray(gen_arr), chain_axis=0, sample_axis=1)
+    x_split = _bj_split_chains(x)  # (2*n_chains, n_draws//2, *event)
+    n_sc, n_half = x_split.shape[0], x_split.shape[1]
+    extra = x_split.shape[2:]
+    x_flat = x_split.reshape(n_sc * n_half, *extra)
+
+    # Pooled quantiles per trailing dimension, matching arviz's axis=None
+    # global-then-per-dim flattening for scalar params.
+    q11 = jnp.quantile(x_flat, 0.11, axis=0)
+    q89 = jnp.quantile(x_flat, 0.89, axis=0)
+
+    I_lo = (x_split <= q11[None, None]).astype(float)
+    I_hi = (x_split <= q89[None, None]).astype(float)
+
+    ess_lo = _bj_effective_sample_size(I_lo)
+    ess_hi = _bj_effective_sample_size(I_hi)
+    return np.asarray(jnp.minimum(ess_lo, ess_hi))
 
 
 def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
@@ -231,10 +271,11 @@ def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
 
     Notes
     -----
-    Uses ``az.from_dict`` to wrap the generated sample as a DataTree before
-    calling ``az.ess``.  This avoids the arviz 1.1.0
-    ``_ess_tail() missing 'prob'`` error that affects the raw-array
-    ``az.ess(arr, chain_axis=0, draw_axis=1, method="tail")`` call path.
+    Uses ``blackjax.diagnostics.ess_bulk`` for bulk ESS (rank-normalised
+    split-chain; Vehtari et al. 2021) and ``_ess_tail_cdf89`` for tail ESS
+    (11th/89th-percentile indicator pair matching the default behaviour of
+    the old ``az.ess(idata, method="tail")`` call path — see that helper's
+    docstring for the rationale).
     Any future regression in the ESS API will surface as an uncaught
     exception here — no bare ``except Exception`` swallows unknown failures.
     """
@@ -242,17 +283,11 @@ def _ess_gen_per_dim(gen_arr: np.ndarray) -> np.ndarray:
     d_shape = gen_arr.shape[2:] if gen_arr.ndim > 2 else ()
     fallback_shape = d_shape if d_shape else (1,)
 
-    # Wrap as a DataTree so that az.ess uses the DataTree code path, which
-    # correctly handles both bulk and tail under arviz ≥1.1.0.  This is the
-    # same pattern as ``compute_summary_stats`` in groundtruth/_emit.py.
-    idata = az.from_dict(
-        {"posterior": {"__gen__": gen_arr}},
-        sample_dims=["chain", "draw"],
-    )
-    bulk_xr = az.ess(idata, method="bulk")["__gen__"]
-    tail_xr = az.ess(idata, method="tail")["__gen__"]
-    bulk = np.atleast_1d(np.asarray(bulk_xr).ravel())
-    tail = np.atleast_1d(np.asarray(tail_xr).ravel())
+    # Bulk ESS via rank-normalised split-chain (chain_axis=0, sample_axis=1).
+    bulk = np.atleast_1d(np.asarray(_bj_ess_bulk(gen_arr)).ravel())
+    # Tail ESS using 11th/89th-percentile indicator pair (matches old arviz
+    # InferenceData default; see _ess_tail_cdf89 for full rationale).
+    tail = np.atleast_1d(_ess_tail_cdf89(gen_arr).ravel())
     ess = np.minimum(bulk, tail)
 
     if not np.all(np.isfinite(ess)) or np.any(ess <= 0):

@@ -378,7 +378,7 @@ wheels = [
 
 [[package]]
 name = "blackjax"
-version = "1.6"
+version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
@@ -388,9 +388,9 @@ dependencies = [
     { name = "scipy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/42/0f/9da22812a20bd4f7da5b4f67ad79f459324c701fcca434ce583d90bd32e4/blackjax-1.6.tar.gz", hash = "sha256:fc1af2565bcf129974daa5d25067616aea85ea3e22e35d57d492d14bcd74daa5", size = 5174101, upload-time = "2026-07-10T20:30:31.99Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/ea/2c1eff196089fbd1a2d99d45f9275315409030767deff598cb6ab7868075/blackjax-1.6.1.tar.gz", hash = "sha256:47e8b601951b61f93ac4c824822fa9b7b123066ebff2aa776d233f0f0c68249e", size = 5295470, upload-time = "2026-07-16T08:29:01.62Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/64/3d9dcc0e3fbba2de25c39adf302b6ad2ca3c119299ac087b8002161958b8/blackjax-1.6-py3-none-any.whl", hash = "sha256:d1c135f448789961a4bada1e2eb803a1da55c0622c5f77eddce80bb3f7351fd5", size = 4857402, upload-time = "2026-07-10T20:30:30.492Z" },
+    { url = "https://files.pythonhosted.org/packages/54/2e/938152689643216bd0ce71594329592b8d23979d038ea036cf9f0af604f5/blackjax-1.6.1-py3-none-any.whl", hash = "sha256:9f3583b39466780f09713696cb84aaf30083bc08bf5d91a426e989591cdd8055", size = 4913020, upload-time = "2026-07-16T08:28:59.431Z" },
 ]
 
 [package.optional-dependencies]
@@ -3840,7 +3840,7 @@ bench = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], specifier = ">=1.6" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6.1" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
@@ -3869,7 +3869,7 @@ bench-perf = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], specifier = ">=1.6" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6.1" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },
@@ -3899,7 +3899,7 @@ notebook = [
     { name = "aeppl" },
     { name = "aesara" },
     { name = "arviz" },
-    { name = "blackjax", extras = ["progress"], specifier = ">=1.6" },
+    { name = "blackjax", extras = ["progress"], specifier = ">=1.6.1" },
     { name = "datasets" },
     { name = "diffeqzoo" },
     { name = "flax" },

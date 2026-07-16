@@ -16,6 +16,16 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+# Install tuningfork[viz] to enable catalog diagnostic plots, InferenceData
+# helpers, and the marimo catalog explorer.  The core library (including all
+# calibration and gate logic) does not require arviz.
+viz = [
+    "arviz",
+    "arviz-plots>=0.6",
+    "matplotlib",
+]
+
 # The `bench` group is the canonical install for running benchmarks.
 # Mirrors sampling-book's `book` group so model implementations port cleanly,
 # plus optuna (hyperparameter optimization) and posteriordb (reference cross-validation for shared models).
@@ -33,7 +43,9 @@ bench = [
     # [progress] extra pulls in tqdm>=4.66, required by blackjax.progress_bar()'s
     # display thread (blackjax #964) -- emitted recipe scripts wrap their
     # warmup/sampling calls in this context manager when warmup_progress_bar=True.
-    "blackjax[progress]>=1.6",
+    # 1.6.1 is the first PyPI release with ess_bulk / ess_tail / pareto_khat
+    # (PR #994) + rank-normalised split-R̂ (PR #995) in blackjax.diagnostics.
+    "blackjax[progress]>=1.6.1",
     "aeppl",
     "aesara",
     "arviz",

@@ -13,9 +13,10 @@
 # limitations under the License.
 """Mixing diagnostics stage — R̂, bulk-ESS, and divergence count."""
 
-import arviz as az
 import jax.numpy as jnp
 import numpy as np
+from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
+from blackjax.diagnostics import rhat as _bj_rhat
 
 
 def _compute_mixing_stats(
@@ -49,9 +50,8 @@ def _compute_mixing_stats(
         ess_values: list[float] = []
         for arr in mc_samples.values():
             arr_np = np.asarray(arr)
-            # arviz expects (n_chains, n_draws, *event_shape)
-            rhat_arr = az.rhat(arr_np, chain_axis=0, draw_axis=1)
-            ess_arr = az.ess(arr_np, chain_axis=0, draw_axis=1, method="bulk")
+            rhat_arr = _bj_rhat(arr_np, chain_axis=0, sample_axis=1)
+            ess_arr = _bj_ess_bulk(arr_np, chain_axis=0, sample_axis=1)
             rhat_values.append(float(np.max(np.asarray(rhat_arr))))
             ess_values.append(float(np.min(np.asarray(ess_arr))))
 
