@@ -453,6 +453,15 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
             # CHEES / MEADS adapted_params contain callables → must re-run warmup
             return True, "C"
 
+        # Check for sidecar IMM: stored as "sidecar" in base_method_params (new
+        # schema) OR top-level inverse_mass_matrix (old schema).  skip_warmup=True
+        # fails because the sidecar file path is not stored in the recipe JSON.
+        bmp = d.get("base_method_params", {})
+        imm = bmp.get("inverse_mass_matrix") or d.get("inverse_mass_matrix")
+        if imm == "sidecar":
+            # Route to path C (full warmup regenerates the IMM)
+            return True, "C"
+
         if bm in SKIP_WARMUP_METHODS:
             return True, "B"
         if bm in MCLMC_METHODS or bm in LAPLACE_METHODS:
