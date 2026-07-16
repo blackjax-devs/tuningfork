@@ -1,4 +1,4 @@
-.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans benchmark benchmark-fast benchmark-pr
+.PHONY: install test test-fast test-slow test-e2e test-full lint clean clean-orphans benchmark benchmark-fast benchmark-pr revalidate-w1
 
 install:
 	uv sync --group bench
@@ -81,6 +81,15 @@ benchmark-pr:
 		--benchmark-min-rounds=1 \
 		--benchmark-max-time=0 \
 		-v
+
+# ---------------------------------------------------------------------------
+# W1 catalog re-validation (runs after gate changes or catalog batch updates)
+# ---------------------------------------------------------------------------
+# Default: path-A-only (committed cached draws — clean signal, seconds per cell).
+# Opt-in re-gen: ENABLE_REGEN=1 make revalidate-w1 (full two-stage gate on B/C cells).
+revalidate-w1:
+	$(MAKE) clean-orphans
+	JAX_PLATFORM_NAME=cpu uv run python -m tuningfork.calibration.revalidation $(if $(ENABLE_REGEN),--regen,)
 
 lint:
 	uv run pre-commit run --all-files
