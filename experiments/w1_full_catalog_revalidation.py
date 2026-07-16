@@ -44,8 +44,10 @@ import numpy as np
 CATALOG = pathlib.Path("tuningfork/catalog")
 RESULTS_FILE = pathlib.Path("experiments/w1_full_catalog_revalidation_results.json")
 
-# W1 bootstrap replicates: 5000 (production gate spec).
-W1_B: int = 5000
+# W1 bootstrap replicates.  Override via env: W1_B=500 for a fast sweep,
+# STEP4_W1_B=5000 to keep full-precision on the irt_2pl×chees cell.
+W1_B: int = int(os.environ.get("W1_B", "5000"))
+STEP4_W1_B: int = int(os.environ.get("STEP4_W1_B", "5000"))
 W1_ALPHA: float = 0.05
 W1_SEED: int = 42
 
@@ -582,7 +584,9 @@ def process_irt2pl_chees(
     gt_draws_per_site, gt_summary_per_site = gt_data
 
     try:
-        w1_result = apply_w1_gate(draws, gt_summary_per_site, gt_draws_per_site)
+        w1_result = apply_w1_gate(
+            draws, gt_summary_per_site, gt_draws_per_site, B=STEP4_W1_B
+        )
     except Exception as exc:
         return {
             "status": "ERROR",
@@ -635,6 +639,7 @@ def main() -> None:
     cells = collect_eligible_cells()
     total = len(cells)
     print(f"W1 full-catalog re-validation: {total} candidate cells")
+    print(f"  W1_B={W1_B} (sweep)  STEP4_W1_B={STEP4_W1_B} (irt_2pl×chees)")
     print(f"Checkpoint: {RESULTS_FILE}")
 
     from collections import Counter
@@ -653,8 +658,22 @@ def main() -> None:
     results: dict = {}
     if RESULTS_FILE.exists():
         results = json.loads(RESULTS_FILE.read_text())
-        done = sum(1 for v in results.values() if v.get("status") in ("OK", "SKIP"))
+        done = sum(
+            1
+            for k, v in results.items()
+            if k != "_meta" and v.get("status") in ("OK", "SKIP")
+        )
         print(f"Resuming: {done}/{total + 1} already done (incl. step4)\n")
+
+    # Persist run metadata on every invocation (overwrites previous _meta if any).
+    results["_meta"] = {
+        "W1_B": W1_B,
+        "STEP4_W1_B": STEP4_W1_B,
+        "W1_ALPHA": W1_ALPHA,
+        "W1_SEED": W1_SEED,
+        "RESAMPLE_N": RESAMPLE_N,
+    }
+    RESULTS_FILE.write_text(json.dumps(results, indent=2) + "\n")
 
     sweep_start = time.perf_counter()
     flips: list[str] = []
