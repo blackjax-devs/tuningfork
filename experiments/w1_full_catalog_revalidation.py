@@ -414,6 +414,11 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
         model = p.parent.parent.name
         recipe_map.setdefault(model, []).append(p)
 
+    # Warmups whose adapted_params include non-serialisable callables
+    # (integration_steps_fn, next_random_arg_fn) — skip_warmup=True fails for
+    # these; they need a full re-warmup (path C).
+    FULL_WARMUP_REQUIRED = frozenset({"chees", "meads"})
+
     def classify(recipe_path: pathlib.Path) -> tuple[bool, str]:
         model = recipe_path.parent.parent.name
         try:
@@ -440,6 +445,14 @@ def collect_eligible_cells() -> list[tuple[str, pathlib.Path, str]]:
         cache = recipe_path.parent.parent / "_cache" / f"{recipe_path.stem}.draws.npz"
         if cache.exists():
             return True, "A"
+
+        # Derive warmup from recipe stem: level__method__warmup[__extra]
+        parts = recipe_path.stem.split("__")
+        warmup_name = parts[2] if len(parts) >= 3 else ""
+        if warmup_name in FULL_WARMUP_REQUIRED:
+            # CHEES / MEADS adapted_params contain callables → must re-run warmup
+            return True, "C"
+
         if bm in SKIP_WARMUP_METHODS:
             return True, "B"
         if bm in MCLMC_METHODS or bm in LAPLACE_METHODS:
