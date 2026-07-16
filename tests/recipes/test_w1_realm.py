@@ -126,19 +126,21 @@ _ENS_E_S_D = np.full(10, 20000.0)
 
 # E_g,d: real min(bulk,tail)-ESS for chain0[:1000] (from _ess_gen_per_dim).
 # Pinned from golden run; lower than raw 1000 due to autocorrelation.
+# Re-pinned 2026-07-16: switched from 11th/89th-percentile tail ESS to the
+# canonical 5th/95th-percentile pair (blackjax.diagnostics.ess_tail default).
 # Order: [mu, tau, theta_raw[0..7]]
 _ENS_E_G_D = np.array(
     [
-        623.99023701,  # mu
-        602.05143795,  # tau
-        611.978659,  # theta_raw[0]
-        856.98710077,  # theta_raw[1]
-        749.94314733,  # theta_raw[2]
-        661.39834602,  # theta_raw[3]
-        755.00840192,  # theta_raw[4]
-        805.90803081,  # theta_raw[5]
-        628.33952046,  # theta_raw[6]
-        676.10663706,  # theta_raw[7]
+        505.3481750488281,  # mu
+        565.0946044921875,  # tau
+        715.8006591796875,  # theta_raw[0]
+        686.7225952148438,  # theta_raw[1]
+        583.67236328125,  # theta_raw[2]
+        732.6786499023438,  # theta_raw[3]
+        521.3410034179688,  # theta_raw[4]
+        787.6424560546875,  # theta_raw[5]
+        715.2957763671875,  # theta_raw[6]
+        672.2562255859375,  # theta_raw[7]
     ]
 )
 
@@ -167,30 +169,34 @@ _ENS_INJECTED_W1_SIGMA_D[3] = 0.20742760727853224  # theta_raw[1] + 0.30σ
 _ENS_INJECTED_MAX_W1_SIGMA: float = 0.31521704399154693
 
 # Floor-of-max: q_{0.95}(max_d W1_boot), numpy PCG64 seed=424242, B=5000.
-# Computed via compute_w1_realm end-to-end with real ESS (≈623–857 per dim).
-# Raised from 0.09528010 (buggy raw-count ESS=1000) to 0.1122042940.
-_ENS_FLOOR_OF_MAX: float = 0.1122042940
+# Computed via compute_w1_realm end-to-end with real ESS (≈505–788 per dim).
+# History: 0.09528010 (buggy raw-count ESS=1000) → 0.1122042940 (real ESS, 11/89 tail)
+#          → 0.1190748751 (real ESS, 5/95 canonical tail, 2026-07-16).
+# 5/95 gives lower tail-ESS → smaller E_g → wider bootstrap null → higher floor.
+_ENS_FLOOR_OF_MAX: float = 0.1190748751
 
 # Per-dim floor: q_{0.95}(W1_d_boot) per dim, B=5000, seed=424242.
-# Computed with real ESS per dim from _ENS_E_G_D above.
+# Computed with real ESS per dim from _ENS_E_G_D above (5/95, re-pinned 2026-07-16).
 _ENS_FLOOR_PER_DIM = np.array(
     [
-        0.08721894,  # mu
-        0.08936596,  # tau
-        0.08756933,  # theta_raw[0]
-        0.07350074,  # theta_raw[1]
-        0.07831004,  # theta_raw[2]
-        0.08612174,  # theta_raw[3]
-        0.07802934,  # theta_raw[4]
-        0.07758241,  # theta_raw[5]
-        0.08512072,  # theta_raw[6]
-        0.08366970,  # theta_raw[7]
+        0.09674968,  # mu
+        0.09138376,  # tau
+        0.08005598,  # theta_raw[0]
+        0.08404392,  # theta_raw[1]
+        0.09105721,  # theta_raw[2]
+        0.08078196,  # theta_raw[3]
+        0.09615591,  # theta_raw[4]
+        0.07775750,  # theta_raw[5]
+        0.08124813,  # theta_raw[6]
+        0.08533476,  # theta_raw[7]
     ]
 )
 
 # τ_frac: q_{0.95} of joint block bootstrap null frac, B=5000, seed=424242.
-# 0.7 with real ESS (vs 0.6 with buggy ESS=1000).
-_ENS_TAU_FRAC: float = 0.7
+# 0.6 under 5/95 canonical tail-ESS (re-pinned 2026-07-16; was 0.7 under 11/89).
+# Frac prong is stricter but per-dim floors are higher, keeping the overall gate
+# permissive in the null regime.
+_ENS_TAU_FRAC: float = 0.6
 
 # ---------------------------------------------------------------------------
 # Frozen golden constants — radon (D=390, B=2000, seed=424242)
@@ -587,11 +593,13 @@ def test_eight_schools_loo_conservatism_guard():
     exceedances are expected; "0 violations" would reject a correctly-calibrated
     floor ~40% of the time).
 
-    eight_schools result: 1/10 violation at +1.9%.
-    count rule: 1 ≤ k_crit=1 → passes.
-    severity rule: +1.9% ≤ 5% → passes.
+    eight_schools result (floor=0.1191 under 5/95): max_loo < floor → 0 violations.
+    count rule: 0 ≤ k_crit=1 → passes.
+    severity rule: max_loo ≤ floor * 1.05 → passes.
     is_conservative: True.
 
+    (Under the prior 11/89 floor=0.1122, there was 1 violation at +1.9%; the
+    5/95 floor is higher, clearing that LOO sample.)
     An earlier in-sample-biased variant compared each chain to all chains
     including the held-out one, producing a ~2.4%-lower statistic that hid the
     real LOO violation; this test uses the honest leave-one-out.
@@ -668,8 +676,8 @@ def test_eight_schools_floor_of_max_e2e_pinned():
     computation or k-hat routing surface immediately.
 
     MUT-6 guard: if _ess_gen_per_dim regresses to returning raw n_draws=1000
-    instead of real ESS (~623–857), the floor would drop from ~0.1122 to ~0.0953,
-    causing this test to fail.
+    instead of real ESS (~505–788 under 5/95 canonical tail), the floor would
+    drop from ~0.1191 to ~0.0953, causing this test to fail.
     """
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
@@ -705,7 +713,7 @@ def test_eight_schools_floor_of_max_e2e_pinned():
         multichain=True,
     )
 
-    # MUT-6: floor must come from real ESS (~623–857), not raw n=1000.
+    # MUT-6: floor must come from real ESS (~505–788 under 5/95), not raw n=1000.
     # If ESS regresses to 1000, floor drops to ~0.0953 and this fails.
     assert abs(result.floor_of_max - _ENS_FLOOR_OF_MAX) / _ENS_FLOOR_OF_MAX < 0.02, (
         f"floor_of_max={result.floor_of_max:.10f} deviates >2% from pinned "
@@ -1087,25 +1095,21 @@ def test_ess_gen_uses_min_bulk_tail():
     assert np.all(ess > 0), f"ESS has non-positive values: {ess}"
 
     # MUT-6 guard: verify the result is min(bulk, tail), not just bulk.
-    # _ess_gen_per_dim uses _ess_tail_cdf89 (11th/89th-percentile pair, matching
-    # the old az.ess(idata, method="tail") default) rather than
-    # blackjax.diagnostics.ess_tail (which uses 5th/95th percentiles per
-    # Vehtari 2021).  We import _ess_tail_cdf89 directly to construct the
-    # expected value.
+    # _ess_gen_per_dim uses the canonical 5th/95th-percentile tail ESS from
+    # blackjax.diagnostics.ess_tail (Vehtari 2021).
     from blackjax.diagnostics import ess_bulk as bj_ess_bulk
-
-    from tuningfork.calibration._gate.w1_realm import _ess_tail_cdf89
+    from blackjax.diagnostics import ess_tail as bj_ess_tail
 
     bulk = np.atleast_1d(np.asarray(bj_ess_bulk(gen_arr)).ravel())
-    tail = np.atleast_1d(_ess_tail_cdf89(gen_arr).ravel())
+    tail = np.atleast_1d(np.asarray(bj_ess_tail(gen_arr)).ravel())
     expected = np.minimum(bulk, tail)
     np.testing.assert_allclose(
         ess,
         expected,
         rtol=1e-5,
         err_msg=(
-            "_ess_gen_per_dim result does not match min(ess_bulk, _ess_tail_cdf89); "
-            "MUT-6: check that both bulk and tail (11th/89th) are computed"
+            "_ess_gen_per_dim result does not match min(ess_bulk, ess_tail); "
+            "MUT-6: check that both bulk and tail (5th/95th) are computed"
         ),
     )
 
