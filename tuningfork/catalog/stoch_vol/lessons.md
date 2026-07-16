@@ -16,9 +16,52 @@ stoch_vol uses the catalog-default `window_adaptation_diag_imm` warmup, same as 
 
 503-D NCP recursive AR(1) stochastic volatility. **Current model (post-PR-#27, 2026-05-18)**: weakly-informative prior with Uniform(-1,1) phi base × `numpyro.factor("phi_beta44_factor", Beta(4,4).log_prob((phi+1)/2))` (equivalent to phi_01 ~ Beta(4,4), phi = 2·phi_01−1; preserves "phi" as the unconstrained site name to keep `draws.npz` schema-stable while avoiding the `TransformedDistribution(Beta, AffineTransform)` NaN-gradient bug in NumPyro), plus mu ~ Normal(0, 5) replacing Cauchy(0, 10), plus sigma ~ HalfCauchy(5) unchanged. Posterior phi_con bulk shifted to 0.961 (from 0.987 under Uniform).
 
-**Historical context (pre-PR-#27)**: under the original Uniform(-1,1) phi / Cauchy(0,10) mu priors, divergences clustered at extreme phi ≈ 0.9999 (unit-root boundary) where the stationary-distribution initialization `h[0] = mu + (sigma / sqrt(1 - phi²)) * h_std[0]` diverges. Diagonal-IMM condition number ≫1× due to boundary-element variance amplification (interior vs boundary elements experience different AR(1) persistence scaling), but this is downstream symptom, not primary cause. An early prior-tightening attempt (Beta(20, 1.5)-shifted phi) tripled divergences by pulling the posterior bulk closer to the difficult region; the eventual Beta(4, 4) symmetric prior succeeded by pulling the bulk AWAY from the boundary (toward phi_con = 0, std ≈ 0.30 in constrained space). See the 2026-05-18 weakly-informative-prior case study for the full prior-sensitivity trial.
+**Historical context (pre-PR-#27)**: under the original Uniform(-1,1) phi / Cauchy(0,10) mu priors, divergences clustered at extreme phi ≈ 0.9999 (unit-root boundary) where the stationary-distribution initialization `h[0] = mu + (sigma / sqrt(1 - phi²)) * h_std[0]` diverges. Diagonal-IMM condition number ≫1× due to boundary-element variance amplification (interior vs boundary elements experience different AR(1) persistence scaling), but this is downstream symptom, not primary cause. An early prior-tightening attempt (Beta(20, 1.5)-shifted phi) tripled divergences by pulling the posterior bulk closer to the difficult region. A 2026-05-18 prior-sensitivity trial tested six phi × mu combinations at n_warmup=2000, n_samples=4000, ta=0.95, 4 seeds each:
 
-**Historical multi-mode warmup-capture (pre-PR-#27, no longer a concern)**: under the original Uniform/Cauchy priors the AR(1) posterior had a bad-attractor mode at the unit-root tail (phi ≈ 0.9999) that single-stage `window_adaptation_diag_imm` (init from NumPyro's default `init_to_uniform`) could be captured by during the first ~50 warmup steps (step_size collapses to ~10⁻⁶, post-warmup chain stuck). A 2026-05-18 multi-seed sweep showed **44 % gate failure rate under bare `window_adaptation_diag_imm`** at the recert seeds vs **25 % under the `multipathfinder → window_adaptation_diag_imm` two-stage pipeline** with 4 paths + PSIS resampling. The PR #27 Beta(4,4) prior revision then shifted the bulk away from the unit-root tail entirely, neutralising the capture pathology in the model itself. A 2026-05-19 re-cert at seed=20260517 under the new priors with bare `window_adaptation_diag_imm` confirmed this: 0 divergences, 0 warmup-capture failures, cleanest cert at lower wall than the two-stage equivalent. The multipathfinder pre-stage retired 2026-05-19. Full diagnostics are in the 2026-05-18 multimodal-warmup case study; the original "PRNG fragility" framing is preserved for context in the 2026-05-17 prng-fragility-recert case study.
+| Config | div % | phi_con mean | phi_con > 0.999 % | pass/4 |
+|---|---|---|---|---|
+| Uniform(−1,1) + Cauchy(0,10) (original) | 1.22 % | 0.986 | 2.98 % | 0/4 |
+| Uniform + Normal(0,5) mu only | 0.96 % | 0.986 | 2.78 % | 1/4 |
+| Beta(266,3) phi + Normal(0,5) (concentrated near mode) | 0.22 % | 0.985 | 0.07 % | 4/4 |
+| **Beta(4,4) phi + Normal(0,5) (symmetric, weakly informative)** | **0.03 %** | **0.961** | **0.00 %** | **4/4** |
+
+Beta(266,3) was initially recommended (concentrated near the posterior mode at phi_con≈0.985) but was rejected as "too informative." Symmetric Beta(a,a) priors centred at phi_con=0 were then tested: Beta(2,2) (std≈0.45) gave 0.32 % divs and 3/4 pass; Beta(4,4) (std≈0.30) gave 0.03 % divs and 4/4 pass. Beta(4,4) is more informative than Beta(2,2), but the larger bulk-shift is precisely what eliminates divergences: the posterior at phi_con≈0.961 puts the unit-root zone (phi_con>0.999) more than 2 standard deviations away. The eventual Beta(4, 4) symmetric prior succeeded by pulling the bulk AWAY from the boundary.
+
+Full recertification results after the prior revision (multipathfinder(n_paths=4) → window_adaptation_diag_imm → NUTS, n_warmup=5000, n_samples=40000, ta=0.99, max_doublings=15, seed=20260517):
+
+| Diagnostic | New (Beta(4,4)+N(0,5)) | Previous (Uniform+Cauchy) | Gate |
+|---|---|---|---|
+| n_divergences | **0 (0.00 %)** | 141 (0.35 %) | ≤ 40 (0.1 %) |
+| split-R̂ max | 1.0002 | 1.0002 | < 1.01 |
+| min bulk-ESS | 3197 | 1612 | > 400 |
+| E-BFMI | 0.88 | 0.92 | > 0.3 |
+| phi_con mean | 0.961 | 0.987 | — |
+| mu_std | 0.345 | 1.17 | — |
+| step_size | 0.0355 | 0.0157 | — |
+| wall | 142 s | 184 s | — |
+
+The posterior interpretation change (phi_con mean 0.987 → 0.961) is a real inference shift: the new model says the SP500 vol process has somewhat lower daily persistence than the Uniform prior implied. Both are scientifically defensible; the user acknowledged the change before merging. The IMM condition number also improved (25 → 17.7) and the NIS median halved (255 → 127 integration steps per draw).
+
+**numpyro.factor implementation.** `dist.TransformedDistribution(dist.Beta(4,4), AffineTransform(-1,2))` produces NaN logdensity in the NumPyro version used (double-Jacobian computation bug). The mathematically equivalent workaround that preserves "phi" as the unconstrained site name:
+```python
+phi = numpyro.sample("phi", dist.Uniform(-1.0, 1.0))
+numpyro.factor("phi_beta44_factor", dist.Beta(4.0, 4.0).log_prob((phi + 1.0) / 2.0))
+```
+This is equivalent: the total unconstrained log-density for phi under both formulations differs only by an additive constant `log(0.5) + log(2) = 0`.
+
+**Historical multi-mode warmup-capture (pre-PR-#27, no longer a concern)**: under the original Uniform/Cauchy priors the AR(1) posterior had a bad-attractor mode at the unit-root tail (phi ≈ 0.9999) that single-stage `window_adaptation_diag_imm` (init from NumPyro's default `init_to_uniform`) could be captured by during the first ~50 warmup steps (step_size collapses to ~10⁻⁶, post-warmup chain stuck). A 2026-05-18 multi-seed sweep showed **44 % gate failure rate under bare `window_adaptation_diag_imm`** at the recert seeds vs **25 % under the `multipathfinder → window_adaptation_diag_imm` two-stage pipeline** with 4 paths + PSIS resampling. A 2026-05-18 warmup ladder compared three approaches at 7–8 seeds each under the original Uniform/Cauchy priors:
+
+| Warmup | Pass rate | Mean div rate | Catastrophic captures |
+|---|---:|---:|---:|
+| `window_adaptation_diag_imm` (single-chain) | 4/7 (57 %) | 0.26–1.7 % | 2/7 |
+| `pathfinder` (single-path) | 3/8 (37.5 %) | 0.33 % | 3/8 |
+| **`multipathfinder` (4 paths, broadcast init)** | **6/8 (75 %)** | **0.13 %** | **2/8** |
+
+Pareto-k > 1 for every multipathfinder run (range 1.4–4.2): PSIS is mathematically unreliable for this model, but resampling from 4 paths produces good positions ~75 % of the time because the bulk mode has high enough density in the sample pool. The residual ~25 % catastrophic-capture rate is structural and not config-tunable within the multipathfinder family.
+
+The PR #27 Beta(4,4) prior revision then shifted the bulk away from the unit-root tail entirely, neutralising the capture pathology in the model itself. A 2026-05-19 re-cert at seed=20260517 under the new priors with bare `window_adaptation_diag_imm` confirmed this: 0 divergences, 0 warmup-capture failures, cleanest cert at lower wall than the two-stage equivalent. The multipathfinder pre-stage retired 2026-05-19.
+
+Four durable lessons from the warmup-capture failure mode: (1) warmup-mode-capture produces a chain that looks statistically valid (high acceptance, low divergence count) while being geometrically frozen; symptoms are R̂ ≈ 5, ESS ≈ 2, step_size → 10⁻⁶, depth saturation. (2) "PRNG-fragility" framing can mask mode-capture — when "the same config fails at some seeds and passes at others," the right question is which mode did each seed land in? (3) Multi-path PSIS warmups reduce capture frequency but do not eliminate it when the bad mode has high pointwise log-density. (4) Diverse-init in high-dimensional AR(1) state-space crashes Pathfinder L-BFGS: at d=503, 4/8 seeds (N=4) to 7/8 seeds (N=10) crashed via NaN log-density in the quasi-Newton step.
 
 **Historical multipathfinder config — what was tried, what was retired (2026-05-18 2×2 sweep; obsoleted 2026-05-19)**. A 2026-05-18 2×2 sweep at 8 seeds tested {N_PATHS=4, N_PATHS=10} × {broadcast init, diverse init} when multipathfinder was still the pinned pre-stage. Results:
 
