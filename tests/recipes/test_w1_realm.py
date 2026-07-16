@@ -53,6 +53,7 @@ import os
 import numpy as np
 import pytest
 
+from tests.conftest import _is_lfs_pointer
 from tuningfork.calibration._gate.w1_realm import (
     W1RealmResult,
     _ess_gen_per_dim,
@@ -231,9 +232,14 @@ def _load_ens_data():
     with open(os.path.join(_ENS_BASE, "summary_v2.json")) as f:
         sv2 = json.load(f)
     sites = list(sv2["per_site"].keys())
+    _ens_draws = os.path.join(_ENS_BASE, "draws.npz")
+    if _is_lfs_pointer(_ens_draws):
+        pytest.skip(
+            "eight_schools draws.npz is an unsmudged LFS pointer (no LFS in this CI run)"
+        )
     # allow_pickle=True: committed catalog draws.npz contain pickled DeviceArrays.
     # Context manager ensures the NpzFile FD is closed (avoids PytestUnraisableExceptionWarning).
-    with np.load(os.path.join(_ENS_BASE, "draws.npz"), allow_pickle=True) as npz:
+    with np.load(_ens_draws, allow_pickle=True) as npz:
         gt_flat, gen_flat = [], []
         for s in sites:
             arr = npz[s].astype(np.float64)
@@ -593,9 +599,14 @@ def test_eight_schools_loo_conservatism_guard():
         sv2 = json.load(f)
     sites = list(sv2["per_site"].keys())
 
+    _ens_draws = os.path.join(_ENS_BASE, "draws.npz")
+    if _is_lfs_pointer(_ens_draws):
+        pytest.skip(
+            "eight_schools draws.npz is an unsmudged LFS pointer (no LFS in this CI run)"
+        )
     gt_flat: list[np.ndarray] = []
     sigma_list: list[float] = []
-    with np.load(os.path.join(_ENS_BASE, "draws.npz"), allow_pickle=True) as npz:
+    with np.load(_ens_draws, allow_pickle=True) as npz:
         for s in sites:
             arr = npz[s].astype(np.float64)
             if arr.ndim == 2:
@@ -664,7 +675,12 @@ def test_eight_schools_floor_of_max_e2e_pinned():
         sv2 = json.load(f)
     sites = list(sv2["per_site"].keys())
 
-    with np.load(os.path.join(_ENS_BASE, "draws.npz"), allow_pickle=True) as npz:
+    _ens_draws = os.path.join(_ENS_BASE, "draws.npz")
+    if _is_lfs_pointer(_ens_draws):
+        pytest.skip(
+            "eight_schools draws.npz is an unsmudged LFS pointer (no LFS in this CI run)"
+        )
+    with np.load(_ens_draws, allow_pickle=True) as npz:
         gt_draws = {s: npz[s].astype(np.float64) for s in sites}
         gen_samples = {}
         for s in sites:
@@ -742,7 +758,12 @@ def test_radon_frac_prong_tau_frac_pinned():
         sv2 = json.load(f)
     sites = list(sv2["per_site"].keys())
 
-    with np.load(os.path.join(_RADON_BASE, "draws.npz"), allow_pickle=True) as npz:
+    _radon_draws = os.path.join(_RADON_BASE, "draws.npz")
+    if _is_lfs_pointer(_radon_draws):
+        pytest.skip(
+            "radon draws.npz is an unsmudged LFS pointer (no LFS in this CI run)"
+        )
+    with np.load(_radon_draws, allow_pickle=True) as npz:
         gt_draws_r = {s: npz[s].astype(np.float64) for s in sites}
         gen_samples_r = {}
         for s in sites:
@@ -828,8 +849,13 @@ def test_radon_null_max_w1_sigma_deterministic():
         sv2 = json.load(f)
     sites = list(sv2["per_site"].keys())
 
+    _radon_draws = os.path.join(_RADON_BASE, "draws.npz")
+    if _is_lfs_pointer(_radon_draws):
+        pytest.skip(
+            "radon draws.npz is an unsmudged LFS pointer (no LFS in this CI run)"
+        )
     w1_max = 0.0
-    with np.load(os.path.join(_RADON_BASE, "draws.npz"), allow_pickle=True) as npz:
+    with np.load(_radon_draws, allow_pickle=True) as npz:
         for s in sites:
             arr = npz[s].astype(np.float64)
             if arr.ndim == 2:
@@ -873,9 +899,14 @@ def test_radon_loo_conservatism_guard():
         sv2 = json.load(f)
     sites = list(sv2["per_site"].keys())
 
+    _radon_draws = os.path.join(_RADON_BASE, "draws.npz")
+    if _is_lfs_pointer(_radon_draws):
+        pytest.skip(
+            "radon draws.npz is an unsmudged LFS pointer (no LFS in this CI run)"
+        )
     gt_flat: list[np.ndarray] = []
     sigma_list: list[float] = []
-    with np.load(os.path.join(_RADON_BASE, "draws.npz"), allow_pickle=True) as npz:
+    with np.load(_radon_draws, allow_pickle=True) as npz:
         for s in sites:
             arr = npz[s].astype(np.float64)
             if arr.ndim == 2:

@@ -30,6 +30,28 @@ import pytest
 # Import shared fixtures so pytest discovers them globally
 from tests import fixtures as _  # noqa: F401
 
+# ---------------------------------------------------------------------------
+# LFS pointer guard — shared across all test suites that load committed .npz
+# ---------------------------------------------------------------------------
+
+# Sentinel bytes at the start of every git-LFS pointer stub.
+_LFS_MAGIC = b"version https://git-lfs.github.com"
+
+
+def _is_lfs_pointer(path: str) -> bool:
+    """Return True if *path* is an unsmudged git-LFS pointer stub.
+
+    Committed catalog draws.npz files are LFS-tracked.  When git-LFS is not
+    available (e.g. CI without ``lfs: true``), the checkout leaves a ~130-byte
+    plain-text pointer file that starts with ``version https://git-lfs.github.com``.
+    Passing such a file to ``np.load`` fails with an ``UnpicklingError``.
+    """
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(64).startswith(_LFS_MAGIC)
+    except OSError:
+        return False
+
 
 @pytest.fixture(autouse=True)
 def _restore_jax_x64():
