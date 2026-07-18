@@ -307,13 +307,10 @@ def test_posterior_invalid_precision_raises() -> None:
 
 @pytest.mark.slow
 def test_nuts_multichain_precision_emitted_in_sampler_config(tmp_path: Path) -> None:
-    """generate_nuts_multichain records precision in sampler_config.
+    """generate_nuts_multichain records runtime precision in sampler_config.
 
     Runs radon at smoke scale to confirm the 'precision' key is present in the
-    emitted summary_v2.json sampler_config and equals the model's registry value.
-    Note: this test uses radon (float32) to avoid enabling x64 globally for
-    the rest of the test suite.  The horseshoe slow test below validates x64
-    emission for the float64 path.
+    emitted summary_v2.json sampler_config and equals "float32" when x64 is off.
     """
     committed = load_committed_summary("radon")
     result = generate_nuts_multichain("radon", committed, tmp_path, smoke=True)
@@ -321,3 +318,44 @@ def test_nuts_multichain_precision_emitted_in_sampler_config(tmp_path: Path) -> 
         "precision" in result["sampler_config"]
     ), "sampler_config must include 'precision' key for artifact self-description"
     assert result["sampler_config"]["precision"] == "float32"
+
+
+@pytest.mark.slow
+def test_nuts_multichain_horseshoe_x64_path(tmp_path: Path) -> None:
+    """Horseshoe smoke regen: x64 enabled, float64 emitted, x64 restored after.
+
+    Validates three invariants introduced in the horseshoe-fragility fix:
+    (a) sampler_config.precision == "float64" (SF#1: runtime-sourced precision).
+    (b) draws.npz arrays are dtype float64 (x64 actually active during sampling).
+    (c) the process-global jax_enable_x64 flag is restored to its prior value
+        after generation returns (SF#2: no x64 leak to subsequent models).
+    """
+    import jax
+
+    prior_x64 = jax.config.read("jax_enable_x64")
+
+    committed = load_committed_summary("horseshoe")
+    result = generate_nuts_multichain("horseshoe", committed, tmp_path, smoke=True)
+
+    # (a) sampler_config must record the f64 runtime precision
+    assert result["sampler_config"].get("precision") == "float64", (
+        "horseshoe sampler_config.precision must be 'float64' when x64 active; "
+        f"got {result['sampler_config'].get('precision')!r}"
+    )
+
+    # (b) draws must actually be float64
+    draws_path = tmp_path / "draws.npz"
+    assert draws_path.exists(), "draws.npz not written"
+    with np.load(str(draws_path), allow_pickle=True) as draws:
+        for site in draws.files:
+            arr = draws[site]
+            assert (
+                arr.dtype == np.float64
+            ), f"horseshoe.{site}: expected float64 draws, got {arr.dtype}"
+
+    # (c) x64 flag must be restored to the value it had before generation
+    restored_x64 = jax.config.read("jax_enable_x64")
+    assert restored_x64 == prior_x64, (
+        f"jax_enable_x64 was {prior_x64} before generate_nuts_multichain('horseshoe') "
+        f"but is {restored_x64} after — x64 flag leaked (SF#2 regression)"
+    )
