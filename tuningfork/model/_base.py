@@ -175,6 +175,22 @@ class Posterior:
     prior_mean: dict[str, list[float]] | None = None
     prior_cov_diag: dict[str, list[float]] | None = None
 
+    # ---- per-model GT precision override ----
+    # Controls the floating-point precision used by ``generate_nuts_multichain``
+    # when regenerating this model's ground-truth draws.  ``"float32"`` (the
+    # default) matches JAX's default precision mode.  Set to ``"float64"`` for
+    # models where f32 rounding destabilizes per-chain warmup adaptation
+    # (e.g. horseshoe on aarch64: a 204-D funnel posterior where f32 rounding
+    # over 2000 warmup steps tips one chain into a micro step-size trap, causing
+    # R̂=1.25 on fresh regen; x64=True at the same committed seed mixes cleanly).
+    # When set to ``"float64"``, ``generate_nuts_multichain`` calls
+    # ``jax.config.update("jax_enable_x64", True)`` before any JAX computation.
+    # The setting is self-describing: it is recorded in the emitted
+    # ``sampler_config.precision`` field of ``summary_v2.json``.
+    # Only ``"float32"`` and ``"float64"`` are accepted; ``"float64"`` MUST cite
+    # the specific numerical issue in the model file's docstring.
+    groundtruth_precision: str = "float32"
+
     # ---- derived ----
     @property
     def reference_method(self) -> ReferenceMethod:
@@ -188,3 +204,8 @@ class Posterior:
             raise ValueError(f"{self.name}: dim must be positive, got {self.dim}")
         if not callable(self.numpyro_model):
             raise TypeError(f"{self.name}: numpyro_model must be callable")
+        if self.groundtruth_precision not in ("float32", "float64"):
+            raise ValueError(
+                f"{self.name}: groundtruth_precision must be 'float32' or 'float64', "
+                f"got {self.groundtruth_precision!r}"
+            )

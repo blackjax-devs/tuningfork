@@ -196,4 +196,12 @@ ENTRY = Posterior(
     ),
     headline_params=("alpha", "sigma", "tau_tilde", "c2_tilde"),
     headline_coords=None,
+    # f32 rounding over 2000 warmup steps tips one per-chain window_adaptation
+    # into a ~20× too-small step size on aarch64 (committed seed 20260713,
+    # chain 7: step≈0.00046 vs normal 0.004–0.007).  The stuck chain freezes at
+    # σ_unc≈2.1, causing R̂=1.25 and ESS=28 on fresh regen.  x64=True at the
+    # same seed mixes cleanly (R̂=1.0021, 0 stuck chains) — see worklog thread
+    # `horseshoe-fragility`.  float64 is defensible for a reference artifact
+    # and is CPU-certifiable without a GPU env upgrade.
+    groundtruth_precision="float64",
 )

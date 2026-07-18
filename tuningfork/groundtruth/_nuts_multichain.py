@@ -409,6 +409,23 @@ def generate_nuts_multichain(
 
     entry = MODELS[model_name]
 
+    # Enable float64 early — before any JAX computation — for models that need
+    # it for stable GT regeneration (e.g. horseshoe: f32 rounding in 2000-step
+    # warmup tips a per-chain step-size into a micro-trap on aarch64).
+    # Save the prior value so the finally block below can restore it, preventing
+    # this process-global flag from leaking to subsequent models in the same
+    # process (test suites, future batch regeneration loops).
+    _prior_x64 = jax.config.read("jax_enable_x64")
+    _x64_set_by_us = False
+    if entry.groundtruth_precision == "float64" and not _prior_x64:
+        jax.config.update("jax_enable_x64", True)
+        _x64_set_by_us = True
+        print(
+            f"[x64] enabled for {model_name} "
+            f"(Posterior.groundtruth_precision='float64')",
+            flush=True,
+        )
+
     if entry.requires_x64 and not jax.config.read("jax_enable_x64"):
         raise RuntimeError(
             f"Model {model_name!r} requires 64-bit floats but JAX_ENABLE_X64 is not "
@@ -429,82 +446,94 @@ def generate_nuts_multichain(
     _md = sc.get("max_num_doublings", 10)
     _seed = seed if seed is not None else committed_summary["seeds"]["master_seed"]
 
-    key = jax.random.key(_seed)
-    k_init, k_run = jax.random.split(key, 2)
+    try:
+        key = jax.random.key(_seed)
+        k_init, k_run = jax.random.split(key, 2)
 
-    # Determine init strategy from dispatch
-    method = _resolve_gt_method(committed_summary)
-    if method is GTMethod.EXPLICIT_POSITIONS:
-        positions_dict = _load_explicit_positions(committed_summary)
-        inits, ld_fn, actual_nc = _build_perchain_inits_from_positions(
-            entry, k_init, positions_dict
-        )
-        if actual_nc != _nc:
-            print(
-                f"[note] explicit_positions overrides n_chains: {_nc} → {actual_nc}",
-                flush=True,
+        # Determine init strategy from dispatch
+        method = _resolve_gt_method(committed_summary)
+        if method is GTMethod.EXPLICIT_POSITIONS:
+            positions_dict = _load_explicit_positions(committed_summary)
+            inits, ld_fn, actual_nc = _build_perchain_inits_from_positions(
+                entry, k_init, positions_dict
             )
-            _nc = actual_nc
-        _init_mode = "explicit_positions"
-    else:
-        inits, ld_fn = _build_perchain_inits_uniform(entry, k_init, _nc)
-        _init_mode = "per_chain_init_to_uniform_radius2"
+            if actual_nc != _nc:
+                print(
+                    f"[note] explicit_positions overrides n_chains: {_nc} → {actual_nc}",
+                    flush=True,
+                )
+                _nc = actual_nc
+            _init_mode = "explicit_positions"
+        else:
+            inits, ld_fn = _build_perchain_inits_uniform(entry, k_init, _nc)
+            _init_mode = "per_chain_init_to_uniform_radius2"
 
-    print(
-        f"[start] {model_name} nc={_nc} nd={_nd} nw={_nw} ta={_ta} "
-        f"x64={jax.config.read('jax_enable_x64')} "
-        f"device={jax.devices()[0].platform} "
-        f"init={_init_mode} sequential={sequential}",
-        flush=True,
-    )
+        print(
+            f"[start] {model_name} nc={_nc} nd={_nd} nw={_nw} ta={_ta} "
+            f"x64={jax.config.read('jax_enable_x64')} "
+            f"device={jax.devices()[0].platform} "
+            f"init={_init_mode} sequential={sequential}",
+            flush=True,
+        )
 
-    t_all = time.perf_counter()
-    positions, diag, timing = _run_nuts_multichain(
-        k_run,
-        inits,
-        ld_fn,
-        _nc,
-        _nw,
-        _nd,
-        _ta,
-        _md,
-        sequential,
-    )
+        t_all = time.perf_counter()
+        positions, diag, timing = _run_nuts_multichain(
+            k_run,
+            inits,
+            ld_fn,
+            _nc,
+            _nw,
+            _nd,
+            _ta,
+            _md,
+            sequential,
+        )
 
-    sampler_config: dict[str, Any] = {
-        "sampler": "nuts",
-        "warmup": "window_adaptation_diag_imm_perchain",
-        "n_warmup_per_chain": _nw,
-        "target_acceptance": _ta,
-        "max_num_doublings": _md,
-        "init_strategy": _init_mode,
-        "execution": "sequential" if sequential else "vmap",
-    }
-    seeds_meta = {
-        "master_seed": _seed,
-        "derivation": (
-            "key=jax.random.key(seed); split→(k_init, k_run); "
-            "warm_keys=split(k_warm, n_chains); samp_keys=split(k_sample, n_chains)"
-        ),
-    }
-    reproduced_from = _provenance_lineage(committed_summary)
-    extra_prov: dict[str, Any] = {}
-    if method is GTMethod.EXPLICIT_POSITIONS:
-        extra_prov["init_positions"] = committed_summary["provenance"]["init_positions"]
+        sampler_config: dict[str, Any] = {
+            "sampler": "nuts",
+            "warmup": "window_adaptation_diag_imm_perchain",
+            "n_warmup_per_chain": _nw,
+            "target_acceptance": _ta,
+            "max_num_doublings": _md,
+            "init_strategy": _init_mode,
+            "execution": "sequential" if sequential else "vmap",
+            # Reflects the actual runtime precision: "float64" when JAX x64 mode
+            # is active (either via Posterior.groundtruth_precision='float64' or
+            # because the model requires_x64 and GT_X64=1 was set at process start).
+            "precision": "float64" if jax.config.read("jax_enable_x64") else "float32",
+        }
+        seeds_meta = {
+            "master_seed": _seed,
+            "derivation": (
+                "key=jax.random.key(seed); split→(k_init, k_run); "
+                "warm_keys=split(k_warm, n_chains); samp_keys=split(k_sample, n_chains)"
+            ),
+        }
+        reproduced_from = _provenance_lineage(committed_summary)
+        extra_prov: dict[str, Any] = {}
+        if method is GTMethod.EXPLICIT_POSITIONS:
+            extra_prov["init_positions"] = committed_summary["provenance"][
+                "init_positions"
+            ]
 
-    _, summary = write_gt_artifacts(
-        out_dir,
-        model_name=model_name,
-        positions=positions,
-        diag=diag,
-        timing=timing,
-        generator="nuts_perchain",
-        space="unconstrained",
-        sampler_config=sampler_config,
-        seeds=seeds_meta,
-        reproduced_from=reproduced_from,
-        extra_provenance=extra_prov,
-        total_wall=time.perf_counter() - t_all,
-    )
+        _, summary = write_gt_artifacts(
+            out_dir,
+            model_name=model_name,
+            positions=positions,
+            diag=diag,
+            timing=timing,
+            generator="nuts_perchain",
+            space="unconstrained",
+            sampler_config=sampler_config,
+            seeds=seeds_meta,
+            reproduced_from=reproduced_from,
+            extra_provenance=extra_prov,
+            total_wall=time.perf_counter() - t_all,
+        )
 
-    return summary
+        return summary
+    finally:
+        # Restore the prior x64 state so this process-global flag does not leak
+        # to subsequent models regenerated in the same process.
+        if _x64_set_by_us:
+            jax.config.update("jax_enable_x64", _prior_x64)
