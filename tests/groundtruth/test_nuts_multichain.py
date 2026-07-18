@@ -41,6 +41,7 @@ from tuningfork.groundtruth._nuts_multichain import (
     _load_explicit_positions,
     generate_nuts_multichain,
 )
+from tuningfork.model import MODELS
 
 # --------------------------------------------------------------------------- #
 # fast: dispatch helpers
@@ -234,3 +235,89 @@ def test_nuts_multichain_custom_seed_differs(tmp_path: Path) -> None:
         assert not np.allclose(
             d1[site], d2[site]
         ), "Different seeds produced identical draws — RNG not working correctly"
+
+
+# --------------------------------------------------------------------------- #
+# fast: groundtruth_precision plumbing
+# --------------------------------------------------------------------------- #
+
+# NUTS models that go through generate_nuts_multichain (standard + explicit).
+_NUTS_MODELS = {
+    "eight_schools_ncp",
+    "german_credit",
+    "horseshoe",
+    "irt_1pl",
+    "irt_2pl",
+    "lgcp",
+    "logistic_synthetic",
+    "radon",
+    "stoch_vol",
+    "lotka_volterra",
+}
+
+
+@pytest.mark.fast
+def test_horseshoe_groundtruth_precision_is_float64() -> None:
+    """Horseshoe registry entry requests float64 GT regeneration.
+
+    f32 rounding over 2000 warmup steps tips a per-chain step-size adaptation
+    into a micro-trap on aarch64 (R̂=1.25 on fresh regen at committed seed).
+    float64 is the approved durable fix (B2 exp3 confirmed: same seed mixes
+    clean at R̂=1.0021 with x64=True).
+    """
+    assert MODELS["horseshoe"].groundtruth_precision == "float64", (
+        "horseshoe must request float64 GT precision to avoid aarch64 warmup "
+        "step-size fragility (see worklog thread horseshoe-fragility)"
+    )
+
+
+@pytest.mark.fast
+def test_other_nuts_models_default_float32() -> None:
+    """All non-horseshoe NUTS models default to float32 GT precision.
+
+    The f64 override is horseshoe-specific; no other model should have been
+    accidentally changed.
+    """
+    for name in _NUTS_MODELS - {"horseshoe"}:
+        assert MODELS[name].groundtruth_precision == "float32", (
+            f"{name}: groundtruth_precision should be 'float32', "
+            f"got {MODELS[name].groundtruth_precision!r}"
+        )
+
+
+@pytest.mark.fast
+def test_posterior_invalid_precision_raises() -> None:
+    """Posterior rejects unknown groundtruth_precision values in __post_init__."""
+    import numpyro
+
+    from tuningfork.model._base import Posterior
+
+    def _dummy_model() -> None:
+        numpyro.sample("x", numpyro.distributions.Normal(0.0, 1.0))
+
+    with pytest.raises(ValueError, match="groundtruth_precision"):
+        Posterior(
+            name="dummy",
+            dim=1,
+            class_="test",
+            numpyro_model=_dummy_model,
+            groundtruth_precision="bfloat16",
+        )
+
+
+@pytest.mark.slow
+def test_nuts_multichain_precision_emitted_in_sampler_config(tmp_path: Path) -> None:
+    """generate_nuts_multichain records precision in sampler_config.
+
+    Runs radon at smoke scale to confirm the 'precision' key is present in the
+    emitted summary_v2.json sampler_config and equals the model's registry value.
+    Note: this test uses radon (float32) to avoid enabling x64 globally for
+    the rest of the test suite.  The horseshoe slow test below validates x64
+    emission for the float64 path.
+    """
+    committed = load_committed_summary("radon")
+    result = generate_nuts_multichain("radon", committed, tmp_path, smoke=True)
+    assert (
+        "precision" in result["sampler_config"]
+    ), "sampler_config must include 'precision' key for artifact self-description"
+    assert result["sampler_config"]["precision"] == "float32"

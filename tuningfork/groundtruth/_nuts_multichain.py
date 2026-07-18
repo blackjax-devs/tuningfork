@@ -409,6 +409,19 @@ def generate_nuts_multichain(
 
     entry = MODELS[model_name]
 
+    # Enable float64 early — before any JAX computation — for models that need
+    # it for stable GT regeneration (e.g. horseshoe: f32 rounding in 2000-step
+    # warmup tips a per-chain step-size into a micro-trap on aarch64).
+    if entry.groundtruth_precision == "float64" and not jax.config.read(
+        "jax_enable_x64"
+    ):
+        jax.config.update("jax_enable_x64", True)
+        print(
+            f"[x64] enabled for {model_name} "
+            f"(Posterior.groundtruth_precision='float64')",
+            flush=True,
+        )
+
     if entry.requires_x64 and not jax.config.read("jax_enable_x64"):
         raise RuntimeError(
             f"Model {model_name!r} requires 64-bit floats but JAX_ENABLE_X64 is not "
@@ -479,6 +492,8 @@ def generate_nuts_multichain(
         "max_num_doublings": _md,
         "init_strategy": _init_mode,
         "execution": "sequential" if sequential else "vmap",
+        # Recorded for artifact self-description (Posterior.groundtruth_precision).
+        "precision": entry.groundtruth_precision,
     }
     seeds_meta = {
         "master_seed": _seed,
