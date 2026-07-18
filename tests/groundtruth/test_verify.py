@@ -20,6 +20,7 @@ summaries or by injecting crafted dicts.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -28,6 +29,7 @@ import pytest
 from tuningfork.groundtruth._dispatch import committed_gt_dir, load_committed_summary
 from tuningfork.groundtruth._emit import compute_summary_stats
 from tuningfork.groundtruth._verify import (
+    _TAU_SCI,
     _check_coherence,
     _check_gate,
     verify_groundtruth,
@@ -163,66 +165,308 @@ def test_gate_no_ebfmi_field() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# _check_coherence unit tests
+# Helpers for coherence tests
 # --------------------------------------------------------------------------- #
 
 
 def _per_site_summary(
     mean: list[float],
     se: list[float],
+    std: list[float] | None = None,
 ) -> dict[str, Any]:
     """Build a minimal per_site dict for one site."""
+    n = len(mean)
     return {
         "mean": mean,
         "between_chain_se": se,
-        "std": [1.0] * len(mean),
-        "q05": [0.0] * len(mean),
-        "q95": [0.0] * len(mean),
-        "bulk_ess": [500.0] * len(mean),
-        "tail_ess": [500.0] * len(mean),
-        "rhat": [1.005] * len(mean),
+        "std": std if std is not None else [1.0] * n,
+        "q05": [0.0] * n,
+        "q95": [0.0] * n,
+        "bulk_ess": [500.0] * n,
+        "tail_ess": [500.0] * n,
+        "rhat": [1.005] * n,
     }
+
+
+def _coh_summary(
+    per_site: dict[str, Any],
+    n_chains: int = 10,
+) -> dict[str, Any]:
+    """Wrap a per_site dict into a minimal summary_v2-shaped dict."""
+    return {"per_site": per_site, "n_chains": n_chains}
+
+
+# --------------------------------------------------------------------------- #
+# _check_coherence unit tests — existing behaviour
+# --------------------------------------------------------------------------- #
 
 
 def test_coherence_pass_identical_summaries() -> None:
     """Identical generated and committed summaries → z=0 → pass."""
     per_site = {"mu": _per_site_summary([1.0, 2.0], [0.01, 0.01])}
-    summary = {"per_site": per_site}
-    passed, results = _check_coherence(summary, summary, z_threshold=3.0)
+    summary = _coh_summary(per_site)
+    passed, results, meta = _check_coherence(summary, summary)
     assert passed
     assert all(r["max_z"] == pytest.approx(0.0) for r in results)
 
 
 def test_coherence_fail_large_deviation() -> None:
-    """Generated mean deviates by 10σ → fail."""
-    gen = {"per_site": {"mu": _per_site_summary([11.0], [0.1])}}
-    com = {"per_site": {"mu": _per_site_summary([1.0], [0.1])}}
-    passed, results = _check_coherence(gen, com, z_threshold=3.0)
+    """Generated mean deviates by 10σ → fail (dual gate: large z and large mat)."""
+    gen = _coh_summary({"mu": _per_site_summary([11.0], [0.1])})
+    com = _coh_summary({"mu": _per_site_summary([1.0], [0.1], std=[1.0])})
+    passed, results, meta = _check_coherence(gen, com)
+    # new se_denom = sqrt(0.1^2 + 0.1^2) = 0.1*sqrt(2)
+    expected_z = 10.0 / (0.1 * np.sqrt(2))
     assert not passed
-    assert results[0]["max_z"] == pytest.approx(10.0 / 0.1)
+    assert results[0]["max_z"] == pytest.approx(expected_z, rel=1e-5)
+    # materiality: |11-1|/std=10 >> TAU_SCI → hard FAIL dim
+    assert len(results[0]["hard_fail_dims"]) > 0
 
 
 def test_coherence_se_floor() -> None:
     """Sites with near-zero SE use _SE_FLOOR to avoid division by zero."""
-    gen = {"per_site": {"mu": _per_site_summary([1.0], [0.0])}}
-    com = {"per_site": {"mu": _per_site_summary([1.0], [0.0])}}
-    passed, results = _check_coherence(gen, com, z_threshold=3.0)
+    gen = _coh_summary({"mu": _per_site_summary([1.0], [0.0])})
+    com = _coh_summary({"mu": _per_site_summary([1.0], [0.0])})
+    passed, results, meta = _check_coherence(gen, com)
     assert passed
     assert np.isfinite(results[0]["max_z"])
 
 
 def test_coherence_skip_missing_site() -> None:
-    """Sites in generated but not committed are skipped (no error)."""
-    gen = {
-        "per_site": {
+    """Sites in generated but not committed are skipped (logged, no error)."""
+    gen = _coh_summary(
+        {
             "mu": _per_site_summary([1.0], [0.01]),
             "sigma": _per_site_summary([0.5], [0.005]),
         }
-    }
-    com = {"per_site": {"mu": _per_site_summary([1.0], [0.01])}}
-    passed, results = _check_coherence(gen, com, z_threshold=3.0)
+    )
+    com = _coh_summary({"mu": _per_site_summary([1.0], [0.01])})
+    passed, results, meta = _check_coherence(gen, com)
     assert passed
     assert len(results) == 1  # sigma was skipped
+
+
+# --------------------------------------------------------------------------- #
+# _check_coherence — NEW behaviour: denominator, dimension-aware, materiality
+# --------------------------------------------------------------------------- #
+
+
+def test_coherence_denominator_sqrt_vs_max() -> None:
+    """Equal-SE case: new sqrt denominator = old max denom × sqrt(2), so z is halved by sqrt(2).
+
+    Old formula: denom = max(se_new, se_com) = se
+    New formula: denom = sqrt(se_new^2 + se_com^2) = se*sqrt(2)
+
+    For equal se_new=se_com=se, the new z equals old z / sqrt(2).
+    """
+    se = 0.1
+    delta = 10.0  # mean difference
+    # Use large std_com so materiality check doesn't affect which formula we measure
+    gen = _coh_summary({"x": _per_site_summary([delta], [se])})
+    com = _coh_summary({"x": _per_site_summary([0.0], [se], std=[1000.0])})
+
+    passed, results, meta = _check_coherence(gen, com)
+    new_z = results[0]["max_z"]
+
+    # Old denominator: max(se, se) = se = 0.1 → old_z = delta/se = 100.0
+    old_z = delta / se
+    expected_new_z = old_z / np.sqrt(2)
+    assert new_z == pytest.approx(expected_new_z, rel=1e-5), (
+        f"new_z={new_z:.4f} should equal old_z/sqrt(2)={expected_new_z:.4f}. "
+        "Denominator not using sqrt formula."
+    )
+
+
+def test_coherence_high_d_dimension_aware_pass() -> None:
+    """High-D model (D=1500): max_z=7 passes as REVIEW under new gate, fails old fixed-3.0.
+
+    With D=1500 and n_chains=10:
+        z_crit = t.ppf(1 - 0.05/3000, 18) ≈ 5.48
+
+    max_z=7 > z_crit=5.48, but all deltas are immaterial (mat << 0.05), so the
+    dual gate classifies the hottest dim as REVIEW (not FAIL) and the gate passes.
+    Under the old fixed threshold of 3.0, max_z=7 would be a hard FAIL.
+    """
+    D = 1500
+    se = 0.01
+    std_c = 100.0  # large committed std → tiny materiality
+    se_denom = np.sqrt(2) * se  # for equal se_new=se_com
+    target_z = 7.0
+    delta_hot = target_z * se_denom  # delta that gives z=target_z
+
+    mean_gen = np.zeros(D)
+    mean_gen[0] = delta_hot  # one "hot" dimension
+
+    gen = _coh_summary(
+        {
+            "theta": {
+                "mean": mean_gen.tolist(),
+                "between_chain_se": [se] * D,
+                "std": [1.0] * D,
+                "q05": [0.0] * D,
+                "q95": [0.0] * D,
+                "bulk_ess": [500.0] * D,
+                "tail_ess": [500.0] * D,
+                "rhat": [1.005] * D,
+            }
+        },
+        n_chains=10,
+    )
+    com = _coh_summary(
+        {
+            "theta": {
+                "mean": [0.0] * D,
+                "between_chain_se": [se] * D,
+                "std": [std_c] * D,  # large committed std → small materiality
+                "q05": [0.0] * D,
+                "q95": [0.0] * D,
+                "bulk_ess": [500.0] * D,
+                "tail_ess": [500.0] * D,
+                "rhat": [1.005] * D,
+            }
+        },
+        n_chains=10,
+    )
+
+    passed, results, meta = _check_coherence(gen, com)
+
+    # Gate passes despite max_z >> 3.0 (old threshold)
+    assert passed, (
+        f"D=1500 immaterial case should pass under new gate. "
+        f"D_total={meta['D_total']} z_crit={meta['z_crit']:.3f} max_z={results[0]['max_z']:.3f}"
+    )
+    assert meta["D_total"] == D
+    # The hot dim (dim 0) has z=7 > 3.0; under old gate this would FAIL
+    hot_z = results[0]["z_per_dim"][0]
+    assert hot_z == pytest.approx(target_z, rel=1e-4)
+    # materiality of hot dim << TAU_SCI
+    hot_mat = results[0]["mat_per_dim"][0]
+    assert hot_mat < _TAU_SCI, f"hot_mat={hot_mat:.5f} should be < TAU_SCI={_TAU_SCI}"
+
+
+def test_coherence_materiality_hard_fail() -> None:
+    """Large z AND large Δμ/σ (≥ TAU_SCI) → hard FAIL."""
+    se = 0.01
+    delta = 1.0  # large shift
+    std_c = 1.0  # std_com=1 → mat=delta/std=1.0 >> 0.05
+    gen = _coh_summary({"mu": _per_site_summary([delta], [se])})
+    com = _coh_summary({"mu": _per_site_summary([0.0], [se], std=[std_c])})
+
+    passed, results, meta = _check_coherence(gen, com)
+    assert not passed, "Large z + large mat should hard-FAIL the gate"
+    assert results[0]["verdict"] == "FAIL"
+    assert len(results[0]["hard_fail_dims"]) > 0
+
+
+def test_coherence_materiality_review_pass() -> None:
+    """Large z but tiny Δμ/σ (< TAU_SCI) → REVIEW verdict, gate passes."""
+    # se=1e-6 → se_denom=sqrt(2)*1e-6; delta=0.001 → z≈707 >> z_crit
+    # std_com=100 → mat=0.001/100=1e-5 << TAU_SCI=0.05
+    se = 1e-6
+    delta = 0.001
+    std_c = 100.0
+
+    gen = _coh_summary({"x": _per_site_summary([delta], [se])})
+    com = _coh_summary({"x": _per_site_summary([0.0], [se], std=[std_c])})
+
+    passed, results, meta = _check_coherence(gen, com)
+    assert (
+        passed
+    ), "Large z but immaterial (mat << TAU_SCI) should be REVIEW (counts as pass)"
+    assert results[0]["verdict"] == "REVIEW"
+    assert len(results[0]["review_dims"]) > 0
+    assert len(results[0]["hard_fail_dims"]) == 0
+    # Confirm materiality is indeed below threshold
+    hot_mat = results[0]["mat_per_dim"][0]
+    assert hot_mat < _TAU_SCI, f"mat={hot_mat:.6f} should be < TAU_SCI={_TAU_SCI}"
+
+
+def test_coherence_missing_committed_site_fails() -> None:
+    """A site in the committed summary absent from generated → hard FAIL."""
+    gen = _coh_summary({"mu": _per_site_summary([1.0], [0.01])})
+    com = _coh_summary(
+        {
+            "mu": _per_site_summary([1.0], [0.01]),
+            "sigma": _per_site_summary([0.5], [0.005]),  # present in committed only
+        }
+    )
+
+    passed, results, meta = _check_coherence(gen, com)
+    assert not passed, "Missing committed site should cause the gate to FAIL"
+    assert "sigma" in meta["missing_committed_sites"]
+
+
+# --------------------------------------------------------------------------- #
+# Self-consistency integration: german_credit split-half coherence
+# --------------------------------------------------------------------------- #
+
+_GERMAN_CREDIT_DRAWS = (
+    Path(__file__).parent.parent.parent
+    / "tuningfork"
+    / "catalog"
+    / "german_credit"
+    / "groundtruth_samples"
+    / "blackjax"
+    / "draws.npz"
+)
+
+
+def _half_summary(arr: np.ndarray) -> dict[str, Any]:
+    """Compute a minimal per-site summary from draws array (n_chains, n_draws, D).
+
+    Uses only numpy so this stays a fast test (no JAX/blackjax.diagnostics).
+    Fields: mean, std, between_chain_se — sufficient for _check_coherence.
+    """
+    nc, ns, D = arr.shape
+    flat = arr.reshape(nc, ns, D)
+    chain_means = flat.mean(axis=1)  # (nc, D)
+    pooled = flat.reshape(-1, D)  # (nc*ns, D)
+    mean = pooled.mean(axis=0)
+    std = pooled.std(axis=0, ddof=1)
+    be_se = chain_means.std(axis=0, ddof=1) / np.sqrt(nc)
+    return {
+        "per_site": {
+            "beta": {
+                "mean": mean.tolist(),
+                "std": std.tolist(),
+                "between_chain_se": be_se.tolist(),
+            }
+        },
+        "n_chains": nc,
+    }
+
+
+@pytest.mark.skipif(
+    not _GERMAN_CREDIT_DRAWS.exists(),
+    reason="german_credit draws.npz not present in catalog",
+)
+def test_coherence_self_consistency_german_credit() -> None:
+    """Split german_credit 10-chain run into two halves; halves should be coherent.
+
+    german_credit: beta shape (10, 10000, 26), D=26.
+    Split: chains 0–4 vs chains 5–9.  Both halves sample the same posterior so
+    their means should agree within SE — the coherence gate should PASS.
+
+    This tests the new formula end-to-end on real catalog draws without
+    requiring a full GT regeneration.  Covers the 7-model scenario via the
+    high-D + self-consistency design (real-data complement to synthetic tests).
+    """
+    data = np.load(_GERMAN_CREDIT_DRAWS)
+    beta = data["beta"]  # (10, 10000, 26)
+
+    # Deterministic split: first vs second half of chains
+    summary_A = _half_summary(beta[:5])  # chains 0–4
+    summary_B = _half_summary(beta[5:])  # chains 5–9
+
+    passed, results, meta = _check_coherence(summary_A, summary_B, alpha=0.05)
+
+    assert passed, (
+        f"Half-split coherence check failed on german_credit. "
+        f"D_total={meta['D_total']} nu={meta['nu']} z_crit={meta['z_crit']:.3f}. "
+        f"Failing sites: {[r for r in results if not r['passed']]}"
+    )
+    assert meta["D_total"] == 26
+    assert not meta["missing_committed_sites"]
 
 
 # --------------------------------------------------------------------------- #
@@ -269,7 +513,7 @@ def test_verify_returns_false_on_gate_fail() -> None:
 def test_verify_returns_false_on_coherence_fail() -> None:
     """verify_groundtruth returns False when coherence fails."""
     committed = load_committed_summary("mvn_10")
-    # Shift all per_site means by 100× posterior std → z >> 3
+    # Shift all per_site means by 100× posterior std → z >> z_crit and mat >> TAU_SCI
     bad_summary = dict(committed)
     bad_per_site = {}
     for site, stats in committed["per_site"].items():
