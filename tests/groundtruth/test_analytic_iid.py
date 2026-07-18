@@ -142,11 +142,13 @@ def test_analytic_iid_verify_integration(tmp_path: Path) -> None:
     (observed: 1.12 in practice).  The gate is irrelevant to M1 — what
     matters is that the coherence z-score formula is exercised end-to-end.
 
-    Uses z_threshold=5.0 (vs default 3.0): at smoke scale the per-chain SE
-    is naturally large (only 2 chains), so z is small for a correct
-    implementation; the inflated threshold avoids flakiness while still
-    detecting a broken SE denominator (an axis swap would drastically alter
-    the denominator, pushing z far outside even 10.0).
+    At smoke scale (2 chains × 50 draws) the per-chain SE is large so z is
+    naturally small for a correct implementation.  The dimension-aware
+    Bonferroni threshold (alpha=0.05, D=10 dims, nu=2) is conservative
+    enough that flakiness is unlikely; the materiality co-primary further
+    ensures a near-posterior smoke run passes even if SE is imprecise.
+    An axis swap in compute_summary_stats would drastically alter the
+    denominator, pushing z far outside even the conservative threshold.
     """
     from tuningfork.groundtruth._verify import _check_coherence
 
@@ -161,7 +163,7 @@ def test_analytic_iid_verify_integration(tmp_path: Path) -> None:
     )
 
     committed_summary = load_committed_summary(model_name)
-    coh_pass, coh_results = _check_coherence(result, committed_summary, z_threshold=5.0)
+    coh_pass, coh_results, _meta = _check_coherence(result, committed_summary)
     failing = [r for r in coh_results if not r["passed"]]
     assert coh_pass, (
         f"Coherence check failed on freshly generated analytic_iid for {model_name}. "
