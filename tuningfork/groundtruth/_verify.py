@@ -46,15 +46,17 @@ across all matching sites)::
     nu     = 2 * (n_chains - 1)      # degrees of freedom
     z_crit = t.ppf(1 - alpha/(2*D_total), nu)
 
-A dimension is a **hard FAIL** iff ``z_d > z_crit`` AND ``mat_d >= _TAU_SCI``.
-A dimension is **REVIEW** iff ``z_d > z_crit`` but ``mat_d < _TAU_SCI``
+A dimension is a **hard FAIL** iff ``z_d > z_crit`` AND ``mat_d > _TAU_SCI``.
+A dimension is **REVIEW** iff ``z_d > z_crit`` but ``mat_d <= _TAU_SCI``
 (statistically flagged but immaterial — printed loudly but gate passes).
-The gate FAILS if any dimension hard-fails, or if a site present in the
-committed summary is absent from the generated summary.
+The gate FAILS if any dimension hard-fails, if a site present in the
+committed summary is absent from the generated summary, or if a matched site
+has fewer generated dims than committed dims (shape shrink).
 """
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -71,10 +73,16 @@ _MIN_BULK_ESS: float = 400.0
 _MAX_DIV_RATE: float = 0.001
 _MIN_EBFMI: float = 0.3
 
-# Coherence SE floor (prevents division-by-zero on scalar / near-zero-SE sites)
+# Coherence SE floor (prevents division-by-zero on scalar / near-zero-SE sites).
+# Under the dual gate this absolute floor only affects REVIEW labelling, not
+# pass/fail: when a dim trips z > z_crit its verdict is decided by materiality
+# (mat_d vs _TAU_SCI), so the floored z only influences whether the dim is REVIEW
+# or unchecked — not whether the gate hard-fails.
 _SE_FLOOR: float = 1e-8
 
-# Materiality threshold: |Δμ| / std_committed must reach this to be a hard FAIL
+# Materiality threshold: |Δμ| / std_committed must strictly exceed this to
+# be a hard FAIL (strict > so that the boundary 0.05σ is REVIEW, not FAIL).
+# Mirrors the W1 gate sibling in calibration/_gate/w1_realm.py.
 _TAU_SCI: float = 0.05
 
 # Default n_chains when the summary metadata field is absent
@@ -121,11 +129,16 @@ def _check_coherence(
 ) -> tuple[bool, list[dict[str, Any]], dict[str, Any]]:
     """Per-site coherence check with dimension-aware threshold and materiality gate.
 
+    Note: k̂ / heavy-tail diagnostics are intentionally out of scope here.
+    Coherence is on posterior *means* (CLT regime), not on tail shape; pareto-k
+    values affect the reliability of the SE estimates but are not checked by
+    this function — they are part of the quality gate upstream.
+
     Returns ``(all_pass, per_site_results, meta)`` where:
     - ``all_pass`` is True for PASS or REVIEW, False for FAIL.
     - ``per_site_results`` is a list of per-site dicts.
     - ``meta`` contains ``D_total``, ``nu``, ``z_crit``, ``n_chains``, ``alpha``,
-      and ``missing_committed_sites``.
+      ``missing_committed_sites``, and ``shrunk_sites``.
     """
     gen_per_site = generated_summary.get("per_site", {})
     com_per_site = committed_summary.get("per_site", {})
@@ -139,16 +152,30 @@ def _check_coherence(
         )
         n_chains = _DEFAULT_N_CHAINS
 
-    # D_total: total scalar dims across all matching sites (for Bonferroni correction).
+    # First pass: compute D_total and detect shape-shrunk sites.
+    # D_total counts scalar dims in non-shrunk matching sites (Bonferroni denominator).
+    # A shape-shrunk site (generated has fewer dims than committed) is a hard FAIL
+    # and its dims are excluded from D_total (they will not be z-tested).
     D_total = 0
+    shrunk_sites: list[str] = []
     for site in gen_per_site:
         if site not in com_per_site:
             continue
-        n = min(
-            len(np.asarray(gen_per_site[site]["mean"]).ravel()),
-            len(np.asarray(com_per_site[site]["mean"]).ravel()),
-        )
-        D_total += n
+        n_gen = len(np.asarray(gen_per_site[site]["mean"]).ravel())
+        n_com = len(np.asarray(com_per_site[site]["mean"]).ravel())
+        if n_gen < n_com:
+            shrunk_sites.append(site)
+        else:
+            D_total += n_com  # test committed dims (n_gen >= n_com)
+
+    if shrunk_sites:
+        for s in shrunk_sites:
+            n_gen = len(np.asarray(gen_per_site[s]["mean"]).ravel())
+            n_com = len(np.asarray(com_per_site[s]["mean"]).ravel())
+            print(
+                f"[coherence] FAIL: site '{s}': generated has {n_gen} dim(s) "
+                f"but committed has {n_com} — shape shrink, dropped dims unchecked."
+            )
 
     # Dimension-aware t-threshold (Bonferroni over D_total dims).
     nu = 2 * (n_chains - 1)
@@ -166,13 +193,31 @@ def _check_coherence(
             )
 
     results: list[dict[str, Any]] = []
-    any_hard_fail = bool(missing_committed_sites)
+    any_hard_fail = bool(missing_committed_sites) or bool(shrunk_sites)
 
     for site in gen_per_site:
         if site not in com_per_site:
             print(
                 f"[coherence] NOTE: generated site '{site}' is not in committed summary"
                 " — skipping."
+            )
+            continue
+
+        # Shape-shrunk sites: already recorded as FAIL; add a result entry and skip z-test.
+        if site in shrunk_sites:
+            results.append(
+                {
+                    "site": site,
+                    "max_z": float("nan"),
+                    "passed": False,
+                    "verdict": "FAIL",
+                    "z_per_dim": [],
+                    "mat_per_dim": [],
+                    "worst_dim": -1,
+                    "hard_fail_dims": [],
+                    "review_dims": [],
+                    "shape_shrink": True,
+                }
             )
             continue
 
@@ -185,10 +230,9 @@ def _check_coherence(
         se_com = np.asarray(com_s["between_chain_se"]).ravel()
         std_com = np.asarray(com_s.get("std", np.ones(len(mean_com)))).ravel()
 
-        # Pad to common length if shapes differ.
-        n = min(len(mean_new), len(mean_com))
+        # Truncate to committed dim count (n_gen >= n_com guaranteed here).
+        n = len(mean_com)
         mean_new = mean_new[:n]
-        mean_com = mean_com[:n]
         se_new = se_new[:n] if len(se_new) >= n else np.full(n, _SE_FLOOR)
         se_com = se_com[:n] if len(se_com) >= n else np.full(n, _SE_FLOOR)
         std_com = std_com[:n] if len(std_com) >= n else np.ones(n)
@@ -202,9 +246,9 @@ def _check_coherence(
         std_com_safe = np.where(std_com == 0.0, 1.0, std_com)
         mat_vals = np.abs(mean_new - mean_com) / std_com_safe
 
-        # Per-dim verdicts.
+        # Per-dim verdicts: strict > on materiality so that mat=_TAU_SCI is REVIEW.
         over_z = z_vals > z_crit
-        over_mat = mat_vals >= _TAU_SCI
+        over_mat = mat_vals > _TAU_SCI
         hard_fail_dims = np.where(over_z & over_mat)[0]
         review_dims = np.where(over_z & ~over_mat)[0]
 
@@ -239,6 +283,7 @@ def _check_coherence(
         "n_chains": n_chains,
         "alpha": alpha,
         "missing_committed_sites": missing_committed_sites,
+        "shrunk_sites": shrunk_sites,
     }
     return all_pass, results, meta
 
@@ -258,8 +303,12 @@ def verify_groundtruth(
     (2) **Coherence** — dimension-aware t-test with materiality co-primary gate
     (alpha=``alpha`` Bonferroni-corrected over all scalar dims across matching
     sites; a dim hard-fails iff the z exceeds the adjusted critical value AND
-    |Δμ|/std_committed ≥ 0.05; statistically flagged but immaterial dims are
+    |Δμ|/std_committed > 0.05; statistically flagged but immaterial dims are
     REVIEW — printed loudly but counted as PASS).
+
+    A ``UserWarning`` is always emitted (regardless of ``print_results``) when
+    the coherence check finds any REVIEW dims, hard FAILs, missing committed
+    sites, or shape-shrunk sites, so the signal is never fully swallowed.
 
     Parameters
     ----------
@@ -290,6 +339,28 @@ def verify_groundtruth(
     )
     overall = gate_pass and coh_pass
 
+    # Emit a programmatic warning for any coherence anomaly so the signal is
+    # never fully swallowed when print_results=False (C6 non-silent-REVIEW).
+    m = coh_meta
+    warn_parts: list[str] = []
+    if m["missing_committed_sites"]:
+        warn_parts.append(f"missing committed sites: {m['missing_committed_sites']}")
+    if m.get("shrunk_sites"):
+        warn_parts.append(f"shape-shrunk sites: {m['shrunk_sites']}")
+    for r in coh_results:
+        if r["verdict"] == "FAIL":
+            warn_parts.append(f"FAIL site '{r['site']}' (max_z={r['max_z']:.3f})")
+        elif r["verdict"] == "REVIEW":
+            warn_parts.append(
+                f"REVIEW site '{r['site']}' (max_z={r['max_z']:.3f}, immaterial)"
+            )
+    if warn_parts:
+        warnings.warn(
+            f"[verify] coherence anomalies in {model_name}: " + "; ".join(warn_parts),
+            UserWarning,
+            stacklevel=2,
+        )
+
     if print_results:
         print(f"[verify] model={model_name}  draws={generated_draws_path}")
         print(f"[verify] committed GT:  {gt_dir}")
@@ -312,13 +383,14 @@ def verify_groundtruth(
         print(f"[gate]   → {'PASS' if gate_pass else 'FAIL'}")
 
         # Coherence header: D_total, nu, z_crit
-        m = coh_meta
         print(
             f"[coherence] alpha={m['alpha']}  D_total={m['D_total']}  "
             f"nu={m['nu']}  z_crit={m['z_crit']:.3f}"
         )
         for ms in m["missing_committed_sites"]:
             print(f"  FAIL  missing committed site: {ms}")
+        for ss in m.get("shrunk_sites", []):
+            print(f"  FAIL  shape-shrunk site: {ss}")
 
         passing = [r for r in coh_results if r["verdict"] == "PASS"]
         review = [r for r in coh_results if r["verdict"] == "REVIEW"]
@@ -331,26 +403,36 @@ def verify_groundtruth(
         )
         for r in coh_results:
             if r["verdict"] in ("FAIL", "REVIEW"):
+                max_z_str = f"{r['max_z']:.3f}" if np.isfinite(r["max_z"]) else "n/a"
+                worst = r["worst_dim"] if r["worst_dim"] >= 0 else "n/a"
                 print(
-                    f"  {r['verdict']}  {r['site']}: max_z={r['max_z']:.3f} "
-                    f"(worst dim {r['worst_dim']})"
+                    f"  {r['verdict']}  {r['site']}: max_z={max_z_str} "
+                    f"(worst dim {worst})"
                 )
                 for d in r["hard_fail_dims"]:
                     zd = r["z_per_dim"][d]
                     md = r["mat_per_dim"][d]
                     print(
                         f"    dim {d}: z={zd:.3f} > z_crit={m['z_crit']:.3f}  "
-                        f"mat={md:.4f} >= {_TAU_SCI}  → HARD FAIL"
+                        f"mat={md:.4f} > {_TAU_SCI}  → HARD FAIL"
                     )
                 for d in r["review_dims"]:
                     zd = r["z_per_dim"][d]
                     md = r["mat_per_dim"][d]
                     print(
                         f"    dim {d}: z={zd:.3f} > z_crit={m['z_crit']:.3f}  "
-                        f"mat={md:.4f} < {_TAU_SCI}  → REVIEW (immaterial)"
+                        f"mat={md:.4f} <= {_TAU_SCI}  → REVIEW (immaterial)"
                     )
-        if not failing and not review and not m["missing_committed_sites"]:
-            max_z_overall = max((r["max_z"] for r in coh_results), default=0.0)
+        if (
+            not failing
+            and not review
+            and not m["missing_committed_sites"]
+            and not m.get("shrunk_sites")
+        ):
+            max_z_overall = max(
+                (r["max_z"] for r in coh_results if np.isfinite(r["max_z"])),
+                default=0.0,
+            )
             print(f"  all sites PASS  (max_z={max_z_overall:.3f})")
 
         coh_verdict = "PASS" if coh_pass else "FAIL"

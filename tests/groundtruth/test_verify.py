@@ -397,6 +397,122 @@ def test_coherence_missing_committed_site_fails() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# _check_coherence — formula pin tests (SF-1) and edge-case guards (SF-2, SF-3)
+# --------------------------------------------------------------------------- #
+
+
+def test_coherence_threshold_pin_formula() -> None:
+    """Pin z_crit and nu for two known (D_total, n_chains) points (SF-1 guard).
+
+    Two mutations that both shipped green under the materiality-masked suite:
+      (a) alpha/(2*D_total) → alpha/D_total
+      (b) nu = 2*(n_chains-1) → n_chains-1
+
+    These assertions are load-bearing: they verify that BOTH the 2*D Bonferroni
+    factor and the 2*(n_chains-1) df formula are correct, independently of the
+    materiality gate masking them in pass/fail scenarios.
+
+    Pin points (alpha=0.05, n_chains=10, nu=18):
+      D=390  → z_crit ≈ 4.8514   (radon model size)
+      D=26   → z_crit ≈ 3.6281   (german_credit model size)
+    """
+    from scipy import stats as scipy_stats
+
+    alpha = 0.05
+
+    def _make(D: int, n_chains: int = 10) -> dict:
+        return _coh_summary(
+            {"x": _per_site_summary([0.0] * D, [0.01] * D)}, n_chains=n_chains
+        )
+
+    # Pin point 1: D=390, n_chains=10 → nu=18, z_crit≈4.8514
+    D1 = 390
+    _, _, meta1 = _check_coherence(_make(D1), _make(D1))
+    assert meta1["nu"] == 18, f"nu should be 2*(10-1)=18, got {meta1['nu']}"
+    assert meta1["D_total"] == D1
+    expected_z1 = float(scipy_stats.t.ppf(1.0 - alpha / (2.0 * D1), 18))
+    assert meta1["z_crit"] == pytest.approx(expected_z1, rel=1e-5)
+    assert meta1["z_crit"] == pytest.approx(4.8514, rel=1e-3), (
+        f"z_crit for D={D1}: got {meta1['z_crit']:.4f}, expected ≈4.8514. "
+        "Check: alpha/(2*D) vs alpha/D, nu=2*(nc-1) vs nc-1."
+    )
+
+    # Pin point 2: D=26, n_chains=10 → nu=18, z_crit≈3.6281
+    D2 = 26
+    _, _, meta2 = _check_coherence(_make(D2), _make(D2))
+    assert meta2["nu"] == 18
+    assert meta2["D_total"] == D2
+    expected_z2 = float(scipy_stats.t.ppf(1.0 - alpha / (2.0 * D2), 18))
+    assert meta2["z_crit"] == pytest.approx(expected_z2, rel=1e-5)
+    assert meta2["z_crit"] == pytest.approx(
+        3.6281, rel=1e-3
+    ), f"z_crit for D={D2}: got {meta2['z_crit']:.4f}, expected ≈3.6281."
+
+
+def test_coherence_shape_shrink_fails() -> None:
+    """Matched site with fewer generated dims than committed → hard FAIL (SF-2 guard).
+
+    A 999σ shift in the dropped committed dims must not silently pass.
+    Generated has D=1, committed has D=3 (huge shift in dims 1,2 of committed).
+    """
+    gen = _coh_summary({"x": _per_site_summary([0.0], [0.01])})  # D=1
+    com = _coh_summary(
+        {
+            "x": _per_site_summary(
+                [0.0, 999.0, 999.0],
+                [0.01, 0.01, 0.01],
+                std=[1.0, 1.0, 1.0],
+            )
+        }
+    )  # D=3, huge shift in dropped dims 1,2
+
+    passed, results, meta = _check_coherence(gen, com)
+    assert not passed, (
+        "Shape-shrink (gen D=1 < committed D=3) should hard-FAIL the gate even "
+        "when the checked dim is fine — dropped dims have 999σ shifts."
+    )
+    assert "x" in meta["shrunk_sites"], f"shrunk_sites should contain 'x'; got {meta}"
+    assert results[0]["verdict"] == "FAIL"
+    assert results[0].get("shape_shrink") is True
+
+
+def test_coherence_materiality_boundary_strict_gt() -> None:
+    """Materiality uses strict > so mat=_TAU_SCI exactly is REVIEW, not FAIL (SF-3).
+
+    This boundary matters for irt_2pl, which lands exactly at 0.050σ shift —
+    under the old >=, an exactly-on-boundary shift would hard-FAIL. With strict
+    >, it is correctly treated as REVIEW (immaterial).
+
+    Setup: se=1e-6 ensures z >> z_crit (so the dim IS flagged by z).  The
+    materiality delta is varied around the 0.05σ boundary:
+      delta = _TAU_SCI * std_com        → mat = 0.05  → strict > fails → REVIEW
+      delta = _TAU_SCI * std_com + 1e-9 → mat > 0.05 → strict > passes → FAIL
+    """
+    se = 1e-6  # tiny SE → z >> z_crit regardless of delta
+    std_c = 1.0
+
+    # At the boundary: mat = exactly TAU_SCI → REVIEW (strict > is False)
+    delta_at = _TAU_SCI * std_c  # = 0.05
+    gen_at = _coh_summary({"x": _per_site_summary([delta_at], [se])})
+    com_at = _coh_summary({"x": _per_site_summary([0.0], [se], std=[std_c])})
+    passed_at, results_at, _ = _check_coherence(gen_at, com_at)
+    assert (
+        passed_at
+    ), f"mat exactly at boundary ({_TAU_SCI}) should be REVIEW (strict >), not FAIL."
+    assert results_at[0]["verdict"] == "REVIEW"
+
+    # Just above the boundary: mat = TAU_SCI + epsilon → FAIL (strict > is True)
+    delta_above = _TAU_SCI * std_c + 1e-9
+    gen_above = _coh_summary({"x": _per_site_summary([delta_above], [se])})
+    com_above = _coh_summary({"x": _per_site_summary([0.0], [se], std=[std_c])})
+    passed_above, results_above, _ = _check_coherence(gen_above, com_above)
+    assert (
+        not passed_above
+    ), f"mat just above boundary ({_TAU_SCI}+eps) should hard-FAIL."
+    assert results_above[0]["verdict"] == "FAIL"
+
+
+# --------------------------------------------------------------------------- #
 # Self-consistency integration: german_credit split-half coherence
 # --------------------------------------------------------------------------- #
 
@@ -511,7 +627,7 @@ def test_verify_returns_false_on_gate_fail() -> None:
 
 
 def test_verify_returns_false_on_coherence_fail() -> None:
-    """verify_groundtruth returns False when coherence fails."""
+    """verify_groundtruth returns False when coherence fails (and emits a warning)."""
     committed = load_committed_summary("mvn_10")
     # Shift all per_site means by 100× posterior std → z >> z_crit and mat >> TAU_SCI
     bad_summary = dict(committed)
@@ -525,10 +641,45 @@ def test_verify_returns_false_on_coherence_fail() -> None:
     bad_summary["per_site"] = bad_per_site
     gt_draws = committed_gt_dir("mvn_10") / "draws.npz"
 
-    result = verify_groundtruth(
-        "mvn_10",
-        bad_summary,
-        gt_draws,
-        print_results=False,
-    )
+    # The coherence FAIL emits a UserWarning (SF-4 non-silent-REVIEW requirement).
+    with pytest.warns(UserWarning, match="FAIL"):
+        result = verify_groundtruth(
+            "mvn_10",
+            bad_summary,
+            gt_draws,
+            print_results=False,
+        )
     assert not result
+
+
+def test_verify_review_emits_warning_when_print_false() -> None:
+    """REVIEW dims emit a UserWarning even when print_results=False (SF-4 guard).
+
+    Constructs a generated summary for mvn_10 (D=10) where every dim has:
+      - tiny SE (1e-10) → z >> z_crit  (flagged by the threshold test)
+      - small absolute shift (0.025 in posterior units, mat≈0.025 < 0.05) → REVIEW
+
+    With print_results=False nothing is printed, but verify_groundtruth must still
+    emit a UserWarning so the signal is never fully swallowed.
+    """
+    committed = load_committed_summary("mvn_10")
+
+    # Build a generated summary: copy gate metadata (passes), inject REVIEW coherence.
+    gen_per_site = {}
+    for site, stats in committed["per_site"].items():
+        gen_stats = dict(stats)
+        mean_arr = np.asarray(stats["mean"])
+        # Small absolute shift: mat ≈ 0.025/std ≈ 0.025 < 0.05 (immaterial)
+        gen_stats["mean"] = (mean_arr + 0.025).tolist()
+        # Tiny SE: z ≈ 0.025/se_committed >> z_crit (statistically flagged)
+        gen_stats["between_chain_se"] = [1e-10] * len(mean_arr)
+        gen_per_site[site] = gen_stats
+
+    gen_summary = dict(committed)
+    gen_summary["per_site"] = gen_per_site
+
+    with pytest.warns(UserWarning, match="REVIEW"):
+        result = verify_groundtruth("mvn_10", gen_summary, print_results=False)
+
+    # REVIEW is not a FAIL — gate passes
+    assert result, "REVIEW coherence verdict should return True (immaterial)"
