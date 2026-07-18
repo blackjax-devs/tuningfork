@@ -527,6 +527,20 @@ _GERMAN_CREDIT_DRAWS = (
 )
 
 
+def _is_real_npz(path: Path) -> bool:
+    """True only if `path` is a real .npz (zip) file, not an unfetched git-LFS pointer.
+
+    .npz files are zip archives starting with the local-file-header magic bytes
+    b"PK\x03\x04". Unfetched git-LFS pointers are text files starting with
+    b"version https://git-lfs...".
+    """
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) == b"PK\x03\x04"
+    except OSError:
+        return False
+
+
 def _half_summary(arr: np.ndarray) -> dict[str, Any]:
     """Compute a minimal per-site summary from draws array (n_chains, n_draws, D).
 
@@ -553,8 +567,8 @@ def _half_summary(arr: np.ndarray) -> dict[str, Any]:
 
 
 @pytest.mark.skipif(
-    not _GERMAN_CREDIT_DRAWS.exists(),
-    reason="german_credit draws.npz not present in catalog",
+    not _is_real_npz(_GERMAN_CREDIT_DRAWS),
+    reason="german_credit draws.npz absent or an unfetched git-LFS pointer",
 )
 def test_coherence_self_consistency_german_credit() -> None:
     """Split german_credit 10-chain run into two halves; halves should be coherent.
