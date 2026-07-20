@@ -28,6 +28,7 @@ e.g. ``low__nuts__window_adaptation_diag_imm`` for a recipe at
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -133,6 +134,16 @@ def cached_idata_for_recipe(
 
     idata = run_recipe_to_idata(recipe, catalog_root=catalog_root)
     _save_to_cache(idata, draws_cache, stats_cache)
+    # Stale-cache guard (issue #244): co-write a params sidecar beside the draws
+    # cache so a later `make revalidate-w1` can tell whether these draws still
+    # match the recipe (path-A) or were superseded by a re-emit (degrade to a
+    # fresh-draws path).  Derived from the same on-disk recipe JSON the reader
+    # (classify_recipe_path) inspects, so a valid cache compares equal by
+    # construction.  Groundtruth caches are not W1-eligible, so skip them.
+    if recipe_stem != "groundtruth":
+        _write_cache_params_sidecar(
+            cache_dir, catalog_root, recipe.model_name, recipe_stem
+        )
     return idata
 
 
@@ -265,6 +276,39 @@ def _load_from_cache(
         chain_stats=chain_stats,
         n_chunks=1,
     )
+
+
+def _write_cache_params_sidecar(
+    cache_dir: Path,
+    catalog_root: Path,
+    model_name: str,
+    recipe_stem: str,
+) -> None:
+    """Write ``_cache/<stem>.params_hash.json`` beside a freshly written draws cache.
+
+    Records the params the cache was generated for (step_size, num_integration_steps,
+    target_acceptance, IMM fingerprint) so ``classify_recipe_path`` can detect a
+    re-emitted recipe whose old draws are stale (issue #244).  Derived from the same
+    on-disk recipe JSON the reader inspects, via the shared ``_recipe_cache_params``
+    extractor, so a matching cache compares equal by construction.  A missing or
+    unreadable recipe JSON is a silent no-op — the reader then finds no sidecar and
+    conservatively degrades out of path-A, which is safe.
+    """
+    from tuningfork.calibration.revalidation import _recipe_cache_params
+
+    recipe_json = catalog_root / model_name / "recipes" / f"{recipe_stem}.json"
+    if not recipe_json.exists():
+        return
+    try:
+        recipe_dict = json.loads(recipe_json.read_text())
+    except Exception:  # noqa: BLE001
+        return
+    params = _recipe_cache_params(recipe_dict)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    sidecar = cache_dir / f"{recipe_stem}.params_hash.json"
+    tmp = cache_dir / f"{recipe_stem}.params_hash.json.tmp"
+    tmp.write_text(json.dumps(params))
+    tmp.replace(sidecar)  # atomic within the same directory
 
 
 def _save_to_cache(
