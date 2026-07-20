@@ -505,6 +505,58 @@ def _apply_w1_gate(
 # ---------------------------------------------------------------------------
 
 
+def _recipe_cache_params(recipe: dict) -> dict:
+    """Extract the params that distinguish one calibration run from another.
+
+    These are the knobs that, when re-emitted, make a previously cached
+    ``<stem>.draws.npz`` stale (issue #244): step size, trajectory length,
+    warmup target acceptance, and the inverse-mass-matrix fingerprint.
+    """
+    bmp = recipe.get("base_method_params") or {}
+    wp = recipe.get("warmup_params") or {}
+    imm = bmp.get("inverse_mass_matrix")
+    imm_norm = float(np.linalg.norm(imm)) if isinstance(imm, list) else None
+    return {
+        "step_size": bmp.get("step_size"),
+        "num_integration_steps": bmp.get("num_integration_steps"),
+        "target_acceptance": wp.get("target_acceptance"),
+        "imm_l2_norm": imm_norm,
+    }
+
+
+def _cache_sidecar_matches(cache_path: pathlib.Path, recipe: dict) -> bool:
+    """True only when a params sidecar confirms the cache matches ``recipe``.
+
+    Stale-cache guard (issue #244): a recipe re-emitted with new params leaves
+    the previous calibration's ``<stem>.draws.npz`` on disk.  The sidecar
+    ``<stem>.params_hash.json`` records the params the cache was generated for.
+
+    A missing sidecar (legacy cache written before this guard, or an external
+    writer) or any non-``None`` param that differs from the live recipe means
+    the cache cannot be trusted → returns ``False`` so the caller degrades out
+    of path-A.  The sidecar is derived by the writer from the same on-disk
+    recipe JSON via :func:`_recipe_cache_params`, so a matching cache compares
+    equal here by construction.
+    """
+    sidecar_path = cache_path.with_suffix("").with_suffix(".params_hash.json")
+    if not sidecar_path.exists():
+        return False
+    try:
+        cached_params = json.loads(sidecar_path.read_text())
+    except Exception:
+        return False
+    live_params = _recipe_cache_params(recipe)
+    for key, live_val in live_params.items():
+        cached_val = cached_params.get(key)
+        if live_val is None and cached_val is None:
+            continue
+        if live_val is None or cached_val is None:
+            return False
+        if abs(float(live_val) - float(cached_val)) > 1e-9:
+            return False
+    return True
+
+
 def classify_recipe_path(recipe_path: pathlib.Path) -> str:
     """Classify a recipe file into a re-validation path code.
 
@@ -562,8 +614,15 @@ def classify_recipe_path(recipe_path: pathlib.Path) -> str:
         return "SK"
 
     cache_path = recipe_path.parent.parent / "_cache" / f"{recipe_path.stem}.draws.npz"
-    if cache_path.exists():
+    if cache_path.exists() and _cache_sidecar_matches(cache_path, d):
         return "A"
+    # Stale-cache guard (issue #244): a cache whose params sidecar is missing or
+    # mismatched cannot be trusted, so we do NOT short-circuit to path-A.  We fall
+    # through to the regen classification below, which routes the cell to the
+    # correct fresh-draws path for its method (path-B for skip-warmup MCMC,
+    # path-C for MCLMC/CHEES/sidecar-IMM, SK for Laplace/large-nc).  This is
+    # stricter — and safer — than a blanket "B": a stale Laplace cache correctly
+    # degrades to SK (MAP-init sensitive) rather than being re-run skip-warmup.
 
     # Laplace methods without cached draws: MAP-init sensitive → skip
     if bm in _LAPLACE_METHODS:
