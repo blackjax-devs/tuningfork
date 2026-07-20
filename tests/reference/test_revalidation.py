@@ -209,8 +209,18 @@ class TestClassifyRecipePath:
         cache_dir.mkdir(parents=True)
         (cache_dir / f"{stem}.draws.npz").write_bytes(b"")
 
+    def _add_sidecar(self, tmp_path, model: str, stem: str, params: dict) -> None:
+        """Write a params-hash sidecar so a cache is trusted for path-A."""
+        cache_dir = tmp_path / model / "_cache"
+        (cache_dir / f"{stem}.params_hash.json").write_text(json.dumps(params))
+
     def test_path_a_when_cache_exists(self, tmp_path):
-        """Recipe with cached draws → path A."""
+        """Recipe with cached draws + matching params sidecar → path A.
+
+        Post-#244 the sidecar is required for path-A: a bare cache with no
+        sidecar now degrades (see test_stale_cache_degrades_to_path_b).  This
+        recipe pins no params, so the sidecar is all-None and matches.
+        """
         model = "mvn_10"
         stem = "low__nuts__window_adaptation_diag_imm"
         recipe = {
@@ -221,6 +231,17 @@ class TestClassifyRecipePath:
         path = self._make_recipe(tmp_path, model, stem, recipe)
         self._add_gt_files(tmp_path, model)
         self._add_cache(tmp_path, model, stem)
+        self._add_sidecar(
+            tmp_path,
+            model,
+            stem,
+            {
+                "step_size": None,
+                "num_integration_steps": None,
+                "target_acceptance": None,
+                "imm_l2_norm": None,
+            },
+        )
 
         assert classify_recipe_path(path) == "A"
 
@@ -361,7 +382,12 @@ class TestClassifyRecipePath:
         assert classify_recipe_path(path) == "SK"
 
     def test_path_a_for_laplace_with_cache(self, tmp_path):
-        """Laplace method with cached draws → path A (cache exists, skip the skip)."""
+        """Laplace method with cached draws + matching sidecar → path A.
+
+        A trusted cache (sidecar present + matching) short-circuits the
+        MAP-init-sensitive SK guard.  Without a sidecar the stale-cache guard
+        degrades it to SK instead (see test_stale_laplace_cache_degrades_to_sk).
+        """
         model = "mvn_10"
         stem = "low__laplace_hmc__window_adaptation_diag_imm"
         recipe = {
@@ -372,8 +398,149 @@ class TestClassifyRecipePath:
         path = self._make_recipe(tmp_path, model, stem, recipe)
         self._add_gt_files(tmp_path, model)
         self._add_cache(tmp_path, model, stem)
+        self._add_sidecar(
+            tmp_path,
+            model,
+            stem,
+            {
+                "step_size": None,
+                "num_integration_steps": None,
+                "target_acceptance": None,
+                "imm_l2_norm": None,
+            },
+        )
 
         assert classify_recipe_path(path) == "A"
+
+    # -- stale-cache guard (issue #244) ------------------------------------
+
+    def test_stale_cache_degrades_to_path_b(self, tmp_path):
+        """Cache exists but sidecar missing → degrade to path-B (stale cache guard).
+
+        This is the regression test for issue #244: a recipe re-emitted with new
+        params (L=5→L=8) leaves the old _cache/<stem>.draws.npz on disk.
+        Without the fix, classify_recipe_path returns "A" (loads stale draws →
+        false FLIP). With the fix, the missing sidecar degrades out of path-A;
+        for a skip-warmup method (hmc) the regen classifier routes it to "B".
+        """
+        model = "german_credit"
+        stem = "medium__hmc__window_adaptation_diag_imm"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "hmc",
+            "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+            "warmup_params": {"target_acceptance": 0.8},
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        self._add_gt_files(tmp_path, model)
+        self._add_cache(tmp_path, model, stem)  # OLD draws on disk, no sidecar
+
+        # Without fix: returns "A" (loads stale draws)
+        # With fix: returns "B" (sidecar missing → degrade)
+        assert classify_recipe_path(path) == "B"
+
+    def test_matching_sidecar_stays_path_a(self, tmp_path):
+        """Cache + matching sidecar → path A (valid cache, no degradation)."""
+        model = "german_credit"
+        stem = "medium__hmc__window_adaptation_diag_imm"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "hmc",
+            "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+            "warmup_params": {"target_acceptance": 0.8},
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        self._add_gt_files(tmp_path, model)
+        self._add_cache(tmp_path, model, stem)
+
+        # Write a matching sidecar
+        cache_dir = tmp_path / model / "_cache"
+        sidecar = cache_dir / f"{stem}.params_hash.json"
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "step_size": 0.2915,
+                    "num_integration_steps": 8,
+                    "target_acceptance": 0.8,
+                    "imm_l2_norm": None,
+                }
+            )
+        )
+
+        assert classify_recipe_path(path) == "A"
+
+    def test_mismatched_sidecar_degrades_to_path_b(self, tmp_path):
+        """Cache + sidecar with different step_size → degrade to path-B."""
+        model = "german_credit"
+        stem = "medium__hmc__window_adaptation_diag_imm"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "hmc",
+            "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+            "warmup_params": {"target_acceptance": 0.8},
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        self._add_gt_files(tmp_path, model)
+        self._add_cache(tmp_path, model, stem)
+
+        # Sidecar has OLD step_size (L=5 era params)
+        cache_dir = tmp_path / model / "_cache"
+        sidecar = cache_dir / f"{stem}.params_hash.json"
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "step_size": 0.1800,  # OLD value, differs from live recipe's 0.2915
+                    "num_integration_steps": 5,  # OLD
+                    "target_acceptance": 0.65,  # OLD
+                    "imm_l2_norm": None,
+                }
+            )
+        )
+
+        assert classify_recipe_path(path) == "B"
+
+    def test_stale_mclmc_cache_degrades_to_path_c(self, tmp_path):
+        """Stale MCLMC cache (no sidecar) → path C, not B.
+
+        Fall-through design: degrading out of path-A routes the cell to its
+        method's fresh-draws path.  MCLMC needs a full warmup re-run, so a stale
+        MCLMC cache must reach path-C, never the skip-warmup path-B.
+        """
+        model = "mvn_10"
+        stem = "low__mclmc__mclmc_tuning"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "mclmc",
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        self._add_gt_files(tmp_path, model)
+        self._add_cache(tmp_path, model, stem)  # stale, no sidecar
+
+        assert classify_recipe_path(path) == "C"
+
+    def test_stale_laplace_cache_degrades_to_sk(self, tmp_path):
+        """Stale Laplace cache (no sidecar) → SK, not B.
+
+        A Laplace cell is MAP-init sensitive: without trustworthy draws it must
+        be skipped, never re-run skip-warmup.  A blanket "B" degradation would
+        wrongly regenerate it; the fall-through preserves the SK guard.
+        """
+        model = "mvn_10"
+        stem = "low__laplace_hmc__window_adaptation_diag_imm"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "laplace_hmc",
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        self._add_gt_files(tmp_path, model)
+        self._add_cache(tmp_path, model, stem)  # stale, no sidecar
+
+        assert classify_recipe_path(path) == "SK"
 
 
 # ---------------------------------------------------------------------------

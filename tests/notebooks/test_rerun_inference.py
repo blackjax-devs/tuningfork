@@ -211,3 +211,72 @@ def test_regenerate_idata_default_values() -> None:
     assert params["n_samples"].default == 1000
     assert params["seed"].default == 20260517
     assert params["catalog_root"].default is None
+
+
+def test_cache_params_sidecar_roundtrips_to_path_a(tmp_path: Path) -> None:
+    """Fix 2 ↔ Fix 1 round-trip: sidecar written at cache-time → reader keeps path-A.
+
+    Regression guard for issue #244 write side.  ``_write_cache_params_sidecar``
+    derives the sidecar from the same on-disk recipe JSON that
+    ``classify_recipe_path`` inspects, so a freshly cached recipe must classify
+    as "A" (trusted cache), and a subsequent param re-emit must degrade it.
+    """
+    import json
+
+    from tuningfork.calibration.revalidation import classify_recipe_path
+    from tuningfork.catalog._rerun_inference import _write_cache_params_sidecar
+
+    model = "german_credit"
+    stem = "medium__hmc__window_adaptation_diag_imm"
+    recipe: dict = {
+        "gate_evidence": {"auto": {"verdict": "PASS"}},
+        "base_method_name": "hmc",
+        "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+        "warmup_params": {"target_acceptance": 0.8},
+        "calibration_budget": {"num_chains": 4},
+    }
+    # Catalog layout: <root>/<model>/{recipes,_cache,groundtruth_samples/blackjax}
+    recipe_path = tmp_path / model / "recipes" / f"{stem}.json"
+    recipe_path.parent.mkdir(parents=True)
+    recipe_path.write_text(json.dumps(recipe))
+
+    gt = tmp_path / model / "groundtruth_samples" / "blackjax"
+    gt.mkdir(parents=True)
+    (gt / "draws.npz").write_bytes(b"")
+    (gt / "summary_v2.json").write_text("{}")
+
+    cache_dir = tmp_path / model / "_cache"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / f"{stem}.draws.npz").write_bytes(b"")  # freshly written draws
+
+    # Fix 2: co-write the params sidecar from the on-disk recipe JSON.
+    _write_cache_params_sidecar(cache_dir, tmp_path, model, stem)
+    sidecar = cache_dir / f"{stem}.params_hash.json"
+    assert sidecar.exists()
+    assert json.loads(sidecar.read_text()) == {
+        "step_size": 0.2915,
+        "num_integration_steps": 8,
+        "target_acceptance": 0.8,
+        "imm_l2_norm": None,
+    }
+
+    # Fix 1 reader agrees: trusted cache → path A.
+    assert classify_recipe_path(recipe_path) == "A"
+
+    # Re-emit with new params (L=8→L=12): sidecar now stale → degrade to B.
+    recipe["base_method_params"]["num_integration_steps"] = 12
+    recipe_path.write_text(json.dumps(recipe))
+    assert classify_recipe_path(recipe_path) == "B"
+
+
+def test_cache_params_sidecar_noop_when_recipe_missing(tmp_path: Path) -> None:
+    """No recipe JSON on disk → sidecar write is a silent no-op (safe degrade)."""
+    from tuningfork.catalog._rerun_inference import _write_cache_params_sidecar
+
+    model = "mvn_10"
+    stem = "low__nuts__window_adaptation_diag_imm"
+    cache_dir = tmp_path / model / "_cache"
+    cache_dir.mkdir(parents=True)
+
+    _write_cache_params_sidecar(cache_dir, tmp_path, model, stem)
+    assert not (cache_dir / f"{stem}.params_hash.json").exists()
