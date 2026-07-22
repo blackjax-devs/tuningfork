@@ -8,8 +8,17 @@ authors = [{name = "The Blackjax team"}]
 description = "Reproducible reference catalog + methodology exemplar for BlackJAX MCMC/VI/SMC algorithms — certified reference draws, calibrated hyperparameter recipes, and auto-gate verdicts across a curated 14-model suite."
 requires-python = ">=3.13"
 dependencies = [
-    "jax",
-    "jaxlib",
+    # JAX is CAPPED to a single minor: the benchmark catalog's certified
+    # ground truth is numerically sensitive to JAX version (a 0.10.0→0.10.1
+    # patch bump shifted window_adaptation step_size ~16% via chaotic warmup
+    # amplification — issue #232). An uncapped JAX core means any `uv lock`
+    # refresh can silently invalidate the catalog. Cap to <0.12 so a MINOR
+    # bump is a deliberate, reviewed re-cert event; the lockfile pins the
+    # exact patch for reproducibility, and benchmarks/_benchmark_helpers.py
+    # emits ::warning::JAX_VERSION_MISMATCH when a recipe's cert JAX differs
+    # from the running JAX.
+    "jax>=0.11,<0.12",
+    "jaxlib>=0.11,<0.12",
     "numpy",
     "pandas",
     "jax-tap>=0.3.0",  # Emission library for diagnostics (treedepth tripwire, y-taps, cert-pipeline taps); github.com/arcueil/jax-tap
