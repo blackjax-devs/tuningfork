@@ -49,13 +49,11 @@ def bench_id(cell: tuple[str, str, str, str]) -> str:
     return f"{tier}-{model}-{stem}-{mode}"
 
 
-def compute_max_abs_mean_z(idata: Any, model_name: str) -> float | None:
-    """Compute max |z| vs GT reference using the recipe-cert auto_gate formula.
+def _run_auto_gate(idata: Any, model_name: str) -> Any | None:
+    """Run auto_gate and return the full AutoGateVerdict (None on unavailable GT).
 
-    z_i = |sample_mean_i − gt_mean_i| / max(SE_sample_i, SE_gt_i)
-    where SE_sample_i = sample_std_i / sqrt(min_bulk_ESS).
-
-    Returns None when reference/summary.json is unavailable (graceful skip).
+    Shared by ``compute_max_abs_mean_z`` (public API, returns z only) and
+    ``extract_cell_metrics`` (needs both z and calibrated GT verdict).
     """
     summary_path = _CATALOG_ROOT / model_name / "reference" / "summary.json"
     if not summary_path.exists():
@@ -102,14 +100,25 @@ def compute_max_abs_mean_z(idata: Any, model_name: str) -> float | None:
     from tuningfork.calibration.statistician_gate import auto_gate
     from tuningfork.model import MODELS
 
-    result = auto_gate(
+    return auto_gate(
         mc_samples,
         _StubInfo(),
         ground_truth_summaries=gt_per_param,
         posterior=MODELS.get(model_name),
         n_chunks=1,
     )
-    return result.max_abs_mean_z
+
+
+def compute_max_abs_mean_z(idata: Any, model_name: str) -> float | None:
+    """Compute max |z| vs GT reference using the recipe-cert auto_gate formula.
+
+    SE denominator uses the pooled SE (PR #245): sqrt(se_sample² + se_gt²),
+    replacing the old max(SE_sample, SE_gt) formula.
+
+    Returns None when reference/summary.json is unavailable (graceful skip).
+    """
+    result = _run_auto_gate(idata, model_name)
+    return result.max_abs_mean_z if result is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +154,10 @@ def extract_cell_metrics(
     """Extract all benchmark metrics from idata.
 
     Returns a dict suitable for storage in the benchmark-results branch.
+    ``_calibrated_gt`` carries the PR #245 calibrated verdict dict (pooled-SE
+    denom + Bonferroni z_crit + materiality co-primary); used by the assertion
+    in ``run_benchmark_cell``.  It is an internal key (prefixed _) and is not
+    persisted to the benchmark-results branch.
     """
     import arviz as az
 
@@ -161,8 +174,10 @@ def extract_cell_metrics(
     except Exception:  # noqa: BLE001
         n_div = -1
 
-    # z-score correctness
-    z = compute_max_abs_mean_z(idata, model_name)
+    # GT correctness: run auto_gate once, extract both z and calibrated verdict.
+    gate_result = _run_auto_gate(idata, model_name)
+    z = gate_result.max_abs_mean_z if gate_result is not None else None
+    cal = gate_result.gt_calibrated if gate_result is not None else None
 
     return {
         "n_divergences": n_div,
@@ -171,6 +186,7 @@ def extract_cell_metrics(
         "runtime_warmup_s": warmup_wall_s,
         "runtime_sample_s": sample_wall_s,
         "correctness_passed": (z < _Z_THRESHOLD) if z is not None else None,
+        "_calibrated_gt": cal,  # internal; not persisted to results branch
     }
 
 
@@ -481,10 +497,35 @@ def run_benchmark_cell(
 
     benchmark(run_all_seeds)
 
-    # Assert GT-correctness on per-seed means
+    # Assert GT-correctness on per-seed means.
+    # Uses calibrated gate (PR #245: pooled-SE denom + Bonferroni z_crit +
+    # materiality co-primary) when available, falling back to the legacy fixed
+    # z < 4.0 assertion for seeds where calibrated verdict is absent.
     for s, metrics in per_seed_metrics.items():
         z = metrics.get("max_abs_mean_z")
-        if z is not None:
+        cal = metrics.get("_calibrated_gt")
+        if cal is not None:
+            # Calibrated gate: no dimension is a hard fail (z > z_crit AND mat > TAU_SCI).
+            # REVIEW dims (z > z_crit but mat ≤ TAU_SCI) count as PASS.
+            cal_pass = cal.get("pass", True)
+            if not cal_pass:
+                n_fail = cal.get("n_fail", "?")
+                n_review = cal.get("n_review", "?")
+                z_crit = cal.get("z_crit")
+                D_total = cal.get("D_total", "?")
+                nu = cal.get("nu", "?")
+                z_crit_str = f"{z_crit:.3f}" if isinstance(z_crit, float) else "?"
+                z_str = f"{z:.3f}" if z is not None else "?"
+                raise AssertionError(
+                    f"GT-correctness FAILED (calibrated gate, PR #245) "
+                    f"for {model_name}/{recipe_file} ({mode}) seed={s}: "
+                    f"max_abs_mean_z={z_str}, z_crit={z_crit_str} "
+                    f"(D_total={D_total}, nu={nu}), "
+                    f"{n_fail} hard-fail dim(s), {n_review} REVIEW dim(s). "
+                    f"A hard-fail dim has z > z_crit AND |Δμ|/σ > 0.05."
+                )
+        elif z is not None:
+            # Fallback: calibrated verdict unavailable (no GT summary), use old gate.
             assert z < _Z_THRESHOLD, (
                 f"GT-correctness FAILED for {model_name}/{recipe_file} ({mode}) "
                 f"seed={s}: max_abs_mean_z={z:.3f} >= {_Z_THRESHOLD}"
