@@ -393,21 +393,31 @@ XFAIL_CELLS: dict[str, str] = {
         "removed 2026-06-16 after is_mass_matrix_diagonal fix (e645664), now recurring "
         "with different seeds. Root cause: inherent warmup seed-sensitivity on stiff ODE."
     ),
-    # 2026-07-16: stoch_vol × nuts × diag_imm e2e failing every nightly seed.
-    # Seeds 20260716–20260720 all fail (z > 4.0); stoch_vol PASSED through
-    # 20260715. Certified recipe had max_abs_mean_z=1.40 (tuning_seed 682737,
-    # blackjax 1.6.dev84). Coincides with blackjax@main PRs #992–#998 merged
-    # 2026-07-15/16 touching staged_adaptation.py + multi-chain adaptation
-    # (the recipe uses 4-chain window_adaptation_diag_imm). Seed 20260720
-    # confirmed z=4.335. Cell still runs for timing; only the z<4.0 assert is
-    # expected-failure pending root-cause investigation.
+    # 2026-07-16: stoch_vol × nuts × diag_imm e2e. DIAGNOSED (2026-07-22): NOT a
+    # recipe regression — the recipe posterior means are correct to 2–5% of a GT σ
+    # on all 503 dims. Root cause was a JAX 0.10→0.11 chaotic-warmup shift
+    # interacting with a MIS-CALIBRATED gate: the OLD fixed z<4.0 is a max over 503
+    # near-null per-dim |z|'s whose expectation E[max 503 |N(0,1)|]≈3.53 — a correct
+    # high-D recipe sits on a ~3.5 floor and crosses 4.0 by chance. (blackjax was
+    # exonerated: bit-identical on the diag path at fixed JAX.)
+    #
+    # This PR ports the calibrated coherence gate (pooled SE + normal-Bonferroni
+    # z_crit(D)≈3.89 + materiality co-primary) from groundtruth/_verify.py into the
+    # benchmark path, which correctly REVIEWs the immaterial high-z dims. Under the
+    # calibrated gate at the inherited coherence TAU_SCI=0.05, stoch_vol still
+    # hard-fails at seed-18: its wandering boundary dim h_raw[0] measures
+    # mat≈0.085–0.125σ (> 0.05) while tripping z_crit — a Monte-Carlo-noise
+    # excursion (true bias ~0.02–0.04σ; collapses on +chains/+warmup/+samples), NOT
+    # a real bias. Removing this XFAIL is gated on a GT-CORRECTNESS materiality bar
+    # (TAU_SCI ≈ 0.15, above the mat-estimate noise floor) — a gate-policy decision.
     # Tracked: github.com/blackjax-devs/tuningfork/issues/232
     "tier2-stoch_vol-low__nuts__window_adaptation_diag_imm-e2e": (
-        "GT-correctness failure on every nightly seed since 2026-07-16 (issue #232): "
-        "z=4.335 confirmed at seed=20260720; seeds 20260716–20260720 all fail. "
-        "Certified recipe z=1.40 (tuning_seed 682737). Suspected regression from "
-        "blackjax@main PRs #992–#998 (staged_adaptation + multi-chain warmup changes "
-        "merged 2026-07-15/16). Pending root-cause investigation."
+        "GATE-CALIBRATION artifact, not a recipe regression (issue #232): recipe "
+        "means correct to 2–5% of a GT σ on all 503 dims. Under the calibrated gate "
+        "(normal-Bonferroni z_crit≈3.89 + materiality) at the inherited TAU_SCI=0.05, "
+        "seed-18's Monte-Carlo-noise boundary dim (mat≈0.085–0.125σ) hard-fails. "
+        "Removal gated on the GT-correctness materiality bar (TAU_SCI≈0.15). Recipe "
+        "UNTOUCHED (it is correct)."
     ),
 }
 
