@@ -24,14 +24,27 @@ against a ground-truth reference:
      Prior formula: ``max(se_a, se_b)``, which inflates z by up to √2 at equal
      SE and by less at unequal SE (always ≥ √(1/2) × pooled).
 
-  2. **Dimension-aware Bonferroni threshold**::
+  2. **Dimension-aware Bonferroni threshold** — two regimes, selected by ``n_chains``::
+
+     **Verify (coherence) regime** — ``n_chains`` is a positive integer::
 
          ν       = 2·(n_chains − 1)
-         z_crit  = t.ppf(1 − α/(2·D_total), ν)
+         z_crit  = t.ppf(1 − α/(2·D_total), ν)    [bonferroni_z_crit]
+
+     Used when SE is a *between-chain* SE (finite small-sample df).
+     ``tuningfork.groundtruth._verify._check_coherence`` uses this form.
+
+     **Benchmark (correctness) regime** — ``n_chains=None``::
+
+         z_crit  = Φ⁻¹(1 − α/(2·D_total))          [bonferroni_z_crit_normal]
+
+     Used when SE is per-dim-ESS-based (``std/√ESS``).  ESS is typically in
+     the thousands → large Welch–Satterthwaite pooled df → normal limit.
+     At D=503 (stoch_vol), normal z_crit ≈ 3.892; t-df6 gives ≈ 9.09
+     (too lenient — insensitive to the observed max-order-statistic floor ≈ 3.53).
 
      Prior: fixed z < 4.0 (benchmark gate) or fixed z < 3.0 (verify gate),
-     both insensitive to model dimensionality — generous for high-D, strict
-     for low-D models.
+     both insensitive to model dimensionality.
 
   3. **Materiality co-primary gate** (strict > on boundary)::
 
@@ -48,8 +61,10 @@ exactly one place:
 
 - ``tuningfork.groundtruth._verify._check_coherence`` — the ``--verify`` CLI
   coherence path (imports ``_SE_FLOOR``, ``_TAU_SCI``, ``bonferroni_z_crit``).
+  Uses the t-df form (between-chain SE, finite n_chains).
 - ``tuningfork.calibration._gate.gt_compare._compute_gt_compare`` — the recipe
-  benchmark / auto-gate path (imports the same constants + ``_DEFAULT_NU``).
+  benchmark / auto-gate path (imports ``bonferroni_z_crit_normal``).
+  Uses the normal-Bonferroni form (per-dim-ESS SE, large df).
 """
 
 from __future__ import annotations
@@ -64,6 +79,7 @@ __all__ = [
     "_SE_FLOOR",
     "_TAU_SCI",
     "bonferroni_z_crit",
+    "bonferroni_z_crit_normal",
     "marginal_z_verdict",
 ]
 
@@ -80,27 +96,15 @@ _SE_FLOOR: float = 1e-8
 # Mirrors the W1 gate sibling in calibration/_gate/w1_realm.py.
 _TAU_SCI: float = 0.05
 
-# Default ν (degrees of freedom) for the benchmark gate path, where mc_samples
-# arrives as a single chunk (n_chunks=1, so arr.shape[0] == 1).
+# Default ν for the t-df Bonferroni form — VERIFY (coherence) regime ONLY.
 #
-# JUDGMENT CALL FLAG — statistician validation requested:
-# When n_chunks=1 the "chains" dimension of mc_samples collapses to 1, giving
-# ν = 2·(1 − 1) = 0 (degenerate: z_crit → ∞, trivially passing everything).
-# To avoid a degenerate gate, _compute_gt_compare falls back to _DEFAULT_NU = 9
-# when mc_n_chains == 1.
+# NOT used by the benchmark gate, which uses ``bonferroni_z_crit_normal``
+# (large df from ESS-based SE → normal limit; see PR #245 decision doc).
 #
-# Rationale for the value 9:
-#   The standard multichain GT protocol (PR #228+) uses 10 chains × 10 000
-#   draws.  The between-chain SE for that GT has ν = 10 − 1 = 9 df, which is
-#   the bottleneck uncertainty in the pooled SE denominator (the benchmark run
-#   has ESS >> 9 in well-behaved dims).  Using ν = 9 is therefore conservative
-#   (small ν → fat t-tails → higher z_crit → harder to hard-fail).
-#
-# Note: models using the legacy single-chain GT (summary.json, n_samples=40000)
-# do NOT have a between-chain SE; their GT SE is std/sqrt(40000), approximately
-# equivalent to ∞ df.  In those cases ν = 9 is still conservative — the true
-# ν is the benchmark run's per-dim ESS, which is typically 500-2000 >> 9 — but
-# the benchmark SE usually dominates, making z_crit insensitive to ν.
+# Value = 9: conservative fallback when n_chains is not provided to a t-df
+# caller (corresponds to ~10-chain GT; ν = 2·(10−1) = 18, halved as a
+# one-sided conservative estimate).  Callers with known n_chains should
+# pass 2·(n_chains−1) explicitly via ``bonferroni_z_crit``.
 _DEFAULT_NU: int = 9
 
 
@@ -111,6 +115,11 @@ _DEFAULT_NU: int = 9
 
 def bonferroni_z_crit(D_total: int, nu: int, alpha: float = 0.05) -> float:
     """Bonferroni-corrected t critical value for D_total independent tests.
+
+    **Verify (coherence) regime**: use when SE is a between-chain SE (finite
+    n_chains, small df).  For the benchmark / correctness regime where SE is
+    per-dim-ESS-based (large df → normal limit), use
+    ``bonferroni_z_crit_normal`` instead.
 
     Parameters
     ----------
@@ -132,6 +141,38 @@ def bonferroni_z_crit(D_total: int, nu: int, alpha: float = 0.05) -> float:
     return float(scipy_stats.t.ppf(1.0 - alpha / (2.0 * D_total), nu))
 
 
+def bonferroni_z_crit_normal(D_total: int, alpha: float = 0.05) -> float:
+    """Bonferroni-corrected normal critical value for D_total independent tests.
+
+    **Benchmark (correctness) regime**: use when SE is per-dim-ESS-based
+    (``std/√ESS`` with ESS typically in the thousands → large
+    Welch–Satterthwaite pooled df → normal limit).  For the verify /
+    coherence regime with finite between-chain SE, use ``bonferroni_z_crit``.
+
+    Spot values (alpha=0.05):
+      D=503  (stoch_vol):       z_crit ≈ 3.892
+      D=26   (german_credit):   z_crit ≈ 3.102
+      D=1500 (high-D):          z_crit ≈ 4.149
+      D=1    (single-dim):      z_crit ≈ 1.960
+
+    Parameters
+    ----------
+    D_total
+        Number of scalar dimensions being tested (Bonferroni denominator).
+        Returns ``inf`` when ``D_total <= 0`` (degenerate: no dims to test).
+    alpha
+        Family-wise error rate (default 0.05).
+
+    Returns
+    -------
+    float
+        z_crit = Phi^{-1}(1 - alpha/(2*D_total)).
+    """
+    if D_total <= 0:
+        return float("inf")
+    return float(scipy_stats.norm.ppf(1.0 - alpha / (2.0 * D_total)))
+
+
 def marginal_z_verdict(
     mean_a: np.ndarray,
     std_a: np.ndarray,
@@ -140,12 +181,12 @@ def marginal_z_verdict(
     std_b: np.ndarray,
     se_b: np.ndarray,
     D_total: int,
-    n_chains: int,
+    n_chains: int | None = None,
     alpha: float = 0.05,
 ) -> tuple[bool, list[dict[str, Any]], dict[str, Any]]:
     """Calibrated per-site marginal-z verdict (all three PR #245 decisions).
 
-    Applies pooled SE denominator, Bonferroni-corrected t threshold, and
+    Applies pooled SE denominator, Bonferroni-corrected threshold, and
     materiality co-primary gate to a single site's per-dimension arrays.
     The caller must provide ``D_total`` counting scalar dims across ALL sites
     that share the same z_crit (Bonferroni denominator is global).
@@ -163,12 +204,15 @@ def marginal_z_verdict(
         Total scalar dims across ALL sites (Bonferroni denominator).
         Caller must aggregate this from all sites before calling.
     n_chains
-        Number of Markov chains for the generating distribution.
-        ν = 2·(n_chains − 1).  Must be > 1 to produce a finite z_crit
-        (n_chains == 1 gives ν = 0 → z_crit = ∞).  For the benchmark path
-        where n_chains == 1 (n_chunks=1), callers should supply a defensible
-        effective n_chains or use ``_DEFAULT_NU`` directly via
-        ``bonferroni_z_crit``.
+        Controls which z_crit regime is used:
+
+        ``None`` (default) — **benchmark / correctness regime**.  SE is
+        per-dim-ESS-based (high df) → normal-Bonferroni z_crit via
+        ``bonferroni_z_crit_normal``.  ``meta["nu"]`` is ``None``.
+
+        ``int`` — **verify / coherence regime**.  SE is between-chain SE
+        (finite df).  ν = 2·(n_chains − 1); z_crit via ``bonferroni_z_crit``.
+        Must be > 1 to produce a finite z_crit.
     alpha
         Family-wise error rate (default 0.05).
 
@@ -180,8 +224,8 @@ def marginal_z_verdict(
         One dict per dimension with keys ``z``, ``mat``, ``verdict``
         (``"PASS"``, ``"REVIEW"``, or ``"FAIL"``).
     meta : dict
-        Keys: ``z_crit``, ``nu``, ``D_total``, ``max_z``, ``n_review``,
-        ``n_fail``.
+        Keys: ``z_crit``, ``nu`` (``None`` when normal-approx), ``D_total``,
+        ``max_z``, ``n_review``, ``n_fail``.
     """
     mean_a = np.asarray(mean_a, dtype=float).ravel()
     se_a = np.asarray(se_a, dtype=float).ravel()
@@ -197,9 +241,15 @@ def marginal_z_verdict(
     std_b_safe = np.where(std_b == 0.0, 1.0, std_b)
     mat_vals = np.abs(mean_a - mean_b) / std_b_safe
 
-    # Decision 2: Bonferroni-corrected t threshold.
-    nu = 2 * (n_chains - 1)
-    z_crit = bonferroni_z_crit(D_total, nu, alpha)
+    # Decision 2: Bonferroni threshold, regime-selected by n_chains.
+    if n_chains is None:
+        # Benchmark regime: ESS-based SE, large df → normal-Bonferroni.
+        nu: int | None = None
+        z_crit = bonferroni_z_crit_normal(D_total, alpha)
+    else:
+        # Verify regime: between-chain SE, finite df.
+        nu = 2 * (n_chains - 1)
+        z_crit = bonferroni_z_crit(D_total, nu, alpha)
 
     # Decision 3 (part 2): per-dim verdict — strict > on materiality boundary.
     over_z = z_vals > z_crit

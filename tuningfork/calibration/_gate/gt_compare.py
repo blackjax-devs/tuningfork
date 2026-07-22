@@ -20,7 +20,7 @@ import numpy as np
 from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
 
 from .bands import sidak_t_pass
-from .marginal_z import _DEFAULT_NU, _SE_FLOOR, _TAU_SCI, bonferroni_z_crit
+from .marginal_z import _SE_FLOOR, _TAU_SCI, bonferroni_z_crit_normal
 
 
 @dataclass
@@ -48,6 +48,8 @@ class _GtCompareResult:
     calibrated_n_review: int | None = field(default=None)
     calibrated_z_crit: float | None = field(default=None)
     calibrated_D_total: int | None = field(default=None)
+    # Always None in _compute_gt_compare: benchmark path uses normal-Bonferroni
+    # (large df → normal limit).  Preserved for downstream consumers that log it.
     calibrated_nu: int | None = field(default=None)
 
 
@@ -105,15 +107,6 @@ def _compute_gt_compare(
     _se_gt_at_argmax: float | None = None
     _gt_std_at_argmax: float | None = None
 
-    # JUDGMENT CALL FLAG — nu for the calibrated gate (statistician review requested):
-    # nu is determined from the first matched param's mc n_chains.
-    # When mc_samples arrives with n_chains=1 (benchmark n_chunks=1 path),
-    # nu = 2*(1-1) = 0 is degenerate (z_crit → ∞).  We fall back to _DEFAULT_NU=9
-    # (conservative, 10-chain GT equivalent).  When n_chains > 1 (recipe tuning,
-    # n_chunks=4 → n_chains=4), we use nu = 2*(n_chains-1) = 6, matching _verify.py.
-    # See marginal_z._DEFAULT_NU for full rationale.
-    _calibrated_nu: int | None = None
-
     for name, arr in mc_samples.items():
         if name not in ground_truth_summaries:
             continue
@@ -124,15 +117,6 @@ def _compute_gt_compare(
         merged = arr_np.reshape(n_chains * n_draws, *arr_np.shape[2:])
         sample_mean = np.mean(merged, axis=0)
         sample_std = np.std(merged, axis=0)
-
-        # Determine nu for the calibrated verdict (once, from first matched param).
-        if _calibrated_nu is None:
-            if n_chains > 1:
-                _calibrated_nu = 2 * (n_chains - 1)
-            else:
-                # Benchmark path (n_chunks=1): n_chains=1 → nu=0 is degenerate.
-                # Use conservative fallback; see JUDGMENT CALL FLAG above.
-                _calibrated_nu = _DEFAULT_NU
 
         # Per-dimension ESS for SE computation (M1 fix).
         # Using the global min_bulk_ess for every dimension's SE was
@@ -252,9 +236,11 @@ def _compute_gt_compare(
                 _achieved_bias_bound_sigma = float(t_pass * se_max / _gt_std_at_argmax)
 
         # Calibrated verdict over ALL accumulated dims.
-        if _all_z_dim_scores and _calibrated_nu is not None:
+        # Benchmark path uses normal-Bonferroni (large df from ESS-based SE;
+        # see PR #245 decision doc for the t-df vs normal-approx adjudication).
+        if _all_z_dim_scores:
             D_cal = sum(1 for z in _all_z_dim_scores if math.isfinite(z))
-            z_crit_cal = bonferroni_z_crit(D_cal, _calibrated_nu)
+            z_crit_cal = bonferroni_z_crit_normal(D_cal)
             n_fail_cal = sum(
                 1
                 for z, m in zip(_all_z_dim_scores, _bias_sigmas)
@@ -283,5 +269,5 @@ def _compute_gt_compare(
         calibrated_n_review=_calibrated_n_review,
         calibrated_z_crit=_calibrated_z_crit_val,
         calibrated_D_total=_calibrated_D_total,
-        calibrated_nu=_calibrated_nu,
+        calibrated_nu=None,  # normal-Bonferroni: df → ∞ (no finite nu)
     )

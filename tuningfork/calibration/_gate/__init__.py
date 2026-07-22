@@ -43,6 +43,7 @@ from .marginal_z import (
     _SE_FLOOR,
     _TAU_SCI,
     bonferroni_z_crit,
+    bonferroni_z_crit_normal,
     marginal_z_verdict,
 )
 from .mixing import _compute_mixing_stats
@@ -80,6 +81,7 @@ __all__ = [
     "_w1_1d",
     "_worst",
     "bonferroni_z_crit",
+    "bonferroni_z_crit_normal",
     "compute_w1_realm",
     "marginal_z_verdict",
     "resolve_thresholds",

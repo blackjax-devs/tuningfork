@@ -29,10 +29,9 @@ import numpy as np
 import pytest
 
 from tuningfork.calibration._gate.marginal_z import (
-    _DEFAULT_NU,
-    _SE_FLOOR,
     _TAU_SCI,
     bonferroni_z_crit,
+    bonferroni_z_crit_normal,
     marginal_z_verdict,
 )
 
@@ -67,6 +66,43 @@ def test_bonferroni_z_crit_spot_values() -> None:
 
 
 # ---------------------------------------------------------------------------
+# bonferroni_z_crit_normal (benchmark regime)
+# ---------------------------------------------------------------------------
+
+
+def test_bonferroni_z_crit_normal_degenerate_zero_dims() -> None:
+    """D_total=0 returns inf (no dims to test)."""
+    assert math.isinf(bonferroni_z_crit_normal(0))
+
+
+def test_bonferroni_z_crit_normal_spot_values() -> None:
+    """Pin normal-Bonferroni z_crit at key model sizes (benchmark regime).
+
+    These are the values the benchmark gate uses; they differ materially from
+    the t-df form (_verify.py's coherence regime).  The stoch_vol value (D=503)
+    is load-bearing: z_crit≈3.892 < the CI-observed max_z≈4.335, so the
+    materiality co-primary gate is what prevents a false hard-FAIL there.
+    """
+    from scipy import stats
+
+    alpha = 0.05
+    # D=503 (stoch_vol) → ≈ 3.892  (< old fixed threshold 4.0)
+    z503 = bonferroni_z_crit_normal(503, alpha=alpha)
+    assert z503 == pytest.approx(float(stats.norm.ppf(1.0 - alpha / 1006)), rel=1e-6)
+    assert z503 == pytest.approx(3.892, rel=1e-3)
+    assert z503 < 4.0, "normal z_crit at D=503 must be below the old fixed 4.0 gate"
+
+    # D=1 (single-dim) → 1.96 (two-tailed α/2 = 0.025)
+    z1 = bonferroni_z_crit_normal(1, alpha=alpha)
+    assert z1 == pytest.approx(1.96, rel=1e-3)
+
+    # D=1500 (high-D) → ≈ 4.149 (more conservative as D grows)
+    z1500 = bonferroni_z_crit_normal(1500, alpha=alpha)
+    assert z1500 > z503, "z_crit should grow with D (larger Bonferroni penalty)"
+    assert z1500 == pytest.approx(4.149, rel=1e-3)
+
+
+# ---------------------------------------------------------------------------
 # marginal_z_verdict: pooled SE denominator (decision 1)
 # ---------------------------------------------------------------------------
 
@@ -90,8 +126,9 @@ def test_pooled_se_halves_z_vs_old_max_at_equal_se() -> None:
     std_b = np.array([1000.0])
     se_b = np.array([se])
 
-    _, vdicts, meta = marginal_z_verdict(mean_a, std_a, se_a, mean_b, std_b, se_b,
-                                         D_total=1, n_chains=10)
+    _, vdicts, meta = marginal_z_verdict(
+        mean_a, std_a, se_a, mean_b, std_b, se_b, D_total=1, n_chains=10
+    )
     new_z = vdicts[0]["z"]
     old_z = delta / se  # old max() denominator
     expected_new_z = old_z / math.sqrt(2)
@@ -110,8 +147,9 @@ def test_se_floor_prevents_zero_division() -> None:
     std_b = np.array([1.0])
     se_b = np.array([0.0])
 
-    all_pass, vdicts, meta = marginal_z_verdict(mean_a, std_a, se_a, mean_b, std_b, se_b,
-                                                D_total=1, n_chains=10)
+    all_pass, vdicts, meta = marginal_z_verdict(
+        mean_a, std_a, se_a, mean_b, std_b, se_b, D_total=1, n_chains=10
+    )
     assert all_pass
     assert math.isfinite(meta["max_z"])
     assert vdicts[0]["z"] == pytest.approx(0.0)
@@ -154,15 +192,18 @@ def test_high_d_review_pass_immaterial() -> None:
     std_b = np.full(D, std_b_val)
     se_b = np.full(D, se)
 
-    all_pass, vdicts, meta = marginal_z_verdict(mean_a, std_a, se_a, mean_b, std_b, se_b,
-                                                D_total=D, n_chains=n_chains)
+    all_pass, vdicts, meta = marginal_z_verdict(
+        mean_a, std_a, se_a, mean_b, std_b, se_b, D_total=D, n_chains=n_chains
+    )
 
     assert all_pass, (
         f"D=1500 immaterial case should PASS under calibrated gate. "
         f"z_crit={meta['z_crit']:.3f}, max_z={meta['max_z']:.3f}, "
         f"n_fail={meta['n_fail']}, n_review={meta['n_review']}"
     )
-    assert meta["n_review"] >= 1, "hot dim should be REVIEW (z > z_crit but mat < TAU_SCI)"
+    assert (
+        meta["n_review"] >= 1
+    ), "hot dim should be REVIEW (z > z_crit but mat < TAU_SCI)"
     assert meta["n_fail"] == 0
     # z_crit matches expected Bonferroni value
     assert meta["z_crit"] == pytest.approx(z_crit_expected, rel=1e-5)
@@ -189,8 +230,9 @@ def test_materiality_hard_fail() -> None:
     std_b = np.array([std_b_val])
     se_b = np.array([se])
 
-    all_pass, vdicts, meta = marginal_z_verdict(mean_a, std_a, se_a, mean_b, std_b, se_b,
-                                                D_total=1, n_chains=10)
+    all_pass, vdicts, meta = marginal_z_verdict(
+        mean_a, std_a, se_a, mean_b, std_b, se_b, D_total=1, n_chains=10
+    )
     assert not all_pass, "Large z + large mat should hard-FAIL"
     assert vdicts[0]["verdict"] == "FAIL"
     assert meta["n_fail"] == 1
@@ -212,8 +254,9 @@ def test_materiality_review_pass() -> None:
     std_b = np.array([std_b_val])
     se_b = np.array([se])
 
-    all_pass, vdicts, meta = marginal_z_verdict(mean_a, std_a, se_a, mean_b, std_b, se_b,
-                                                D_total=1, n_chains=10)
+    all_pass, vdicts, meta = marginal_z_verdict(
+        mean_a, std_a, se_a, mean_b, std_b, se_b, D_total=1, n_chains=10
+    )
     assert all_pass, "Large z but immaterial should be REVIEW (counts as PASS)"
     assert vdicts[0]["verdict"] == "REVIEW"
     assert meta["n_review"] == 1
@@ -233,16 +276,18 @@ def test_materiality_boundary_strict_gt() -> None:
     std_b = np.array([std_b_val])
     se_b = np.array([se])
 
-    all_pass, vdicts, _ = marginal_z_verdict(mean_a, std_a, se_a, mean_b, std_b, se_b,
-                                             D_total=1, n_chains=10)
+    all_pass, vdicts, _ = marginal_z_verdict(
+        mean_a, std_a, se_a, mean_b, std_b, se_b, D_total=1, n_chains=10
+    )
     assert all_pass, f"mat exactly at boundary ({_TAU_SCI}) should be REVIEW, not FAIL"
     assert vdicts[0]["verdict"] == "REVIEW"
 
     # Just above the boundary → FAIL
     delta_above = _TAU_SCI * std_b_val + 1e-9
     mean_a_above = np.array([delta_above])
-    all_pass2, vdicts2, _ = marginal_z_verdict(mean_a_above, std_a, se_a, mean_b, std_b, se_b,
-                                               D_total=1, n_chains=10)
+    all_pass2, vdicts2, _ = marginal_z_verdict(
+        mean_a_above, std_a, se_a, mean_b, std_b, se_b, D_total=1, n_chains=10
+    )
     assert not all_pass2, "mat just above boundary should hard-FAIL"
     assert vdicts2[0]["verdict"] == "FAIL"
 
@@ -252,16 +297,18 @@ def test_materiality_boundary_strict_gt() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_mc_samples(n_chains: int, n_draws: int, D: int,
-                     mean: float = 0.0) -> dict[str, np.ndarray]:
+def _make_mc_samples(
+    n_chains: int, n_draws: int, D: int, mean: float = 0.0
+) -> dict[str, np.ndarray]:
     """Synthetic mc_samples dict (n_chains, n_draws, D) with given mean."""
     rng = np.random.default_rng(42)
     arr = rng.normal(mean, 1.0, (n_chains, n_draws, D))
     return {"x": arr}
 
 
-def _make_gt_summary(D: int, gt_mean: float = 0.0,
-                     n_samples: int = 40000) -> dict[str, dict]:
+def _make_gt_summary(
+    D: int, gt_mean: float = 0.0, n_samples: int = 40000
+) -> dict[str, dict]:
     """Synthetic ground_truth_summaries dict (legacy summary.json format)."""
     return {
         "x": {
@@ -284,8 +331,8 @@ def test_gt_compare_calibrated_pass_no_bias() -> None:
     assert result.calibrated_pass is True
     assert result.calibrated_n_fail == 0
     assert result.calibrated_D_total == 10
-    # With n_chains=1 (benchmark path), nu falls back to _DEFAULT_NU
-    assert result.calibrated_nu == _DEFAULT_NU
+    # Benchmark path always uses normal-Bonferroni (df → ∞) → calibrated_nu=None
+    assert result.calibrated_nu is None
 
 
 def test_gt_compare_calibrated_fail_large_bias() -> None:
@@ -302,68 +349,74 @@ def test_gt_compare_calibrated_fail_large_bias() -> None:
     assert result.calibrated_n_fail is not None and result.calibrated_n_fail >= 1
 
 
-def test_gt_compare_calibrated_nu_from_mc_n_chains() -> None:
-    """When mc n_chains > 1, nu = 2*(n_chains-1) (NOT _DEFAULT_NU)."""
-    from tuningfork.calibration._gate.gt_compare import _compute_gt_compare
-
-    # n_chunks=4 in auto_gate → mc_samples arrives with n_chains=4
-    mc = _make_mc_samples(n_chains=4, n_draws=250, D=5)
-    gt = _make_gt_summary(D=5)
-
-    result = _compute_gt_compare(mc, gt, min_bulk_ess=None)
-
-    assert result.calibrated_nu == 2 * (4 - 1), (
-        f"Expected nu=6 (2*(4-1)), got {result.calibrated_nu}. "
-        "nu should be derived from mc n_chains when > 1."
-    )
-
-
 def test_gt_compare_calibrated_review_immaterial_high_d() -> None:
-    """High-D benchmark (D=503, stoch_vol-sized): z=4.335 < z_crit → PASS.
+    """High-D benchmark (D=503, stoch_vol-sized): z>z_crit but mat<TAU_SCI → REVIEW (PASS).
 
-    With D=503 and nu=_DEFAULT_NU=9:
-        z_crit = t.ppf(1 - 0.05/(2*503), 9) ≈ 6.60
+    Under normal-Bonferroni at D=503 (benchmark regime, large df):
+        z_crit = norm.ppf(1 - 0.05/(2*503)) ≈ 3.892
 
-    stoch_vol's reported z=4.335 (x86_64, JAX 0.10) is well below z_crit
-    and passes the calibrated gate even without the materiality co-primary.
+    Constructs one "hot" dim with z≈5.5 > z_crit but |Δμ|/std_b ≈ 0.032 < TAU_SCI=0.05.
+    This dim is classified REVIEW (not FAIL) → calibrated_pass=True.
 
-    This test uses a synthetic run with max_abs_mean_z ≈ 4.335 to confirm
-    the calibrated gate classifies it as PASS (not FAIL).
+    This is the stoch_vol scenario: a 503-dim model crosses the dimension-aware
+    threshold by chance, but the per-dim bias is immaterial relative to the
+    posterior spread.  Under the OLD fixed gate (z<4.0), z=4.335 was a hard
+    FAIL with no materiality escape.
+
+    Design notes:
+    - n_draws=5000 makes background max_z ≈ 2.9 << z_crit=3.892 (very safe margin).
+    - std_b_bg=2.0: if any background dim trips z_crit by chance, its
+      mat ≈ 0.034 < TAU_SCI → REVIEW (not FAIL) regardless.
+    - denom_hot uses std_b_hot for se_gt (the actual denom, not std=1 shortcut).
     """
     from tuningfork.calibration._gate.gt_compare import _compute_gt_compare
-    from tuningfork.calibration._gate.marginal_z import bonferroni_z_crit
 
     D = 503
-    n_draws = 1000
+    n_draws = 5000
+    std_b_hot = 5.0  # hot dim: large GT spread → immaterial high-z bias
+    std_b_bg = 2.0  # background: mat < TAU_SCI even if z > z_crit by accident
     rng = np.random.default_rng(0)
 
-    # Design: sample mean deviates from GT mean enough to give z ≈ 4.335.
-    # se_sample ≈ 1.0 / sqrt(n_draws) ≈ 0.0316; se_gt ≈ 1.0/sqrt(40000) ≈ 0.005.
-    # Pooled SE denom ≈ sqrt(0.0316^2 + 0.005^2) ≈ 0.0320.
-    # To get z ≈ 4.335 in one hot dim: delta = 4.335 * 0.0320 ≈ 0.139.
-    se_sample_approx = 1.0 / math.sqrt(n_draws)
-    se_gt_approx = 1.0 / math.sqrt(40000)
-    denom_approx = math.sqrt(se_sample_approx**2 + se_gt_approx**2)
-    target_z = 4.335
-    delta = target_z * denom_approx
+    # Compute denom using actual se_gt for the hot dim (std_b_hot, not std=1).
+    se_sample_approx = 1.0 / math.sqrt(n_draws)  # ≈ 0.01414
+    se_gt_hot = std_b_hot / math.sqrt(40000)  # = 0.025
+    denom_hot = math.sqrt(se_sample_approx**2 + se_gt_hot**2)  # ≈ 0.02874
 
-    # Build a run where dim 0 has the target shift; other dims are zero
+    # target_z=5.5 >> z_crit≈3.892; 3σ lower bound ≈ 4.03 > 3.89
+    target_z = 5.5
+    delta = target_z * denom_hot  # ≈ 0.158; mat = 0.158/5.0 = 0.032 < 0.05
+
     arr = rng.normal(0.0, 1.0, (1, n_draws, D))
-    arr[:, :, 0] += delta  # shift dim 0
+    arr[:, :, 0] += delta  # shift only the hot dim
     mc = {"x": arr}
-    gt = _make_gt_summary(D=D, gt_mean=0.0)
+    gt = {
+        "x": {
+            "mean": [0.0] * D,
+            "std": [std_b_hot] + [std_b_bg] * (D - 1),
+            "n_samples": 40000,
+        }
+    }
 
     result = _compute_gt_compare(mc, gt, min_bulk_ess=None)
 
-    # Confirm calibrated z_crit >> 4.335 for D=503, nu=9
-    z_crit_expected = bonferroni_z_crit(D, _DEFAULT_NU)
-    assert z_crit_expected > 6.0, f"z_crit={z_crit_expected:.3f} expected > 6 for D=503, nu=9"
+    # Normal z_crit at D=503 ≈ 3.892
+    assert result.calibrated_z_crit is not None
+    assert result.calibrated_z_crit == pytest.approx(3.892, rel=1e-3)
 
+    # Immaterial high-z dim(s) → REVIEW → calibrated PASS
     assert result.calibrated_pass is True, (
-        f"stoch_vol-sized D=503 with max_abs_mean_z≈{result.max_abs_mean_z:.3f} should PASS "
-        f"under calibrated gate (z_crit={result.calibrated_z_crit:.3f}, "
-        f"n_fail={result.calibrated_n_fail})"
+        f"D=503 immaterial case should PASS. "
+        f"z_crit={result.calibrated_z_crit:.3f}, max_z={result.max_abs_mean_z:.3f}, "
+        f"n_fail={result.calibrated_n_fail}, n_review={result.calibrated_n_review}"
     )
+    assert result.calibrated_n_fail == 0
+    # Dim 0 is designed to trip z_crit but remain immaterial → REVIEW
+    assert result.calibrated_n_review is not None and result.calibrated_n_review >= 1, (
+        f"Hot dim (target_z={target_z}) should be REVIEW (z>z_crit, mat<TAU_SCI). "
+        f"Got n_review={result.calibrated_n_review}, max_z={result.max_abs_mean_z:.3f}"
+    )
+    # Benchmark path always uses normal-approx (no finite nu)
+    assert result.calibrated_nu is None
 
 
 def test_gt_compare_max_abs_mean_z_preserved() -> None:
