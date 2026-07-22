@@ -396,6 +396,31 @@ def run_benchmark_cell(
         pytest.skip(f"Recipe not found on disk: {recipe_path}")
     recipe = load_recipe(recipe_path)
 
+    # ------------------------------------------------------------------
+    # JAX version mismatch guard — emit a GHA annotation when the
+    # benchmarking JAX version differs from the recipe's cert JAX.
+    #
+    # Background (2026-07-22): a JAX 0.10.0→0.10.1 bump caused 5-12%
+    # per-component IMM shifts in window_adaptation warmup, moving a
+    # recipe certified at z=1.40 (JAX 0.10.0) to z=4.3 at some nightly
+    # seeds on JAX 0.10.1. The mismatch went undetected for weeks because
+    # there is no cert-vs-bench JAX comparison. This guard surfaces it.
+    #
+    # Not a hard failure — recipe may still pass at the new JAX — but the
+    # annotation lets the TL spot borderline certs before they hit the 4.0
+    # threshold.
+    # ------------------------------------------------------------------
+    import jax as _jax  # noqa: PLC0415
+
+    _running_jax = _jax.__version__
+    _cert_jax = getattr(recipe, "jax_version", None)
+    if _cert_jax is not None and _running_jax != _cert_jax:
+        print(
+            f"::warning::JAX_VERSION_MISMATCH {model_name}/{recipe_file}: "
+            f"cert_jax={_cert_jax} bench_jax={_running_jax}. "
+            "Recipe GT-correctness may shift; re-certify if z approaches threshold."
+        )
+
     seeds = get_nightly_seeds(run_date)
     skip_warmup = mode == "calibrated"
     per_seed_metrics: dict[int, dict[str, Any]] = {}
