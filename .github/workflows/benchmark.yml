@@ -39,7 +39,10 @@ jobs:
   benchmark:
     name: Benchmark (${{ github.event_name }})
     runs-on: ubuntu-24.04   # pinned LTS — float tags break env fingerprinting
-    timeout-minutes: 180    # hard cap: 7 runs/cell (1 compile-warmup + 3x2) ~2.3x prior
+    timeout-minutes: 240    # hard cap: 7 runs/cell (1 compile-warmup + 3x2) ~2.3x prior
+    # 2026-07-22: bumped 180→240 min. Cold-cache nights (machine fingerprint
+    # rotation in GH Actions) add ~70 min for XLA recompilation; 240 min covers
+    # cold + slow-cell step-collapse combinations without cancelling.
 
     steps:
       - name: Checkout
