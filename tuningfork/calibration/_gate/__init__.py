@@ -38,6 +38,13 @@ from .bands import (
 from .constants import DEFAULT_THRESHOLDS, Z_VERDICT_ESS_CEILING
 from .gt_compare import _compute_gt_compare, _GtCompareResult
 from .layout import _samples_to_multichain
+from .marginal_z import (
+    _DEFAULT_NU,
+    _SE_FLOOR,
+    _TAU_SCI,
+    bonferroni_z_crit,
+    marginal_z_verdict,
+)
 from .mixing import _compute_mixing_stats
 from .verdict import AutoGateVerdict, _assemble_verdict
 from .w1_realm import (
@@ -55,7 +62,10 @@ __all__ = [
     "DEFAULT_THRESHOLDS",
     "W1RealmResult",
     "Z_VERDICT_ESS_CEILING",
+    "_DEFAULT_NU",
     "_GtCompareResult",
+    "_SE_FLOOR",
+    "_TAU_SCI",
     "_apply_vi_mode_thresholds",
     "_assemble_verdict",
     "_build_floor",
@@ -69,7 +79,9 @@ __all__ = [
     "_samples_to_multichain",
     "_w1_1d",
     "_worst",
+    "bonferroni_z_crit",
     "compute_w1_realm",
+    "marginal_z_verdict",
     "resolve_thresholds",
     "sidak_t_pass",
 ]

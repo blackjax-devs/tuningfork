@@ -66,6 +66,9 @@ class AutoGateVerdict:
         None  # True when L·ε ∈ 2kπ danger zone (fixed-L HMC only)
     )
     w1_realm_result: W1RealmResult | None = None  # populated when gt_draws provided
+    # Calibrated GT verdict (PR #245 pooled-SE + Bonferroni + materiality gate).
+    # Keys: pass, n_fail, n_review, z_crit, D_total, nu.  None when no GT provided.
+    gt_calibrated: dict | None = None
 
     def to_dict(self) -> dict:
         """Render in the exact shape ``Recipe.gate_evidence['auto']`` expects.
@@ -270,6 +273,18 @@ def _assemble_verdict(
         if cost:
             margins["cost"] = cost
 
+    # Propagate calibrated verdict info from gt_result (PR #245 gate).
+    _gt_calibrated: dict | None = None
+    if gt_result is not None and gt_result.calibrated_pass is not None:
+        _gt_calibrated = {
+            "pass": gt_result.calibrated_pass,
+            "n_fail": gt_result.calibrated_n_fail,
+            "n_review": gt_result.calibrated_n_review,
+            "z_crit": gt_result.calibrated_z_crit,
+            "D_total": gt_result.calibrated_D_total,
+            "nu": gt_result.calibrated_nu,
+        }
+
     return AutoGateVerdict(
         rhat_max=rhat_max,
         min_bulk_ess=min_bulk_ess,
@@ -279,4 +294,5 @@ def _assemble_verdict(
         margins=margins,
         resonance_warning=resonance_warning,
         w1_realm_result=w1_realm_result,
+        gt_calibrated=_gt_calibrated,
     )
