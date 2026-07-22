@@ -30,6 +30,7 @@ import pytest
 
 from tuningfork.calibration._gate.marginal_z import (
     _TAU_SCI,
+    _TAU_SCI_BENCHMARK,
     bonferroni_z_crit,
     bonferroni_z_crit_normal,
     marginal_z_verdict,
@@ -290,6 +291,121 @@ def test_materiality_boundary_strict_gt() -> None:
     )
     assert not all_pass2, "mat just above boundary should hard-FAIL"
     assert vdicts2[0]["verdict"] == "FAIL"
+
+
+# ---------------------------------------------------------------------------
+# _TAU_SCI_BENCHMARK: benchmark-regime materiality bar = 0.15
+# ---------------------------------------------------------------------------
+
+
+def test_tau_sci_benchmark_value() -> None:
+    """_TAU_SCI_BENCHMARK is pinned at 0.15 (GT-correctness regime).
+
+    Regression guard: this value was chosen so that stoch_vol seed-18's
+    per-seed worst-marginal bias (0.085σ) is a REVIEW, not a FAIL, while
+    genuine ≥0.15σ biases are still caught.  Any change to this constant
+    must be a deliberate TL decision.
+    """
+    assert _TAU_SCI_BENCHMARK == pytest.approx(0.15)
+    # The benchmark bar must be strictly looser than the coherence bar.
+    assert (
+        _TAU_SCI_BENCHMARK > _TAU_SCI
+    ), "_TAU_SCI_BENCHMARK (correctness) must be looser than _TAU_SCI (coherence)"
+
+
+def test_benchmark_tau_sci_review_at_seed18_mat() -> None:
+    """mat=0.085σ (seed-18 worst-dim) → REVIEW at _TAU_SCI_BENCHMARK=0.15.
+
+    Seed-18 (stoch_vol nightly) has bias_sigma_at_argmax_z=0.085.  Under the
+    benchmark gate this is a REVIEW (mat > 0.05 but ≤ 0.15), not a hard FAIL.
+    Verifies the `gt_compare.py` calibrated verdict at TAU_SCI_BENCHMARK=0.15.
+    """
+    from tuningfork.calibration._gate.gt_compare import _compute_gt_compare
+
+    D = 503
+    n_draws = 5000
+    rng = np.random.default_rng(18)  # seed-18 analogy
+
+    # Construct one dim with z > z_crit and mat = 0.085 (between 0.05 and 0.15).
+    # At D=503, z_crit_normal ≈ 3.892.
+    # denom ≈ sqrt((1/sqrt(n_draws))^2 + (1/sqrt(40000))^2) ≈ 0.01443
+    se_sample = 1.0 / math.sqrt(n_draws)  # ≈ 0.01414
+    se_gt = 1.0 / math.sqrt(40000)  # = 0.005
+    denom = math.sqrt(se_sample**2 + se_gt**2)  # ≈ 0.01484
+
+    target_z = 5.0  # > z_crit=3.892 with comfortable margin
+    target_mat = 0.085  # between _TAU_SCI=0.05 and _TAU_SCI_BENCHMARK=0.15
+
+    # std_b such that delta/std_b = 0.085 → std_b = delta/0.085
+    delta = target_z * denom
+    std_b_hot = delta / target_mat  # ≈ 0.083 / 0.085 ≈ 0.975 ≈ 1.0
+
+    arr = rng.normal(0.0, 1.0, (1, n_draws, D))
+    arr[:, :, 0] += delta
+    mc = {"x": arr}
+    gt = {
+        "x": {
+            "mean": [0.0] * D,
+            "std": [std_b_hot] + [1.0] * (D - 1),
+            "n_samples": 40000,
+        }
+    }
+
+    result = _compute_gt_compare(mc, gt, min_bulk_ess=None)
+
+    # At TAU_SCI_BENCHMARK=0.15: mat=0.085 ≤ 0.15 → REVIEW, not FAIL.
+    assert result.calibrated_pass is True, (
+        f"mat≈0.085 < TAU_SCI_BENCHMARK=0.15 should be REVIEW (PASS). "
+        f"z_crit={result.calibrated_z_crit:.3f}, n_fail={result.calibrated_n_fail}, "
+        f"n_review={result.calibrated_n_review}"
+    )
+    assert result.calibrated_n_fail == 0
+    assert (
+        result.calibrated_n_review is not None and result.calibrated_n_review >= 1
+    ), "hot dim (mat≈0.085) should be REVIEW under TAU_SCI_BENCHMARK=0.15"
+
+
+def test_benchmark_tau_sci_hard_fail_at_genuine_bias() -> None:
+    """mat=0.2σ (genuine bias) → hard FAIL at _TAU_SCI_BENCHMARK=0.15.
+
+    Confirms the benchmark gate still catches real biases above 0.15σ,
+    so relaxing TAU_SCI_BENCHMARK from 0.05 to 0.15 is not a blanket amnesty.
+    """
+    from tuningfork.calibration._gate.gt_compare import _compute_gt_compare
+
+    D = 503
+    n_draws = 5000
+    rng = np.random.default_rng(0)
+
+    se_sample = 1.0 / math.sqrt(n_draws)
+    se_gt = 1.0 / math.sqrt(40000)
+    denom = math.sqrt(se_sample**2 + se_gt**2)
+
+    target_z = 6.0  # > z_crit=3.892
+    target_mat = 0.2  # > _TAU_SCI_BENCHMARK=0.15 → hard FAIL
+
+    delta = target_z * denom
+    std_b_hot = delta / target_mat  # std_b calibrated so mat = 0.20
+
+    arr = rng.normal(0.0, 1.0, (1, n_draws, D))
+    arr[:, :, 0] += delta
+    mc = {"x": arr}
+    gt = {
+        "x": {
+            "mean": [0.0] * D,
+            "std": [std_b_hot] + [1.0] * (D - 1),
+            "n_samples": 40000,
+        }
+    }
+
+    result = _compute_gt_compare(mc, gt, min_bulk_ess=None)
+
+    # At TAU_SCI_BENCHMARK=0.15: mat=0.2 > 0.15 → hard FAIL.
+    assert result.calibrated_pass is False, (
+        f"mat≈0.20 > TAU_SCI_BENCHMARK=0.15 should hard-FAIL. "
+        f"z_crit={result.calibrated_z_crit:.3f}, n_fail={result.calibrated_n_fail}"
+    )
+    assert result.calibrated_n_fail is not None and result.calibrated_n_fail >= 1
 
 
 # ---------------------------------------------------------------------------

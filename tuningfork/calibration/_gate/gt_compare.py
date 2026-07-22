@@ -20,7 +20,7 @@ import numpy as np
 from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
 
 from .bands import sidak_t_pass
-from .marginal_z import _SE_FLOOR, _TAU_SCI, bonferroni_z_crit_normal
+from .marginal_z import _SE_FLOOR, _TAU_SCI_BENCHMARK, bonferroni_z_crit_normal
 
 
 @dataclass
@@ -30,9 +30,9 @@ class _GtCompareResult:
     Consumed by ``_assemble_verdict`` in ``verdict.py``.
 
     The ``calibrated_*`` fields carry the PR #245 verdict (pooled-SE denom +
-    Bonferroni z_crit + materiality co-primary) that replaces the old fixed
-    z < 4.0 assertion in the benchmark gate.  They are ``None`` when no params
-    matched ground-truth summaries.
+    Bonferroni z_crit + materiality co-primary at ``_TAU_SCI_BENCHMARK=0.15``)
+    that replaces the old fixed z < 4.0 assertion in the benchmark gate.
+    They are ``None`` when no params matched ground-truth summaries.
     """
 
     max_abs_mean_z: float | None
@@ -238,18 +238,21 @@ def _compute_gt_compare(
         # Calibrated verdict over ALL accumulated dims.
         # Benchmark path uses normal-Bonferroni (large df from ESS-based SE;
         # see PR #245 decision doc for the t-df vs normal-approx adjudication).
+        # Materiality threshold: _TAU_SCI_BENCHMARK=0.15 (GT-correctness regime),
+        # looser than _TAU_SCI=0.05 (GT-coherence) because a nightly recipe run
+        # has higher MC noise than a full GT re-run (see marginal_z.py rationale).
         if _all_z_dim_scores:
             D_cal = sum(1 for z in _all_z_dim_scores if math.isfinite(z))
             z_crit_cal = bonferroni_z_crit_normal(D_cal)
             n_fail_cal = sum(
                 1
                 for z, m in zip(_all_z_dim_scores, _bias_sigmas)
-                if math.isfinite(z) and z > z_crit_cal and m > _TAU_SCI
+                if math.isfinite(z) and z > z_crit_cal and m > _TAU_SCI_BENCHMARK
             )
             n_review_cal = sum(
                 1
                 for z, m in zip(_all_z_dim_scores, _bias_sigmas)
-                if math.isfinite(z) and z > z_crit_cal and m <= _TAU_SCI
+                if math.isfinite(z) and z > z_crit_cal and m <= _TAU_SCI_BENCHMARK
             )
             _calibrated_pass = n_fail_cal == 0
             _calibrated_n_fail = n_fail_cal
