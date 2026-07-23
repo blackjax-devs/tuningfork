@@ -26,6 +26,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from tuningfork.calibration._gate.marginal_z import _TAU_SCI_BENCHMARK
+
 _CATALOG_ROOT = Path(__file__).resolve().parents[1] / "tuningfork" / "catalog"
 _N_SAMPLES = 1000  # matches recipe-cert n_samp=4000 (1000×4 chains) for z<2.0
 _Z_THRESHOLD = (
@@ -522,7 +524,7 @@ def run_benchmark_cell(
                     f"max_abs_mean_z={z_str}, z_crit={z_crit_str} "
                     f"(D_total={D_total}, nu={nu}), "
                     f"{n_fail} hard-fail dim(s), {n_review} REVIEW dim(s). "
-                    f"A hard-fail dim has z > z_crit AND |Δμ|/σ > 0.05."
+                    f"A hard-fail dim has z > z_crit AND |Δμ|/σ > {_TAU_SCI_BENCHMARK}."
                 )
         elif z is not None:
             # Fallback: calibrated verdict unavailable (no GT summary), use old gate.

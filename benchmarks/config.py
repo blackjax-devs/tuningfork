@@ -396,7 +396,7 @@ XFAIL_CELLS: dict[str, str] = {
     # 2026-07-22: stoch_vol × nuts × diag_imm e2e XFAIL REMOVED.
     # Root cause was a gate-calibration artifact (not a recipe regression):
     # the old fixed z<4.0 gate false-failed a 503-dim model whose null |z|
-    # floor is E[max 503 |N(0,1)|]≈3.53. The calibrated gate (pooled-SE +
+    # floor is E[max 503 |N(0,1)|]≈3.24 (500k-rep MC). The calibrated gate (pooled-SE +
     # normal-Bonferroni z_crit≈3.89 + materiality TAU_SCI_BENCHMARK=0.15) passes
     # all 6 nightly seeds (20260716–21): 5 seeds max_z≤3.46 (well below z_crit),
     # seed-18 max_z=4.86 > z_crit but mat=0.085σ < 0.15 → REVIEW (not FAIL).
