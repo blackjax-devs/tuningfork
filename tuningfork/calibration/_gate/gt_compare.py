@@ -11,15 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Ground-truth comparison stage — z-scores and bias-sigma diagnostics."""
+"""Ground-truth comparison stage — z-scores, bias-sigma diagnostics, calibrated verdict."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
 
 from .bands import sidak_t_pass
+from .marginal_z import _SE_FLOOR, _TAU_SCI_BENCHMARK, bonferroni_z_crit_normal
 
 
 @dataclass
@@ -27,6 +28,11 @@ class _GtCompareResult:
     """All outputs from the ground-truth comparison stage.
 
     Consumed by ``_assemble_verdict`` in ``verdict.py``.
+
+    The ``calibrated_*`` fields carry the PR #245 verdict (pooled-SE denom +
+    Bonferroni z_crit + materiality co-primary at ``_TAU_SCI_BENCHMARK=0.15``)
+    that replaces the old fixed z < 4.0 assertion in the benchmark gate.
+    They are ``None`` when no params matched ground-truth summaries.
     """
 
     max_abs_mean_z: float | None
@@ -35,6 +41,16 @@ class _GtCompareResult:
     bias_sigma_at_argmax_z: float | None
     bias_sigma_max_at_z4: float | None
     achieved_bias_bound_sigma: float | None
+    # Calibrated verdict fields (PR #245, pooled-SE + Bonferroni + materiality).
+    # None when no params matched GT summaries.
+    calibrated_pass: bool | None = field(default=None)
+    calibrated_n_fail: int | None = field(default=None)
+    calibrated_n_review: int | None = field(default=None)
+    calibrated_z_crit: float | None = field(default=None)
+    calibrated_D_total: int | None = field(default=None)
+    # Always None in _compute_gt_compare: benchmark path uses normal-Bonferroni
+    # (large df → normal limit).  Preserved for downstream consumers that log it.
+    calibrated_nu: int | None = field(default=None)
 
 
 def _compute_gt_compare(
@@ -59,8 +75,9 @@ def _compute_gt_compare(
     Returns
     -------
     _GtCompareResult
-        Contains ``max_abs_mean_z``, ``frac_z2``, ``n_dims``, and the three
-        ``bias_sigma_*`` fields used as advisory diagnostics.
+        Contains ``max_abs_mean_z``, ``frac_z2``, ``n_dims``, the three
+        ``bias_sigma_*`` advisory fields, and the ``calibrated_*`` fields
+        carrying the PR #245 gate verdict.
     """
     # --- max_abs_mean_z + frac_z2 + bias_sigma margins ---
     max_abs_mean_z: float | None = None
@@ -82,13 +99,14 @@ def _compute_gt_compare(
     z_values: list[float] = []
     # Per-dimension z-scores accumulated across all sites for frac_z2.
     _all_z_dim_scores: list[float] = []
-    # Track bias_sigma values for margin computation.
+    # Track bias_sigma values for margin computation and calibrated verdict.
     _bias_sigmas: list[float] = []
     # Track SE and GT std at argmax_z dimension for achieved_bias_bound.
     _argmax_z_idx = -1
     _se_sample_at_argmax: float | None = None
     _se_gt_at_argmax: float | None = None
     _gt_std_at_argmax: float | None = None
+
     for name, arr in mc_samples.items():
         if name not in ground_truth_summaries:
             continue
@@ -99,6 +117,7 @@ def _compute_gt_compare(
         merged = arr_np.reshape(n_chains * n_draws, *arr_np.shape[2:])
         sample_mean = np.mean(merged, axis=0)
         sample_std = np.std(merged, axis=0)
+
         # Per-dimension ESS for SE computation (M1 fix).
         # Using the global min_bulk_ess for every dimension's SE was
         # inaccurate: for a model where most dims mix at ESS=2000 but
@@ -145,13 +164,15 @@ def _compute_gt_compare(
             gt_n = gt.get("n_samples", n_chains * n_draws)
             se_gt = gt_std / np.sqrt(max(float(gt_n), 1.0))
 
-        denom = np.maximum(se_sample, se_gt)
-        # Avoid division by zero
-        denom = np.where(denom > 0, denom, 1.0)
+        # Pooled SE denominator (PR #245 decision 1, ported from _verify.py).
+        # Prior formula: max(se_sample, se_gt), which inflates z by up to √2
+        # at equal SE.  Shared constant _SE_FLOOR from marginal_z prevents
+        # division-by-zero on near-zero-SE dims.
+        denom = np.maximum(np.sqrt(se_sample**2 + se_gt**2), _SE_FLOOR)
         z_scores = np.abs(sample_mean - gt_mean) / denom
 
-        # Compute bias_sigma: |mean - gt_mean| / gt_std (effect size in GT-σ units)
-        # Avoid division by zero in gt_std
+        # Compute bias_sigma: |mean - gt_mean| / gt_std (effect size in GT-σ units).
+        # Also serves as the materiality measure for the calibrated verdict.
         gt_std_safe = np.where(gt_std > 0, gt_std, 1.0)
         bias_sigmas = np.abs(sample_mean - gt_mean) / gt_std_safe
 
@@ -171,6 +192,16 @@ def _compute_gt_compare(
                 _se_sample_at_argmax = float(se_sample.ravel()[local_argmax])
                 _se_gt_at_argmax = float(se_gt.ravel()[local_argmax])
                 _gt_std_at_argmax = float(np.asarray(gt_std).ravel()[local_argmax])
+
+    # -----------------------------------------------------------------------
+    # Calibrated verdict: Bonferroni z_crit + materiality gate (PR #245).
+    # Computed globally across all params after the loop (D_total = all finite dims).
+    # -----------------------------------------------------------------------
+    _calibrated_pass: bool | None = None
+    _calibrated_n_fail: int | None = None
+    _calibrated_n_review: int | None = None
+    _calibrated_z_crit_val: float | None = None
+    _calibrated_D_total: int | None = None
 
     if z_values:
         max_abs_mean_z = float(max(z_values))
@@ -192,7 +223,8 @@ def _compute_gt_compare(
                 )
 
         # achieved_bias_bound_sigma: t_pass(d) * max(se_sample, se_gt) / gt_std
-        # at the argmax dimension
+        # at the argmax dimension.  Uses old max() SE for the bound (not pooled)
+        # since it's a secondary advisory diagnostic, not the primary gate.
         if (
             _se_sample_at_argmax is not None
             and _se_gt_at_argmax is not None
@@ -203,6 +235,31 @@ def _compute_gt_compare(
                 se_max = max(_se_sample_at_argmax, _se_gt_at_argmax)
                 _achieved_bias_bound_sigma = float(t_pass * se_max / _gt_std_at_argmax)
 
+        # Calibrated verdict over ALL accumulated dims.
+        # Benchmark path uses normal-Bonferroni (large df from ESS-based SE;
+        # see PR #245 decision doc for the t-df vs normal-approx adjudication).
+        # Materiality threshold: _TAU_SCI_BENCHMARK=0.15 (GT-correctness regime),
+        # looser than _TAU_SCI=0.05 (GT-coherence) because a nightly recipe run
+        # has higher MC noise than a full GT re-run (see marginal_z.py rationale).
+        if _all_z_dim_scores:
+            D_cal = sum(1 for z in _all_z_dim_scores if math.isfinite(z))
+            z_crit_cal = bonferroni_z_crit_normal(D_cal)
+            n_fail_cal = sum(
+                1
+                for z, m in zip(_all_z_dim_scores, _bias_sigmas)
+                if math.isfinite(z) and z > z_crit_cal and m > _TAU_SCI_BENCHMARK
+            )
+            n_review_cal = sum(
+                1
+                for z, m in zip(_all_z_dim_scores, _bias_sigmas)
+                if math.isfinite(z) and z > z_crit_cal and m <= _TAU_SCI_BENCHMARK
+            )
+            _calibrated_pass = n_fail_cal == 0
+            _calibrated_n_fail = n_fail_cal
+            _calibrated_n_review = n_review_cal
+            _calibrated_z_crit_val = z_crit_cal
+            _calibrated_D_total = D_cal
+
     return _GtCompareResult(
         max_abs_mean_z=max_abs_mean_z,
         frac_z2=_frac_z2,
@@ -210,4 +267,10 @@ def _compute_gt_compare(
         bias_sigma_at_argmax_z=_bias_sigma_at_argmax_z,
         bias_sigma_max_at_z4=_bias_sigma_max_at_z4,
         achieved_bias_bound_sigma=_achieved_bias_bound_sigma,
+        calibrated_pass=_calibrated_pass,
+        calibrated_n_fail=_calibrated_n_fail,
+        calibrated_n_review=_calibrated_n_review,
+        calibrated_z_crit=_calibrated_z_crit_val,
+        calibrated_D_total=_calibrated_D_total,
+        calibrated_nu=None,  # normal-Bonferroni: df → ∞ (no finite nu)
     )

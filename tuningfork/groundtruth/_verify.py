@@ -61,8 +61,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy import stats as scipy_stats
 
+from tuningfork.calibration._gate.marginal_z import (
+    _SE_FLOOR,
+    _TAU_SCI,
+    bonferroni_z_crit,
+)
 from tuningfork.groundtruth._dispatch import committed_gt_dir, load_committed_summary
 
 __all__ = ["verify_groundtruth"]
@@ -73,17 +77,11 @@ _MIN_BULK_ESS: float = 400.0
 _MAX_DIV_RATE: float = 0.001
 _MIN_EBFMI: float = 0.3
 
-# Coherence SE floor (prevents division-by-zero on scalar / near-zero-SE sites).
-# Under the dual gate this absolute floor only affects REVIEW labelling, not
-# pass/fail: when a dim trips z > z_crit its verdict is decided by materiality
-# (mat_d vs _TAU_SCI), so the floored z only influences whether the dim is REVIEW
-# or unchecked — not whether the gate hard-fails.
-_SE_FLOOR: float = 1e-8
-
-# Materiality threshold: |Δμ| / std_committed must strictly exceed this to
-# be a hard FAIL (strict > so that the boundary 0.05σ is REVIEW, not FAIL).
-# Mirrors the W1 gate sibling in calibration/_gate/w1_realm.py.
-_TAU_SCI: float = 0.05
+# _SE_FLOOR and _TAU_SCI are imported from tuningfork.calibration._gate.marginal_z
+# — single source of truth shared with the benchmark gate (_gate/gt_compare.py).
+# TODO unify: route _check_coherence through marginal_z.marginal_z_verdict for
+# full single-source-of-truth (the multi-site iteration structure differs; see
+# the per-site loop below and _GtCompareResult in gt_compare.py).
 
 # Default n_chains when the summary metadata field is absent
 _DEFAULT_N_CHAINS: int = 10
@@ -178,11 +176,9 @@ def _check_coherence(
             )
 
     # Dimension-aware t-threshold (Bonferroni over D_total dims).
+    # Uses shared bonferroni_z_crit from marginal_z — single source of truth.
     nu = 2 * (n_chains - 1)
-    if D_total > 0:
-        z_crit = float(scipy_stats.t.ppf(1.0 - alpha / (2.0 * D_total), nu))
-    else:
-        z_crit = float("inf")  # degenerate: no dims to check
+    z_crit = bonferroni_z_crit(D_total, nu, alpha)
 
     # Check for committed sites absent from generated — these are hard FAILs.
     missing_committed_sites = [s for s in com_per_site if s not in gen_per_site]

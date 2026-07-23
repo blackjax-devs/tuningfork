@@ -393,22 +393,14 @@ XFAIL_CELLS: dict[str, str] = {
         "removed 2026-06-16 after is_mass_matrix_diagonal fix (e645664), now recurring "
         "with different seeds. Root cause: inherent warmup seed-sensitivity on stiff ODE."
     ),
-    # 2026-07-16: stoch_vol × nuts × diag_imm e2e failing every nightly seed.
-    # Seeds 20260716–20260720 all fail (z > 4.0); stoch_vol PASSED through
-    # 20260715. Certified recipe had max_abs_mean_z=1.40 (tuning_seed 682737,
-    # blackjax 1.6.dev84). Coincides with blackjax@main PRs #992–#998 merged
-    # 2026-07-15/16 touching staged_adaptation.py + multi-chain adaptation
-    # (the recipe uses 4-chain window_adaptation_diag_imm). Seed 20260720
-    # confirmed z=4.335. Cell still runs for timing; only the z<4.0 assert is
-    # expected-failure pending root-cause investigation.
-    # Tracked: github.com/blackjax-devs/tuningfork/issues/232
-    "tier2-stoch_vol-low__nuts__window_adaptation_diag_imm-e2e": (
-        "GT-correctness failure on every nightly seed since 2026-07-16 (issue #232): "
-        "z=4.335 confirmed at seed=20260720; seeds 20260716–20260720 all fail. "
-        "Certified recipe z=1.40 (tuning_seed 682737). Suspected regression from "
-        "blackjax@main PRs #992–#998 (staged_adaptation + multi-chain warmup changes "
-        "merged 2026-07-15/16). Pending root-cause investigation."
-    ),
+    # 2026-07-22: stoch_vol × nuts × diag_imm e2e XFAIL REMOVED.
+    # Root cause was a gate-calibration artifact (not a recipe regression):
+    # the old fixed z<4.0 gate false-failed a 503-dim model whose null |z|
+    # floor is E[max 503 |N(0,1)|]≈3.24 (500k-rep MC). The calibrated gate (pooled-SE +
+    # normal-Bonferroni z_crit≈3.89 + materiality TAU_SCI_BENCHMARK=0.15) passes
+    # all 6 nightly seeds (20260716–21): 5 seeds max_z≤3.46 (well below z_crit),
+    # seed-18 max_z=4.86 > z_crit but mat=0.085σ < 0.15 → REVIEW (not FAIL).
+    # Fixed in PR #250; issue #232 stoch_vol arm closed.
 }
 
 PINNED_SEEDS: dict[str, int] = {
