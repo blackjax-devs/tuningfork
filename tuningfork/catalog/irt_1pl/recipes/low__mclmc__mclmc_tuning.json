@@ -7,7 +7,7 @@
     "L": 18.60440444946289,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.21033146977424622,
+  "headline_metric": 0.21156077575683593,
   "sample_quality": {
     "mae_vs_reference": 0.065789551495511,
     "q05_error": 0.11674591058635497,
@@ -16,13 +16,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 8.489838990964927,
+    "wall_seconds_estimate": 7.726296223001555,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 5.746,
-    "sampling_wall_seconds": 1.214,
-    "sampling_seconds_per_draw": 0.000303,
+    "warmup_wall_seconds": 5.34,
+    "sampling_wall_seconds": 1.18,
+    "sampling_seconds_per_draw": 0.000295,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -38,11 +38,14 @@
     "warmup_grad_evals": 2664
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 27.499103546142578, 'L': 18.60440444946289, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2103.\nWall time to produce this recipe: ~8 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 27.499103546142578, 'L': 18.60440444946289, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.2116.\nWall time to produce this recipe: ~7 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 8000,
-    "min_bulk_ess": 1682.6517581939697,
+    "min_bulk_ess": 1692.4862060546875,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 1682.6517333984375,
+    "estimator_ratio": 1.005844627537029,
     "grad_count_convention": "2",
     "is_lower_bound": false
   },
@@ -118,10 +121,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T08:50:54Z",
+  "timestamp_utc": "2026-07-29T12:50:05Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
