@@ -11,7 +11,7 @@
   "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 3.165930067014415,
+    "wall_seconds_estimate": 3.0929517570184544,
     "n_warmup": 10000,
     "seed_evidence": [
       {
@@ -24,7 +24,7 @@
         "div_rate": 0.0,
         "ess_per_grad": 0.22549148559570312,
         "total_grad_evals": 8000,
-        "wall_seconds": 12.173173270013649,
+        "wall_seconds": 12.138164230971597,
         "step_size": 5.774909496307373,
         "L": 6.2650017738342285
       },
@@ -38,7 +38,7 @@
         "div_rate": 0.0,
         "ess_per_grad": 0.23113987731933594,
         "total_grad_evals": 8000,
-        "wall_seconds": 3.337537313986104,
+        "wall_seconds": 3.186206426937133,
         "step_size": 5.830670356750488,
         "L": 6.7151265144348145
       },
@@ -52,7 +52,7 @@
         "div_rate": 0.0,
         "ess_per_grad": 0.24782252502441407,
         "total_grad_evals": 8000,
-        "wall_seconds": 3.165930067014415,
+        "wall_seconds": 3.0929517570184544,
         "step_size": 5.9139018058776855,
         "L": 6.218416213989258
       }
@@ -132,7 +132,7 @@
   "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T12:51:10Z",
+  "timestamp_utc": "2026-07-29T13:49:29Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
