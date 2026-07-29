@@ -35,8 +35,12 @@ axes, causing isotropic MCLMC to be highly inefficient.
   is REVIEW.
 - k=26 on d=26 is full-rank. LRD is O(dk)=O(d²) in this regime — no scaling
   advantage over a dense approach. Full-rank LRD is used here as a validation case.
-- ESS/grad: ~520/8000 ≈ 0.065, vs NUTS baseline ~2798/≫10000 ≈ 0.0065. MCLMC
-  sampling efficiency per grad is ~10× higher than NUTS at equal draw count.
+- ESS/grad: ~520/8000 ≈ 0.065 for this early k=26 REVIEW run (old estimator basis).
+  Committed NUTS recipes for german_credit record 0.0432–0.2166 (see
+  `low__nuts__window_adaptation_{diag,dense,low_rank}_imm.json`). The committed
+  k=8 LRD recipe records 0.048 (headline, old estimator basis) with basis-derived
+  0.1987 (min_bulk_ess 1590 / 8000 grads); both values place MCLMC-LRD at parity
+  with or below the best NUTS baseline (0.2166), not 10× above it.
 - Pipeline: pilot run ~1.9s, LRD MCLMC sampling ~14.3s.
   [boundary: REVIEW (not PASS) at k=26 full-rank; committed catalog artifact uses k=8, which achieves 3/3 PASS at n_warmup=2000; full-rank k=26 is documented as upper-bound validation only]
 
