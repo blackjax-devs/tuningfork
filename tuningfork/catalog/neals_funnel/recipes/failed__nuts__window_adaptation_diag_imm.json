@@ -1,0 +1,99 @@
+{
+  "model_name": "neals_funnel",
+  "base_method_name": "nuts",
+  "effort": "failed",
+  "base_method_params": {},
+  "warmup_name": "window_adaptation_diag_imm",
+  "warmup_params": {
+    "n_warmup": 1000,
+    "num_chains": 4,
+    "target_acceptance": 0.8
+  },
+  "headline_metric": null,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 3,
+    "wall_seconds_estimate": 10.0
+  },
+  "difficulty": null,
+  "instructions": null,
+  "notes": "Contradicts lessons.md claim that 'NUTS with diagonal IMM achieves PASS on the standard 2-D formulation'. Empirically FAILs at all warmup budgets tested. Budget-invariant geometry failure: the funnel's position-dependent curvature prevents any fixed step size from traversing both neck and body. See also failed__nuts__window_adaptation_diag_imm__ta099.json for the ta=0.99 experiment.",
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "inverse_mass_matrix_path": null,
+  "workflow": "Ran NUTS + window_adaptation_diag_imm at three warmup budgets (1k, 3k, 10k). All FAIL. The diagnostic pattern confirms a budget-invariant geometry blocker: step_size converges to ~0.077-0.165 (global mean), which works in the funnel BODY (large-v, high-x-variance region) but causes divergences in the NECK (small-v, tiny-x-variance). With more warmup, the bias (max_z) INCREASES because the adapted step_size further optimises for the wide region: z=2.34 at 1k warmup, z=3.34 at 3k, z=6.03 at 10k. This is budget-invariant in the same way as the MCLMC family failures on this model. The lessons.md claim 'NUTS with diagonal IMM achieves PASS on the 2-D formulation via tree-expansion' is unverified at all warmup budgets 1k-10k. The lessons.md boundary annotation is now corrected to reflect FAIL status. Run date: 2026-07-29.",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.1433,
+      "min_bulk_ess": 24.5,
+      "n_divergences": 48,
+      "max_abs_mean_z": 2.338,
+      "verdict": "FAIL"
+    },
+    "override": {
+      "decision": "FAIL",
+      "statistician_id": "swe-tf-cat-a-2026-07-29",
+      "date": "2026-07-29",
+      "reason": "Budget-invariant geometry failure on the 2-D funnel. NUTS with single global step-size cannot traverse both the neck (min v ~ -6) and body (max v ~ +6). Diagnostic ladder (1k\u21923k\u219210k warmup) shows non-monotone improvement: divergences 48\u21923\u21929, ESS 24.5\u219241.5\u219272.8, z 2.34\u21923.34\u21926.03. The worsening z at higher budget confirms the chain is increasingly biased toward the wide body region, not a convergence issue. Structural failure; no warmup budget fix available."
+    }
+  },
+  "failure_diagnosis": "hard_direction",
+  "attempted_configurations": [
+    {
+      "n_warmup": 1000,
+      "target_acceptance": 0.8,
+      "outcome": "FAIL",
+      "rhat_max": 1.1433,
+      "min_ess": 24.5,
+      "n_divergences": 48,
+      "max_z": 2.338,
+      "step_size_min": 0.07732,
+      "step_size_max": 0.1662,
+      "note": "Default settings, 1k warmup."
+    },
+    {
+      "n_warmup": 3000,
+      "target_acceptance": 0.8,
+      "outcome": "FAIL",
+      "rhat_max": 1.1305,
+      "min_ess": 41.5,
+      "n_divergences": 3,
+      "max_z": 3.341,
+      "step_size_min": 0.04187,
+      "step_size_max": 0.1227,
+      "note": "3x warmup. Divergences drop (48\u21923) but ESS barely improves (24.5\u219241.5); z worsens (2.34\u21923.34)."
+    },
+    {
+      "n_warmup": 10000,
+      "target_acceptance": 0.8,
+      "outcome": "FAIL",
+      "rhat_max": 1.0694,
+      "min_ess": 72.8,
+      "n_divergences": 9,
+      "max_z": 6.028,
+      "step_size_min": 0.03987,
+      "step_size_max": 0.1548,
+      "note": "10x warmup. ESS improves slowly (72.8) but z WORSENS dramatically (6.03). The longer adaptation further anchors the step_size to the wide-body region. Budget-invariant pattern confirmed."
+    }
+  ],
+  "variant_label": null,
+  "tuningfork_version": "0.0.0.dev0",
+  "timestamp_utc": "2026-07-29T08:48:17Z",
+  "wall_seconds_estimate": 4.8,
+  "warmup_wall_seconds": null,
+  "sampling_wall_seconds": null,
+  "split_source": "measured",
+  "gt_cert_coverage": null
+}
