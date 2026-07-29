@@ -782,6 +782,21 @@ def compute_w1_realm(
         if gt_arr.ndim == 2:
             gt_arr = gt_arr[:, :, np.newaxis]  # (n_gt_chains, n_gt_draws, 1)
 
+        # Flatten structured event shapes so that dim_i iterates over all
+        # marginals. C-order matches the convention used to write summary_v2
+        # (sigma_d, bulk_ess_d, etc. are already stored flat).
+        # Without this, (nc, ns, 40, 40) gives d=40 instead of 1600 and
+        # silently skips 1560 of 1600 marginals (false PASS on lgcp-class models).
+        if gt_arr.ndim > 3:
+            _nc_g, _ns_g = gt_arr.shape[:2]
+            gt_arr = gt_arr.reshape(_nc_g, _ns_g, -1)  # C-order → (nc, ns, flat_d)
+        if gen_arr.ndim > 3:
+            _nc_s, _ns_s = gen_arr.shape[:2]
+            gen_arr = gen_arr.reshape(_nc_s, _ns_s, -1)
+            # e_g_arr was computed from structured gen_arr; ravel to match.
+            if e_g_arr.ndim > 1:
+                e_g_arr = e_g_arr.ravel()
+
         d = gt_arr.shape[2] if gt_arr.ndim > 2 else 1
 
         for dim_i in range(d):

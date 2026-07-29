@@ -1,0 +1,127 @@
+{
+  "model_name": "lgcp",
+  "base_method_name": "adjusted_mclmc_dynamic",
+  "effort": "low",
+  "base_method_params": {
+    "step_size": 23.438217163085938,
+    "L": 46.876434326171875,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "headline_metric": 0.04213465377688408,
+  "sample_quality": {
+    "mae_vs_reference": 0.09298207636692327,
+    "q05_error": 0.14316058582818988,
+    "q95_error": 0.1512370720545586,
+    "std_ratio_max_dev": 0.06258939343434311
+  },
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 6.977595617994666,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 3.096,
+    "sampling_wall_seconds": 2.454,
+    "sampling_seconds_per_draw": 0.000614,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": 3360
+  },
+  "difficulty": null,
+  "instructions": "**Low-effort recipe** (conventional `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 23.438217163085938, 'L': 46.876434326171875, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0421.\nWall time to produce this recipe: ~6 s (machine-only).",
+  "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 16042,
+    "min_bulk_ess": 675.9241158887744,
+    "grad_count_convention": "2 \u00d7 info.num_integration_steps",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "adjusted_mclmc_tuning",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.9
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
+  "inverse_mass_matrix_path": "lgcp/recipes/low__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.imm.npz",
+  "gt_schema_version": null,
+  "summary_v2_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.011713981628418,
+      "min_bulk_ess": 819.0465698242188,
+      "n_divergences": 0,
+      "max_abs_mean_z": 3.4408620857548526,
+      "verdict": "REVIEW",
+      "margins": {
+        "rhat_max": {
+          "value": 1.011713981628418,
+          "band": "REVIEW",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 819.0465698242188,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        },
+        "max_abs_mean_z": {
+          "value": 3.4408620857548526,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 4.0,
+          "review_lo": 4.0,
+          "review_hi": 4.0,
+          "frac_z2": 0.0475,
+          "bias_sigma_at_argmax_z": 0.09298207636692327,
+          "achieved_bias_bound_sigma": 0.10734893996505863
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 682737,
+  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T09:01:26Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
