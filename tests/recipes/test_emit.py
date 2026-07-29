@@ -669,3 +669,56 @@ def test_mclmc_rerun_uses_recipe_L_not_default(tmp_path: Path) -> None:
     # 4. Verify the stored L is in a valid range (T0.3 bug would use ~12.6 default).
     assert stored_L > 0.0, f"Stored L={stored_L:.4f} must be positive"
     assert stored_L < 2000.0, f"Stored L={stored_L:.4f} is suspiciously large"
+
+
+# ---------------------------------------------------------------------------
+# M3: LRD headline_basis consistency test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_lrd_headline_basis_is_consistent_with_headline_metric() -> None:
+    """Committed LRD recipes satisfy: headline_metric ≈ headline_basis.min_bulk_ess / total_grad_evals.
+
+    Before the fix in emit_mclmc_lrd.py, headline_basis stored the gate ESS
+    (ess_bulk, rank-normalised) while headline_metric used the headline ESS
+    (effective_sample_size, non-rank-normalised).  The two estimators differ by
+    ~4× for LRD recipes, causing basis-derived metric ≠ headline_metric.
+
+    This test guards the invariant by loading each committed LRD recipe and
+    checking the ratio headline_metric / (basis.min_bulk_ess / basis.total_grad_evals)
+    is within 5% of 1.0.
+    """
+    import json
+    from pathlib import Path as _Path
+
+    catalog = _Path(__file__).parent.parent.parent / "tuningfork" / "catalog"
+    lrd_recipes = list(catalog.glob("*/recipes/low__mclmc_lrd__*.json"))
+    # Skip models assigned to the parallel lane (must not be touched here).
+    skip_models = {"neals_funnel", "irt_1pl", "lgcp"}
+    lrd_recipes = [p for p in lrd_recipes if p.parent.parent.name not in skip_models]
+
+    if not lrd_recipes:
+        pytest.skip("No LRD recipes found in catalog; skipping")
+
+    failures = []
+    for recipe_path in sorted(lrd_recipes):
+        data = json.loads(recipe_path.read_text())
+        hm = data.get("headline_metric")
+        hb = data.get("headline_basis") or {}
+        basis_ess = hb.get("min_bulk_ess")
+        basis_tge = hb.get("total_grad_evals")
+        if hm is None or basis_ess is None or basis_tge is None or basis_tge == 0:
+            failures.append(f"{recipe_path.name}: missing headline fields")
+            continue
+        basis_derived = basis_ess / basis_tge
+        ratio = hm / basis_derived if basis_derived != 0 else float("inf")
+        if abs(ratio - 1.0) > 0.05:
+            failures.append(
+                f"{recipe_path.parent.parent.name}: "
+                f"headline_metric={hm:.5f} but basis_derived={basis_derived:.5f} "
+                f"(ratio={ratio:.3f}); headline_basis.min_bulk_ess must store "
+                "headline ESS, not gate ESS"
+            )
+
+    assert not failures, "LRD headline_basis inconsistency:\n" + "\n".join(failures)

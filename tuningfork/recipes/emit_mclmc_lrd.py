@@ -383,7 +383,11 @@ def _emit_lrd_cert_sweep(
                 headline_metric=best["ess_per_grad"],
                 headline_basis={
                     "total_grad_evals": best["total_grad_evals"],
-                    "min_bulk_ess": best["min_bulk_ess"],
+                    # Use the headline ESS (effective_sample_size, non-rank-normalised)
+                    # so that headline_metric == min_bulk_ess / total_grad_evals is
+                    # self-consistent.  The gate uses min_bulk_ess (ess_bulk,
+                    # rank-normalised) which lives in gate_evidence.auto.min_bulk_ess.
+                    "min_bulk_ess": best["min_bulk_ess_headline"],
                     "grad_count_convention": "2",
                     "is_lower_bound": False,
                 },
@@ -607,6 +611,12 @@ def _run_cert_seed(
         "verdict": verdict,
         "rhat_max": rhat_max,
         "min_bulk_ess": min_bulk_ess,
+        # min_bulk_ess_headline is the headline ESS (from effective_sample_size,
+        # non-rank-normalised, per headline.py contract).  Distinct from min_bulk_ess
+        # which uses ess_bulk (rank-normalised, gate basis).  headline_basis must store
+        # the *headline* ESS so that headline_metric == min_bulk_ess_headline / total_grad_evals
+        # is self-consistent with the basis.
+        "min_bulk_ess_headline": min_bulk_ess_headline,
         "n_divergences": n_divergences,
         "div_rate": div_rate,
         "ess_per_grad": ess_per_grad,
