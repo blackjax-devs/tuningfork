@@ -3,21 +3,19 @@
   "base_method_name": "nuts",
   "effort": "failed",
   "base_method_params": {},
-  "warmup_name": "window_adaptation_diag_imm",
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.99
-  },
   "headline_metric": null,
   "sample_quality": null,
   "calibration_budget": {
     "trials": 2,
-    "wall_seconds_estimate": 15.0
+    "wall_seconds_estimate": 15.0,
+    "warmup_wall_seconds": null,
+    "sampling_wall_seconds": null,
+    "split_source": "measured",
+    "gt_cert_coverage": null
   },
   "difficulty": null,
   "instructions": null,
-  "notes": "MAMS comparison experiment: does NUTS converge on the funnel when given target_acceptance=0.99, the same value MAMS hand-tunes to? ANSWER: NO. ta=0.99 reduces divergences and bias (z: 2.34\u21921.63) but worsens ESS (24.5\u219216.4) because the 10-30x smaller step sizes prevent mixing in the funnel body. The funnel is a geometry problem, not a step-size target problem.",
+  "notes": "MAMS comparison experiment: does NUTS converge on the funnel when given target_acceptance=0.99? ANSWER: NO. ta=0.99 reduces divergences (48->34) and bias (z: 2.34->1.63) but worsens ESS (24.5->16.4, single-seed) because the 10-30x smaller step sizes prevent mixing in the funnel body. The funnel is a geometry problem, not a step-size target problem.",
   "step_policy": null,
   "warmups": [
     {
@@ -33,7 +31,7 @@
   "warmup_num_chains": null,
   "init_strategy": null,
   "inverse_mass_matrix_path": null,
-  "workflow": "EXPERIMENT: does NUTS converge on the funnel when given target_acceptance=0.99, the same conservatism that MAMS uses? \n\nMotivation: The literature (MAMS paper and challengers) compares MAMS@ta=0.99 against DEFAULT NUTS@ta=0.80 on the funnel. This experiment tests whether the advantage is due to the acceptance target or the sampler dynamics. \n\nResult at 1k warmup: step_sizes 0.003181-0.07387 (10-30x smaller than ta=0.80). Gate: FAIL rhat=1.1277, ESS=24.5, div=34, z=1.630. Compared to ta=0.80 (1k warmup): rhat same, ESS same, div 48\u219234 (better), z 2.34\u21921.63 (better). \n\nResult at 5k warmup: step_sizes 0.002426-0.03232 (even smaller). Gate: FAIL rhat=1.2305, ESS=16.4, div=3, z=1.846. Mixing gets WORSE with more warmup at ta=0.99 (same pattern as ta=0.80). \n\nConclusion: ta=0.99 reduces divergences and bias (the step size is small enough that the chain rarely blows up in the neck), but kills mixing in the funnel body (the same tiny step size means the chain barely moves in the wide region). The fundamental constraint is that ONE global step size cannot handle both regions. NUTS at ta=0.99 does NOT pass the funnel gate. The MAMS literature comparison is not equivalent to comparing at equal acceptance targets. Run date: 2026-07-29.",
+  "workflow": "EXPERIMENT: does NUTS converge on the funnel when given target_acceptance=0.99, the same conservatism that MAMS uses? Result at 1k warmup: step_sizes 0.003-0.074 (10-30x smaller than ta=0.80). Gate: FAIL rhat=1.1277, ESS=24.5, div=34, z=1.630. Result at 5k warmup: step_sizes 0.002-0.032 (even smaller). Gate: FAIL rhat=1.2305, ESS=16.4, div=3, z=1.846. Mixing gets worse with more warmup at ta=0.99 (same pattern as ta=0.80). Conclusion: ta=0.99 reduces divergences and bias but kills mixing in the funnel body. NUTS at ta=0.99 does NOT pass the funnel gate. ESS comparison is single-seed; the geometry-not-acceptance-rate conclusion rests on divergences + R-hat + 10-30x step-size collapse. Run date: 2026-07-29.",
   "gate_evidence": {
     "auto": {
       "rhat_max": 1.1277,
@@ -41,47 +39,51 @@
       "n_divergences": 34,
       "max_abs_mean_z": 1.63,
       "verdict": "FAIL"
-    },
-    "override": {
-      "decision": "FAIL",
-      "statistician_id": "swe-tf-cat-a-2026-07-29",
-      "date": "2026-07-29",
-      "reason": "Geometry blocker confirmed at ta=0.99. Higher target acceptance reduces step_size 10-30x (0.003-0.07 vs 0.077-0.166 at default). This reduces divergences (48\u219234) and bias (z 2.34\u21921.63) but worsens ESS (24.5\u219216.4 at n_warmup=5k). The funnel requires position-dependent step sizes; no fixed target acceptance resolves this via window adaptation."
     }
   },
   "failure_diagnosis": "hard_direction",
   "attempted_configurations": [
     {
-      "n_warmup": 1000,
-      "target_acceptance": 0.99,
-      "outcome": "FAIL",
-      "rhat_max": 1.1277,
-      "min_ess": 24.5,
-      "n_divergences": 34,
-      "max_z": 1.63,
-      "step_size_min": 0.003181,
-      "step_size_max": 0.07387,
-      "note": "ta=0.99, 1k warmup. Step sizes 10-30x smaller than ta=0.80."
+      "base_method_params": {},
+      "warmup_params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.99
+      },
+      "seed": 20260517,
+      "gate_verdict": {
+        "verdict": "FAIL",
+        "rhat_max": 1.1277,
+        "min_bulk_ess": 24.5,
+        "n_divergences": 34,
+        "max_abs_mean_z": 1.63
+      },
+      "wall_seconds": 9.2,
+      "note": "ta=0.99, 1k warmup. Step sizes 10-30x smaller than ta=0.80 (0.003-0.074). Fewer divergences (34 vs 48) but same rhat, same ESS (both single-seed)."
     },
     {
-      "n_warmup": 5000,
-      "target_acceptance": 0.99,
-      "outcome": "FAIL",
-      "rhat_max": 1.2305,
-      "min_ess": 16.4,
-      "n_divergences": 3,
-      "max_z": 1.846,
-      "step_size_min": 0.002426,
-      "step_size_max": 0.03232,
-      "note": "ta=0.99, 5k warmup. Step sizes even smaller (0.002-0.03). More warmup \u2192 worse mixing (rhat 1.13\u21921.23, ESS 24.5\u219216.4). Same budget-invariant degradation pattern as ta=0.80."
+      "base_method_params": {},
+      "warmup_params": {
+        "n_warmup": 5000,
+        "num_chains": 4,
+        "target_acceptance": 0.99
+      },
+      "seed": 20260517,
+      "gate_verdict": {
+        "verdict": "FAIL",
+        "rhat_max": 1.2305,
+        "min_bulk_ess": 16.4,
+        "n_divergences": 3,
+        "max_abs_mean_z": 1.846
+      },
+      "wall_seconds": 35.0,
+      "note": "ta=0.99, 5k warmup. Step sizes even smaller (0.002-0.032). More warmup -> worse mixing (rhat 1.13->1.23, ESS 24.5->16.4 single-seed). Same budget-invariant degradation as ta=0.80."
     }
   ],
   "variant_label": null,
-  "tuningfork_version": "0.0.0.dev0",
-  "timestamp_utc": "2026-07-29T08:48:17Z",
-  "wall_seconds_estimate": 9.2,
-  "warmup_wall_seconds": null,
-  "sampling_wall_seconds": null,
-  "split_source": "measured",
-  "gt_cert_coverage": null
+  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "tuning_seed": 20260517,
+  "timestamp_utc": "2026-07-29T08:48:17Z"
 }

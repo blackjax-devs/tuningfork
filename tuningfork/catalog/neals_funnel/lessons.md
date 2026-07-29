@@ -4,9 +4,10 @@
 
 **Structural honest null for any sampler using a global mass matrix and single global
 step size.** MCLMC family (all variants) FAIL due to position-dependent varying
-curvature. SMC (inner-kernel HMC) is the viable path. NUTS with diagonal IMM achieves
-PASS on the standard 2-D formulation via tree-expansion.
-[boundary: MCLMC FAIL holds at all warmup budgets tested (1k–50k) with 0 divergences — this is a geometry-hard blocker, not warmup-limited; SMC PASS holds at the standard 2-D formulation only; low_rank and hard_direction cells (hmc, nuts+low_rank) also fail; laplace family out_of_scope]
+curvature. SMC (inner-kernel HMC) is the viable path. NUTS with diagonal IMM **FAILS
+at all warmup budgets tested (1k, 3k, 10k)**; the previous claim of PASS was unverified.
+The model is 10-D (v + 9 latents).
+[boundary: MCLMC FAIL holds at all warmup budgets tested (1k–50k) with 0 divergences — this is a geometry-hard blocker, not warmup-limited; SMC PASS holds at the standard 10-D formulation only; NUTS+diag FAIL confirmed at 1k/3k/10k warmup (budget-invariant z worsens: 2.34->3.34->6.03); low_rank and hard_direction cells (hmc, nuts+low_rank) also fail; laplace family out_of_scope]
 
 ## Canonical recipe
 
@@ -85,7 +86,7 @@ metric (e.g., Riemannian HMC) or sequential methods (SMC).
 - Laplace family + `window_adaptation_low_rank_imm`: **FAIL** (out_of_scope). See `recipes/failed__laplace_*__window_adaptation_low_rank_imm.json`.
 - `meanfield_vi` + `no_warmup`: **FAIL** (out_of_scope). See `recipes/failed__meanfield_vi__no_warmup.json`.
 
-Recorded FAILs not discussed above: all 9 failed recipes are now covered above.
+Recorded FAILs not discussed above: all 11 failed recipes are now covered above.
 
 ## MAMS comparison experiment (2026-07-29)
 
@@ -102,10 +103,18 @@ Recorded FAILs not discussed above: all 9 failed recipes are now covered above.
 | NUTS ta=0.99 | 1000 | 1.1277 | 24.5 | 34 | 1.630 | 0.003–0.074 |
 | NUTS ta=0.99 | 5000 | 1.2305 | 16.4 | 3 | 1.846 | 0.002–0.032 |
 
-At ta=0.99, the step size is 10–30× smaller than at ta=0.80. This reduces
-divergences (48→34) and bias (z: 2.34→1.63) because the tiny step rarely blows
-up in the neck. But it worsens mixing in the body (ESS degrades 24.5→16.4), and
-additional warmup makes it worse (ESS drops to 16.4 at 5k vs 24.5 at 1k).
+At ta=0.99, the step size is 10–30× smaller than at ta=0.80 (0.003–0.074 vs
+0.077–0.166). This reduces divergences (48→34) and bias (z: 2.34→1.63) because the
+tiny step rarely blows up in the neck. The ESS numbers above are single-seed; an
+independent 6-seed replicate reproduced the direction (median minESS 40.2 at 1k vs
+24.4 at 5k) but the effect is not statistically established (Mann-Whitney p=0.41,
+seed spread ~4× the claimed 1.49× effect). At R̂ > 1.13 the chains are not sampling
+the same distribution, so bulk-ESS is not a well-defined quantity.
+
+The geometry-not-acceptance-rate conclusion rests on evidence that does not depend on
+ESS: (1) R̂ stays above 1.12 at all budgets; (2) divergences remain non-zero at 1k
+warmup; (3) step sizes collapse 10–30× when ta rises from 0.80 to 0.99, which is
+the expected mechanical response but does not resolve position-dependent curvature.
 
 The MAMS paper compares MAMS@ta=0.99 against NUTS@ta=0.80. This experiment shows
 NUTS@ta=0.99 also FAILS — the funnel is a geometry problem, not an acceptance-rate

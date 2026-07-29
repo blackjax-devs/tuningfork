@@ -7,8 +7,14 @@ set -euo pipefail
 MATCH_WORKLOG='worklog/'
 MATCH_CONFIG='claude-config'
 MATCH_TAGS='@statistician|@swe\b|@tech-writer|memoires'
+# Agent-identity labels that must not reach shipped artifacts (catalog docs,
+# recipes).  Specifically: "SWE agent" in prose; branch-named statistician_id
+# values (swe-<branch>-YYYY-MM-DD).  The convention is stat-YYYY-MM-DD or
+# tl-YYYY-MM-DD; anything prefixed swe- is an implementer label, not a
+# reviewer label, and must not be committed to the catalog.
+MATCH_AGENT_LABELS='SWE[- ]agent\b|"statistician_id"[[:space:]]*:[[:space:]]*"swe-'
 
-PATTERNS="${MATCH_WORKLOG}|${MATCH_CONFIG}|${MATCH_TAGS}"
+PATTERNS="${MATCH_WORKLOG}|${MATCH_CONFIG}|${MATCH_TAGS}|${MATCH_AGENT_LABELS}"
 
 # Run grep across all tracked text files; exclude this script and the pre-commit config.
 HITS=$(git grep -nE "$PATTERNS" \

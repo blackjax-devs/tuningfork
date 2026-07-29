@@ -1195,3 +1195,57 @@ def test_w1_realm_skip_fold_no_crash():
     assert result.n_dims == 0
     assert result.max_prong_verdict == "SKIP"
     assert result.frac_prong_verdict == "SKIP"
+
+
+@pytest.mark.fast
+def test_w1_realm_structured_event_shape_iterates_all_dims() -> None:
+    """Structured-event-shape models (e.g. lgcp 40x40 grid) must iterate all dims.
+
+    Before the fix, ``d = gt_arr.shape[2]`` returned 40 instead of 1600 for a
+    (nc, ns, 40, 40) array, silently skipping 1560 of 1600 marginals.
+
+    This test uses a (3, 4) grid (= 12 dims) and asserts that ``n_dims == 12``,
+    not 3.  It also verifies that a planted bias at flat index 9 (= grid cell
+    (2, 1) in C-order) is detected — confirming dimension order is preserved.
+    """
+    rng = np.random.default_rng(99)
+    GRID = (3, 4)
+    D = GRID[0] * GRID[1]  # 12
+
+    # Samples: (n_chains, n_draws, *GRID) — structured event shape
+    gen = rng.normal(0.0, 1.0, (2, 600, *GRID))
+
+    # Plant a large bias at flat index 9 → grid cell (2, 1) in C-order
+    BIAS_IDX = 9
+    cell = np.unravel_index(BIAS_IDX, GRID)
+    gen[:, :, cell[0], cell[1]] += 8.0
+
+    gt_draws_arr = rng.normal(0.0, 1.0, (4, 2000, *GRID))
+
+    samples = {"z": gen}
+    gt_summaries = {
+        "z": {
+            "std": np.ones(D),
+            "bulk_ess": np.full(D, 2000.0),
+            "tail_ess": np.full(D, 2000.0),
+        }
+    }
+    gt_draws_dict = {"z": gt_draws_arr}
+
+    result = compute_w1_realm(
+        samples,
+        gt_summaries,
+        gt_draws_dict,
+        B=200,
+        seed=42,
+        multichain=True,
+    )
+
+    assert result.n_dims == D, (
+        f"expected n_dims={D} (all grid cells); got {result.n_dims}. "
+        "Likely only shape[2]=3 was iterated instead of flat size=12."
+    )
+    assert result.max_prong_verdict == "FAIL", (
+        "the planted 8-sigma bias must trigger a hard FAIL; "
+        f"got max_prong_verdict={result.max_prong_verdict!r}"
+    )

@@ -3,7 +3,7 @@
 ## TL;DR
 
 **Category A — Isotropic high-D**: d=1600 Log-Gaussian Cox process (40×40 spatial grid,
-Matern-3/2 covariance). Unadjusted MCLMC wins **3.14×** over NUTS on ESS/grad at first
+squared-exponential covariance). Unadjusted MCLMC wins **3.14×** over NUTS on ESS/grad at first
 emit. All three cells ran successfully with the gate shape-alignment fix (GT summaries
 store z as (1600,) flat; sampler returns (40,40) 2D grid — fixed in
 `calibration/_gate/gt_compare.py`). Confirms that the O(d^{1/4}) MCLMC advantage grows
@@ -30,7 +30,7 @@ with the tighter MH-correction constraint.
 
 ## Model geometry
 
-LGCP model: 40×40 spatial grid, Matern-3/2 covariance kernel, Poisson intensity.
+LGCP model: 40×40 spatial grid, squared-exponential covariance kernel, Poisson intensity.
 Unconstrained dimensionality: d=1600 (one latent field value per grid cell).
 
 The model is approximately isotropic in the sense that the covariance eigenspectrum is
@@ -47,8 +47,9 @@ scale with d. At d=1600:
 - 1600^{1/4} = 6.32 vs 500^{1/4} = 4.73 for irt_1pl → 34% more relative advantage.
 - NUTS step count per effective sample grows with d; MCLMC's momentum persistence keeps
   it low.
-- The unadjusted variant avoids the MH overhead; for a smooth Matern covariance, the
-  integrator error is small enough that correction is unnecessary.
+- The unadjusted variant avoids the MH overhead; the squared-exponential kernel produces
+  analytic (infinitely smooth) sample paths with super-exponentially decaying eigenvalues,
+  so the leapfrog integrator error is small enough that the MH correction is unnecessary.
 
 ## adjusted_mclmc_dynamic — REVIEW, not PASS
 
