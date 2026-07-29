@@ -717,6 +717,23 @@ def test_catalog_headline_basis_reproduces_headline_metric() -> None:
     written from the *gate* estimator whenever the two estimators happen to agree
     numerically, which is exactly how the ill_cond_50 LRD recipe escaped review.
 
+    Note — exact back-derivation vs direction test: the signal "basis < gate" was
+    used earlier as a heuristic for the gate-vs-headline ESS bug, but it is not
+    reliable: where the two estimators nearly coincide (e.g. ill_cond_50 LRD at
+    gate/basis=1.0004, lgcp mclmc at 1.0012) a direction test cannot discriminate.
+    The exact form (abs(hm - derived) < 1e-9 * scale) is necessary and sufficient
+    because both emit paths construct basis.min_bulk_ess from the SAME value they
+    used to compute headline_metric, so any mismatch is a genuine provenance error.
+
+    BLIND SPOT — gradient-free samplers on the main runner path: the main runner's
+    gradient-free branch (_recipe_runner.py around line 1985-2000) sets BOTH
+    headline_metric and basis.min_bulk_ess from gate_verdict.min_bulk_ess (the gate
+    estimator), making the recipe internally self-consistent.  A future
+    elliptical_slice / rwm / irmh recipe would therefore PASS this test while using
+    the gate estimator for its headline.  This test is a CONSISTENCY assertion, not
+    a PROVENANCE assertion.  Today no gradient-free recipe carries a headline_metric
+    (only failed__ stubs exist), so this blind spot is latent.  Filed separately.
+
     Known pre-existing rounding defects from hand-assembled recipes are listed in
     ``_KNOWN_ROUNDING_DEFECTS``; they use float32 basis values rounded to 5 s.f.
     and require a proper re-emit in a follow-up PR.

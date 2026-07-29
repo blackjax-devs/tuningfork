@@ -41,6 +41,7 @@ import jax
 import jax.numpy as jnp
 from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 
+from tuningfork._machine_info import get_machine_info as _get_machine_info
 from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
@@ -337,6 +338,7 @@ def _emit_lrd_cert_sweep(
                     "pilot_n_samples": pilot_n_samples,
                     "tuning_seed": best["seed"],
                 },
+                "machine_info": _get_machine_info(),
             }
 
             gate_evidence = {

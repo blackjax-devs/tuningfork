@@ -17,7 +17,7 @@ rotated correlation axes. The only viable MCLMC path is **LRD preconditioning**
 headline ESS/grad ≈ 0.0065.
 
 **MCLMC with LRD** (certified): `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — PASS,
-headline ESS/grad ≈ 0.249 (426× over diagonal MCLMC baseline).
+headline ESS/grad ≈ 0.240 (414× over diagonal MCLMC baseline; vs best NUTS 0.137, ratio 1.75×).
 
 ## Sampling quirks
 
@@ -97,7 +97,7 @@ Recorded FAILs not discussed above: failed__dmhmc__window_adaptation_dense_imm.j
 ## Recipe regen (ill_cond_50 LRD, pilot-path calibration)
 
 The committed artifacts are:
-- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (step_size≈7.883, L≈5.628, k=40, best seed=99999)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (k=40, best seed=77777)
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz` — rank-40 LRD IMM sidecar (NUTS-pilot path)
 
 **Standard regen command** (re-runs NUTS pilot + 3-seed cert sweep, deterministic):
@@ -105,17 +105,31 @@ The committed artifacts are:
 ```bash
 uv run python -m tuningfork.recipes._generate_starter \
     --warmup mclmc_lrd_tuning --only ill_cond_50 \
-    --calibrate --cert-seeds 77777 88888 99999
+    --calibrate --cert-seeds 77777 88888 99999 \
+    --n-warmup 1000 --n-samples 1000 --k-rank 40 \
+    --pilot-n-warmup 10000 --pilot-n-samples 10000
 ```
 
-Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1607/1604/1787 (az.ess bulk basis, Geyer comparison: 1587/1599/1779),
-R-hat ≤ 1.0031 (max 1.0030, 1.0026, 1.0031). Gate uses az.ess(method="bulk") ≥ 400 (auto_gate basis). k=40, n_warmup=1000.
+Certified 2026-07-29 (PR #253): 3/3 PASS, seeds 77777/88888/99999, gate minESS 1917/1726/1782,
+headline_metric (best seed) = 0.23958, R-hat max ~1.003. k=40, n_warmup=1000, pilot 10k.
+Note: headline fell from ~0.247 (pre-fix) to 0.240 after PR #253 corrected the
+headline_basis to use the headline (effective_sample_size) ESS rather than the gate
+(ess_bulk) ESS. The ratio vs best NUTS (dense IMM, headline 0.137) is now 1.75×, not
+the previously implied ~1.80×.
+
+**Seed-sensitivity note (PR #253 investigation):** During re-emission an initial attempt
+with wrong parameters (k_rank=8, cert_seeds=11111/22222/33333, no pilot) produced 0/3
+PASS with gate minESS 24–45 and rhat 1.09–1.14, an 80× swing vs the successful run.
+The dramatic difference was entirely due to wrong parameters (the k_rank=8 got clamped
+to 1–2 by the rank-safety check, and the absent pilot left the LRD IMM poorly
+initialised). With the correct parameters (k_rank=40, pilot 10k) all 3 seeds PASS.
+This is parameter sensitivity, not fundamental seed fragility of the certified result.
 
 **Why pilot and not oracle for the catalog artifact?** The oracle COV path (decompose
 `ill_cond_50.COV` directly) is the upper bound (ESS/grad≈0.249). The pilot path is
-portable to any model and is the standard library path. Both are documented in
-`attempted_configurations`. The pilot-path golden passed at ESS/grad≈0.198–0.222 (3/3 seeds, best seed 99999).
-The oracle 0.2492 is a reference ceiling in the thread file, not the committed artifact.
+portable to any model and is the standard library path. The pilot-path golden passes
+at headline ESS/grad≈0.214–0.240 (3/3 seeds, best seed 77777).
+The oracle 0.249 is a reference ceiling, not the committed artifact.
 
 ## History
 
