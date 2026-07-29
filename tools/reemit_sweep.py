@@ -104,6 +104,7 @@ class CellConfig:
     seed: int
     target_acceptance: float | None = None
     sampler_kwargs_override: dict[str, Any] | None = None
+    warmup_kwargs_override: dict[str, Any] | None = None
     step_policy: dict[str, Any] | None = None
     policy_tag: str | None = None
     warmup_inner_kernel: str | None = None
@@ -270,6 +271,139 @@ def _reconstruct_sampler_kwargs(
     return (override or None, notes, None)
 
 
+#: Warmup arguments the emit call takes explicitly; everything else in a
+#: recipe's warmup_params came from the warmup's declared hyperparameter space.
+_EXPLICIT_WARMUP_ARGS = frozenset({"n_warmup", "num_chains", "target_acceptance"})
+
+
+def _reconstruct_warmup_kwargs(warmup: Any, warmup_params: dict) -> dict | None:
+    """Recover the warmup hyperparameters a committed recipe recorded.
+
+    Returns only the keys the warmup actually declares, so a stray annotation in
+    an old artifact cannot be passed through to the runner as a kwarg.
+    """
+    declared = {s.name for s in getattr(warmup, "default_hp_space", ())}
+    override = {
+        k: v
+        for k, v in warmup_params.items()
+        if k not in _EXPLICIT_WARMUP_ARGS and k in declared
+    }
+    return override or None
+
+
+def config_fidelity_violations(cfg: CellConfig, committed: dict) -> list[str]:
+    """Every committed parameter this reconstruction would fail to reproduce.
+
+    The filename and seed guards proved a cell is the SAME cell; this proves it
+    would be run the SAME WAY.  Without it a reconstruction can drop a
+    load-bearing parameter and still pass every other check — which is how a
+    low-rank cell was re-run with a tenth of its recorded pilot budget, collapsing
+    its preconditioner, and the verification pass still reported it green.
+
+    Compares the FULL committed parameter dictionaries, not a chosen subset, and
+    reports any key present in the artifact whose replayed value would differ.
+    Values the warmup adapts at run time are excluded by name, with a comment
+    each, rather than by being quietly absent.
+    """
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.calibration.tune import default_params_for, default_value_for_space
+    from tuningfork.warmup import WARMUPS
+
+    violations: list[str] = []
+    warmup = WARMUPS[cfg.warmup_name]
+    base_method = BASE_METHODS[cfg.sampler_name]
+
+    # --- warmup_params the emit would record ---
+    replayed_warmup = {
+        space.name: default_value_for_space(space)
+        for space in getattr(warmup, "default_hp_space", ())
+    }
+    replayed_warmup.update(cfg.warmup_kwargs_override or {})
+    replayed_warmup["n_warmup"] = cfg.n_warmup
+    replayed_warmup["num_chains"] = cfg.num_chains
+    if cfg.target_acceptance is not None:
+        replayed_warmup["target_acceptance"] = cfg.target_acceptance
+
+    # The low-rank-diagonal harness records its rank and pilot budget in
+    # warmup_params but takes them as its own arguments, not as warmup kwargs.
+    lrd_keys = {"k_rank", "pilot_n_warmup", "pilot_n_samples"}
+    if cfg.harness == "mclmc_lrd":
+        replayed_warmup.update(
+            {
+                "k_rank": cfg.k_rank,
+                "pilot_n_warmup": cfg.pilot_n_warmup,
+                "pilot_n_samples": cfg.pilot_n_samples,
+            }
+        )
+
+    committed_warmup = dict(
+        (committed.get("warmups") or [{}])[0].get("params")
+        or committed.get("warmup_params")
+        or {}
+    )
+    for key, want in committed_warmup.items():
+        if key not in replayed_warmup:
+            violations.append(f"warmup_params[{key!r}]={want!r} would not be replayed")
+        elif replayed_warmup[key] != want:
+            violations.append(
+                f"warmup_params[{key!r}]: committed {want!r}, replay "
+                f"{replayed_warmup[key]!r}"
+            )
+
+    # --- base_method_params the emit would record ---
+    # step_size / inverse_mass_matrix / L are adapted by the warmup, so the
+    # committed values are outputs and cannot be predicted before running.
+    adapted = {"step_size", "inverse_mass_matrix", "L"}
+    replayed_kernel = {
+        k: v for k, v in default_params_for(base_method).items() if k not in adapted
+    }
+    if cfg.sampler_name in ("dynamic_hmc", "dmhmc"):
+        replayed_kernel.pop("num_integration_steps", None)
+    replayed_kernel.update(cfg.sampler_kwargs_override or {})
+
+    committed_kernel = dict(committed.get("base_method_params") or {})
+    for key in adapted | lrd_keys:
+        committed_kernel.pop(key, None)
+    if cfg.warmup_inner_kernel is not None:
+        # transform_warmup_state derives this from the warmup's own trajectory
+        # lengths; it re-derives on replay rather than being passed in.
+        committed_kernel.pop("num_integration_steps", None)
+
+    for key, want in committed_kernel.items():
+        if key not in replayed_kernel:
+            violations.append(
+                f"base_method_params[{key!r}]={want!r} would not be replayed"
+            )
+        elif replayed_kernel[key] != want:
+            violations.append(
+                f"base_method_params[{key!r}]: committed {want!r}, replay "
+                f"{replayed_kernel[key]!r}"
+            )
+
+    # --- structural fields outside the two parameter dicts ---
+    # These change what the run DOES, so dropping one is the same class of defect
+    # as dropping a parameter, and the dictionary comparison above cannot see it.
+    # inverse_mass_matrix_path is deliberately absent: it is an output.
+    structural = {
+        "step_policy": cfg.step_policy,
+        "warmup_inner_kernel": cfg.warmup_inner_kernel,
+        "init_strategy": cfg.init_strategy,
+    }
+    for key, replayed in structural.items():
+        want = committed.get(key)
+        if want != replayed:
+            violations.append(f"{key}: committed {want!r}, replay {replayed!r}")
+
+    # warmup_num_chains is a per-phase chain count that the emit entry point does
+    # not accept at all, so a recipe carrying one cannot be reproduced by it.
+    if committed.get("warmup_num_chains"):
+        violations.append(
+            f"warmup_num_chains={committed['warmup_num_chains']!r} is not an "
+            f"argument of the emit path, so it cannot be replayed"
+        )
+    return violations
+
+
 def reconstruct(
     recipe_path: Path, source_path: Path | None = None
 ) -> CellConfig | Skip:
@@ -351,6 +485,13 @@ def reconstruct(
     # The low-rank-diagonal family is produced by its own certification sweep,
     # not by emit_low_recipe_for_cell, and records its budget as per-seed
     # evidence rather than flat fields.  Route it, do not fail it.
+    # Warmup hyperparameters beyond the three explicit emit arguments live in the
+    # warmup's own declared space and reach the runner through
+    # warmup_kwargs_override.  Not replaying them silently substitutes the
+    # registry default: window_adaptation_low_rank_imm.max_rank and the VI
+    # warmups' num_optimization_steps both change what the warmup actually does.
+    warmup_kwargs_override = _reconstruct_warmup_kwargs(warmup, warmup_params)
+
     warmup_inner_kernel = recipe.get("warmup_inner_kernel")
     override, notes, blocker = _reconstruct_sampler_kwargs(
         recipe, base_method, warmup_inner_kernel
@@ -460,6 +601,7 @@ def reconstruct(
         seed=seed,
         target_acceptance=warmup_params.get("target_acceptance"),
         sampler_kwargs_override=override,
+        warmup_kwargs_override=warmup_kwargs_override,
         step_policy=recipe.get("step_policy"),
         policy_tag=policy_tag,
         warmup_inner_kernel=warmup_inner_kernel,
@@ -501,7 +643,17 @@ def survey(from_rev: str | None = None) -> tuple[list[CellConfig], list[Skip]]:
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(proc.stdout)
             result = reconstruct(p, source_path=source)
-            (ok if isinstance(result, CellConfig) else skipped).append(result)  # type: ignore[arg-type]
+            if isinstance(result, CellConfig):
+                # A reconstruction that drops a load-bearing parameter passes
+                # every other guard, so the fidelity check is what makes the
+                # gate's green light mean anything.
+                bad = config_fidelity_violations(result, json.loads(source.read_text()))
+                if bad:
+                    skipped.append(Skip(p, "config fidelity: " + "; ".join(bad)))
+                    continue
+                ok.append(result)
+            else:
+                skipped.append(result)
     return ok, skipped
 
 
@@ -629,6 +781,7 @@ def _as_invocation(c: CellConfig) -> dict[str, Any]:
         "seed": c.seed,
         "target_acceptance": c.target_acceptance,
         "sampler_kwargs_override": c.sampler_kwargs_override,
+        "warmup_kwargs_override": c.warmup_kwargs_override,
         "step_policy": c.step_policy,
         "policy_tag": c.policy_tag,
         "warmup_inner_kernel": c.warmup_inner_kernel,
