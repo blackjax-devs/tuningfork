@@ -146,6 +146,15 @@ def _compute_gt_compare(
         gt_mean = np.asarray(gt["mean"])
         gt_std = np.asarray(gt["std"])
 
+        # Shape alignment: GT summaries may store parameters flattened while
+        # the sampler returns structured event shapes (e.g. lgcp stores z as
+        # (1600,) in summary_v2 but samples arrive as (40,40) from the 2D
+        # grid model). Reshape GT arrays to sample_mean.shape when sizes agree.
+        _ev = sample_mean.shape
+        if gt_mean.shape != _ev and gt_mean.size == sample_mean.size:
+            gt_mean = gt_mean.reshape(_ev)
+            gt_std = gt_std.reshape(_ev)
+
         if "between_chain_se" in gt:
             # Multichain GT path (summary_v2): use per-dim between-chain SE as
             # the primary GT uncertainty estimate, floored by the ESS-capped
@@ -153,9 +162,18 @@ def _compute_gt_compare(
             # dims where bulk_ess >> n_gt (e.g. analytic models, theta-class
             # dims with ESS > 100k draws).
             between_chain_se = np.asarray(gt["between_chain_se"])
-            gt_bulk_ess = np.asarray(
-                gt.get("bulk_ess", np.full_like(between_chain_se, float("inf")))
-            )
+            if (
+                between_chain_se.shape != _ev
+                and between_chain_se.size == sample_mean.size
+            ):
+                between_chain_se = between_chain_se.reshape(_ev)
+            _raw_bulk_ess = gt.get("bulk_ess")
+            if _raw_bulk_ess is not None:
+                gt_bulk_ess = np.asarray(_raw_bulk_ess)
+                if gt_bulk_ess.shape != _ev and gt_bulk_ess.size == sample_mean.size:
+                    gt_bulk_ess = gt_bulk_ess.reshape(_ev)
+            else:
+                gt_bulk_ess = np.full_like(between_chain_se, float("inf"))
             n_gt = float(gt.get("n_total", gt.get("n_samples", float("inf"))))
             se_gt_capped = gt_std / np.sqrt(np.minimum(gt_bulk_ess, max(n_gt, 1.0)))
             se_gt = np.maximum(between_chain_se, se_gt_capped)
