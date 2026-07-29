@@ -94,9 +94,9 @@ def test_gt_compare_structured_event_shape_no_broadcast_error() -> None:
 
     assert result.max_abs_mean_z is not None
     assert np.isfinite(result.max_abs_mean_z)
-    assert result.n_dims == D, (
-        f"every grid cell must contribute one z-score; got n_dims={result.n_dims}"
-    )
+    assert (
+        result.n_dims == D
+    ), f"every grid cell must contribute one z-score; got n_dims={result.n_dims}"
     assert result.calibrated_D_total == D
 
 
@@ -133,9 +133,9 @@ def test_gt_compare_structured_event_shape_preserves_dim_order() -> None:
         _flat_gt(multichain=True, mean_offset=offset, offset_flat_idx=k),
         min_bulk_ess=None,
     )
-    assert misaligned.calibrated_pass is False, (
-        "a one-cell misalignment must be detected as a hard FAIL"
-    )
+    assert (
+        misaligned.calibrated_pass is False
+    ), "a one-cell misalignment must be detected as a hard FAIL"
 
 
 def test_gt_compare_structured_event_shape_legacy_single_chain_path() -> None:
