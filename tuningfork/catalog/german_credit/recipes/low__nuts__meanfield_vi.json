@@ -3,52 +3,52 @@
   "base_method_name": "nuts",
   "effort": "low",
   "base_method_params": {
-    "step_size": 0.6217963099479675,
+    "step_size": 0.5913746356964111,
     "inverse_mass_matrix": [
-      0.006412303540855646,
-      0.005507909692823887,
-      0.005977867636829615,
-      0.006434239447116852,
-      0.006183155346661806,
-      0.006787031888961792,
-      0.005994637496769428,
-      0.00671361805871129,
-      0.00510106235742569,
-      0.00647939695045352,
-      0.0073065441101789474,
-      0.0077446382492780685,
-      0.005449384450912476,
-      0.005697173066437244,
-      0.005548650398850441,
-      0.009925566613674164,
-      0.00656264228746295,
-      0.009796416386961937,
-      0.007883455604314804,
-      0.007622111588716507,
-      0.005707195494323969,
-      0.007087785750627518,
-      0.005262143909931183,
-      0.005867348983883858,
-      0.006182719022035599,
-      0.006433607544749975
+      0.006396121811121702,
+      0.006364013999700546,
+      0.006520495284348726,
+      0.006818386260420084,
+      0.006519646383821964,
+      0.00705772964283824,
+      0.007177526131272316,
+      0.006523807533085346,
+      0.005560062825679779,
+      0.007434150669723749,
+      0.00814320333302021,
+      0.008734256960451603,
+      0.005680807400494814,
+      0.007545628119260073,
+      0.006146357860416174,
+      0.009019392542541027,
+      0.006685900967568159,
+      0.010879453271627426,
+      0.0077298106625676155,
+      0.007900596596300602,
+      0.0063744038343429565,
+      0.007540344260632992,
+      0.0056816041469573975,
+      0.005935554392635822,
+      0.006751300301402807,
+      0.00683764461427927
     ]
   },
-  "headline_metric": 0.024391384036175592,
+  "headline_metric": 0.02599074699425623,
   "sample_quality": {
-    "mae_vs_reference": 0.031085144165661598,
-    "q05_error": 0.0565663461344236,
-    "q95_error": 0.09250817057279162,
-    "std_ratio_max_dev": 0.03170109838307744
+    "mae_vs_reference": 0.026244387903288455,
+    "q05_error": 0.05936781449744033,
+    "q95_error": 0.09331504798197417,
+    "std_ratio_max_dev": 0.02778974148464619
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 7.8605316979810596,
+    "wall_seconds_estimate": 6.029034357052296,
     "n_warmup": 200,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 5.523,
-    "sampling_wall_seconds": 1.174,
-    "sampling_seconds_per_draw": 0.000293,
+    "warmup_wall_seconds": 3.385,
+    "sampling_wall_seconds": 1.2,
+    "sampling_seconds_per_draw": 0.0003,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -64,14 +64,14 @@
     "warmup_grad_evals": null
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(meanfield_vi, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.6217963099479675, 'inverse_mass_matrix': [0.006412303540855646, 0.005507909692823887, 0.005977867636829615, 0.006434239447116852, 0.006183155346661806, 0.006787031888961792, 0.005994637496769428, 0.00671361805871129, 0.00510106235742569, 0.00647939695045352, 0.0073065441101789474, 0.0077446382492780685, 0.005449384450912476, 0.005697173066437244, 0.005548650398850441, 0.009925566613674164, 0.00656264228746295, 0.009796416386961937, 0.007883455604314804, 0.007622111588716507, 0.005707195494323969, 0.007087785750627518, 0.005262143909931183, 0.005867348983883858, 0.006182719022035599, 0.006433607544749975]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0244.\nWall time to produce this recipe: ~7 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(meanfield_vi, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.5913746356964111, 'inverse_mass_matrix': [0.006396121811121702, 0.006364013999700546, 0.006520495284348726, 0.006818386260420084, 0.006519646383821964, 0.00705772964283824, 0.007177526131272316, 0.006523807533085346, 0.005560062825679779, 0.007434150669723749, 0.00814320333302021, 0.008734256960451603, 0.005680807400494814, 0.007545628119260073, 0.006146357860416174, 0.009019392542541027, 0.006685900967568159, 0.010879453271627426, 0.0077298106625676155, 0.007900596596300602, 0.0063744038343429565, 0.007540344260632992, 0.0056816041469573975, 0.005935554392635822, 0.006751300301402807, 0.00683764461427927]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0260.\nWall time to produce this recipe: ~6 s (machine-only).",
   "notes": "",
   "headline_basis": {
-    "total_grad_evals": 31868,
-    "min_bulk_ess": 777.3046264648438,
+    "total_grad_evals": 32100,
+    "min_bulk_ess": 834.302978515625,
     "ess_estimator": "ess_bulk",
-    "min_bulk_ess_classic_legacy": 763.83447265625,
-    "estimator_ratio": 1.01763491213188,
+    "min_bulk_ess_classic_legacy": 810.4122314453125,
+    "estimator_ratio": 1.0294797464096823,
     "grad_count_convention": "info.num_integration_steps",
     "is_lower_bound": false
   },
@@ -83,7 +83,7 @@
         "n_warmup": 200,
         "num_chains": 4,
         "target_acceptance": 0.8,
-        "num_optimization_steps": 25500
+        "num_optimization_steps": 10000
       }
     }
   ],
@@ -97,14 +97,14 @@
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0027996301651,
-      "min_bulk_ess": 777.3046264648438,
+      "rhat_max": 1.004822015762329,
+      "min_bulk_ess": 834.302978515625,
       "n_divergences": 0,
-      "max_abs_mean_z": 2.5443891187620737,
+      "max_abs_mean_z": 2.14061895844289,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0027996301651,
+          "value": 1.004822015762329,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -112,7 +112,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 777.3046264648438,
+          "value": 834.302978515625,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -128,15 +128,15 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 2.5443891187620737,
+          "value": 2.14061895844289,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 3.094586540308518,
           "review_lo": 3.094586540308518,
           "review_hi": 4.0,
           "frac_z2": 0.038461538461538464,
-          "bias_sigma_at_argmax_z": 0.031085144165661598,
-          "achieved_bias_bound_sigma": 0.036518530576757816
+          "bias_sigma_at_argmax_z": 0.026244387903288455,
+          "achieved_bias_bound_sigma": 0.03665644331541219
         }
       },
       "gt_cert_coverage": "full_posterior"
@@ -151,7 +151,7 @@
   "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T13:50:45Z",
+  "timestamp_utc": "2026-07-29T14:33:10Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
