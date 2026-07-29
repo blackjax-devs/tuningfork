@@ -144,7 +144,9 @@ def _combined_filename_tag(
     """
     from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
 
-    implicit = "nuts" if sampler_name in WARMUP_SUBSTITUTE_METHOD_NAMES else sampler_name
+    implicit = (
+        "nuts" if sampler_name in WARMUP_SUBSTITUTE_METHOD_NAMES else sampler_name
+    )
     inner_tag = (
         f"inner_{warmup_inner_kernel}"
         if warmup_inner_kernel is not None and warmup_inner_kernel != implicit
@@ -263,6 +265,7 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
         HEADLINE_ESTIMATOR_EXCLUDED_MODELS,
     )
     from tuningfork.model import MODELS
+    from tuningfork.recipes import Recipe
     from tuningfork.recipes._recipe_runner import RECIPE_SEED
     from tuningfork.warmup import WARMUPS
 
@@ -275,7 +278,9 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
     if model_name in HEADLINE_ESTIMATOR_EXCLUDED_MODELS:
         return skip("model is excluded from the estimator migration")
     if recipe_path.name.startswith("smc__"):
-        return skip("SMC headline is an importance-weight ESS, not an autocorrelation one")
+        return skip(
+            "SMC headline is an importance-weight ESS, not an autocorrelation one"
+        )
 
     effort = recipe.get("effort")
     if effort == "failed":
@@ -289,8 +294,18 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
             f"that the artifact does not record)"
         )
 
-    warmups = recipe.get("warmups") or []
-    warmup_name = recipe.get("warmup_name") or (warmups[0].get("name") if warmups else "")
+    # Read warmup identity and parameters from the LOADED recipe, never from raw
+    # JSON.  Two on-disk schemas are in use — a flat warmup_params dict and a
+    # warmups list — and 148 of the committed recipes use the list form with no
+    # flat dict at all.  Reading the raw key silently yields {} for those, which
+    # drops target_acceptance and reruns a curvature-sensitive model at the
+    # default 0.8.  Recipe.load normalises both forms; ask it rather than
+    # reimplementing the fallback.
+    try:
+        loaded = Recipe.load(recipe_path)
+    except Exception as exc:  # noqa: BLE001
+        return skip(f"recipe does not load: {type(exc).__name__}: {exc}")
+    warmup_name = loaded.warmup_name or ""
     sampler_name = recipe.get("base_method_name") or ""
 
     for name, registry, label in (
@@ -306,7 +321,7 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
         return skip(f"{warmup_name} is not compatible with {sampler_name}")
 
     budget = recipe.get("calibration_budget") or {}
-    warmup_params = recipe.get("warmup_params") or {}
+    warmup_params = loaded.warmup_params or {}
     n_warmup = warmup_params.get("n_warmup", budget.get("n_warmup"))
     n_samples = budget.get("n_samples", warmup_params.get("n_samples"))
     num_chains = warmup_params.get("num_chains", budget.get("num_chains"))
@@ -381,7 +396,11 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
         committed_seed = None
     if committed_seed:
         match = next(
-            (s for s in _seed_candidates() if _predicted_tuning_seed(s) == committed_seed),
+            (
+                s
+                for s in _seed_candidates()
+                if _predicted_tuning_seed(s) == committed_seed
+            ),
             None,
         )
         if match is None:

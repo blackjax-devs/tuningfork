@@ -76,7 +76,9 @@ class TestFilenameRoundTrip:
 
     def test_policy_tag_is_read_off_the_filename(self) -> None:
         assert (
-            driver._policy_tag("medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json")
+            driver._policy_tag(
+                "medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json"
+            )
             == "policy_v2-long"
         )
         assert driver._policy_tag("low__nuts__window_adaptation_diag_imm.json") is None
@@ -152,6 +154,42 @@ class TestKernelKwargReconstruction:
         assert blocker is None
         assert override == {"max_num_doublings": 15}
         assert any("max_num_doublings" in n for n in notes)
+
+
+class TestWarmupParameterSchemas:
+    """Two on-disk warmup schemas are in use; both must yield the same call."""
+
+    def test_target_acceptance_survives_the_warmups_list_schema(self) -> None:
+        """A curvature-sensitive cell must not be replayed at the default 0.8.
+
+        Most committed recipes record warmup settings as a ``warmups`` list with
+        no flat ``warmup_params`` dict.  Reading the flat key directly returns
+        an empty dict for those, silently dropping ``target_acceptance`` — which
+        does not fail loudly, it just reruns the sampler at a different setting.
+        Observed on banana: 1593 divergences out of 4000 at the default, 0 at the
+        recorded 0.99.
+        """
+        catalog = Path(__file__).parent.parent.parent / "tuningfork" / "catalog"
+        recipe = (
+            catalog
+            / "banana"
+            / "recipes"
+            / "medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json"
+        )
+        if not recipe.exists():
+            pytest.skip("banana policy recipe not in the catalog")
+
+        raw = json.loads(recipe.read_text())
+        assert "warmup_params" not in raw, (
+            "fixture no longer exercises the warmups-list schema; pick another "
+            "recipe that does, or this test proves nothing"
+        )
+
+        config = driver.reconstruct(recipe)
+        assert isinstance(config, driver.CellConfig)
+        assert config.target_acceptance == 0.99
+        assert config.n_warmup == 2000
+        assert config.num_chains == 4
 
 
 class TestScopeDecisions:
