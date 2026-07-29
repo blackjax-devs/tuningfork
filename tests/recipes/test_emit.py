@@ -34,6 +34,7 @@ import jax
 import pytest
 
 from tuningfork.base_method import BASE_METHODS
+from tuningfork.metrics.headline import HEADLINE_ESS_ESTIMATOR
 from tuningfork.model import MODELS
 from tuningfork.recipes import Effort, Recipe
 from tuningfork.recipes._instructions import render_instructions
@@ -804,6 +805,80 @@ def test_catalog_constant_grad_total_grad_evals_are_exact() -> None:
 
 
 @pytest.mark.fast
+def test_catalog_headline_basis_declares_the_headline_estimator() -> None:
+    """No committed recipe may claim a headline estimator other than ``ess_bulk``.
+
+    The exact-reproduction invariant above cannot see this.  A basis written from
+    the wrong estimator is still internally self-consistent — it reproduces its own
+    headline perfectly — so consistency checks pass it.  Only a recorded provenance
+    stamp distinguishes the two, which is why ``headline_basis["ess_estimator"]``
+    exists.
+
+    Coverage grows as the corpus is re-emitted: recipes predating the stamp carry
+    no ``ess_estimator`` key and are counted, not failed.  The assertion is on the
+    recipes that DO declare one, so a wrong declaration fails from the first
+    re-emitted cell onward.
+    """
+    import json
+
+    violations = []
+    stamped = 0
+    unstamped = 0
+    for p in sorted(_CATALOG.glob("*/recipes/*.json")):
+        hb = json.loads(p.read_text()).get("headline_basis") or {}
+        if not hb:
+            continue
+        declared = hb.get("ess_estimator")
+        if declared is None:
+            unstamped += 1
+            continue
+        stamped += 1
+        if declared != HEADLINE_ESS_ESTIMATOR:
+            violations.append(
+                f"{p.parent.parent.name}/{p.name}: ess_estimator={declared!r}, "
+                f"expected {HEADLINE_ESS_ESTIMATOR!r}"
+            )
+
+    assert not violations, (
+        f"recipes declare a non-headline ESS estimator "
+        f"({stamped} stamped, {unstamped} predate the stamp):\n" + "\n".join(violations)
+    )
+
+
+@pytest.mark.fast
+def test_catalog_headline_basis_legacy_ess_is_never_the_headline_ess() -> None:
+    """Where both estimators are recorded, they must be distinct measurements.
+
+    ``min_bulk_ess_classic_legacy`` exists to attribute a headline change to the
+    estimator rather than to fresh draws.  A path that copied the headline value
+    into it would make every ``estimator_ratio`` exactly 1.0 and destroy the
+    attribution while looking perfectly well-formed.
+    """
+    import json
+
+    failures = []
+    checked = 0
+    for p in sorted(_CATALOG.glob("*/recipes/*.json")):
+        hb = json.loads(p.read_text()).get("headline_basis") or {}
+        ess, legacy = hb.get("min_bulk_ess"), hb.get("min_bulk_ess_classic_legacy")
+        ratio = hb.get("estimator_ratio")
+        if ess is None or legacy is None:
+            continue
+        checked += 1
+        if ratio is None:
+            failures.append(
+                f"{p.parent.parent.name}/{p.name}: both estimators recorded but "
+                f"estimator_ratio is null"
+            )
+        elif abs(ratio - ess / legacy) > 1e-9 * max(abs(ratio), abs(ess / legacy)):
+            failures.append(
+                f"{p.parent.parent.name}/{p.name}: estimator_ratio={ratio!r} but "
+                f"min_bulk_ess/min_bulk_ess_classic_legacy={ess / legacy!r}"
+            )
+    assert not failures, f"({checked} checked)\n" + "\n".join(failures)
+
+
+@pytest.mark.fast
 def test_lrd_emit_stores_headline_ess_not_gate_ess_in_basis(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -812,6 +887,10 @@ def test_lrd_emit_stores_headline_ess_not_gate_ess_in_basis(
     Mocks a cert-seed result whose gate ESS (500) and headline ESS (125) differ 4×
     and whose ess_per_grad is consistent with the HEADLINE ESS.  Reverting
     emit_mclmc_lrd.py to ``best["min_bulk_ess"]`` makes this fail.
+
+    On a real run the two keys now hold the same estimator, so the mock keeps them
+    apart deliberately: reading the gate key would be a provenance error even
+    where the numbers happen to agree, and only a mock can still see it.
     """
     pytest.importorskip("numpyro")
     from blackjax.mcmc.integrators import LowRankInverseMassMatrix
@@ -829,8 +908,9 @@ def test_lrd_emit_stores_headline_ess_not_gate_ess_in_basis(
         "seed": 42,
         "verdict": "PASS",
         "rhat_max": 1.001,
-        "min_bulk_ess": 500.0,  # GATE ESS (ess_bulk, rank-normalised)
-        "min_bulk_ess_headline": 125.0,  # HEADLINE ESS (effective_sample_size)
+        "min_bulk_ess": 500.0,  # GATE ESS (separate leaf traversal)
+        "min_bulk_ess_headline": 125.0,  # HEADLINE ESS (metrics.headline)
+        "min_bulk_ess_classic_legacy": 100.0,  # pre-switch estimator, same draws
         "n_divergences": 0,
         "div_rate": 0.0,
         "ess_per_grad": 0.025,  # == 125 / 5000, i.e. headline-consistent
@@ -863,3 +943,6 @@ def test_lrd_emit_stores_headline_ess_not_gate_ess_in_basis(
     )
     derived = basis["min_bulk_ess"] / basis["total_grad_evals"]
     assert abs(recipe.headline_metric - derived) < 1e-12
+    assert basis["ess_estimator"] == "ess_bulk"
+    assert basis["min_bulk_ess_classic_legacy"] == 100.0
+    assert basis["estimator_ratio"] == pytest.approx(125.0 / 100.0)

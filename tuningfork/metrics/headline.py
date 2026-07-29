@@ -220,7 +220,7 @@ def build_headline_basis(
 
     rank_normalised = min_bulk_ess(states_position)
     classic = min_bulk_ess_classic_legacy(states_position)
-    headline = float(rank_normalised / denominator)
+    headline = rank_normalised / float(denominator)
 
     basis = {
         "total_grad_evals": int(total_grad_evals),
@@ -300,4 +300,7 @@ def min_bulk_ess_per_grad(
         # If min_ess is not finite (degenerate), propagate nan.
         return float("inf") if bool(jnp.isfinite(min_ess)) else float("nan")
 
-    return float(min_ess / n_grad_evals)
+    # Widen to float64 BEFORE dividing.  Dividing in the array's own float32 and
+    # widening afterwards lands ~2e-8 away from build_headline_basis, which is
+    # 20x the 1e-9 band the catalog exact-reproduction invariant allows.
+    return float(min_ess) / float(n_grad_evals)
