@@ -44,6 +44,7 @@ from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 from tuningfork._machine_info import get_machine_info as _get_machine_info
 from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
+from tuningfork.metrics.headline import HEADLINE_ESS_ESTIMATOR, estimator_ratio
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.recipes._base import Effort, Recipe
@@ -386,11 +387,18 @@ def _emit_lrd_cert_sweep(
                 headline_metric=best["ess_per_grad"],
                 headline_basis={
                     "total_grad_evals": best["total_grad_evals"],
-                    # Use the headline ESS (effective_sample_size, non-rank-normalised)
-                    # so that headline_metric == min_bulk_ess / total_grad_evals is
-                    # self-consistent.  The gate uses min_bulk_ess (ess_bulk,
-                    # rank-normalised) which lives in gate_evidence.auto.min_bulk_ess.
+                    # Read the HEADLINE key, never the gate key: the basis must
+                    # reproduce headline_metric exactly, and the gate value is a
+                    # separate traversal even when it uses the same estimator.
                     "min_bulk_ess": best["min_bulk_ess_headline"],
+                    "ess_estimator": HEADLINE_ESS_ESTIMATOR,
+                    "min_bulk_ess_classic_legacy": best.get(
+                        "min_bulk_ess_classic_legacy"
+                    ),
+                    "estimator_ratio": estimator_ratio(
+                        best["min_bulk_ess_headline"],
+                        best.get("min_bulk_ess_classic_legacy"),
+                    ),
                     "grad_count_convention": "2",
                     "is_lower_bound": False,
                 },
@@ -487,8 +495,9 @@ def _run_cert_seed(
         total_grad_evals, wall_seconds, adapted_params
     """
     import numpy as np
-    from blackjax.diagnostics import effective_sample_size
 
+    from tuningfork.metrics.headline import min_bulk_ess as min_bulk_ess_rank_normalised
+    from tuningfork.metrics.headline import min_bulk_ess_classic_legacy
     from tuningfork.warmup._base import squeeze_single_chain
 
     master_key = jax.random.key(seed)
@@ -558,13 +567,13 @@ def _run_cert_seed(
     #
     # GATE diagnostics: blackjax.diagnostics.ess_bulk (rank-normalised split-chain
     # ESS, Vehtari 2021) is bit-identical to az.ess(bulk) at rel diff ≤ 1e-6
-    # since blackjax 1.6.1.  The historical mismatch (3–10× lower values for slow-
-    # mixing models) was caused by the old effective_sample_size using a different
-    # autocorrelation formula — ess_bulk (1.6.1+) fixes this.
+    # since blackjax 1.6.1.
     #
-    # Headline ESS/grad: computed via blackjax.diagnostics.effective_sample_size
-    # (per headline.py contract — headline basis is blackjax by design; the two
-    # estimators differ by rank-normalisation, intentionally).
+    # Headline ESS/grad: the same estimator, routed through
+    # tuningfork.metrics.headline so the definition lives in exactly one place.
+    # The gate value and the headline value therefore agree by construction here;
+    # they are computed separately because the gate traverses leaves for R̂ anyway
+    # and the headline path also reports the legacy estimator on the same draws.
     from blackjax.diagnostics import ess_bulk as _bj_ess_bulk_gate
     from blackjax.diagnostics import rhat as _bj_rhat_gate
 
@@ -580,14 +589,15 @@ def _run_cert_seed(
     rhat_max = float(max(rhat_values))
     min_bulk_ess = float(min(ess_values_gate))
 
-    # Headline ESS via blackjax estimator (blackjax basis — per headline.py contract).
-    ess_tree = jax.tree.map(
-        lambda x: effective_sample_size(x, chain_axis=0, sample_axis=1),
-        positions_batched,
-    )
-    min_bulk_ess_headline = float(
-        jnp.min(jnp.concatenate([jnp.ravel(x) for x in jax.tree.leaves(ess_tree)]))
-    )
+    # Headline ESS + the legacy estimator on the SAME draws.  The leaves carry no
+    # site names at this point, so index them positionally — the metric is a min
+    # over every dimension of every leaf, which is name-independent.
+    _sites = {
+        str(i): np.asarray(leaf)
+        for i, leaf in enumerate(jax.tree.leaves(positions_batched))
+    }
+    min_bulk_ess_headline = min_bulk_ess_rank_normalised(_sites)
+    min_bulk_ess_classic = min_bulk_ess_classic_legacy(_sites)
 
     # Count divergences from MCLMCInfo.nonans (inverted: nonans=True means no NaN).
     # MCLMC doesn't have divergences in the HMC sense; use NaN-step indicator.
@@ -597,7 +607,7 @@ def _run_cert_seed(
     n_draws_total = num_chains * n_samples
     div_rate = n_divergences / max(n_draws_total, 1)
 
-    # ESS/grad: MCLMC costs 2 grads/step.  Use headline (blackjax) ESS per headline.py.
+    # ESS/grad: MCLMC costs 2 grads/step.  Numerator is the headline ESS.
     total_grad_evals = 2 * n_samples * num_chains
     ess_per_grad = min_bulk_ess_headline / total_grad_evals
 
@@ -614,12 +624,13 @@ def _run_cert_seed(
         "verdict": verdict,
         "rhat_max": rhat_max,
         "min_bulk_ess": min_bulk_ess,
-        # min_bulk_ess_headline is the headline ESS (from effective_sample_size,
-        # non-rank-normalised, per headline.py contract).  Distinct from min_bulk_ess
-        # which uses ess_bulk (rank-normalised, gate basis).  headline_basis must store
-        # the *headline* ESS so that headline_metric == min_bulk_ess_headline / total_grad_evals
-        # is self-consistent with the basis.
+        # headline_basis must store the *headline* ESS so that
+        # headline_metric == min_bulk_ess_headline / total_grad_evals holds exactly.
+        # The gate value above is computed by a separate leaf traversal; the two
+        # now use the same estimator, so treating them as interchangeable would
+        # still be a provenance error even where the numbers agree.
         "min_bulk_ess_headline": min_bulk_ess_headline,
+        "min_bulk_ess_classic_legacy": min_bulk_ess_classic,
         "n_divergences": n_divergences,
         "div_rate": div_rate,
         "ess_per_grad": ess_per_grad,
@@ -638,6 +649,7 @@ def _result_to_dict(r: dict[str, Any]) -> dict[str, Any]:
         "verdict": r["verdict"],
         "rhat_max": r["rhat_max"],
         "min_bulk_ess": r["min_bulk_ess"],
+        "min_bulk_ess_classic_legacy": r.get("min_bulk_ess_classic_legacy"),
         "n_divergences": r["n_divergences"],
         "div_rate": r["div_rate"],
         "ess_per_grad": r["ess_per_grad"],
