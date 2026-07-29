@@ -3,45 +3,48 @@
   "base_method_name": "dynamic_hmc",
   "effort": "medium",
   "base_method_params": {
-    "step_size": 0.09568566083908081,
+    "step_size": 0.09456983208656311,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.005917378701269627,
+  "headline_metric": 0.006433124727775385,
   "sample_quality": {
-    "mae_vs_reference": 0.07711023351554278,
-    "q05_error": 0.30056832470500316,
-    "q95_error": 0.15428421795000322,
-    "std_ratio_max_dev": 0.05686453400498537
+    "mae_vs_reference": 0.054383749469653124,
+    "q05_error": 0.19049839065425997,
+    "q95_error": 0.12467557425993599,
+    "std_ratio_max_dev": 0.1375637377476917
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 30.51601176406257,
+    "wall_seconds_estimate": 48.05491939699277,
     "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 20.994,
-    "sampling_wall_seconds": 9.439,
-    "sampling_seconds_per_draw": 0.00236,
+    "warmup_wall_seconds": 37.188,
+    "sampling_wall_seconds": 8.242,
+    "sampling_seconds_per_draw": 0.002061,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.1",
-      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
     },
-    "warmup_grad_evals": 369256
+    "warmup_grad_evals": 357129
   },
   "difficulty": null,
-  "instructions": "**Medium-effort recipe** (window_adaptation_diag_imm, dynamic_hmc) -- step_policy {'kind': 'uniform_int', 'low': 5, 'high': 50}.\nREVIEW gate approved by statistician (Bonferroni): z=3.319 < z*=3.87 for k=144 sites.",
-  "notes": "V1 [5,50) works for irt_2pl dynamic_hmc (ESS=730, Bonferroni-approved). Note: existing low__dynamic_hmc__window_adaptation_diag_imm.json has PASS with V7 oracle (ESS=927, z=1.38). This MEDIUM V1 recipe provides a simpler parametric alternative that avoids per-model oracle harvest, at slight efficiency cost. Re-certed 2026-06-06 to populate inverse_mass_matrix (was null \u2014 persistence gap); diagnostics reproduce identically.",
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(window_adaptation_diag_imm, dynamic_hmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.09456983208656311, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0064.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "",
   "headline_basis": {
     "total_grad_evals": 107118,
-    "min_bulk_ess": 633.8577717225999,
+    "min_bulk_ess": 689.1034545898438,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 383.75140380859375,
+    "estimator_ratio": 1.7957027590016388,
     "grad_count_convention": "info.num_integration_steps (realized count per step)",
     "is_lower_bound": false
   },
@@ -63,18 +66,21 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": "irt_2pl/recipes/medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.imm.npz",
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0055659223421278,
-      "min_bulk_ess": 730.2634028340249,
+      "rhat_max": 1.0055010318756104,
+      "min_bulk_ess": 689.1034545898438,
       "n_divergences": 0,
-      "max_abs_mean_z": 3.3192018131491343,
-      "verdict": "REVIEW",
+      "max_abs_mean_z": 2.9984972571541255,
+      "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0055659223421278,
+          "value": 1.0055010318756104,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -82,7 +88,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 730.2634028340249,
+          "value": 689.1034545898438,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -98,29 +104,30 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 3.3192018131491343,
-          "band": "REVIEW",
+          "value": 2.9984972571541255,
+          "band": "PASS",
           "pass_lo": 0.0,
-          "pass_hi": 2.0,
-          "review_lo": 2.0,
+          "pass_hi": 3.570617976930183,
+          "review_lo": 3.570617976930183,
           "review_hi": 4.0,
-          "frac_z2": 0.04861111111111111
+          "frac_z2": 0.0625,
+          "bias_sigma_at_argmax_z": 0.040598896304745065,
+          "achieved_bias_bound_sigma": 0.04683203539287538
         }
       },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "decision": "approve-with-note",
-      "statistician_id": "stat-2026-06-06",
-      "date": "2026-06-06",
-      "reason": "z=3.319 < Bonferroni z*=3.87 for k=144 sites (FWER=5%). ESS=730 >> 400 (PASS band). rhat=1.0056 (PASS band). 0 divergences. Re-cert of 2026-05-30 result; IMM backfill \u2014 no bias evidence. Follows stat-2026-05-30 precedent."
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev53+g821da1795",
-  "blackjax_version": "1.6.dev87+g5549a0b9c",
-  "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-06T06:49:26Z",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T14:45:32Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
