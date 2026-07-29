@@ -5,30 +5,30 @@
   "base_method_params": {
     "num_optimization_steps": 51000
   },
-  "headline_metric": 899.66943359375,
+  "headline_metric": 0.9041227698326111,
   "sample_quality": {
-    "mae_vs_reference": 0.13878091726398628,
-    "q05_error": 0.2719490995869322,
-    "q95_error": 0.4909281768641204,
-    "std_ratio_max_dev": 0.22618630132996342
+    "mae_vs_reference": 0.14437622303001632,
+    "q05_error": 0.21458174029762947,
+    "q95_error": 0.4311470100445643,
+    "std_ratio_max_dev": 0.19560935548047698
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 5.519458216964267,
+    "wall_seconds_estimate": 9.466482533956878,
     "n_warmup": 0,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 5.046,
-    "sampling_wall_seconds": 0.452,
-    "sampling_seconds_per_draw": 0.000113,
+    "warmup_wall_seconds": 7.932,
+    "sampling_wall_seconds": 0.252,
+    "sampling_seconds_per_draw": 6.3e-05,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.1",
-      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
@@ -36,11 +36,11 @@
     "warmup_grad_evals": null
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 899.6694.\nWall time to produce this recipe: ~5 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.9041.\nWall time to produce this recipe: ~9 s (machine-only).",
   "notes": "",
   "headline_basis": {
-    "total_grad_evals": 4,
-    "min_bulk_ess": 3598.677734375,
+    "total_grad_evals": 4000,
+    "min_bulk_ess": 3616.4910793304443,
     "grad_count_convention": "1",
     "is_lower_bound": false
   },
@@ -58,24 +58,27 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0016415874355153,
-      "min_bulk_ess": 3682.5369952549795,
+      "rhat_max": 1.001694679260254,
+      "min_bulk_ess": 3684.12939453125,
       "n_divergences": 0,
-      "max_abs_mean_z": 8.412779672196589,
+      "max_abs_mean_z": 7.979285830699694,
       "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.0016415874355153,
+          "value": 1.001694679260254,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": Infinity
         },
         "min_bulk_ess": {
-          "value": 3682.5369952549795,
+          "value": 3684.12939453125,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": Infinity
@@ -87,28 +90,31 @@
           "pass_hi": Infinity
         },
         "max_abs_mean_z": {
-          "value": 8.412779672196589,
+          "value": 7.979285830699694,
           "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 4.0,
           "review_lo": 4.0,
           "review_hi": Infinity,
-          "frac_z2": 0.7307692307692307
+          "frac_z2": 0.6923076923076923,
+          "bias_sigma_at_argmax_z": 0.13308115872875267,
+          "bias_sigma_max_at_z4": 0.14437622303001632,
+          "achieved_bias_bound_sigma": 0.05067631553653135
         }
       },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "Honest FAIL: genuine MFVI/FRVI posterior-mean bias on german_credit. z=8.4 far exceeds the 25-dim pivotal sampling-noise floor (E[max|N(0,1)|_25]=2.81). mf z=21.4 vs fr z=8.4: frvi<mfvi confirms correlation-induced bias is intrinsic (frvi's dense covariance approximates correlations better, yet still biased). The german_credit posterior has strong feature correlations; VI's mean approximation is biased relative to the true posterior mean. Honest out-of-scope.",
+      "reason": "",
       "statistician_id": "",
-      "decision": "FAIL"
+      "decision": ""
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
-  "blackjax_version": "1.6.dev87+g5549a0b9c",
-  "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-03T22:52:38Z",
+  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T08:53:26Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

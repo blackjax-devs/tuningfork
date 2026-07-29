@@ -5,30 +5,30 @@
   "base_method_params": {
     "num_optimization_steps": 25500
   },
-  "headline_metric": 980.864501953125,
+  "headline_metric": 0.9808645248413086,
   "sample_quality": {
-    "mae_vs_reference": 0.1777870911288995,
-    "q05_error": 0.10344425976623335,
-    "q95_error": 0.7100128951549394,
-    "std_ratio_max_dev": 0.24418475187128041
+    "mae_vs_reference": 0.18327160721694186,
+    "q05_error": 0.10432139517919214,
+    "q95_error": 0.715688442431598,
+    "std_ratio_max_dev": 0.2502646543132383
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 4.938849934958853,
+    "wall_seconds_estimate": 0.715186643996276,
     "n_warmup": 0,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 0.895,
-    "sampling_wall_seconds": 0.796,
-    "sampling_seconds_per_draw": 0.000199,
+    "warmup_wall_seconds": 0.471,
+    "sampling_wall_seconds": 0.238,
+    "sampling_seconds_per_draw": 6e-05,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.1",
-      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
@@ -36,11 +36,11 @@
     "warmup_grad_evals": null
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(no_warmup, meanfield_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.meanfield_vi(logdensity_fn, **{'num_optimization_steps': 25500})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 980.8645.\nWall time to produce this recipe: ~4 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, meanfield_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.meanfield_vi(logdensity_fn, **{'num_optimization_steps': 25500})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.9809.\nWall time to produce this recipe: ~0 s (machine-only).",
   "notes": "",
   "headline_basis": {
-    "total_grad_evals": 4,
-    "min_bulk_ess": 3923.4580078125,
+    "total_grad_evals": 4000,
+    "min_bulk_ess": 3923.4580993652344,
     "grad_count_convention": "1",
     "is_lower_bound": false
   },
@@ -58,24 +58,27 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0006601723197524,
-      "min_bulk_ess": 3929.5097835973324,
+      "rhat_max": 1.0006601810455322,
+      "min_bulk_ess": 3929.510009765625,
       "n_divergences": 0,
-      "max_abs_mean_z": 14.409416481541694,
+      "max_abs_mean_z": 13.57475551898629,
       "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.0006601723197524,
+          "value": 1.0006601810455322,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": Infinity
         },
         "min_bulk_ess": {
-          "value": 3929.5097835973324,
+          "value": 3929.510009765625,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": Infinity
@@ -87,28 +90,31 @@
           "pass_hi": Infinity
         },
         "max_abs_mean_z": {
-          "value": 14.409416481541694,
+          "value": 13.57475551898629,
           "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 4.0,
           "review_lo": 4.0,
           "review_hi": Infinity,
-          "frac_z2": 1.0
+          "frac_z2": 1.0,
+          "bias_sigma_at_argmax_z": 0.18327160721694186,
+          "bias_sigma_max_at_z4": 0.18327160721694186,
+          "achieved_bias_bound_sigma": 0.029371611625778116
         }
       },
       "gt_cert_coverage": "full_posterior"
     },
     "override": {
-      "reason": "Honest FAIL: genuine MFVI posterior-mean bias on logistic_synthetic. z=14.4 far exceeds the 26-dim pivotal sampling-noise floor (E[max|N(0,1)|_26]=2.81). frvi<mfvi ordering (fr z=5.2 vs mf z=14.4) confirms correlation-induced bias: the logistic likelihood creates posterior correlations between coefficients that MFVI's independence assumption cannot represent; the mean of the marginal approximation diverges from the joint posterior mean. This is intrinsic VI-on-logistic bias, not sampling noise. Same failure class as gp_regression (z=325) and neals_funnel.",
+      "reason": "",
       "statistician_id": "",
-      "decision": "FAIL"
+      "decision": ""
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
-  "blackjax_version": "1.6.dev87+g5549a0b9c",
-  "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-03T22:52:06Z",
+  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T08:53:44Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
