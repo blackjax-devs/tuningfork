@@ -41,6 +41,7 @@ import jax
 import jax.numpy as jnp
 from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 
+from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
@@ -76,7 +77,7 @@ def _emit_mclmc_lrd_recipes_impl(
     catalog_root: Path | None = None,
     variant_label: str = "mclmc_lrd",
     effort: Effort = Effort.LOW,
-    tuningfork_version: str = "0.0.0.dev0",
+    tuningfork_version: str = _tuningfork_version,
 ) -> list[Path]:
     """Unified MCLMC-LRD recipe emitter — both stub and cert-sweep paths.
 
@@ -189,7 +190,7 @@ def _emit_lrd_cert_sweep(
     catalog_root: Path | None = None,
     variant_label: str = "mclmc_lrd",
     effort: Effort = Effort.LOW,
-    tuningfork_version: str = "0.0.0.dev0",
+    tuningfork_version: str = _tuningfork_version,
 ) -> list[Path]:
     """Run the LRD cert-sweep for a list of models and emit calibrated recipes.
 

@@ -5,7 +5,7 @@
   "base_method_params": {
     "num_optimization_steps": 51000
   },
-  "headline_metric": 0.916799783706665,
+  "headline_metric": null,
   "sample_quality": {
     "mae_vs_reference": 0.02297656584428387,
     "q05_error": 0.05767785034554369,
@@ -33,11 +33,11 @@
       "jax_default_device": "cpu",
       "gpu_info": null
     },
-    "warmup_grad_evals": null
+    "warmup_grad_evals": 1020000
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.9168.\nWall time to produce this recipe: ~1 s (machine-only).",
-  "notes": "",
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nWall time to produce this recipe: ~1 s (machine-only).",
+  "notes": "vi-gradient-accounting: headline_metric is null because vi.step draws from a fitted Gaussian at zero gradient cost; the true cost is the ELBO optimisation recorded in warmup_grad_evals = num_optimization_steps \u00d7 num_samples_per_step \u00d7 num_chains. Cross-family ESS/grad comparison requires using warmup_grad_evals as the denominator.",
   "headline_basis": {
     "total_grad_evals": 4000,
     "min_bulk_ess": 3667.19913482666,
