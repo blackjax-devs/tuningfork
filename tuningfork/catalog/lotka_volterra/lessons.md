@@ -2,6 +2,13 @@
 
 ## TL;DR
 
+**The in-scope PASS verdicts below are not reproducible and should be treated as
+provisional** — see the 2026-07-29 entry under History. The posterior has an
+absorbing secondary mode ~420 nats behind a barrier, and every recipe run starts
+all chains from a single hostile `init_to_uniform` point, so each run is a
+lottery over which chains fall in. The same cell passes at some seeds and fails
+at others under both the current and the original dependency stack.
+
 Stiff ODE posterior with bimodal structure. Dense and low_rank IMM PASS for NUTS/dmhmc/dynamic_hmc/hmc at LOW effort. **Diag IMM FAILS for dynamic_hmc and dmhmc** at LOW effort and even MEDIUM; the stiff ODE geometry requires off-diagonal mass matrix structure. `mhmc` is structurally unsuitable (step_size collapses). MCLMC variants FAIL (warmup hang). VI is out_of_scope.
 [boundary: dense/low_rank IMM PASS holds at LOW n_warmup=1000; diag IMM FAIL confirmed across multiple step policies; nearest FAIL: dynamic_hmc+diag_imm (see recipes/failed__dynamic_hmc__window_adaptation_diag_imm.json); dense IMM PASS for nuts (see recipes/failed__nuts__window_adaptation_dense_imm.json — this one actually FAILS too, see below)]
 
@@ -51,7 +58,102 @@ Recorded FAILs not discussed above: all 14 failed recipes are covered above.
 
 ## History
 
-No detailed investigations recorded yet. If sampling pathologies emerge during recipe sweeps, case studies will be documented here.
+### 2026-07-29 — the in-scope cells are a warmup lottery, not a dependency regression
+
+A corpus re-emission under blackjax 1.6.1 / jax 0.11.0 found 11 of the 12
+in-scope lotka_volterra cells failing, against committed baselines recorded at
+blackjax 1.6.dev84 / jax 0.10.0. The failure was initially read as a dependency
+regression in the ODE integration path. It is not. Both the jax hypothesis and
+the ODE hypothesis were tested directly and refuted, and the underlying cause is
+a property of this posterior plus the way recipe runs start their chains.
+
+**The model computation did not change.** Log-density and gradient were evaluated
+at 10 fixed unconstrained positions, plus the raw `_solve_lv` outputs, under two
+stacks differing only in jax (0.11.0 vs 0.10.0, with numpyro 0.21.0 / probdiffeq
+0.9.2 / numpy 2.4.6 held fixed). 24 of 34 compared arrays are bit-for-bit
+identical, including every `u_mean` / `u_std` array from the ODE solve and the
+log-density at both the prior centre and the synthetic truth. The 10 that differ
+are gradients and two log-densities, differing by at most 72 ULP (max relative
+difference 1.5e-14) — floating-point reassociation, not a behaviour change. The
+same probe re-run twice on one stack is 34/34 identical, so those ULP differences
+are attributable to the version and not to run-to-run noise. The numpyro init
+position and the raw uniform RNG stream are also bit-identical across the two
+versions.
+
+**The posterior has an absorbing decoy mode.** Walking a straight line in
+unconstrained space from the certified reference mean to the mean of a failing
+chain: log-density is -65.8 at the reference mode, -236.5 at the decoy, and dips
+to -656.3 at the midpoint. The decoy therefore sits ~171 nats below the true mode
+(negligible posterior mass, correctly excluded from the reference) behind a
+barrier ~420 nats deep. No HMC chain crosses that in a 1000-step warmup, so a
+chain that lands there is trapped for the life of the run. The decoy is the
+classic ODE-inverse failure: `sigma_obs` = 3.86 instead of 0.57, i.e. a bad
+trajectory fit absorbed into inflated observation noise.
+
+**Two design facts make landing there a coin flip.** The emit path starts every
+chain from ONE init position broadcast to all chains with no jitter, so chains
+are distinguished only by their warmup keys. That single init comes from
+numpyro's `init_to_uniform`, which for this model is a hostile start: log-density
+-9557, gradient norm 1.9e4, and 440 of 512 sampled points from the same
+`[-2, 2]^7` box have non-finite log-density (86%). The posterior region itself is
+clean (0 of 256 non-finite), and the non-finite fraction is identical under both
+jax versions. Which basin a chain descends into is decided by chaotic
+accumulation over the warmup from that point.
+
+**Seed sweep, `low__dmhmc__window_adaptation_dense_imm`.** Same emitted script,
+same box, all draws scored by one procedure under one stack:
+
+| seed | jax 0.11.0 + blackjax 1.6.1 | jax 0.10.0 + blackjax 1.6.dev84 (baseline) |
+|---|---|---|
+| 682737 (recipe's own) | R-hat 11.10, min-ESS 2.02 | R-hat 11.41, min-ESS 2.02 |
+| 682738 | R-hat 1.0131, min-ESS 325.6 | R-hat 1.0131, min-ESS 325.6 |
+| 682739 | R-hat 1.3239, min-ESS 5.11 | R-hat 1.0086, min-ESS 333.8 |
+| 682740 | R-hat 1.0131, min-ESS 282.1 | R-hat 1.0129, min-ESS 300.0 |
+| 682741 | R-hat 123.07, min-ESS 2.00 | R-hat 132.54, min-ESS 2.00 |
+| 682742 | R-hat 1.0083, min-ESS 285.7 | R-hat 1.0091, min-ESS 280.3 |
+
+Three of six pass on the current stack, four of six on the baseline stack — a
+one-seed difference on n=6, i.e. no detectable version effect. Critically, the
+**exact baseline stack fails at the recipe's own recorded seed**, with the same
+chain in the same decoy mode (u0 = 2.1803 on both stacks). The committed record
+for that cell is R-hat 1.0038. No choice of R-hat estimator turns 11.41 into
+1.0038; the difference is whether a chain sits in the decoy basin.
+
+Three distinct pathologies appear across the failing seeds, all warmup-lottery
+outcomes and all with zero or near-zero divergences (so the divergence counter
+does not catch them):
+
+1. **Decoy-basin capture** (seed 682737): one chain 26.4 reference-SDs away,
+   stable there, acceptance 0.99, 0 divergences.
+2. **Within-mode under-mixing** (seed 682739): all chains in the true mode but
+   one explores half the width of the others.
+3. **Step-size collapse** (seed 682741): three of four chains frozen in
+   different far-away places — one with position standard deviation exactly 0.0
+   over 1000 draws while reporting 0.9999 acceptance. This is the same pathology
+   `lessons.md` already records for `mhmc` on this model; `dmhmc` hits it too,
+   seed-dependently.
+
+**Caveats on the committed baselines.** The recipes were emitted on x86_64; this
+reproduction ran on aarch64, and arch alone is known to flip chaotic-warmup gate
+verdicts in this suite. Separately, the recorded `tuning_seed` values derive from
+a master seed that the corpus does not record, so an emitted-script run cannot be
+guaranteed to reproduce the seeding of the original run. No per-recipe draws are
+committed for this model, so the original PASS runs cannot be re-examined. The
+jax-0.11-vs-jax-0.10 comparison above is unaffected by either caveat, because
+both sides ran on the same box with everything else fixed.
+
+**Comparability note.** Do not compare the `min_bulk_ess` recorded in these
+recipes against a freshly computed ESS: the estimator convention has changed
+since emission. R-hat is the safe cross-era signal here, and only because the
+discrepancy is structural (11.4 vs 1.004) rather than marginal.
+
+**Consequence.** The `dense`/`diag`/`low_rank` distinction is cosmetic for the
+low-effort HMC-family cells: they all store the same `step_size`
+(0.039880085113090075) and the same length-7 **diagonal** inverse mass matrix
+under the same tuning seed, and at baseline they recorded metrics identical to
+sixteen digits across preconditioners. Any "invariant across preconditioners"
+reasoning about these cells is therefore vacuous — the preconditioner never
+varied.
 
 ## Citations
 
