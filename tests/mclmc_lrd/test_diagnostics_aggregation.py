@@ -108,6 +108,7 @@ def test_cert_sweep_bakes_from_adapted_params_exactly(tmp_path, monkeypatch):
         "verdict": "PASS",
         "rhat_max": 1.001,
         "min_bulk_ess": 500.0,
+        "min_bulk_ess_headline": 125.0,  # headline ESS (non-rank-normalised); != min_bulk_ess
         "n_divergences": 0,
         "div_rate": 0.0,
         "ess_per_grad": 0.1,
@@ -323,6 +324,7 @@ def test_cert_sweep_bake_no_double_squeeze_when_imm_already_unbatched(
         "verdict": "PASS",
         "rhat_max": 1.001,
         "min_bulk_ess": 500.0,
+        "min_bulk_ess_headline": 125.0,  # headline ESS (non-rank-normalised); != min_bulk_ess
         "n_divergences": 0,
         "div_rate": 0.0,
         "ess_per_grad": 0.1,
