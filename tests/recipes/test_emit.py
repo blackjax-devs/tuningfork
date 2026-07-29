@@ -34,6 +34,7 @@ import jax
 import pytest
 
 from tuningfork.base_method import BASE_METHODS
+from tuningfork.catalog._estimator_provenance import HEADLINE_ESTIMATOR_EXCLUDED_MODELS
 from tuningfork.metrics.headline import HEADLINE_ESS_ESTIMATOR
 from tuningfork.model import MODELS
 from tuningfork.recipes import Effort, Recipe
@@ -825,6 +826,8 @@ def test_catalog_headline_basis_declares_the_headline_estimator() -> None:
     stamped = 0
     unstamped = 0
     for p in sorted(_CATALOG.glob("*/recipes/*.json")):
+        if p.parent.parent.name in HEADLINE_ESTIMATOR_EXCLUDED_MODELS:
+            continue
         hb = json.loads(p.read_text()).get("headline_basis") or {}
         if not hb:
             continue
@@ -843,6 +846,40 @@ def test_catalog_headline_basis_declares_the_headline_estimator() -> None:
         f"recipes declare a non-headline ESS estimator "
         f"({stamped} stamped, {unstamped} predate the stamp):\n" + "\n".join(violations)
     )
+
+
+@pytest.mark.fast
+def test_estimator_exclusions_are_live_and_still_excluded() -> None:
+    """The estimator exclusion list must describe reality, in both directions.
+
+    An allowlist that is never checked rots into a lie.  Two ways this one could:
+    it could name a model the catalog no longer has (a dead entry that silently
+    stops excluding anything), or the model could be re-measured onto the current
+    estimator, leaving an entry that wrongly tells readers its numbers are on the
+    legacy one.  Both are asserted here, so the list stays load-bearing rather
+    than decorative.
+    """
+    import json
+
+    problems = []
+    for model, reason in HEADLINE_ESTIMATOR_EXCLUDED_MODELS.items():
+        model_dir = _CATALOG / model
+        if not model_dir.is_dir():
+            problems.append(f"{model}: excluded but absent from the catalog")
+            continue
+        if not reason.strip():
+            problems.append(f"{model}: excluded with an empty reason")
+        for p in sorted(model_dir.glob("recipes/*.json")):
+            declared = (json.loads(p.read_text()).get("headline_basis") or {}).get(
+                "ess_estimator"
+            )
+            if declared is not None:
+                problems.append(
+                    f"{model}/{p.name}: declares ess_estimator={declared!r}, so it "
+                    f"HAS been re-measured — drop {model} from the exclusion list "
+                    f"instead of telling readers its headline is on the old estimator"
+                )
+    assert not problems, "estimator exclusion list is stale:\n" + "\n".join(problems)
 
 
 @pytest.mark.fast
