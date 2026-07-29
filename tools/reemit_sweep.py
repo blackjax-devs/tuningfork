@@ -76,6 +76,11 @@ _STANDARD_PROTOCOL = {"n_warmup": 1000, "n_samples": 1000, "num_chains": 4}
 #: Every entry is a deliberate, recorded decision; do not add one to make a cell
 #: emit.
 CONFIG_CORRECTION_CELLS: dict[str, str] = {
+    "radon/low__nuts__window_adaptation_diag_imm.json": (
+        "headline was stamped from cached chain statistics recording 600000 "
+        "gradient evaluations, which the standard protocol does not reproduce "
+        "(it yields 60704); the artifact records no sample budget"
+    ),
     "lotka_volterra/low__nuts__window_adaptation_low_rank_imm.json": (
         "headline was stamped from cached chain statistics, so the artifact "
         "records no sample budget at all; emitted under the standard protocol"
@@ -103,6 +108,13 @@ class CellConfig:
     policy_tag: str | None = None
     warmup_inner_kernel: str | None = None
     init_strategy: dict[str, Any] | None = None
+    # Low-rank-diagonal harness inputs.  These are genuine SETTINGS, not
+    # outputs: the pilot's effective sample size gates how much rank the
+    # rank-safety check will allow, so a smaller pilot silently collapses the
+    # preconditioner and the cell fails for a reason that is not the cell's.
+    k_rank: int | None = None
+    pilot_n_warmup: int | None = None
+    pilot_n_samples: int | None = None
     config_correction: bool = False
     notes: list[str] = field(default_factory=list)
 
@@ -258,8 +270,18 @@ def _reconstruct_sampler_kwargs(
     return (override or None, notes, None)
 
 
-def reconstruct(recipe_path: Path) -> CellConfig | Skip:
-    """Rebuild the emit call for one committed recipe, or decline to."""
+def reconstruct(
+    recipe_path: Path, source_path: Path | None = None
+) -> CellConfig | Skip:
+    """Rebuild the emit call for one committed recipe, or decline to.
+
+    ``source_path`` supplies the artifact to read the configuration FROM, when
+    that differs from the artifact the emit will write TO.  Required once any
+    cell has been re-emitted on the branch: reading the working tree would
+    then reconstruct from a file this process itself produced, so a
+    mis-reconstruction becomes self-confirming and is never noticed.
+    """
+    source_path = source_path or recipe_path
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.catalog._estimator_provenance import (
         HEADLINE_ESTIMATOR_EXCLUDED_MODELS,
@@ -272,7 +294,7 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
     def skip(reason: str) -> Skip:
         return Skip(recipe_path, reason)
 
-    recipe = json.loads(recipe_path.read_text())
+    recipe = json.loads(source_path.read_text())
     model_name = recipe_path.parent.parent.name
 
     if model_name in HEADLINE_ESTIMATOR_EXCLUDED_MODELS:
@@ -302,7 +324,7 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
     # default 0.8.  Recipe.load normalises both forms; ask it rather than
     # reimplementing the fallback.
     try:
-        loaded = Recipe.load(recipe_path)
+        loaded = Recipe.load(source_path)
     except Exception as exc:  # noqa: BLE001
         return skip(f"recipe does not load: {type(exc).__name__}: {exc}")
     warmup_name = loaded.warmup_name or ""
@@ -337,10 +359,22 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
         return skip(blocker)
 
     harness = "recipe_runner"
+    k_rank = pilot_n_warmup = pilot_n_samples = None
     if sampler_name == "mclmc_lrd" or warmup_name == "mclmc_lrd_tuning":
         harness = "mclmc_lrd"
         n_samples = n_samples if n_samples is not None else _LRD_DEFAULT_N_SAMPLES
         num_chains = num_chains if num_chains is not None else _LRD_DEFAULT_NUM_CHAINS
+        # k_rank is pinned in the kernel params; the pilot budget in the warmup
+        # params.  Both must be replayed or the harness silently uses its own
+        # defaults, which are 10x smaller than what several cells recorded.
+        k_rank = (recipe.get("base_method_params") or {}).get("k_rank")
+        pilot_n_warmup = warmup_params.get("pilot_n_warmup")
+        pilot_n_samples = warmup_params.get("pilot_n_samples")
+        if k_rank is None or pilot_n_warmup is None or pilot_n_samples is None:
+            return skip(
+                "low-rank-diagonal cell does not record k_rank / pilot budget, so "
+                "the rank the run actually deployed cannot be reproduced"
+            )
     cell_key = f"{model_name}/{recipe_path.name}"
     config_correction = cell_key in CONFIG_CORRECTION_CELLS
     missing = [
@@ -373,7 +407,7 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
     # than reimplemented, so it cannot drift from it.
     policy_tag = _policy_tag(recipe_path.name)
     written_name = _roundtrip_filename(
-        recipe_path,
+        source_path,
         _combined_filename_tag(sampler_name, warmup_inner_kernel, policy_tag),
     )
     if written_name != recipe_path.name:
@@ -430,18 +464,44 @@ def reconstruct(recipe_path: Path) -> CellConfig | Skip:
         policy_tag=policy_tag,
         warmup_inner_kernel=warmup_inner_kernel,
         init_strategy=recipe.get("init_strategy"),
+        k_rank=k_rank,
+        pilot_n_warmup=pilot_n_warmup,
+        pilot_n_samples=pilot_n_samples,
         config_correction=config_correction,
         notes=notes,
     )
 
 
-def survey() -> tuple[list[CellConfig], list[Skip]]:
-    """Reconstruct every catalog recipe; partition into emittable and skipped."""
+def survey(from_rev: str | None = None) -> tuple[list[CellConfig], list[Skip]]:
+    """Reconstruct every catalog recipe; partition into emittable and skipped.
+
+    With ``from_rev``, configurations are read from that revision rather than the
+    working tree, so partially-swept state cannot feed back into the plan.
+    """
+    import subprocess
+    import tempfile
+
     ok: list[CellConfig] = []
     skipped: list[Skip] = []
-    for p in sorted(CATALOG.glob("*/recipes/*.json")):
-        result = reconstruct(p)
-        (ok if isinstance(result, CellConfig) else skipped).append(result)  # type: ignore[arg-type]
+    with tempfile.TemporaryDirectory() as tmp:
+        for p in sorted(CATALOG.glob("*/recipes/*.json")):
+            source = p
+            if from_rev:
+                rel = p.relative_to(REPO_ROOT)
+                proc = subprocess.run(
+                    ["git", "show", f"{from_rev}:{rel}"],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                if proc.returncode != 0:
+                    skipped.append(Skip(p, f"absent at {from_rev}"))
+                    continue
+                source = Path(tmp) / rel
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(proc.stdout)
+            result = reconstruct(p, source_path=source)
+            (ok if isinstance(result, CellConfig) else skipped).append(result)  # type: ignore[arg-type]
     return ok, skipped
 
 
@@ -472,9 +532,14 @@ def main() -> int:
         help="Print one shell-quoted emit invocation per reconstructable cell",
     )
     parser.add_argument("--json", help="Write the reconstructed configs here")
+    parser.add_argument(
+        "--from-rev",
+        help="Read configurations from this revision instead of the working "
+        "tree. Use the PRE-SWEEP commit once any cell has been re-emitted.",
+    )
     args = parser.parse_args()
 
-    ok, skipped = survey()
+    ok, skipped = survey(args.from_rev)
     failures = [s for s in skipped if _is_reconstruction_failure(s)]
     out_of_scope = [s for s in skipped if not _is_reconstruction_failure(s)]
 
@@ -568,6 +633,9 @@ def _as_invocation(c: CellConfig) -> dict[str, Any]:
         "policy_tag": c.policy_tag,
         "warmup_inner_kernel": c.warmup_inner_kernel,
         "init_strategy": c.init_strategy,
+        "k_rank": c.k_rank,
+        "pilot_n_warmup": c.pilot_n_warmup,
+        "pilot_n_samples": c.pilot_n_samples,
         "config_correction": c.config_correction,
         "notes": c.notes,
     }

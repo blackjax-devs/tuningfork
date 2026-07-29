@@ -15,13 +15,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 12.547027291962877,
+    "wall_seconds_estimate": 13.335581214982085,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 7.346,
-    "sampling_wall_seconds": 4.094,
-    "sampling_seconds_per_draw": 0.001023,
+    "warmup_wall_seconds": 8.001,
+    "sampling_wall_seconds": 3.974,
+    "sampling_seconds_per_draw": 0.000994,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -37,7 +37,7 @@
     "warmup_grad_evals": 68560
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.32138919830322266, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.1271.\nWall time to produce this recipe: ~12 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.32138919830322266, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.1271.\nWall time to produce this recipe: ~13 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 60000,
@@ -123,7 +123,7 @@
   "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T12:49:48Z",
+  "timestamp_utc": "2026-07-29T14:05:24Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

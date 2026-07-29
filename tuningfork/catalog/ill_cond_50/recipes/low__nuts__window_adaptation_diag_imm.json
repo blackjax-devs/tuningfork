@@ -66,13 +66,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 4.23932621901622,
+    "wall_seconds_estimate": 4.4002559799700975,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 2.256,
-    "sampling_wall_seconds": 1.272,
-    "sampling_seconds_per_draw": 0.000318,
+    "warmup_wall_seconds": 2.278,
+    "sampling_wall_seconds": 1.281,
+    "sampling_seconds_per_draw": 0.00032,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -174,7 +174,7 @@
   "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T12:47:02Z",
+  "timestamp_utc": "2026-07-29T14:03:22Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }
