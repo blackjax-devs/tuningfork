@@ -26,13 +26,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 4.197811220015865,
+    "wall_seconds_estimate": 3.9756202379940078,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 2.134,
-    "sampling_wall_seconds": 0.791,
-    "sampling_seconds_per_draw": 0.000198,
+    "warmup_wall_seconds": 1.955,
+    "sampling_wall_seconds": 0.73,
+    "sampling_seconds_per_draw": 0.000182,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -48,7 +48,7 @@
     "warmup_grad_evals": 39882
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.4772375822067261, 'inverse_mass_matrix': [9.73280143737793, 1.2027612924575806, 0.9896066784858704, 0.8473908305168152, 0.9304114580154419, 0.81870436668396, 0.8459381461143494, 0.8648755550384521, 0.8959358930587769, 0.8615633845329285]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0743.\nWall time to produce this recipe: ~4 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.4772375822067261, 'inverse_mass_matrix': [9.73280143737793, 1.2027612924575806, 0.9896066784858704, 0.8473908305168152, 0.9304114580154419, 0.81870436668396, 0.8459381461143494, 0.8648755550384521, 0.8959358930587769, 0.8615633845329285]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0743.\nWall time to produce this recipe: ~3 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 30304,
@@ -134,7 +134,7 @@
   "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T12:46:37Z",
+  "timestamp_utc": "2026-07-29T13:46:25Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

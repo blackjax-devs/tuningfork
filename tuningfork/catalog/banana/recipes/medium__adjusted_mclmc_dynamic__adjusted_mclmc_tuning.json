@@ -3,49 +3,52 @@
   "base_method_name": "adjusted_mclmc_dynamic",
   "effort": "medium",
   "base_method_params": {
-    "step_size": 0.47920076490077645,
-    "L": 0.9584015298015529,
+    "step_size": 0.4874868094921112,
+    "L": 0.9749736189842224,
     "inverse_mass_matrix": [
-      4.208487696106585,
-      3.5677700971015267
+      4.8959832191467285,
+      3.3283040523529053
     ]
   },
-  "headline_metric": 0.0029947010001390596,
+  "headline_metric": 0.0025546706037028895,
   "sample_quality": {
-    "mae_vs_reference": 0.05560990825790284,
-    "q05_error": 0.2274883441219806,
-    "q95_error": 0.3232758031269261,
-    "std_ratio_max_dev": 0.04574365535276104
+    "mae_vs_reference": 0.08366914583005997,
+    "q05_error": 0.25573685247939065,
+    "q95_error": 0.5011564231761197,
+    "std_ratio_max_dev": 0.17535309387677422
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 6.83461457293015,
+    "wall_seconds_estimate": 3.0929476979654282,
     "n_warmup": 5000,
     "n_samples": 5000,
     "num_chains": 4,
-    "warmup_wall_seconds": 4.285,
-    "sampling_wall_seconds": 1.207,
-    "sampling_seconds_per_draw": 6e-05,
+    "warmup_wall_seconds": 1.964,
+    "sampling_wall_seconds": 0.524,
+    "sampling_seconds_per_draw": 2.6e-05,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-134-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.1",
-      "blackjax_version": "1.6",
-      "jax_x64_enabled": true,
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
+      "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
     },
     "warmup_grad_evals": 16800
   },
   "difficulty": null,
-  "instructions": "**Medium-effort recipe** (Statistician investigation on `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 0.47920076490077645, 'L': 0.9584015298015529, 'inverse_mass_matrix': [4.208487696106585, 3.5677700971015267]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0030.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 0.4874868094921112, 'L': 0.9749736189842224, 'inverse_mass_matrix': [4.8959832191467285, 3.3283040523529053]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0026.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
   "notes": "",
   "headline_basis": {
-    "total_grad_evals": 80332,
-    "min_bulk_ess": 240.57032074317092,
+    "total_grad_evals": 79746,
+    "min_bulk_ess": 203.72476196289062,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 102.61614227294922,
+    "estimator_ratio": 1.9853091087852637,
     "grad_count_convention": "2 \u00d7 info.num_integration_steps",
     "is_lower_bound": false
   },
@@ -65,17 +68,19 @@
   "init_strategy": null,
   "variant_label": null,
   "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.012765631635094,
-      "min_bulk_ess": 260.79176594206024,
+      "rhat_max": 1.0210330486297607,
+      "min_bulk_ess": 203.72476196289062,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.0842240659269144,
+      "max_abs_mean_z": 1.1228135426254433,
       "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.012765631635094,
+          "value": 1.0210330486297607,
           "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -83,7 +88,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 260.79176594206024,
+          "value": 203.72476196289062,
           "band": "REVIEW",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -99,15 +104,15 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 1.0842240659269144,
+          "value": 1.1228135426254433,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 2.2364766445577895,
           "review_lo": 2.2364766445577895,
           "review_hi": 4.0,
           "frac_z2": 0.0,
-          "bias_sigma_at_argmax_z": 0.05560990825790284,
-          "achieved_bias_bound_sigma": 0.11470900244081524
+          "bias_sigma_at_argmax_z": 0.08366914583005997,
+          "achieved_bias_bound_sigma": 0.16646445103943389
         }
       },
       "gt_cert_coverage": "full_posterior"
@@ -119,10 +124,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev93+gd6d1539e9.d20260711",
-  "blackjax_version": "1.6",
-  "jax_version": "0.10.1",
-  "timestamp_utc": "2026-07-13T10:49:41Z",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T13:37:13Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

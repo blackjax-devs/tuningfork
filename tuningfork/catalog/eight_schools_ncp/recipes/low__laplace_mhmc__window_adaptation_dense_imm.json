@@ -4,52 +4,60 @@
   "effort": "low",
   "base_method_params": {
     "num_integration_steps": 10,
-    "step_size": 0.6292082667350769,
+    "step_size": 0.6456587314605713,
     "inverse_mass_matrix": [
       [
-        11.437067031860352,
-        0.0025403874460607767
+        11.70798110961914,
+        -0.20214946568012238
       ],
       [
-        0.002540390007197857,
-        1.4436607360839844
+        -0.20214948058128357,
+        0.9667249321937561
       ]
     ]
   },
-  "headline_metric": 0.022983207318722856,
+  "headline_metric": 0.027020079706237782,
   "sample_quality": {
-    "mae_vs_reference": 0.026816132609860197,
-    "q05_error": null,
-    "q95_error": null,
-    "std_ratio_max_dev": null
+    "mae_vs_reference": 0.017081857587558362,
+    "q05_error": 0.024007012626145473,
+    "q95_error": 0.024080309484300677,
+    "std_ratio_max_dev": 0.011262946334249624
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 17.05924601000015,
+    "wall_seconds_estimate": 14.356148340040818,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 10.498,
-    "sampling_wall_seconds": 5.492,
-    "sampling_seconds_per_draw": 0.001373,
+    "warmup_wall_seconds": 9.958,
+    "sampling_wall_seconds": 2.712,
+    "sampling_seconds_per_draw": 0.000678,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.0",
-      "blackjax_version": "1.6.dev81+ga8998469a",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
     },
-    "warmup_grad_evals": 40000,
-    "warmup_grad_evals_is_estimate": true
+    "warmup_grad_evals": 20397
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.6292082667350769, 'inverse_mass_matrix': [[11.437067031860352, 0.0025403874460607767], [0.002540390007197857, 1.4436607360839844]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0119.\nWall time to produce this recipe: ~17 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_dense_imm, laplace_mhmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_mhmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.6456587314605713, 'inverse_mass_matrix': [[11.70798110961914, -0.20214946568012238], [-0.20214948058128357, 0.9667249321937561]]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0270.\nWall time to produce this recipe: ~14 s (machine-only).",
   "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 102817,
+    "min_bulk_ess": 2778.12353515625,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 2270.4306640625,
+    "estimator_ratio": 1.2236108237656247,
+    "grad_count_convention": "(info.num_integration_steps + 1) \u00d7 info.lbfgs_iter_num (lower bound; line-search \u2248 1)",
+    "is_lower_bound": true
+  },
   "step_policy": null,
   "warmups": [
     {
@@ -64,18 +72,21 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0027179197866019,
-      "min_bulk_ess": 2946.139712700032,
+      "rhat_max": 1.0022722482681274,
+      "min_bulk_ess": 2778.12353515625,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.4794921752273837,
+      "max_abs_mean_z": 0.9414142345010261,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0027179197866019,
+          "value": 1.0022722482681274,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -83,7 +94,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 2946.139712700032,
+          "value": 2778.12353515625,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -99,15 +110,18 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "value": 1.4794921752273837,
+          "value": 0.9414142345010261,
           "band": "PASS",
           "pass_lo": 0.0,
-          "pass_hi": 2.0,
-          "review_lo": 2.0,
+          "pass_hi": 2.2364766445577895,
+          "review_lo": 2.2364766445577895,
           "review_hi": 4.0,
-          "frac_z2": 0.5
+          "frac_z2": 0.0,
+          "bias_sigma_at_argmax_z": 0.017081857587558362,
+          "achieved_bias_bound_sigma": 0.039713044152121194
         }
       },
+      "resonance_warning": true,
       "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
     },
     "override": {
@@ -117,16 +131,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev81+ga8998469a",
-  "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-28T19:43:49Z",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T13:43:48Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [],
-  "headline_basis": {
-    "total_grad_evals": null,
-    "min_bulk_ess": null,
-    "grad_count_convention": "(info.num_integration_steps + 1) \u00d7 info.lbfgs_iter_num (lower bound; line-search \u2248 1)",
-    "is_lower_bound": true
-  }
+  "attempted_configurations": []
 }

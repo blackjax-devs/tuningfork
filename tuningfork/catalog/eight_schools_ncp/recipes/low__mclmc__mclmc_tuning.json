@@ -18,7 +18,7 @@
       0.9860666394233704
     ]
   },
-  "headline_metric": 0.053068362176418304,
+  "headline_metric": 0.08029460144042969,
   "sample_quality": {
     "mae_vs_reference": 0.0779107175225069,
     "q05_error": 0.14431752356513272,
@@ -27,13 +27,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 7.868198146985378,
+    "wall_seconds_estimate": 8.144079010002315,
     "n_warmup": 10000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 5.918,
-    "sampling_wall_seconds": 0.639,
-    "sampling_seconds_per_draw": 0.00016,
+    "warmup_wall_seconds": 6.144,
+    "sampling_wall_seconds": 0.6,
+    "sampling_seconds_per_draw": 0.00015,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -49,11 +49,14 @@
     "warmup_grad_evals": 26664
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 1.3767427206039429, 'L': 3.269326686859131, 'inverse_mass_matrix': [7.647039413452148, 1.3381454944610596, 1.0146206617355347, 1.0158058404922485, 0.9816907048225403, 0.8787291646003723, 0.9649639129638672, 0.7344411015510559, 0.926547110080719, 0.9860666394233704]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0531.\nWall time to produce this recipe: ~7 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(mclmc_tuning, mclmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.mclmc(logdensity_fn, **{'step_size': 1.3767427206039429, 'L': 3.269326686859131, 'inverse_mass_matrix': [7.647039413452148, 1.3381454944610596, 1.0146206617355347, 1.0158058404922485, 0.9816907048225403, 0.8787291646003723, 0.9649639129638672, 0.7344411015510559, 0.926547110080719, 0.9860666394233704]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0803.\nWall time to produce this recipe: ~8 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 8000,
-    "min_bulk_ess": 424.54689741134644,
+    "min_bulk_ess": 642.3568115234375,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 424.5469055175781,
+    "estimator_ratio": 1.5130408517294942,
     "grad_count_convention": "2",
     "is_lower_bound": false
   },
@@ -129,10 +132,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T08:52:31Z",
+  "timestamp_utc": "2026-07-29T13:44:56Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

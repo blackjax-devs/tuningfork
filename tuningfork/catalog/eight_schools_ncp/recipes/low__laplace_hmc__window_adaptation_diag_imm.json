@@ -1,76 +1,95 @@
 {
   "model_name": "eight_schools_ncp",
   "base_method_name": "laplace_hmc",
-  "warmup_name": "window_adaptation_diag_imm",
   "effort": "low",
   "base_method_params": {
     "num_integration_steps": 10,
-    "step_size": 0.5145131945610046,
+    "step_size": 0.739719033241272,
     "inverse_mass_matrix": [
-      11.129048347473145,
-      1.4365400075912476
+      10.463979721069336,
+      1.1643214225769043
     ]
   },
-  "warmup_params": {
-    "n_warmup": 1000,
-    "num_chains": 4,
-    "target_acceptance": 0.8
-  },
-  "headline_metric": 0.007255009985996775,
+  "headline_metric": 0.003926165966261101,
   "sample_quality": {
-    "mae_vs_reference": 0.0238125640088636,
-    "q05_error": 0.04335028651713047,
-    "q95_error": 0.05741688679148595,
-    "std_ratio_max_dev": 0.007372707852129734
+    "mae_vs_reference": 0.034048379709058746,
+    "q05_error": 0.1273499945282627,
+    "q95_error": 0.02227568795881935,
+    "std_ratio_max_dev": 0.023761133261195
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 28.534197091998067,
+    "wall_seconds_estimate": 14.269303542911075,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 4.23,
-    "sampling_wall_seconds": 8.632,
-    "sampling_seconds_per_draw": 0.002158,
+    "warmup_wall_seconds": 9.924,
+    "sampling_wall_seconds": 2.579,
+    "sampling_seconds_per_draw": 0.000645,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.0",
-      "blackjax_version": "1.6.dev81+ga8998469a",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
     },
-    "warmup_grad_evals": 40000,
-    "warmup_grad_evals_is_estimate": true
+    "warmup_grad_evals": 19893
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, laplace_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_hmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.5145131945610046, 'inverse_mass_matrix': [11.129048347473145, 1.4365400075912476]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0038.\nWall time to produce this recipe: ~28 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, laplace_hmc)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.laplace_hmc(logdensity_fn, **{'num_integration_steps': 10, 'step_size': 0.739719033241272, 'inverse_mass_matrix': [10.463979721069336, 1.1643214225769043]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0039.\nWall time to produce this recipe: ~14 s (machine-only).",
   "notes": "",
+  "headline_basis": {
+    "total_grad_evals": 99429,
+    "min_bulk_ess": 390.37475585937506,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 384.0146179199219,
+    "estimator_ratio": 1.016562228734687,
+    "grad_count_convention": "(info.num_integration_steps + 1) \u00d7 info.lbfgs_iter_num (lower bound; line-search \u2248 1)",
+    "is_lower_bound": true
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_diag_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.00442758840681,
-      "min_bulk_ess": 804.274407571846,
+      "rhat_max": 1.0101133584976196,
+      "min_bulk_ess": 390.374755859375,
       "n_divergences": 0,
-      "max_abs_mean_z": 0.6778170841961347,
-      "verdict": "PASS",
+      "max_abs_mean_z": 0.8138656914588459,
+      "verdict": "REVIEW",
       "margins": {
         "rhat_max": {
-          "value": 1.00442758840681,
-          "band": "PASS",
+          "value": 1.0101133584976196,
+          "band": "REVIEW",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
           "review_lo": 1.01,
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 804.274407571846,
-          "band": "PASS",
+          "value": 390.374755859375,
+          "band": "REVIEW",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
           "review_lo": 100.0,
@@ -85,9 +104,18 @@
           "review_hi": 40
         },
         "max_abs_mean_z": {
-          "frac_z2": 0.0
+          "value": 0.8138656914588459,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 2.2364766445577895,
+          "review_lo": 2.2364766445577895,
+          "review_hi": 4.0,
+          "frac_z2": 0.0,
+          "bias_sigma_at_argmax_z": 0.029958902638269887,
+          "achieved_bias_bound_sigma": 0.0815960146864035
         }
       },
+      "resonance_warning": false,
       "gt_cert_coverage": "phi_subset_only (theta marginals not gate-verified)"
     },
     "override": {
@@ -97,17 +125,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.1.dev263+gaede4f4e2.d20260518",
-  "blackjax_version": "1.6.dev80+ge324e92b3",
-  "jax_version": "0.10.0",
-  "timestamp_utc": "2026-05-19T22:17:43Z",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T13:43:25Z",
   "failure_diagnosis": null,
-  "attempted_configurations": [],
-  "warmup_num_chains": null,
-  "headline_basis": {
-    "total_grad_evals": null,
-    "min_bulk_ess": null,
-    "grad_count_convention": "(info.num_integration_steps + 1) \u00d7 info.lbfgs_iter_num (lower bound; line-search \u2248 1)",
-    "is_lower_bound": true
-  }
+  "attempted_configurations": []
 }
