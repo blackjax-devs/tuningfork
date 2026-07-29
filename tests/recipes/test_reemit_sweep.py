@@ -245,6 +245,39 @@ class TestLowRankPilotBudget:
         assert isinstance(result, driver.Skip)
 
 
+class TestConfigFidelityIsAStandingGate:
+    """Every committed recipe must record a configuration the emit path can reproduce.
+
+    Kept in the suite rather than in the sweep script because the check is
+    general: the next warmup family that grows a hyperparameter will drop it the
+    same way the variational warmups' num_optimization_steps was dropped, and
+    nothing else in the repo would notice.  Baseline-free by construction — it
+    reconstructs each recipe from itself, so it asserts the artifact is
+    self-reproducible rather than comparing against a revision.
+    """
+
+    def test_every_recipe_records_a_reproducible_config(self) -> None:
+        catalog = Path(__file__).parent.parent.parent / "tuningfork" / "catalog"
+        violations = []
+        checked = 0
+        for p in sorted(catalog.glob("*/recipes/*.json")):
+            cfg = driver.reconstruct(p)
+            if isinstance(cfg, driver.Skip):
+                continue
+            checked += 1
+            bad = driver.config_fidelity_violations(cfg, json.loads(p.read_text()))
+            if bad:
+                violations.append(f"{p.parent.parent.name}/{p.name}: " + "; ".join(bad))
+        assert checked > 100, (
+            f"only {checked} recipes reconstructed — the gate has gone nearly "
+            f"vacuous and is no longer testing the corpus"
+        )
+        assert not violations, (
+            f"recipes record a configuration the emit path would not reproduce "
+            f"({checked} checked):\n" + "\n".join(violations)
+        )
+
+
 class TestScopeDecisions:
     """Cells outside the migration are declined, not silently emitted."""
 

@@ -84,7 +84,9 @@ def main() -> int:
         # Compare the config the emitted artifact RECORDS against the committed one.
         bad = driver.config_fidelity_violations(cfg, committed)
         if bad:
-            offenders.append(f"{path.parent.parent.name}/{path.name}: " + "; ".join(bad))
+            offenders.append(
+                f"{path.parent.parent.name}/{path.name}: " + "; ".join(bad)
+            )
 
     print(f"re-emitted cells checked : {checked}")
     print(f"config mismatches        : {len(offenders)}")
