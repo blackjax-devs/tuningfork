@@ -5,42 +5,42 @@
   "base_method_params": {
     "num_optimization_steps": 51000
   },
-  "headline_metric": 917.2298583984375,
+  "headline_metric": null,
   "sample_quality": {
-    "mae_vs_reference": 0.025984718178452593,
-    "q05_error": 0.07538246201860717,
-    "q95_error": 0.07999124350058749,
-    "std_ratio_max_dev": 0.01869789849988779
+    "mae_vs_reference": 0.02297656584428387,
+    "q05_error": 0.05767785034554369,
+    "q95_error": 0.06913130431551376,
+    "std_ratio_max_dev": 0.015303059449620182
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 1.9799266399350017,
+    "wall_seconds_estimate": 1.2282147109508514,
     "n_warmup": 0,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 1.425,
-    "sampling_wall_seconds": 0.541,
-    "sampling_seconds_per_draw": 0.000135,
+    "warmup_wall_seconds": 0.618,
+    "sampling_wall_seconds": 0.262,
+    "sampling_seconds_per_draw": 6.5e-05,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 8,
-      "os": "Linux 6.8.0-117-generic",
-      "python_version": "3.13.13",
-      "jax_version": "0.10.1",
-      "blackjax_version": "1.6.dev87+g5549a0b9c",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
       "jax_x64_enabled": false,
       "jax_default_device": "cpu",
       "gpu_info": null
     },
-    "warmup_grad_evals": null
+    "warmup_grad_evals": 1020000
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 917.2299.\nWall time to produce this recipe: ~1 s (machine-only).",
-  "notes": "",
+  "instructions": "**Low-effort recipe** (conventional `(no_warmup, fullrank_vi)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.fullrank_vi(logdensity_fn, **{'num_optimization_steps': 51000})\n  ```\nWall time to produce this recipe: ~1 s (machine-only).",
+  "notes": "vi-gradient-accounting: headline_metric is null because vi.step draws from a fitted Gaussian at zero gradient cost; the true cost is the ELBO optimisation recorded in warmup_grad_evals = num_optimization_steps \u00d7 num_samples_per_step \u00d7 num_chains. Cross-family ESS/grad comparison requires using warmup_grad_evals as the denominator.",
   "headline_basis": {
-    "total_grad_evals": 4,
-    "min_bulk_ess": 3668.91943359375,
+    "total_grad_evals": 4000,
+    "min_bulk_ess": 3667.19913482666,
     "grad_count_convention": "1",
     "is_lower_bound": false
   },
@@ -58,24 +58,27 @@
   "warmup_inner_kernel": null,
   "warmup_num_chains": null,
   "init_strategy": null,
+  "variant_label": null,
   "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.000878561654449,
-      "min_bulk_ess": 3679.08635594123,
+      "rhat_max": 1.0008845329284668,
+      "min_bulk_ess": 3678.10986328125,
       "n_divergences": 0,
-      "max_abs_mean_z": 1.6296867730613278,
+      "max_abs_mean_z": 1.4462526658519976,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.000878561654449,
+          "value": 1.0008845329284668,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": Infinity
         },
         "min_bulk_ess": {
-          "value": 3679.08635594123,
+          "value": 3678.10986328125,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": Infinity
@@ -87,13 +90,15 @@
           "pass_hi": Infinity
         },
         "max_abs_mean_z": {
-          "value": 1.6296867730613278,
+          "value": 1.4462526658519976,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 4.0,
           "review_lo": 4.0,
           "review_hi": Infinity,
-          "frac_z2": 0.0
+          "frac_z2": 0.0,
+          "bias_sigma_at_argmax_z": 0.02297656584428387,
+          "achieved_bias_bound_sigma": 0.0435875368481625
         }
       },
       "gt_cert_coverage": "full_posterior"
@@ -105,10 +110,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev27+g88897833b.d20260603",
-  "blackjax_version": "1.6.dev87+g5549a0b9c",
-  "jax_version": "0.10.1",
-  "timestamp_utc": "2026-06-03T22:46:11Z",
+  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-29T08:53:50Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

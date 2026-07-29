@@ -41,6 +41,8 @@ import jax
 import jax.numpy as jnp
 from blackjax.mcmc.metrics import LowRankInverseMassMatrix
 
+from tuningfork._machine_info import get_machine_info as _get_machine_info
+from tuningfork._version import __version__ as _tuningfork_version
 from tuningfork.base_method import BASE_METHODS
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
@@ -76,7 +78,7 @@ def _emit_mclmc_lrd_recipes_impl(
     catalog_root: Path | None = None,
     variant_label: str = "mclmc_lrd",
     effort: Effort = Effort.LOW,
-    tuningfork_version: str = "0.0.0.dev0",
+    tuningfork_version: str = _tuningfork_version,
 ) -> list[Path]:
     """Unified MCLMC-LRD recipe emitter — both stub and cert-sweep paths.
 
@@ -189,7 +191,7 @@ def _emit_lrd_cert_sweep(
     catalog_root: Path | None = None,
     variant_label: str = "mclmc_lrd",
     effort: Effort = Effort.LOW,
-    tuningfork_version: str = "0.0.0.dev0",
+    tuningfork_version: str = _tuningfork_version,
 ) -> list[Path]:
     """Run the LRD cert-sweep for a list of models and emit calibrated recipes.
 
@@ -336,6 +338,7 @@ def _emit_lrd_cert_sweep(
                     "pilot_n_samples": pilot_n_samples,
                     "tuning_seed": best["seed"],
                 },
+                "machine_info": _get_machine_info(),
             }
 
             gate_evidence = {
@@ -383,7 +386,11 @@ def _emit_lrd_cert_sweep(
                 headline_metric=best["ess_per_grad"],
                 headline_basis={
                     "total_grad_evals": best["total_grad_evals"],
-                    "min_bulk_ess": best["min_bulk_ess"],
+                    # Use the headline ESS (effective_sample_size, non-rank-normalised)
+                    # so that headline_metric == min_bulk_ess / total_grad_evals is
+                    # self-consistent.  The gate uses min_bulk_ess (ess_bulk,
+                    # rank-normalised) which lives in gate_evidence.auto.min_bulk_ess.
+                    "min_bulk_ess": best["min_bulk_ess_headline"],
                     "grad_count_convention": "2",
                     "is_lower_bound": False,
                 },
@@ -607,6 +614,12 @@ def _run_cert_seed(
         "verdict": verdict,
         "rhat_max": rhat_max,
         "min_bulk_ess": min_bulk_ess,
+        # min_bulk_ess_headline is the headline ESS (from effective_sample_size,
+        # non-rank-normalised, per headline.py contract).  Distinct from min_bulk_ess
+        # which uses ess_bulk (rank-normalised, gate basis).  headline_basis must store
+        # the *headline* ESS so that headline_metric == min_bulk_ess_headline / total_grad_evals
+        # is self-consistent with the basis.
+        "min_bulk_ess_headline": min_bulk_ess_headline,
         "n_divergences": n_divergences,
         "div_rate": div_rate,
         "ess_per_grad": ess_per_grad,

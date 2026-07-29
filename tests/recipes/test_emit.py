@@ -669,3 +669,197 @@ def test_mclmc_rerun_uses_recipe_L_not_default(tmp_path: Path) -> None:
     # 4. Verify the stored L is in a valid range (T0.3 bug would use ~12.6 default).
     assert stored_L > 0.0, f"Stored L={stored_L:.4f} must be positive"
     assert stored_L < 2000.0, f"Stored L={stored_L:.4f} is suspiciously large"
+
+
+# ---------------------------------------------------------------------------
+# M3: Catalog-wide headline invariants and LRD emit-path regression tests
+# (Replaces the 5%-tolerance point test that had no power over source fix.)
+# ---------------------------------------------------------------------------
+
+_CATALOG = Path(__file__).parent.parent.parent / "tuningfork" / "catalog"
+
+# grads_per_step for samplers whose grad_count_per_step is a compile-time constant.
+# VI is excluded: vi.step draws from a Gaussian (0 real grads); the sampling-phase
+# total_grad_evals is a step-count artefact, not a gradient count.
+_CONST_GRAD_PER_STEP = {
+    "mclmc": 2,
+    "mclmc_lrd": 2,
+    "mala": 1,
+    "barker": 1,
+    "ghmc": 1,
+    "mgrad_gaussian": 1,
+    "orbital_hmc": 1,
+}
+
+
+# Pre-existing hand-assembled recipes with 5-s.f. rounded basis values.
+# The mismatch is a float-precision rounding artefact (relative error ~1.7e-8),
+# NOT the gate-vs-headline ESS bug this test guards against.  Each entry is
+# tracked as a follow-up re-emit; do not add new entries without a tracking issue.
+_KNOWN_ROUNDING_DEFECTS: frozenset[str] = frozenset(
+    [
+        # stoch_vol flatinit: hand-assembled, no provenance stamps, basis rounded to
+        # 5 s.f. (373.91).  headline_metric stored in float64, derived in float32 →
+        # 1.7e-8 relative error.  Requires a proper re-emit (integrity review §4).
+        "stoch_vol/low__mclmc_lrd__mclmc_lrd_tuning_flatinit.json",
+    ]
+)
+
+
+@pytest.mark.fast
+def test_catalog_headline_basis_reproduces_headline_metric() -> None:
+    """Every committed recipe: headline_metric == basis.min_bulk_ess / basis.total_grad_evals.
+
+    Both emit paths construct the basis so this holds EXACTLY (the main runner
+    back-derives min_bulk_ess = headline × grad_evals; the LRD path divides the
+    same headline ESS it used for the metric).  A relative tolerance of 1e-9 is
+    therefore correct — a 5% tolerance silently admits a recipe whose basis was
+    written from the *gate* estimator whenever the two estimators happen to agree
+    numerically, which is exactly how the ill_cond_50 LRD recipe escaped review.
+
+    Note — exact back-derivation vs direction test: the signal "basis < gate" was
+    used earlier as a heuristic for the gate-vs-headline ESS bug, but it is not
+    reliable: where the two estimators nearly coincide (e.g. ill_cond_50 LRD at
+    gate/basis=1.0004, lgcp mclmc at 1.0012) a direction test cannot discriminate.
+    The exact form (abs(hm - derived) < 1e-9 * scale) is necessary and sufficient
+    because both emit paths construct basis.min_bulk_ess from the SAME value they
+    used to compute headline_metric, so any mismatch is a genuine provenance error.
+
+    BLIND SPOT — gradient-free samplers on the main runner path: the main runner's
+    gradient-free branch (_recipe_runner.py around line 1985-2000) sets BOTH
+    headline_metric and basis.min_bulk_ess from gate_verdict.min_bulk_ess (the gate
+    estimator), making the recipe internally self-consistent.  A future
+    elliptical_slice / rwm / irmh recipe would therefore PASS this test while using
+    the gate estimator for its headline.  This test is a CONSISTENCY assertion, not
+    a PROVENANCE assertion.  Today no gradient-free recipe carries a headline_metric
+    (only failed__ stubs exist), so this blind spot is latent.  Filed separately.
+
+    Known pre-existing rounding defects from hand-assembled recipes are listed in
+    ``_KNOWN_ROUNDING_DEFECTS``; they use float32 basis values rounded to 5 s.f.
+    and require a proper re-emit in a follow-up PR.
+    """
+    import json
+
+    failures = []
+    for p in sorted(_CATALOG.glob("*/recipes/*.json")):
+        key = f"{p.parent.parent.name}/{p.name}"
+        if key in _KNOWN_ROUNDING_DEFECTS:
+            continue
+        d = json.loads(p.read_text())
+        hm = d.get("headline_metric")
+        hb = d.get("headline_basis") or {}
+        ess, tge = hb.get("min_bulk_ess"), hb.get("total_grad_evals")
+        if hm is None or ess is None or not tge:
+            continue  # failed/stub recipe, null headline (e.g. VI), or gradient-free
+        derived = ess / tge
+        if abs(hm - derived) > 1e-9 * max(abs(hm), abs(derived)):
+            failures.append(
+                f"{key}: headline_metric={hm!r} but "
+                f"basis-derived={derived!r} (basis.min_bulk_ess={ess!r}, "
+                f"total_grad_evals={tge}). headline_basis must store the HEADLINE "
+                f"ESS (blackjax effective_sample_size), not the gate ESS (ess_bulk)."
+            )
+    assert (
+        not failures
+    ), "headline_basis does not reproduce headline_metric:\n" + "\n".join(failures)
+
+
+@pytest.mark.fast
+def test_catalog_constant_grad_total_grad_evals_are_exact() -> None:
+    """Constant-grad samplers: total_grad_evals == n_samples * num_chains * grads_per_step.
+
+    This is the invariant the pre-be73ad8 grad_counter bug violated (the vmapped
+    per-step count collapsed to (num_chains,) and the sum came out n_samples times
+    too small).  It is checkable from the artifact alone, so it is the durable
+    guard against the whole class — not just the 14 recipes fixed by hand.
+
+    VI is excluded from the map because vi.step draws from a Gaussian (0 real
+    grads); the sampling-phase total_grad_evals records step counts, not gradients.
+    """
+    import json
+
+    failures = []
+    for p in sorted(_CATALOG.glob("*/recipes/*.json")):
+        fam = p.name.split("__")[1] if "__" in p.name else ""
+        if fam not in _CONST_GRAD_PER_STEP:
+            continue
+        d = json.loads(p.read_text())
+        cb = d.get("calibration_budget") or {}
+        hb = d.get("headline_basis") or {}
+        ns, nc, tge = (
+            cb.get("n_samples"),
+            cb.get("num_chains"),
+            hb.get("total_grad_evals"),
+        )
+        if tge is None or not ns or not nc:
+            continue
+        expected = ns * nc * _CONST_GRAD_PER_STEP[fam]
+        if tge != expected:
+            failures.append(
+                f"{p.parent.parent.name}/{p.name}: total_grad_evals={tge} but "
+                f"n_samples({ns}) * num_chains({nc}) * grads_per_step"
+                f"({_CONST_GRAD_PER_STEP[fam]}) = {expected}"
+            )
+    assert not failures, "stale grad-eval counters:\n" + "\n".join(failures)
+
+
+@pytest.mark.fast
+def test_lrd_emit_stores_headline_ess_not_gate_ess_in_basis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression test: _emit_lrd_cert_sweep stores headline ESS (not gate ESS) in basis.
+
+    Mocks a cert-seed result whose gate ESS (500) and headline ESS (125) differ 4×
+    and whose ess_per_grad is consistent with the HEADLINE ESS.  Reverting
+    emit_mclmc_lrd.py to ``best["min_bulk_ess"]`` makes this fail.
+    """
+    pytest.importorskip("numpyro")
+    from blackjax.mcmc.integrators import LowRankInverseMassMatrix
+
+    import tuningfork.recipes.emit_mclmc_lrd as _mod
+    from tuningfork.recipes import Recipe
+
+    sigma_row = jax.numpy.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    imm = LowRankInverseMassMatrix(
+        sigma=jax.numpy.stack([sigma_row, sigma_row * 2]),
+        U=jax.numpy.stack([jax.numpy.eye(5, 3), jax.numpy.eye(5, 3)]),
+        lam=jax.numpy.stack([jax.numpy.array([1.0, 0.5, 0.25])] * 2),
+    )
+    fake = {
+        "seed": 42,
+        "verdict": "PASS",
+        "rhat_max": 1.001,
+        "min_bulk_ess": 500.0,  # GATE ESS (ess_bulk, rank-normalised)
+        "min_bulk_ess_headline": 125.0,  # HEADLINE ESS (effective_sample_size)
+        "n_divergences": 0,
+        "div_rate": 0.0,
+        "ess_per_grad": 0.025,  # == 125 / 5000, i.e. headline-consistent
+        "total_grad_evals": 5000,
+        "wall_seconds": 0.5,
+        "adapted_params": {
+            "step_size": jax.numpy.array(0.12345678),
+            "L": jax.numpy.array(9.87654321),
+            "inverse_mass_matrix": imm,
+        },
+    }
+    monkeypatch.setattr(_mod, "_run_cert_seed", lambda **_kw: fake)
+
+    written = _mod._emit_lrd_cert_sweep(
+        ["ill_cond_50"],
+        cert_seeds=(42,),
+        n_warmup=100,
+        n_samples=10,
+        num_chains=2,
+        k_rank=3,
+        catalog_root=tmp_path,
+        variant_label="mclmc_lrd",
+    )
+    recipe = Recipe.load(written[0])
+    basis = recipe.headline_basis or {}
+    assert basis["min_bulk_ess"] == fake["min_bulk_ess_headline"], (
+        f"headline_basis.min_bulk_ess={basis['min_bulk_ess']} — expected the HEADLINE "
+        f"ESS {fake['min_bulk_ess_headline']}, got the GATE ESS. emit_mclmc_lrd must "
+        "read best['min_bulk_ess_headline']."
+    )
+    derived = basis["min_bulk_ess"] / basis["total_grad_evals"]
+    assert abs(recipe.headline_metric - derived) < 1e-12

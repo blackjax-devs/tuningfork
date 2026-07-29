@@ -35,8 +35,12 @@ axes, causing isotropic MCLMC to be highly inefficient.
   is REVIEW.
 - k=26 on d=26 is full-rank. LRD is O(dk)=O(d²) in this regime — no scaling
   advantage over a dense approach. Full-rank LRD is used here as a validation case.
-- ESS/grad: ~520/8000 ≈ 0.065, vs NUTS baseline ~2798/≫10000 ≈ 0.0065. MCLMC
-  sampling efficiency per grad is ~10× higher than NUTS at equal draw count.
+- ESS/grad: ~520/8000 ≈ 0.065 for this early k=26 REVIEW run (old estimator basis).
+  Committed NUTS recipes for german_credit record 0.0432–0.2166 (see
+  `low__nuts__window_adaptation_{diag,dense,low_rank}_imm.json`). The committed
+  k=8 LRD recipe records headline 0.071 with basis-derived 0.071
+  (min_bulk_ess 568 / 8000 grads, headline estimator); both place MCLMC-LRD
+  well below the best NUTS baseline (0.2166), not 10× above it.
 - Pipeline: pilot run ~1.9s, LRD MCLMC sampling ~14.3s.
   [boundary: REVIEW (not PASS) at k=26 full-rank; committed catalog artifact uses k=8, which achieves 3/3 PASS at n_warmup=2000; full-rank k=26 is documented as upper-bound validation only]
 
@@ -62,7 +66,7 @@ Recorded FAILs not discussed above: all 6 failed recipes are covered above.
 ## Recipe regen (german_credit LRD, NUTS-pilot path)
 
 The committed artifacts are:
-- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (k=8, step_size≈3.009, L≈11.175, best seed=77777)
+- `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (k=8, best seed=11111)
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz` — rank-8 LRD IMM sidecar, shape sigma=(26,)/U=(26,8)/lam=(8,)
 
 **Standard regen command** (re-runs NUTS pilot + 3-seed cert sweep, deterministic):
@@ -70,12 +74,12 @@ The committed artifacts are:
 ```bash
 uv run python -m tuningfork.recipes._generate_starter \
     --warmup mclmc_lrd_tuning --only german_credit \
-    --calibrate --cert-seeds 77777 88888 99999 \
-    --n-warmup 2000 --n-samples 2000 --k-rank 8
+    --calibrate --cert-seeds 11111 22222 33333 \
+    --n-warmup 10000 --n-samples 1000 --k-rank 8
 ```
 
-Certified 2026-06-10: 3/3 PASS, seeds 77777/88888/99999, minESS 1512–1951 (az.ess bulk basis),
-R-hat max 1.0045 (≤ 1.005). Gate uses az.ess(method="bulk") ≥ 400. k=8, n_warmup=2000, n_samples=2000.
+Certified 2026-07-29: 3/3 PASS, seeds 11111/22222/33333, gate minESS 1474–1608 (az.ess bulk),
+R-hat max ~1.001 (≤ 1.005). Gate uses az.ess(method="bulk") ≥ 400. k=8, n_warmup=10000, n_samples=1000.
 
 Note: old script-baked golden claimed minESS≈1776 (az.ess bulk basis, via auto_gate); the
 pre-fix library cert measured 261–467 (blackjax/Geyer basis) on comparable chains — a
