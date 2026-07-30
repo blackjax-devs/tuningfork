@@ -213,9 +213,13 @@ class RecipeFailedError(RuntimeError):
     """
 
     def __init__(self, recipe: Recipe):
+        diagnosis = recipe.failure_diagnosis
+        diagnosis_text = (
+            diagnosis.value if isinstance(diagnosis, FailureDiagnosis) else diagnosis
+        )
         super().__init__(
             f"Recipe {recipe.model_name}/{recipe.base_method_name}/"
-            f"{recipe.warmup_name} is FAILED ({recipe.failure_diagnosis.value if recipe.failure_diagnosis else 'no_diagnosis'}). "
+            f"{recipe.warmup_name} is FAILED ({diagnosis_text or 'no_diagnosis'}). "
             f"See workflow + attempted_configurations for the forking-path log."
         )
         self.recipe = recipe
@@ -637,8 +641,15 @@ class Recipe:
     timestamp_utc: str = ""
 
     # ---- FAILED recipe fields ----
-    failure_diagnosis: FailureDiagnosis | None = None
-    attempted_configurations: list[AttemptedConfig] = field(default_factory=list)
+    failure_diagnosis: FailureDiagnosis | str | None = None
+    attempted_configurations: list[Any] = field(default_factory=list)
+
+    # Top-level annotations from newer or locally-extended recipe schemas.
+    # This is intentionally private: it is not part of the ordinary Python or
+    # persisted schema, but is carried through load/save for lossless I/O.
+    _extra_fields: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     # ── persistence ──────────────────────────────────────────────────────────
 
@@ -706,6 +717,7 @@ class Recipe:
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / filename
         d = asdict(self)
+        extras = d.pop("_extra_fields", {})
         # asdict recurses; enum values become their raw value via the Enum's __repr__
         # but we need the string value, not "Effort.LOW" — override explicitly.
         d["effort"] = self.effort.value
@@ -724,6 +736,15 @@ class Recipe:
         # in Recipe.load) but must NOT be written to new JSON files.
         d.pop("warmup_name", None)
         d.pop("warmup_params", None)
+        # Preserve unknown top-level fields without allowing them to overwrite
+        # canonical schema fields if a future schema promotes one of them.
+        for key, value in extras.items():
+            if key in d:
+                raise ValueError(
+                    f"Cannot serialize extension field {key!r}: "
+                    "it collides with a canonical Recipe field"
+                )
+            d[key] = value
         # Auto-write LRD IMM sidecar when imm_sidecar="auto" and inverse_mass_matrix
         # is a LowRankInverseMassMatrix namedtuple (not JSON-serialisable inline).
         if imm_sidecar == "auto" or imm_sidecar is True:
@@ -786,25 +807,24 @@ class Recipe:
             )
         d["effort"] = Effort(d["effort"])
         # Deserialize failure_diagnosis if present (backward compat: missing key defaults to None).
-        # Coerce free-text strings (from older triage notes) to HARD_DIRECTION.
+        # Recognized values remain typed; free-text historical diagnoses remain
+        # strings so their original annotation survives a round-trip.
         if "failure_diagnosis" in d and d["failure_diagnosis"] is not None:
             try:
                 d["failure_diagnosis"] = FailureDiagnosis(d["failure_diagnosis"])
             except ValueError:
-                d["failure_diagnosis"] = FailureDiagnosis.HARD_DIRECTION
+                pass
         # Deserialize attempted_configurations if present (backward compat: missing key defaults to []).
-        # Strip unknown keys from each entry for forward-compat (triage may add extra fields).
+        # Only the exact canonical shape is typed.  Historical/noncanonical
+        # entries remain raw JSON values so load/save is lossless.
         _ac_known = {f.name for f in fields(AttemptedConfig)}
         if "attempted_configurations" in d and d["attempted_configurations"]:
             _parsed_acs = []
             for ac in d["attempted_configurations"]:
-                _ac_filtered = {k: v for k, v in ac.items() if k in _ac_known}
-                # Skip entries missing required AttemptedConfig fields (e.g. old
-                # triage-format entries that use 'config' key instead of the schema).
-                try:
-                    _parsed_acs.append(AttemptedConfig(**_ac_filtered))
-                except TypeError:
-                    pass  # non-standard format; omit rather than crash
+                if isinstance(ac, dict) and set(ac) == _ac_known:
+                    _parsed_acs.append(AttemptedConfig(**ac))
+                else:
+                    _parsed_acs.append(ac)
             d["attempted_configurations"] = _parsed_acs
         else:
             # Ensure default if key missing
@@ -875,10 +895,14 @@ class Recipe:
         # None = legacy single-chain GT or non-GT recipe (backward-compat).
         d.setdefault("gt_schema_version", None)
         d.setdefault("summary_v2_path", None)
-        # Strip unknown keys (e.g. triage-only annotations like 'revisit_as') so
-        # cls(**d) doesn't raise on non-standard fields from manual recipe edits.
-        _known_fields = {f.name for f in fields(cls)}
+        # Keep unknown top-level keys privately for lossless load/save.  They are
+        # deliberately excluded from the regular dataclass schema on disk.
+        # Private implementation fields are not part of the on-disk schema;
+        # a JSON key with such a name is therefore still an unknown annotation.
+        _known_fields = {f.name for f in fields(cls) if not f.name.startswith("_")}
+        extras = {k: v for k, v in d.items() if k not in _known_fields}
         d = {k: v for k, v in d.items() if k in _known_fields}
+        d["_extra_fields"] = extras
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────

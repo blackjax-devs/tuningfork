@@ -162,6 +162,12 @@ class SMCRecipe:
     jax_version: str = field(default_factory=_get_jax_version)
     timestamp_utc: str = field(default_factory=_now_utc_iso)
 
+    # Unknown top-level annotations are carried privately for lossless
+    # load/save, while remaining outside the ordinary persisted schema.
+    _extra_fields: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+
     # ---- derived ----
     @property
     def verdict(self) -> str:
@@ -205,6 +211,15 @@ class SMCRecipe:
         import dataclasses
 
         d = dataclasses.asdict(self)
+        extras = d.pop("_extra_fields", {})
+        # Refuse to overwrite a canonical field if an extension is malformed.
+        for key, value in extras.items():
+            if key in d:
+                raise ValueError(
+                    f"Cannot serialize extension field {key!r}: "
+                    "it collides with a canonical SMCRecipe field"
+                )
+            d[key] = value
         return d
 
     @classmethod
@@ -216,8 +231,11 @@ class SMCRecipe:
         import dataclasses
 
         raw = json.loads(Path(path).read_text())
-        known = {f.name for f in dataclasses.fields(cls)}
-        return cls(**{k: v for k, v in raw.items() if k in known})
+        known = {f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")}
+        extras = {k: v for k, v in raw.items() if k not in known}
+        values = {k: v for k, v in raw.items() if k in known}
+        values["_extra_fields"] = extras
+        return cls(**values)
 
     @classmethod
     def from_default_config(

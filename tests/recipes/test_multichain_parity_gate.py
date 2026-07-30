@@ -63,6 +63,8 @@ import numpy as np
 import pytest
 from jax.flatten_util import ravel_pytree
 
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
