@@ -411,6 +411,22 @@ class TestEnumerationDirection:
         bad = driver.config_fidelity_violations(cfg, committed)
         assert any("__unknown_test_kwarg__" in v for v in bad), bad
 
+    def test_base_method_params_value_drift_is_caught_not_just_absence(self) -> None:
+        """A key present on BOTH sides with a different value is still a violation.
+
+        TL review question: does base_method_params check key PRESENCE only
+        (a replay that carries the key at all "passes", drifted value or not)
+        or VALUE too? cfg here WOULD replay max_num_doublings -- just at a
+        different value than committed records -- so the presence check alone
+        would pass this silently. It doesn't: the ``elif replayed_kernel[key]
+        != want`` branch fires.
+        """
+        cfg = _minimal_cfg(sampler_kwargs_override={"max_num_doublings": 15})
+        committed = _committed(False)
+        committed["base_method_params"] = {"max_num_doublings": 20}
+        bad = driver.config_fidelity_violations(cfg, committed)
+        assert any("max_num_doublings" in v and "committed 20" in v for v in bad), bad
+
     def test_structural_field_comparison_does_not_trust_cfgs_own_belief(self) -> None:
         """init_strategy is re-read from committed, not assumed from cfg.
 
