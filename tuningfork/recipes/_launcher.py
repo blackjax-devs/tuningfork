@@ -255,13 +255,14 @@ def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
             array = archive[name]
             if array.dtype.hasobject or array.size == 0:
                 raise ValueError(f"artifact array {name!r} is empty or object-typed")
-            if name in position_names and (
-                array.ndim < 2 or array.shape[:2] != expected_shape
-            ):
+            if array.ndim < 2 or array.shape[:2] != expected_shape:
+                kind = "statistic" if name.startswith("_ss_") else "position array"
                 raise ValueError(
-                    f"position array {name!r} has leading shape {array.shape[:2]!r}; "
+                    f"{kind} {name!r} has leading shape {array.shape[:2]!r}; "
                     f"expected {expected_shape!r}"
                 )
+            if name.startswith("_ss_") and name == "_ss_":
+                raise ValueError("statistic name is empty")
     return artifact_sha256
 
 

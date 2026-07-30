@@ -27,6 +27,8 @@ Test isolates ``_load_from_cache`` (no JAX, no sampler invocation).
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -88,16 +90,7 @@ def test_load_from_cache_preserves_canonical_sample_stats(tmp_path: Path) -> Non
 
 
 def test_load_from_cache_passes_unknown_keys_through(tmp_path: Path) -> None:
-    """Unknown sample_stats keys (future schema additions) shouldn't be dropped.
-
-    ``samples_to_idata``'s rename projection drops keys not in the map.
-    The reverse-map in ``_load_from_cache`` should fall back to identity
-    on unknown keys so they reach ``samples_to_idata`` under their cached
-    name; if ``samples_to_idata`` drops them, that's an out-of-scope concern
-    for this round-trip guard. This test asserts the reverse-map does the
-    right thing for canonical keys (the original bug) and doesn't crash
-    on unknown ones.
-    """
+    """Unknown sample_stats keys survive the cache round-trip unchanged."""
     from tuningfork.catalog._rerun_inference import _load_from_cache
 
     draws_path, stats_path = _write_canonical_cache(tmp_path)
@@ -106,16 +99,57 @@ def test_load_from_cache_passes_unknown_keys_through(tmp_path: Path) -> None:
     stats_data["future_field_not_in_map"] = np.zeros((4, 100))
     np.savez_compressed(str(stats_path), **stats_data)
 
-    # Must not raise
     idata = _load_from_cache(draws_path, stats_path)
-    # The canonical keys still survive
     assert "diverging" in idata.sample_stats.data_vars
     assert "n_steps" in idata.sample_stats.data_vars
+    assert "future_field_not_in_map" in idata.sample_stats.data_vars
+
+
+def test_load_from_cache_rejects_corrupt_stats_instead_of_dropping_them(
+    tmp_path: Path,
+) -> None:
+    from tuningfork.catalog._rerun_inference import _load_from_cache
+
+    draws_path, stats_path = _write_canonical_cache(tmp_path)
+    stats_path.write_bytes(b"not an npz archive")
+    with pytest.raises(ValueError, match="Could not load chain-stats cache"):
+        _load_from_cache(draws_path, stats_path)
+
+
+def test_load_from_cache_rejects_stat_name_collisions(tmp_path: Path) -> None:
+    from tuningfork.catalog._rerun_inference import _load_from_cache
+
+    draws_path, stats_path = _write_canonical_cache(tmp_path)
+    np.savez(
+        stats_path,
+        diverging=np.zeros((4, 100), dtype=bool),
+        is_divergent=np.ones((4, 100), dtype=bool),
+    )
+    with pytest.raises(ValueError, match="collide"):
+        _load_from_cache(draws_path, stats_path)
 
 
 # ---------------------------------------------------------------------------
-# regenerate_idata: unit tests (no JAX; mock run_recipe_to_idata)
+# regenerate_idata: unit tests (no JAX; mock generated execution)
 # ---------------------------------------------------------------------------
+
+
+def _failed_recipe():
+    from tuningfork.recipes._base import Effort, Recipe
+
+    return Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.FAILED,
+        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 100, "num_chains": 4},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"trials": 0, "wall_seconds_estimate": 1.0},
+        difficulty=None,
+        instructions="test",
+    )
 
 
 def test_regenerate_idata_is_exported() -> None:
@@ -143,61 +177,195 @@ def test_regenerate_idata_signature() -> None:
     assert params["catalog_root"].kind == inspect.Parameter.KEYWORD_ONLY
 
 
-def test_regenerate_idata_passes_allow_failed_flag(
+def test_regenerate_idata_executes_generated_recipe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """regenerate_idata passes _allow_failed_diagnostic=True to run_recipe_to_idata.
-
-    Verifies that FAIL recipes don't raise RecipeFailedError when called via
-    regenerate_idata, and that force_resample_config carries the correct params.
-    Uses monkeypatch on the module attribute (after first import) to intercept.
-    """
+    """Execution receives a copied recipe and a durable generated-run root."""
     import tuningfork.catalog._rerun_inference as _mod
-    from tuningfork.recipes._base import Effort, Recipe
 
-    calls: list[dict] = []
+    calls: list[tuple[object, Path, dict]] = []
+    artifact = tmp_path / "artifact.npz"
+    artifact.write_bytes(b"placeholder")
+    expected = object()
 
-    def _fake_run(r, *, force_resample_config=None, catalog_root=None, **kw):
-        calls.append(
-            {
-                "force_resample_config": force_resample_config,
-                "catalog_root": catalog_root,
-                "allow_failed": kw.get("_allow_failed_diagnostic", False),
-            }
-        )
-        return object()  # fake InferenceData
+    def _fake_execute(r, run_root, **kw):
+        calls.append((r, run_root, kw))
+        return SimpleNamespace(artifact_path=artifact)
 
-    # Patch at module level so the lazy import inside regenerate_idata sees it
-    monkeypatch.setattr(
-        "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
-        _fake_run,
-        raising=False,
+    monkeypatch.setattr("tuningfork.catalog.emit.execute_recipe", _fake_execute)
+    monkeypatch.setattr(_mod, "_artifact_to_idata", lambda path: expected)
+
+    recipe = _failed_recipe()
+
+    result = _mod.regenerate_idata(
+        recipe, n_samples=200, seed=42, catalog_root=tmp_path
     )
-    import tuningfork.recipes._recipe_runner as _rr
-
-    monkeypatch.setattr(_rr, "run_recipe_to_idata", _fake_run, raising=False)
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="nuts",
-        warmup_name="window_adaptation_diag_imm",
-        effort=Effort.FAILED,
-        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
-        warmup_params={"n_warmup": 100, "num_chains": 4},
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={"trials": 0, "wall_seconds_estimate": 1.0},
-        difficulty=None,
-        instructions="test",
-    )
-
-    _mod.regenerate_idata(recipe, n_samples=200, seed=42, catalog_root=tmp_path)
 
     assert len(calls) == 1, f"Expected exactly one call, got {len(calls)}"
-    cfg = calls[0]["force_resample_config"]
-    assert cfg["n_samples"] == 200
-    assert cfg["seed"] == 42
-    assert calls[0]["catalog_root"] == tmp_path
+    copied, run_root, kwargs = calls[0]
+    assert result is expected
+    assert getattr(copied, "tuning_seed") == 42
+    assert recipe.tuning_seed != 42
+    assert kwargs == {"num_samples": 200}
+    assert run_root == tmp_path / recipe.model_name / "_cache" / "generated_runs"
+
+
+def test_regenerate_idata_propagates_generated_program_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tuningfork.catalog._rerun_inference as _mod
+    from tuningfork.recipes._launcher import GeneratedProgramError
+
+    recipe = _failed_recipe()
+    receipt = object()
+    result_obj = cast(Any, SimpleNamespace(receipt_path=receipt))
+    error = GeneratedProgramError("failed", result_obj)
+
+    def fail_execution(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(
+        "tuningfork.catalog.emit.execute_recipe",
+        fail_execution,
+    )
+    with pytest.raises(GeneratedProgramError) as caught:
+        _mod.regenerate_idata(recipe, catalog_root=tmp_path)
+    assert caught.value is error
+    assert caught.value.result is error.result
+    assert caught.value.receipt_path is receipt
+
+
+def test_regenerate_idata_rejects_missing_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tuningfork.catalog._rerun_inference as _mod
+
+    recipe = _failed_recipe()
+    monkeypatch.setattr(
+        "tuningfork.catalog.emit.execute_recipe",
+        lambda *args, **kwargs: SimpleNamespace(artifact_path=None),
+    )
+    with pytest.raises(RuntimeError, match="without a verified artifact"):
+        _mod.regenerate_idata(recipe, catalog_root=tmp_path)
+
+
+def test_regenerate_idata_keeps_groundtruth_as_an_lfs_backed_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tuningfork.catalog._rerun_inference as _mod
+
+    expected = object()
+    recipe = SimpleNamespace(
+        effort=SimpleNamespace(value="groundtruth"),
+        model_name="mvn_10",
+    )
+    calls = []
+
+    def fake_load(value, *, cache_dir):
+        calls.append((value, cache_dir))
+        return expected
+
+    monkeypatch.setattr("tuningfork.catalog.render.load_idata", fake_load)
+    monkeypatch.setattr(
+        "tuningfork.catalog.emit.execute_recipe",
+        lambda *args, **kwargs: pytest.fail("groundtruth load must not launch"),
+    )
+
+    assert _mod.regenerate_idata(recipe, catalog_root=tmp_path) is expected
+    assert calls == [(recipe, tmp_path)]
+
+
+def test_artifact_to_idata_preserves_posterior_and_stats(tmp_path: Path) -> None:
+    from tuningfork.catalog._rerun_inference import _artifact_to_idata
+
+    path = tmp_path / "draws.npz"
+    np.savez(
+        path,
+        position=np.zeros((2, 3, 1)),
+        _ss_is_divergent=np.array([[False, True, False], [False, False, True]]),
+        _ss_num_integration_steps=np.arange(6).reshape(2, 3),
+        _ss_energy=np.ones((2, 3)),
+        _ss_future=np.ones((2, 3, 2)),
+        _ss_negative=np.full((2, 3), -1),
+    )
+    idata = _artifact_to_idata(path)
+    assert "position" in idata.posterior
+    assert {"diverging", "n_steps", "energy", "future", "negative"} <= set(
+        idata.sample_stats.data_vars
+    )
+    assert np.asarray(idata.sample_stats["future"]).shape == (2, 3, 2)
+    assert np.all(np.asarray(idata.sample_stats["negative"]) == -1)
+
+
+def test_artifact_to_idata_supports_posterior_without_stats(tmp_path: Path) -> None:
+    from tuningfork.catalog._rerun_inference import _artifact_to_idata
+
+    path = tmp_path / "draws.npz"
+    np.savez(path, position=np.zeros((1, 2, 1)))
+    idata = _artifact_to_idata(path)
+    assert "position" in idata.posterior
+    assert not hasattr(idata, "sample_stats")
+
+
+def test_artifact_to_idata_rejects_canonical_stat_collision(tmp_path: Path) -> None:
+    from tuningfork.catalog._rerun_inference import _artifact_to_idata
+
+    path = tmp_path / "draws.npz"
+    np.savez(
+        path,
+        position=np.zeros((1, 2, 1)),
+        _ss_is_divergent=np.zeros((1, 2), dtype=bool),
+        _ss_diverging=np.ones((1, 2), dtype=bool),
+    )
+    with pytest.raises(ValueError, match="both map.*diverging"):
+        _artifact_to_idata(path)
+
+
+@pytest.mark.parametrize(
+    "arrays, message",
+    [
+        ({"_ss_energy": np.zeros((1, 2))}, "no posterior"),
+        ({"position": np.zeros((1, 2)), "_ss_": np.zeros((1, 2))}, "empty statistic"),
+    ],
+)
+def test_artifact_to_idata_rejects_invalid_artifacts(
+    tmp_path: Path, arrays: dict[str, np.ndarray], message: str
+) -> None:
+    from tuningfork.catalog._rerun_inference import _artifact_to_idata
+
+    path = tmp_path / "bad.npz"
+    np.savez(path, **arrays)
+    with pytest.raises(ValueError, match=message):
+        _artifact_to_idata(path)
+
+
+@pytest.mark.parametrize(
+    "arrays, message",
+    [
+        ({"position": np.zeros(())}, "posterior variable"),
+        (
+            {"position": np.zeros((1, 2, 1)), "other": np.zeros((2, 2, 1))},
+            "inconsistent leading shapes",
+        ),
+        (
+            {"position": np.zeros((1, 2, 1)), "_ss_energy": np.zeros(())},
+            "statistic",
+        ),
+        (
+            {"position": np.zeros((1, 2, 1)), "_ss_energy": np.zeros((1, 3))},
+            "expected",
+        ),
+    ],
+)
+def test_artifact_to_idata_rejects_invalid_leading_shapes(
+    tmp_path: Path, arrays: dict[str, np.ndarray], message: str
+) -> None:
+    from tuningfork.catalog._rerun_inference import _artifact_to_idata
+
+    path = tmp_path / "bad-shape.npz"
+    np.savez(path, **arrays)
+    with pytest.raises(ValueError, match=message):
+        _artifact_to_idata(path)
 
 
 def test_regenerate_idata_default_values() -> None:

@@ -303,8 +303,8 @@ def samples_to_idata(
         (``is_divergent``, ``energy``, ``acceptance_rate``,
         ``num_integration_steps``) are renamed to the ArviZ canonical
         sample_stats schema (``diverging``, ``energy``, ``acceptance_rate``,
-        ``n_steps``) and attached to the ``sample_stats`` group of the
-        returned InferenceData.
+        ``n_steps``); other per-step arrays retain their input names. All are
+        attached to the ``sample_stats`` group of the returned InferenceData.
     n_chunks
         Cert-protocol chunk count. When ``> 1`` and ``is_multichain=False``,
         the single-chain samples are reshaped to a multi-chain ArviZ layout

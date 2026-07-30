@@ -88,55 +88,81 @@ _STATE_REINIT_SAMPLERS = frozenset(
     {"dynamic_hmc", "dmhmc", "ghmc", "laplace_dhmc", "laplace_dmhmc"}
 )
 
-# T1.5: Info-field sets per sampler — resolved at emit time.
-# is_divergent: HMC-family only.
-_SAMPLERS_WITH_IS_DIVERGENT = frozenset(
-    {
-        "nuts",
-        "hmc",
-        "mhmc",
-        "dmhmc",
-        "dynamic_hmc",
-        "ghmc",
-        "rmhmc",
-        "laplace_hmc",
-        "laplace_dhmc",
-        "laplace_mhmc",
-        "laplace_dmhmc",
-    }
+# The generated ``sample_stats`` payload is intentionally a fixed matrix of
+# scalar/boolean fields.  Nested pytrees (momentum, proposal, trajectory
+# states, and orbital/elliptical momentum arrays) are not serializable as
+# per-step NumPy arrays and are deliberately omitted.
+_HMC_SAMPLE_STATS = (
+    "is_divergent",
+    "energy",
+    "num_integration_steps",
+    "acceptance_rate",
+    "is_accepted",
 )
-# acceptance_rate: all MCMC except VI; VI only has elbo.
-_VI_SAMPLER_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
-# Unadjusted MCLMC has MCLMCInfo._fields=(logdensity,kinetic_change,energy_change,nonans)
-# — no acceptance_rate, no is_divergent, no is_accepted.  adjusted_mclmc /
-# adjusted_mclmc_dynamic ARE MH-adjusted and DO have acceptance_rate, so they stay
-# on the default path.
-_MCLMC_UNADJUSTED_NAMES = frozenset({"mclmc"})
-# is_accepted (in addition to acceptance_rate): HMC + MH-family except pure NUTS.
-# NUTS has acceptance_rate but not is_accepted.
-_SAMPLERS_WITH_IS_ACCEPTED = frozenset(
-    {
-        "hmc",
-        "mhmc",
-        "dmhmc",
-        "dynamic_hmc",
-        "ghmc",
-        "rmhmc",
-        "mala",
-        "barker",
-        "rwm",
-        "laplace_hmc",
-        "laplace_dhmc",
-        "laplace_mhmc",
-        "laplace_dmhmc",
-    }
+_LAPLACE_SAMPLE_STATS = _HMC_SAMPLE_STATS + (
+    "lbfgs_iter_num",
+    "lbfgs_error",
+    "lbfgs_converged",
+    "lbfgs_hit_maxiter",
 )
-# Per-step stats to persist: vary by sampler.
-# All HMC-family have is_divergent + energy; NUTS also has num_integration_steps.
-# acceptance_rate and is_accepted vary; VI has none of these.
-_SAMPLERS_WITH_NIS_STAT = frozenset(
-    {"nuts", "hmc", "mhmc", "dmhmc", "dynamic_hmc", "ghmc", "rmhmc"}
-)
+_RW_SAMPLE_STATS = ("acceptance_rate", "is_accepted")
+_SAMPLER_SAMPLE_STAT_FIELDS: dict[str, tuple[str, ...]] = {
+    "nuts": (
+        "is_divergent",
+        "energy",
+        "num_integration_steps",
+        "num_trajectory_expansions",
+        "is_turning",
+        "acceptance_rate",
+    ),
+    **{
+        name: _HMC_SAMPLE_STATS
+        for name in (
+            "hmc",
+            "mhmc",
+            "dmhmc",
+            "dynamic_hmc",
+            "ghmc",
+            "rmhmc",
+            "adjusted_mclmc",
+            "adjusted_mclmc_dynamic",
+        )
+    },
+    **{
+        name: _LAPLACE_SAMPLE_STATS
+        for name in (
+            "laplace_hmc",
+            "laplace_dhmc",
+            "laplace_mhmc",
+            "laplace_dmhmc",
+        )
+    },
+    "mclmc": ("logdensity", "kinetic_change", "energy_change", "nonans"),
+    **{
+        name: _RW_SAMPLE_STATS
+        for name in (
+            "mala",
+            "barker",
+            "rwm",
+            "irmh",
+            "additive_step_random_walk",
+            "mgrad_gaussian",
+        )
+    },
+    "orbital_hmc": ("weights_mean", "weights_variance"),
+    "elliptical_slice": ("theta", "subiter"),
+    "meanfield_vi": (),
+    "fullrank_vi": (),
+}
+
+
+def _sample_stat_fields(sampler_name: str) -> tuple[str, ...]:
+    try:
+        return _SAMPLER_SAMPLE_STAT_FIELDS[sampler_name]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported sampler for sample stats: {sampler_name!r}"
+        ) from exc
 
 
 def _build_info_diagnostics_block(sampler_name: str) -> str:
@@ -149,12 +175,10 @@ def _build_info_diagnostics_block(sampler_name: str) -> str:
         '_acceptance = float("nan")',
         "_n_div = 0",
     ]
-    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
+    fields = _sample_stat_fields(sampler_name)
+    if "is_divergent" in fields:
         lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
-    if (
-        sampler_name not in _VI_SAMPLER_NAMES
-        and sampler_name not in _MCLMC_UNADJUSTED_NAMES
-    ):
+    if "acceptance_rate" in fields:
         lines.append("_acceptance = float(jnp.mean(_infos.acceptance_rate))")
     return "\n".join(lines)
 
@@ -165,22 +189,9 @@ def _build_draws_ss_block(sampler_name: str) -> str:
     Replaces the hasattr(_infos, _ss_field) loop with explicit field access
     per sampler family.
     """
-    if sampler_name in _VI_SAMPLER_NAMES:
-        # VI samplers have no MCMC diagnostics to persist.
+    fields = _sample_stat_fields(sampler_name)
+    if not fields:
         return "    # VI sampler: no per-step MCMC stats (only elbo in info)."
-
-    fields: list[str] = []
-    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
-        fields.append("is_divergent")
-        fields.append("energy")
-    if sampler_name in _SAMPLERS_WITH_NIS_STAT:
-        fields.append("num_integration_steps")
-    # Unadjusted MCLMC (MCLMCInfo) has no acceptance_rate field.
-    # adjusted_mclmc / adjusted_mclmc_dynamic are MH-adjusted and DO have it.
-    if sampler_name not in _MCLMC_UNADJUSTED_NAMES:
-        fields.append("acceptance_rate")
-    if sampler_name in _SAMPLERS_WITH_IS_ACCEPTED:
-        fields.append("is_accepted")
 
     lines = []
     for field in fields:
@@ -439,7 +450,7 @@ def emit_script(
     num_chains : int, optional
         Number of chains for the vmap-scan inference loop. When ``None``,
         derived from the recipe: ``recipe.warmup_params.get("num_chains",
-        recipe.calibration_budget.get("num_chains", 1))``. Falls back to 1
+        recipe.calibration_budget.get("num_chains", 4))``. Falls back to 1
         for legacy groundtruth recipes that pre-date the ``num_chains`` field.
     num_warmup : int or list[int] or None, optional
         Override the warmup step count(s) in the emitted script.

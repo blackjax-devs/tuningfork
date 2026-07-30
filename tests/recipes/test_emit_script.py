@@ -1901,3 +1901,83 @@ def test_mclmc_unadjusted_emitted_script_no_acceptance_rate() -> None:
         "C5 regression: emitted mclmc script contains '_infos.acceptance_rate'. "
         "MCLMCInfo has no such field — this crashes at runtime."
     )
+
+
+@pytest.mark.fast
+def test_laplace_emits_lbfgs_diagnostics_and_legacy_chain_default() -> None:
+    """Generated Laplace scripts retain solver stats and the 4-chain default."""
+    from tuningfork.recipes._base import Effort, Recipe
+    from tuningfork.recipes._emit_script import _build_draws_ss_block
+
+    laplace_stats = _build_draws_ss_block("laplace_hmc")
+    assert '_draws_dict["_ss_lbfgs_iter_num"]' in laplace_stats
+    assert '_draws_dict["_ss_lbfgs_hit_maxiter"]' in laplace_stats
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1},
+        warmup_params={"n_warmup": 10},
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 10}}],
+        calibration_budget={"n_samples": 20},
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=2)
+    assert "num_chains = 4" in script
+
+
+@pytest.mark.fast
+def test_sample_stats_matrix_preserves_safe_sampler_fields() -> None:
+    """Per-step scalar/bool info fields are explicit and nested pytrees stay out."""
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.recipes._emit_script import (
+        _SAMPLER_SAMPLE_STAT_FIELDS,
+        _build_draws_ss_block,
+        _build_info_diagnostics_block,
+    )
+
+    assert set(_SAMPLER_SAMPLE_STAT_FIELDS) == set(BASE_METHODS)
+
+    nuts = _build_draws_ss_block("nuts")
+    for field in (
+        "num_trajectory_expansions",
+        "is_turning",
+        "num_integration_steps",
+    ):
+        assert f'_draws_dict["_ss_{field}"]' in nuts
+    assert "trajectory_leftmost_state" not in nuts
+    assert "momentum" not in nuts
+
+    laplace = _build_draws_ss_block("laplace_hmc")
+    for field in (
+        "lbfgs_iter_num",
+        "lbfgs_error",
+        "lbfgs_converged",
+        "lbfgs_hit_maxiter",
+    ):
+        assert f'_draws_dict["_ss_{field}"]' in laplace
+
+    mclmc = _build_draws_ss_block("mclmc")
+    for field in ("logdensity", "kinetic_change", "energy_change", "nonans"):
+        assert f'_draws_dict["_ss_{field}"]' in mclmc
+    assert "acceptance_rate" not in mclmc
+
+    adjusted = _build_draws_ss_block("adjusted_mclmc_dynamic")
+    for field in (
+        "is_divergent",
+        "energy",
+        "num_integration_steps",
+        "acceptance_rate",
+        "is_accepted",
+    ):
+        assert f'_draws_dict["_ss_{field}"]' in adjusted
+
+    for sampler in ("orbital_hmc", "elliptical_slice"):
+        diagnostics = _build_info_diagnostics_block(sampler)
+        assert "_infos.acceptance_rate" not in diagnostics

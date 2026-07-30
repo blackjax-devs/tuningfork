@@ -13,8 +13,8 @@
 # limitations under the License.
 """On-demand resampling with caching for LOW/MEDIUM recipes.
 
-Wrapper around ``tuningfork.recipes._recipe_runner.run_recipe_to_idata`` that
-caches draws to avoid redundant re-runs in the catalog notebook.
+Helpers for loading generated recipe artifacts and caching draws to avoid
+redundant re-runs in the catalog notebook.
 
 Cache layout (per recipe):
 
@@ -29,6 +29,7 @@ e.g. ``low__nuts__window_adaptation_diag_imm`` for a recipe at
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +37,8 @@ import numpy as np
 
 if TYPE_CHECKING:
     import arviz
+
+_CATALOG_ROOT = Path(__file__).parent
 
 __all__ = ["cached_idata_for_recipe", "regenerate_idata"]
 
@@ -54,7 +57,7 @@ def cached_idata_for_recipe(
 
     Explicit re-sample (``force_regenerate=True``):
     - Skips cache check; re-runs the recipe's warmup + sampling pipeline via
-      ``run_recipe_to_idata``; saves to the cache; returns the InferenceData.
+      the recipe pipeline; saves to the cache; returns the InferenceData.
 
     Rationale: the prior default ("silent re-sample on cache miss") was a
     UX footgun — a 30+ min sampling run could be triggered by what looked
@@ -86,17 +89,13 @@ def cached_idata_for_recipe(
     FileNotFoundError
         Cache miss with ``force_regenerate=False``. Call again with
         ``force_regenerate=True`` to (re-)sample, or call
-        ``run_recipe_to_idata(recipe)`` directly.
+        the recipe pipeline directly.
     RecipeFailedError
         If the recipe is FAILED (no gate-passing config).
     ValueError
         If the recipe model/warmup/sampler are not in the registries.
     """
-    from pathlib import Path
-
     if catalog_root is None:
-        from tuningfork.recipes._recipe_runner import _CATALOG_ROOT
-
         catalog_root = _CATALOG_ROOT
     else:
         catalog_root = Path(catalog_root)
@@ -125,7 +124,7 @@ def cached_idata_for_recipe(
             f"{recipe.effort.value}__{recipe.base_method_name}__"
             f"{recipe.warmup_name} at {draws_cache}.\n"
             f"Call cached_idata_for_recipe(recipe, force_regenerate=True) to "
-            f"sample + populate the cache, or call run_recipe_to_idata(recipe) "
+            f"sample + populate the cache, or call regenerate_idata(recipe) "
             f"directly if you don't want to persist."
         )
 
@@ -167,9 +166,10 @@ def regenerate_idata(
     pinned config you can visually inspect *why* it failed (trace plots,
     divergence markers, rank plots) before investigating a fix.
 
-    Also works for PASS, REVIEW, and GROUNDTRUTH recipes (for verification or
-    different-seed experiments), but ``cached_idata_for_recipe`` is the
-    preferred path for those since it avoids redundant compute.
+    Also works for PASS and REVIEW recipes, but
+    ``cached_idata_for_recipe`` is the preferred path for those since it avoids
+    redundant compute. GROUNDTRUTH recipes keep their existing LFS-backed load
+    path and do not launch a new sampling run.
 
     .. note::
         Does **not** use ``skip_warmup=True`` — FAIL recipes may lack valid
@@ -184,9 +184,13 @@ def regenerate_idata(
         Number of post-warmup samples per chain (default 1000).  Reduce to
         ~200–400 for a quick diagnostic preview of failure modes.
     seed
-        Random seed for reproducibility.  Defaults to the canonical recipe seed.
+        Master random seed for reproducibility. It is applied to an immutable
+        copy of the recipe before code generation; the input recipe is not
+        modified. Defaults to the canonical diagnostic seed.
     catalog_root
         Root of the catalog directory (default: ``tuningfork/catalog/``).
+        Generated source, logs, artifacts, and receipts are retained under
+        ``<catalog_root>/<model>/_cache/generated_runs``.
 
     Returns
     -------
@@ -197,8 +201,11 @@ def regenerate_idata(
 
     Raises
     ------
+    GeneratedProgramError
+        If generated execution fails. The exception carries its failed
+        ``LaunchResult`` and receipt path.
     RuntimeError
-        If the sampler raises an exception (e.g. non-terminating trajectory).
+        If a successful execution does not expose its verified artifact.
 
     Examples
     --------
@@ -207,22 +214,83 @@ def regenerate_idata(
         idata = regenerate_idata(recipe, n_samples=400, seed=42)
         figs = plot_recipe_diagnostics(idata, posterior_entry)
     """
-    from pathlib import Path as _Path
-
     if catalog_root is None:
-        from tuningfork.recipes._recipe_runner import _CATALOG_ROOT
-
         catalog_root = _CATALOG_ROOT
     else:
-        catalog_root = _Path(catalog_root)
+        catalog_root = Path(catalog_root)
 
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
+    if getattr(getattr(recipe, "effort", None), "value", None) == "groundtruth":
+        from tuningfork.catalog.render import load_idata
 
-    return run_recipe_to_idata(
-        recipe,
-        force_resample_config={"seed": seed, "n_samples": n_samples},
-        catalog_root=catalog_root,
-        _allow_failed_diagnostic=True,
+        return load_idata(recipe, cache_dir=catalog_root)
+
+    from tuningfork.catalog.emit import execute_recipe
+
+    run_root = catalog_root / recipe.model_name / "_cache" / "generated_runs"
+    run_root.mkdir(parents=True, exist_ok=True)
+    configured_recipe = replace(recipe, tuning_seed=seed)
+    result = execute_recipe(configured_recipe, run_root, num_samples=n_samples)
+    if result.artifact_path is None:
+        raise RuntimeError(
+            "Generated recipe execution succeeded without a verified artifact"
+        )
+    return _artifact_to_idata(result.artifact_path)
+
+
+def _artifact_to_idata(artifact_path: Path | str) -> arviz.InferenceData:
+    """Load a verified generated ``.npz`` artifact into InferenceData."""
+    from tuningfork.catalog.diagnostics import samples_to_idata
+
+    posterior: dict[str, np.ndarray] = {}
+    chain_stats: dict[str, np.ndarray] = {}
+    with np.load(str(artifact_path), allow_pickle=False) as archive:
+        for key in archive.files:
+            value = np.asarray(archive[key])
+            if key.startswith("_ss_"):
+                stat_name = key[4:]
+                if not stat_name:
+                    raise ValueError(
+                        "Generated artifact contains an empty statistic name"
+                    )
+                if stat_name in chain_stats:
+                    raise ValueError(
+                        f"Generated artifact contains duplicate chain statistic {stat_name!r}"
+                    )
+                chain_stats[stat_name] = value
+            else:
+                posterior[key] = value
+    if not posterior:
+        raise ValueError("Generated artifact contains no posterior variables")
+    posterior_shapes: set[tuple[int, int]] = set()
+    for name, value in posterior.items():
+        if value.ndim < 2:
+            raise ValueError(
+                f"Generated artifact posterior variable {name!r} must have "
+                f"at least two dimensions, got shape {value.shape!r}"
+            )
+        posterior_shapes.add(tuple(value.shape[:2]))
+    if len(posterior_shapes) != 1:
+        raise ValueError(
+            "Generated artifact posterior variables have inconsistent leading "
+            f"shapes: {sorted(posterior_shapes)!r}"
+        )
+    expected_shape = next(iter(posterior_shapes))
+    for name, value in chain_stats.items():
+        if value.ndim < 2:
+            raise ValueError(
+                f"Generated artifact statistic {name!r} must have at least two "
+                f"dimensions, got shape {value.shape!r}"
+            )
+        if tuple(value.shape[:2]) != expected_shape:
+            raise ValueError(
+                f"Generated artifact statistic {name!r} has leading shape "
+                f"{value.shape[:2]!r}; expected {expected_shape!r}"
+            )
+    return samples_to_idata(
+        posterior,
+        is_multichain=True,
+        chain_stats=chain_stats or None,
+        n_chunks=1,
     )
 
 
@@ -246,27 +314,32 @@ def _load_from_cache(
         samples_to_idata,
     )
 
-    # Load draws
-    draws_data = np.load(str(draws_cache))
-    samples_dict = {k: np.asarray(draws_data[k]) for k in draws_data.files}
+    with np.load(str(draws_cache), allow_pickle=False) as draws_data:
+        samples_dict = {k: np.asarray(draws_data[k]) for k in draws_data.files}
 
     # Reverse map: ArviZ canonical → raw blackjax field name.
     _SAMPLE_STATS_TO_CHAIN_STATS = {
         canonical: raw for raw, canonical in _CHAIN_STATS_TO_SAMPLE_STATS.items()
     }
 
-    # Load chain_stats (optional; None if file missing or invalid)
+    # Load chain_stats (optional; missing means absent, invalid fails loudly).
     chain_stats = None
     if stats_cache.exists():
         try:
-            stats_data = np.load(str(stats_cache))
-            chain_stats = {
-                _SAMPLE_STATS_TO_CHAIN_STATS.get(k, k): np.asarray(stats_data[k])
-                for k in stats_data.files
-            }
-        except Exception:
-            # Silently ignore corrupt/invalid stats cache
-            chain_stats = None
+            with np.load(str(stats_cache), allow_pickle=False) as stats_data:
+                chain_stats = {}
+                for name in stats_data.files:
+                    raw_name = _SAMPLE_STATS_TO_CHAIN_STATS.get(name, name)
+                    if raw_name in chain_stats:
+                        raise ValueError(
+                            f"chain-stats cache keys collide after canonical "
+                            f"name resolution at {raw_name!r}"
+                        )
+                    chain_stats[raw_name] = np.asarray(stats_data[name])
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"Could not load chain-stats cache {stats_cache}: {exc}"
+            ) from exc
 
     # Reconstruct InferenceData
     # Samples are already in multi-chain format (num_chains, n_samples, *event_shape)

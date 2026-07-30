@@ -92,7 +92,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a("")
     a("# Number of parallel chains for the vmap-scan inference loop.")
     a("# Derived from recipe metadata (warmup_params.num_chains or")
-    a("# calibration_budget.num_chains); 1 for legacy groundtruth recipes.")
+    a("# calibration_budget.num_chains); 4 for legacy non-groundtruth recipes.")
     a(f"num_chains = {ctx['num_chains']}")
     a("")
     a("# Wall-clock timer for warmup phase (reset after model/init setup).")

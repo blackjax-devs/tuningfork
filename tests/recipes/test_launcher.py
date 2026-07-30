@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from tuningfork.catalog import emit_script
+from tuningfork.catalog._rerun_inference import _artifact_to_idata
 from tuningfork.recipes import _launcher as launcher_module
 from tuningfork.recipes._base import Effort, Recipe
 from tuningfork.recipes._execution_manifest import ExecutionManifest
@@ -163,6 +164,37 @@ def test_archive_with_only_sampler_stats_is_rejected_with_failed_receipt(tmp_pat
     receipt = _receipt(caught.value)
     assert receipt.status == "failed"
     assert "no position arrays" in (receipt.error or "")
+
+
+@pytest.mark.parametrize(
+    "archive_expr, message",
+    [
+        (
+            "position=np.zeros((1, 2, 1)), _ss_energy=np.zeros(())",
+            "statistic '_ss_energy'",
+        ),
+        (
+            "position=np.zeros((1, 2, 1)), _ss_energy=np.zeros((1, 3))",
+            "expected (1, 2)",
+        ),
+        (
+            "position=np.zeros((1, 2, 1)), other=np.zeros((2, 2, 1))",
+            "position array 'other'",
+        ),
+    ],
+)
+def test_malformed_artifact_shapes_are_rejected_before_done_receipt(
+    tmp_path, archive_expr, message
+):
+    source = _source(
+        _manifest(),
+        f"np.savez(ARTIFACT, {archive_expr})\nprint('DONE')",
+    )
+    with pytest.raises(GeneratedProgramError) as caught:
+        launch_generated_program(source, tmp_path)
+    receipt = _receipt(caught.value)
+    assert receipt.status == "failed"
+    assert message in (receipt.error or "")
 
 
 def test_environment_override_values_are_not_recorded_in_receipt(tmp_path):
@@ -371,7 +403,7 @@ def test_launcher_executes_an_emitted_dynamic_hmc_program(tmp_path):
         instructions="",
         tuning_seed=0,
     )
-    source = emit_script(recipe, num_samples=3)
+    source = emit_script(recipe, num_samples=3, num_chains=1)
     result = launch_generated_program(
         source,
         tmp_path,
@@ -383,3 +415,6 @@ def test_launcher_executes_an_emitted_dynamic_hmc_program(tmp_path):
     assert result.artifact_path is not None
     with np.load(result.artifact_path, allow_pickle=False) as archive:
         assert archive["x"].shape[:2] == (1, 3)
+    idata = _artifact_to_idata(result.artifact_path)
+    assert idata.posterior["x"].shape[:2] == (1, 3)
+    assert "diverging" in idata.sample_stats

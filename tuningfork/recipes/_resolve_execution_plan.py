@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     from ._base import Recipe
 
 
+# Canonical recipe-runner protocol: 4 chains × 1000 draws for quick mode.
+_DEFAULT_NUM_CHAINS = 4
+
+
 def _positive_int(name: str, value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer; got {value!r}")
@@ -71,6 +75,10 @@ def resolve_execution_plan(
     nphases = len(stages)
     budget = getattr(recipe, "calibration_budget", {}) or {}
     wp = getattr(recipe, "warmup_params", {}) or {}
+    effort = getattr(recipe, "effort", None)
+    legacy_chain_default = (
+        1 if getattr(effort, "value", effort) == "groundtruth" else _DEFAULT_NUM_CHAINS
+    )
     samples = _positive_int(
         "num_samples",
         (
@@ -84,7 +92,7 @@ def resolve_execution_plan(
         (
             ov.num_chains
             if ov.num_chains is not None
-            else wp.get("num_chains", budget.get("num_chains", 1))
+            else wp.get("num_chains", budget.get("num_chains", legacy_chain_default))
         ),
     )
     tuning_seed = _seed("tuning_seed", getattr(recipe, "tuning_seed", 0))
