@@ -87,12 +87,17 @@ def test_the_comparison_is_not_vacuous(report) -> None:
 
     Both routes to a hollow pass are covered: stamps disappearing from artifacts
     (``stamped`` falls) and cells the driver declines to reconstruct
-    (``checked`` falls below ``stamped``).
+    (``checked`` falls below ``stamped``).  ``accounted_for`` is ``checked``
+    plus ``new_since_baseline`` — a stamped cell with no tracked history before
+    the baseline was never comparable, so excusing it from ``checked`` is not a
+    hole; a stamped cell unaccounted for by neither bucket nor a failure entry
+    would be one, and this assertion is what still catches that.
     """
     assert report.vacuous is None, report.vacuous
-    assert report.checked == report.stamped, (
-        f"{report.stamped - report.checked} stamped cells were not compared; "
-        f"they should appear in unreconstructable or missing_baseline"
+    assert report.accounted_for == report.stamped, (
+        f"{report.stamped - report.accounted_for} stamped cells were not "
+        f"compared and not excused as new; they should appear in "
+        f"unreconstructable, missing_baseline, or new_since_baseline"
     )
 
 

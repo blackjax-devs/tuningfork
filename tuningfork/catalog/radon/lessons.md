@@ -86,6 +86,25 @@ divergences — no wider seed scan was needed. The recipe was re-emitted in
 place (same filename, still `effort=medium`) with the seed selection
 disclosed in `notes`.
 
+**Precision provenance, resolved (tf-recert-fixforward follow-up):** the
+corpus-wide config-fidelity gate (`tools/verify_emitted_configs.py`, wired
+into CI by PR #256 four seconds before #257 merged, so #257 never saw it)
+flagged this cell's `machine_info.jax_x64_enabled` as `True` at the baseline
+(b09c2476) vs `False` in the re-emit. Confirmed genuine, not a gate
+field-resolution bug: `recorded_x64()` reads the correct nested
+`calibration_budget.machine_info.jax_x64_enabled` path and the two artifacts
+really do disagree. `radon.requires_x64` is `False`, and the baseline was
+captured on a CUDA GPU host where x64 happened to be ambient-on — off-protocol
+for a model that doesn't require it — while the re-emit ran under this
+project's documented float32-default protocol on an aarch64 CPU host. Same
+shape as the 16 pre-existing entries in `PRECISION_FLIP_CELLS`
+(`tools/reemit_sweep.py`); the re-emit is arguably the more-correct run.
+Pinned there rather than re-run at `JAX_ENABLE_X64=1` to match the baseline,
+consistent with how those 16 were handled — no other config mismatch was
+found for this cell (`base_method_params` round-trips cleanly; `step_size` and
+`inverse_mass_matrix` differ as expected, since they are warmup-adapted
+outputs, not replayed settings).
+
 ## Citations
 
 **Posteriordb reference**: [posteriordb.org #6 (radon_mn)](https://posteriordb.org/)

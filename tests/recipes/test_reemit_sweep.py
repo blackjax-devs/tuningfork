@@ -365,6 +365,82 @@ class TestPrecisionFidelity:
             assert not any("jax_x64_enabled" in v for v in bad), f"{pinned}: {bad}"
 
 
+class TestEnumerationDirection:
+    """Every field family is enumerated from the COMMITTED side, not cfg's.
+
+    ``recertify()`` and the verify gate both depend on ``reconstruct()``, which
+    raises an obvious question: if a field ``reconstruct()`` fails to extract
+    is also a field ``config_fidelity_violations`` doesn't know to look for,
+    the two share a blind spot and neither would ever see the drop. That is
+    only true if the check iterates the fields CFG believes exist. It does
+    not: ``warmup_params`` and ``base_method_params`` both loop over the
+    COMMITTED dict's own keys (``for key, want in committed_warmup.items()``,
+    ``for key, want in committed_kernel.items()``) and ask whether the replay
+    built from cfg has each one -- so a key cfg has never heard of is still
+    flagged, which is exactly the shape of the horseshoe defect this suite
+    guards against (below). The three ``structural`` fields (``step_policy``,
+    ``warmup_inner_kernel``, ``init_strategy``) are a narrower case: the KEY
+    SET checked is a fixed, hand-written list of exactly those three names
+    (not derived from committed's own keys the way the two dicts above are),
+    but each comparison re-reads ``committed.get(key)`` fresh rather than
+    trusting cfg's belief about it, so a wrong/stale cfg value for one of
+    those three specific fields is still caught (also tested below). A
+    hypothetical FOURTH structural field added to the schema without a
+    matching line in ``structural`` would be invisible to this check -- that
+    residual gap is real and is not what these tests claim to close.
+    """
+
+    def test_base_method_params_key_unknown_to_cfg_is_still_caught(self) -> None:
+        """The exact shape of the horseshoe defect, reproduced directly.
+
+        cfg carries NO sampler_kwargs_override at all -- as if reconstruct()
+        itself, not just a hand-typed call, had never heard of this key. The
+        check still catches it because it iterates committed's keys, not
+        cfg's.
+        """
+        cfg = _minimal_cfg(sampler_kwargs_override=None)
+        committed = _committed(False)
+        committed["base_method_params"] = {"max_num_doublings": 15}
+        bad = driver.config_fidelity_violations(cfg, committed)
+        assert any("max_num_doublings" in v for v in bad), bad
+
+    def test_warmup_params_key_unknown_to_cfg_is_still_caught(self) -> None:
+        cfg = _minimal_cfg(warmup_kwargs_override=None)
+        committed = _committed(False)
+        committed["warmups"] = [{"params": {"__unknown_test_kwarg__": "sentinel"}}]
+        bad = driver.config_fidelity_violations(cfg, committed)
+        assert any("__unknown_test_kwarg__" in v for v in bad), bad
+
+    def test_base_method_params_value_drift_is_caught_not_just_absence(self) -> None:
+        """A key present on BOTH sides with a different value is still a violation.
+
+        TL review question: does base_method_params check key PRESENCE only
+        (a replay that carries the key at all "passes", drifted value or not)
+        or VALUE too? cfg here WOULD replay max_num_doublings -- just at a
+        different value than committed records -- so the presence check alone
+        would pass this silently. It doesn't: the ``elif replayed_kernel[key]
+        != want`` branch fires.
+        """
+        cfg = _minimal_cfg(sampler_kwargs_override={"max_num_doublings": 15})
+        committed = _committed(False)
+        committed["base_method_params"] = {"max_num_doublings": 20}
+        bad = driver.config_fidelity_violations(cfg, committed)
+        assert any("max_num_doublings" in v and "committed 20" in v for v in bad), bad
+
+    def test_structural_field_comparison_does_not_trust_cfgs_own_belief(self) -> None:
+        """init_strategy is re-read from committed, not assumed from cfg.
+
+        cfg believes there is no init_strategy (None); committed disagrees.
+        If the comparison trusted cfg's own value instead of re-reading
+        committed, this would pass silently -- it doesn't.
+        """
+        cfg = _minimal_cfg(init_strategy=None)
+        committed = _committed(False)
+        committed["init_strategy"] = {"type": "zero_perchain", "jitter": 0.5}
+        bad = driver.config_fidelity_violations(cfg, committed)
+        assert any("init_strategy" in v for v in bad), bad
+
+
 class TestScopeDecisions:
     """Cells outside the migration are declined, not silently emitted."""
 

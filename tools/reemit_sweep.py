@@ -146,6 +146,14 @@ PRECISION_FLIP_CELLS: dict[str, str] = {
     "radon/low__mhmc__window_adaptation_diag_imm__inner_nuts.json": (
         "jax_x64_enabled True -> False"
     ),
+    # 2026-07-30 recert (tuningfork PR #257): baseline was captured on a CUDA
+    # GPU host with x64 ambient-on; the re-emit ran on this project's aarch64
+    # CPU host under the documented float32 default. radon does not set
+    # requires_x64, so both runs are within protocol -- same shape as the 16
+    # entries above, discovered later because #257 never saw the
+    # verify_emitted_configs.py gate (merged 4 seconds after the PR that wired
+    # it into CI, #256).
+    "radon/medium__dynamic_hmc__chees.json": "jax_x64_enabled True -> False",
     "stoch_vol/low__mhmc__window_adaptation_diag_imm.json": (
         "jax_x64_enabled True -> False"
     ),
@@ -760,6 +768,128 @@ def survey(from_rev: str | None = None) -> tuple[list[CellConfig], list[Skip]]:
     return ok, skipped
 
 
+def recertify(
+    recipe_path: Path,
+    *,
+    seed: int | None = None,
+    source_revision: str | None = None,
+    catalog_root: Path = CATALOG,
+    verbose: bool = True,
+) -> Any:
+    """Re-run one committed cell under ITS OWN recorded configuration, in place.
+
+    This is the sanctioned re-emission path for a recert: every field
+    ``emit_low_recipe_for_cell`` accepts is read off the source artifact via
+    ``reconstruct()`` and forwarded explicitly, rather than hand-assembled by a
+    caller who has to remember every override the cell records.
+
+    That hand-assembly is exactly the defect class this closes.
+    ``horseshoe/medium__nuts__window_adaptation_diag_imm.json`` lost its pinned
+    ``base_method_params["max_num_doublings"] = 15`` during the 2026-07-30
+    recert sweep: the re-emit call that produced it forwarded ``seed`` and
+    ``target_acceptance`` but never built a ``sampler_kwargs_override`` dict,
+    so the run silently executed at the registry default (10) instead of the
+    artifact's own recorded value, and the recipe it wrote down described a
+    different, easier configuration than the one that had actually needed 15.
+    Going through ``reconstruct()`` instead means the override dict is READ
+    from the artifact's ``base_method_params``, not retyped from memory, so
+    there is no step at which a key can be silently left out.
+
+    Parameters
+    ----------
+    recipe_path
+        The recipe to re-run and overwrite in place.  Its filename fixes the
+        cell identity; a mismatched reconstruction (see ``reconstruct``'s
+        filename round-trip guard) is refused rather than clobbering a
+        neighbour.
+    seed
+        Master seed for this run.  ``None`` (default) reproduces the seed
+        ``reconstruct()`` recovers from the source artifact's own
+        ``tuning_seed`` -- an exact same-seed replay.  Pass an explicit seed
+        for a disclosed reseed (Belief#1176): every OTHER field still comes
+        from the source artifact, so choosing a new seed cannot also silently
+        drop a kernel kwarg the way a fully hand-assembled call can.
+    source_revision
+        Read the configuration to replay from this git revision instead of
+        the working tree.  Required whenever ``recipe_path`` on disk is
+        itself the defective artifact being repaired: reconstructing from a
+        file this call is about to overwrite makes a dropped parameter
+        self-confirming, because the source no longer claims it either, so
+        there is nothing left to notice is missing.  ``None`` (default)
+        reconstructs from ``recipe_path`` as it currently sits on disk, which
+        is correct for a cell being recertified for the first time (nothing
+        has dropped anything from it yet).
+    catalog_root
+        Root the re-emitted recipe is written under.  Defaults to the real
+        catalog so an in-place recert lands where the cell already lives;
+        pass a scratch directory for a dry run.
+    verbose
+        Forwarded to ``emit_low_recipe_for_cell``.
+
+    Returns
+    -------
+    CellResult
+        The outcome of the run: PASS writes the recipe (and its own fresh
+        ``base_method_params``, drawn straight from ``shared_kwargs`` rather
+        than retyped); REVIEW/FAIL/ERROR write nothing, matching
+        ``emit_low_recipe_for_cell``'s own contract.
+    """
+    source_path = recipe_path
+    _scratch: Path | None = None
+    if source_revision is not None:
+        import subprocess
+        import tempfile
+
+        rel = recipe_path.relative_to(REPO_ROOT)
+        proc = subprocess.run(
+            ["git", "show", f"{source_revision}:{rel}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise ValueError(
+                f"{rel} not found at {source_revision}: {proc.stderr.strip()}"
+            )
+        fd, tmp_name = tempfile.mkstemp(suffix=".json")
+        with open(fd, "w") as fh:
+            fh.write(proc.stdout)
+        source_path = Path(tmp_name)
+        _scratch = source_path
+
+    try:
+        cfg = reconstruct(recipe_path, source_path=source_path)
+    finally:
+        if _scratch is not None:
+            _scratch.unlink(missing_ok=True)
+
+    if isinstance(cfg, Skip):
+        raise ValueError(f"cannot recertify {recipe_path}: {cfg.reason}")
+
+    from tuningfork.recipes._base import Effort
+    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+
+    return emit_low_recipe_for_cell(
+        model_name=cfg.model_name,
+        warmup_name=cfg.warmup_name,
+        sampler_name=cfg.sampler_name,
+        n_warmup=cfg.n_warmup,
+        n_samples=cfg.n_samples,
+        num_chains=cfg.num_chains,
+        seed=seed if seed is not None else cfg.seed,
+        target_acceptance=cfg.target_acceptance,
+        sampler_kwargs_override=cfg.sampler_kwargs_override,
+        warmup_kwargs_override=cfg.warmup_kwargs_override,
+        step_policy=cfg.step_policy,
+        policy_tag=cfg.policy_tag,
+        effort=Effort(cfg.effort),
+        warmup_inner_kernel=cfg.warmup_inner_kernel,
+        init_strategy=cfg.init_strategy,
+        catalog_root=catalog_root,
+        verbose=verbose,
+    )
+
+
 # Skip reasons that are scope decisions, not reconstruction failures.
 _OUT_OF_SCOPE = (
     "model is excluded",
@@ -792,7 +922,41 @@ def main() -> int:
         help="Read configurations from this revision instead of the working "
         "tree. Use the PRE-SWEEP commit once any cell has been re-emitted.",
     )
+    parser.add_argument(
+        "--recertify",
+        help="Re-run ONE cell (path to its recipe JSON, relative or absolute) "
+        "under its own recorded configuration and overwrite it in place. Every "
+        "field comes from reconstruct(), not from a hand-typed call, so a "
+        "reseed cannot silently drop a kernel kwarg.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="With --recertify: master seed for the run (a disclosed reseed). "
+        "Omit to replay the exact seed the source artifact's tuning_seed "
+        "implies.",
+    )
+    parser.add_argument(
+        "--source-revision",
+        help="With --recertify: read the configuration to replay from this "
+        "revision instead of the working tree. Required when the recipe on "
+        "disk is itself the defective artifact being repaired.",
+    )
     args = parser.parse_args()
+
+    if args.recertify:
+        path = Path(args.recertify)
+        if not path.is_absolute():
+            path = REPO_ROOT / path
+        result = recertify(
+            path,
+            seed=args.seed,
+            source_revision=args.source_revision,
+        )
+        print(f"verdict: {result.verdict}")
+        if result.note:
+            print(f"note: {result.note}")
+        return 0 if result.verdict == "PASS" else 1
 
     ok, skipped = survey(args.from_rev)
     failures = [s for s in skipped if _is_reconstruction_failure(s)]
