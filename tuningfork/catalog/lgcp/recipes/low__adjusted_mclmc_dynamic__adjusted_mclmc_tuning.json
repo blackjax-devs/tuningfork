@@ -7,7 +7,7 @@
     "L": 46.876434326171875,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.04213465377688408,
+  "headline_metric": 0.05105638759657267,
   "sample_quality": {
     "mae_vs_reference": 0.09298207636692327,
     "q05_error": 0.14316058582818988,
@@ -16,13 +16,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 6.977595617994666,
+    "wall_seconds_estimate": 7.21538338100072,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 3.096,
-    "sampling_wall_seconds": 2.454,
-    "sampling_seconds_per_draw": 0.000614,
+    "warmup_wall_seconds": 3.351,
+    "sampling_wall_seconds": 2.453,
+    "sampling_seconds_per_draw": 0.000613,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -38,11 +38,14 @@
     "warmup_grad_evals": 3360
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 23.438217163085938, 'L': 46.876434326171875, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0421.\nWall time to produce this recipe: ~6 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(adjusted_mclmc_tuning, adjusted_mclmc_dynamic)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.adjusted_mclmc_dynamic(logdensity_fn, **{'step_size': 23.438217163085938, 'L': 46.876434326171875, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0511.\nWall time to produce this recipe: ~7 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 16042,
-    "min_bulk_ess": 675.9241158887744,
+    "min_bulk_ess": 819.0465698242188,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 675.9241333007812,
+    "estimator_ratio": 1.211743344366947,
     "grad_count_convention": "2 \u00d7 info.num_integration_steps",
     "is_lower_bound": false
   },
@@ -118,10 +121,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T09:01:26Z",
+  "timestamp_utc": "2026-07-29T14:45:57Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

@@ -5,6 +5,28 @@
 203-D latent-GP regression requires high target_acceptance (0.99) and float64 + jitter ≥1e-4 to avoid silent Cholesky precision failure; posterior has +0.737 correlation between log_lengthscale and log_kernel_scale (identifiability ridge) that diagonal-IMM cannot capture.
 [boundary: HIGH-effort NUTS+dense_imm+inner_laplace_hmc PASS at n_warmup=5000, target_acceptance=0.99; elliptical_slice FAIL (hard_direction); meanfield_vi out_of_scope; dense/low_rank IMM not yet tested at MEDIUM; laplace family vmap compile blowup documented elsewhere]
 
+## Headline numbers are not comparable to the rest of the catalog
+
+**`gp_regression` headline values are on the older, non-rank-normalised ESS estimator
+(`blackjax.diagnostics.effective_sample_size`). Every other model in the catalog reports
+the rank-normalised split-chain estimator (`ess_bulk`). Do not compare a `gp_regression`
+headline against another model's.**
+
+The catalog switched its headline to `ess_bulk` — the estimator Stan, ArviZ
+(`ess(method="bulk")`) and NumPyro report — so tuningfork numbers can be read against
+published ones. Re-measuring a model means re-running it. `gp_regression` was excluded on
+compute cost: the dense 200×200 RBF kernel makes each step ~50× more expensive than a peer
+model (~63 h reference certification wall), and its only headline-carrying recipe is HIGH
+effort, so a faithful re-measurement means re-running the hyperparameter search rather than
+a single sampler run. The sampler run alone projects to ~80 min.
+
+This was a deliberate choice, not an oversight. The exclusion is enforced in code at
+`tuningfork/catalog/_estimator_provenance.py:HEADLINE_ESTIMATOR_EXCLUDED_MODELS`;
+`summarize_recipe` prints the caveat on every `gp_regression` recipe summary. To lift it,
+re-emit the model and delete the entry — a test fails if the entry survives re-measurement.
+
+For what the two estimators actually differ by, see `catalog/RECIPE_SCHEMA.md` §4.5.
+
 ## Canonical recipe
 
 hard-model NUTS (n_warmup=5000, target_acceptance=0.99, max_num_doublings=12; JAX_ENABLE_X64=1, model JITTER=1e-4)

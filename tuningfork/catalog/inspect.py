@@ -223,6 +223,18 @@ def _summarize_smc_recipe(recipe) -> pd.DataFrame:  # type: ignore[return]
     return pd.DataFrame(rows, columns=["Property", "Value"])
 
 
+def _estimator_row(recipe) -> str:
+    """One-line estimator provenance for the summary table.
+
+    Non-comparable headlines say so inline rather than requiring the reader to
+    cross-check an exclusion list they may not know exists.
+    """
+    from tuningfork.catalog._estimator_provenance import headline_estimator_of
+
+    estimator, caveat = headline_estimator_of(recipe)
+    return estimator if caveat is None else f"{estimator} — NOT COMPARABLE: {caveat}"
+
+
 def summarize_recipe(recipe) -> pd.DataFrame:  # type: ignore[return]
     """Return a summary DataFrame for a Recipe or SMCRecipe.
 
@@ -312,6 +324,11 @@ def summarize_recipe(recipe) -> pd.DataFrame:  # type: ignore[return]
             ("stored gate verdict", verdict),
             ("R_hat_max", f"{rhat:.4f}" if rhat is not None else "N/A"),
             ("min_bulk_ESS", f"{min_ess:.1f}" if min_ess is not None else "N/A"),
+            # Which ESS estimator stands behind headline_metric.  Surfaced on
+            # every summary because a headline whose estimator differs from the
+            # rest of the catalog is not comparable, and cross-model comparison
+            # is the whole point of the metric.
+            ("headline_ESS_estimator", _estimator_row(recipe)),
             (
                 "n_divergences",
                 str(int(n_diverg)) if n_diverg is not None else "N/A",

@@ -32,7 +32,8 @@ class Recipe:
     warmup_inner_kernel: str | None = None
 
     # Metadata
-    headline_metric: float | None      # min_bulk_ess / total_grad_evals (filled at PASS)
+    headline_metric: float | None      # min_bulk_ess / total_grad_evals (filled at PASS) — see §4.5
+    headline_basis: dict | None        # accounting behind headline_metric — see §4.5
     sample_quality: dict | None        # vs-reference comparisons (optional)
     calibration_budget: dict           # trials, wall_seconds_estimate, n_warmup, n_samples, num_chains
     difficulty: dict | None            # HIGH-only; BO study output
@@ -297,6 +298,68 @@ medium__dynamic_hmc__window_adaptation_diag_imm__policy_v2-long.json            
 
 The `<slug>` matches a variant in the policy catalog. Slug-to-anchor mapping is 1:1 with the catalog.
 
+## §4.5 — `headline_metric` and `headline_basis`
+
+`headline_metric` is the number an algorithm developer chases: worst-mixing bulk-ESS divided by the run's gradient budget. `headline_basis` records the accounting that produced it, so a headline is interpretable and auditable without re-running the cell.
+
+```json
+{
+  "headline_metric": 0.21033146977424622,
+  "headline_basis": {
+    "total_grad_evals": 8000,
+    "min_bulk_ess": 1682.65175819397,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 1553.2,
+    "estimator_ratio": 1.0833,
+    "grad_count_convention": "2",
+    "is_lower_bound": false
+  }
+}
+```
+
+### §4.5.1 — Which ESS estimator
+
+`ess_estimator` names the `blackjax.diagnostics` function whose value is in `min_bulk_ess`. The catalog convention is **`ess_bulk`** — the rank-normalised split-chain estimator of Vehtari et al. (2021), which is what Stan, ArviZ `ess(method="bulk")` and NumPyro report. A tuningfork headline is therefore directly comparable to a published number.
+
+The field exists because a `headline_basis` that merely reproduces `headline_metric` is *self-consistent under any estimator*. Consistency checks cannot tell you which one ran; only a recorded provenance stamp can. Every code path that fills a headline writes this field:
+
+| Path | Source of `min_bulk_ess` |
+|---|---|
+| `_recipe_runner.emit_low_recipe_for_cell` (gradient) | `metrics.headline.build_headline_basis` over the run's draws |
+| `_recipe_runner.emit_low_recipe_for_cell` (gradient-free) | same function, same draws; denominator is the total draw count |
+| `recipes/emit_mclmc_lrd.py` | `metrics.headline.min_bulk_ess` over the cert-seed draws |
+| `_recipe_runner.stamp_headline_from_chain_stats` | the gate's `ess_bulk` value, recovered without re-sampling |
+
+`min_bulk_ess_classic_legacy` carries `blackjax.diagnostics.effective_sample_size` — no chain splitting, no rank normalisation — computed on the **same draws**, and `estimator_ratio` is `min_bulk_ess / min_bulk_ess_classic_legacy`. They exist so a change in a committed headline can be attributed: a re-emit produces fresh draws, so diffing new against committed confounds the estimator with run-to-run noise, while the ratio isolates the estimator on one fixed sample. Neither field feeds any gate or ranking. Both are `null` where no draws were available (the `stamp_headline_from_chain_stats` path).
+
+### §4.5.2 — Models excluded from the estimator convention
+
+One model is **deliberately** left on the older estimator, so the catalog is knowingly mixed:
+
+| Model | Why |
+|---|---|
+| `gp_regression` | Compute cost. Dense 200×200 RBF kernel → ~50× the per-step cost of a peer model (~63 h reference certification wall), and its only headline-carrying recipe is HIGH effort, so a faithful re-measurement means re-running the hyperparameter search, not one sampler run. |
+
+**A `gp_regression` headline is not comparable to any other model's.** That is the exact failure mode the headline metric exists to avoid, so the exclusion is recorded in three places rather than one: the machine-readable list at `catalog/_estimator_provenance.py:HEADLINE_ESTIMATOR_EXCLUDED_MODELS`, a `## Headline numbers are not comparable` section in `catalog/gp_regression/lessons.md`, and a `headline_ESS_estimator` row that `summarize_recipe` prints with an inline `NOT COMPARABLE` caveat.
+
+It is not recorded inside the recipe JSON, because recipe artifacts are written only by the emit harness — hand-editing one to add a provenance marker would defeat the provenance the marker is meant to carry.
+
+`tests/recipes/test_emit.py::test_estimator_exclusions_are_live_and_still_excluded` keeps the list honest in both directions: a named model that the catalog no longer has fails, and so does a listed model that turns out to have been re-measured (its recipes would then carry an `ess_estimator` stamp, contradicting the list).
+
+### §4.5.3 — The exact-reproduction invariant
+
+`min_bulk_ess` is back-derived as `headline_metric × denominator`, so
+
+```
+headline_metric == headline_basis.min_bulk_ess / headline_basis.total_grad_evals
+```
+
+holds to floating-point exactness (tolerance 1e-9, not a percentage band) for every gradient-path recipe. `tests/recipes/test_emit.py::test_catalog_headline_basis_reproduces_headline_metric` enforces it catalog-wide.
+
+For a gradient-free sampler `total_grad_evals` is `0` and the denominator is the total draw count instead — the metric is per-draw efficiency, and `grad_count_convention` records that. The invariant test skips those rows.
+
+`is_lower_bound` is true for the Laplace family, where the gradient count under-counts the inner optimisation.
+
 ## §5 — Filename composition
 
 Recipe filename structure (after all modifiers compose):
@@ -368,4 +431,5 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 | Date | Change |
 |---|---|
 | 2026-05-21 | Initial schema doc. Extracted from the step_policy design thread §5, §10, §12. Added §2 repeated-warmup proposal (per user direction). |
+| 2026-07-29 | Headline adopts the rank-normalised split-chain bulk-ESS estimator (`blackjax.diagnostics.ess_bulk`), keeping the field name `min_bulk_ess`. Added §4.5 documenting `headline_basis`, including the new `ess_estimator` provenance stamp and the `min_bulk_ess_classic_legacy` / `estimator_ratio` attribution pair. `gp_regression` excluded on compute cost (§4.5.2) — the catalog is knowingly mixed. |
 | 2026-05-21 (same day, later) | Locked all 5 §8 open questions per user direction: Q1 immediate-deprecate; Q2 `mix_warmup_v{N}` glossary in lieu of separator-concatenation; Q3 defer `warmup_inner_kwargs`; Q4 ravel across chains; Q5 always-compress empirical spec with ≤24-entry cap. §2.5 mix-warmup glossary section added (initially empty pending first real use). `max_values` default in `harvest_step_policy_from_*` updated 512 → 24. |
