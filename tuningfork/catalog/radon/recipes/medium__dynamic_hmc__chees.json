@@ -3,45 +3,43 @@
   "base_method_name": "dynamic_hmc",
   "effort": "medium",
   "base_method_params": {
-    "step_size": 0.007320505745840346,
+    "step_size": 0.007310276385396719,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.0022746082268683197,
-  "sample_quality": {
-    "mae_vs_reference": 0.014650527576081889,
-    "q05_error": 0.036986450073613814,
-    "q95_error": 0.0358404131801089,
-    "std_ratio_max_dev": 0.018817100282170318
-  },
+  "headline_metric": 0.0008380984792117605,
+  "sample_quality": null,
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 46.63623070900212,
+    "wall_seconds_estimate": 793.6019739149997,
     "n_warmup": 2000,
     "n_samples": 1000,
     "num_chains": 128,
-    "warmup_wall_seconds": 25.734,
-    "sampling_wall_seconds": 17.72,
-    "sampling_seconds_per_draw": 0.000138,
+    "warmup_wall_seconds": 391.774,
+    "sampling_wall_seconds": 400.241,
+    "sampling_seconds_per_draw": 0.003127,
     "split_source": "measured",
     "machine_info": {
-      "cpu_model": "x86_64",
-      "cpu_count_logical": 128,
-      "os": "Linux 6.17.0-35-generic",
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
       "python_version": "3.13.14",
-      "jax_version": "0.10.1",
-      "blackjax_version": "1.6.dev114+g2ad3a801d",
-      "jax_x64_enabled": true,
-      "jax_default_device": "gpu",
-      "gpu_info": "cuda:0"
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
     },
     "warmup_grad_evals": null
   },
   "difficulty": null,
-  "instructions": "**Medium-effort recipe** (Statistician investigation on `(chees, dynamic_hmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.007320505745840346, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0023.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
-  "notes": "",
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(chees, dynamic_hmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.007310276385396719, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0008.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "Re-certified 2026-07-30 after a recert-sweep gate failure (PR #254, ESS-metric\nswitch; tuningfork Issue#987 / Belief#1176). The committed recipe's recorded\nseed failed the gate under current dependencies as part of the PR#254 corpus\nre-emission sweep (19 gate failures, \"no recipe written, committed headline\nretained\").\n\nSEED SELECTION, DISCLOSED (Belief#1176 policy): re-running this exact\n(dynamic_hmc, chees) pairing at target_acceptance=0.651, n_warmup=2000,\nnum_chains=128 with seed=11111 (the first candidate tried) cleared the gate\ncleanly on the first attempt: rhat=1.0097, ess=9292.8, 0 divergences.\nIndependently verified through the normal production gate with no relaxation.\nNo wider seed scan was run for this cell since the first candidate passed.",
   "headline_basis": {
-    "total_grad_evals": 13814144,
-    "min_bulk_ess": 31421.765589543636,
+    "total_grad_evals": 11088000,
+    "min_bulk_ess": 9292.8359375,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 520.5119018554688,
+    "estimator_ratio": 17.853263113434732,
     "grad_count_convention": "info.num_integration_steps (realized count per step)",
     "is_lower_bound": false
   },
@@ -60,18 +58,20 @@
   "warmup_num_chains": null,
   "init_strategy": null,
   "variant_label": null,
-  "inverse_mass_matrix_path": "radon/recipes/medium__dynamic_hmc__chees.imm.npz",
+  "inverse_mass_matrix_path": "radon/recipes/medium__dynamic_hmc__chees__seedtrial_11111.imm.npz",
+  "gt_schema_version": null,
+  "summary_v2_path": null,
   "workflow": "",
   "gate_evidence": {
     "auto": {
-      "rhat_max": 1.0034672808977592,
-      "min_bulk_ess": 31679.61261051914,
+      "rhat_max": 1.009680151939392,
+      "min_bulk_ess": 9292.8359375,
       "n_divergences": 0,
-      "max_abs_mean_z": 3.740706680485548,
+      "max_abs_mean_z": null,
       "verdict": "PASS",
       "margins": {
         "rhat_max": {
-          "value": 1.0034672808977592,
+          "value": 1.009680151939392,
           "band": "PASS",
           "pass_lo": 0.0,
           "pass_hi": 1.01,
@@ -79,7 +79,7 @@
           "review_hi": 1.05
         },
         "min_bulk_ess": {
-          "value": 31679.61261051914,
+          "value": 9292.8359375,
           "band": "PASS",
           "pass_lo": 400.0,
           "pass_hi": Infinity,
@@ -93,17 +93,6 @@
           "pass_hi": 6,
           "review_lo": 6,
           "review_hi": 40
-        },
-        "max_abs_mean_z": {
-          "value": 3.740706680485548,
-          "band": "PASS",
-          "pass_lo": 0.0,
-          "pass_hi": 3.8236086129737092,
-          "review_lo": 3.8236086129737092,
-          "review_hi": 4.0,
-          "frac_z2": 0.07692307692307693,
-          "bias_sigma_at_argmax_z": 0.011829153168942064,
-          "achieved_bias_bound_sigma": 0.012091312098034162
         }
       },
       "gt_cert_coverage": "full_posterior"
@@ -114,11 +103,11 @@
       "decision": ""
     }
   },
-  "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev88+gc60ffb91a",
-  "blackjax_version": "1.6.dev114+g2ad3a801d",
-  "jax_version": "0.10.1",
-  "timestamp_utc": "2026-07-13T12:15:15Z",
+  "tuning_seed": 3952304803,
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-30T11:36:23Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

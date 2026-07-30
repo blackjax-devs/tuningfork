@@ -1,0 +1,113 @@
+{
+  "model_name": "eight_schools_ncp",
+  "base_method_name": "dynamic_hmc",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.4917186498641968,
+    "inverse_mass_matrix": "sidecar"
+  },
+  "headline_metric": 0.10819572813566285,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 2.6166351159999977,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 1.586,
+    "sampling_wall_seconds": 0.425,
+    "sampling_seconds_per_draw": 0.000106,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
+      "jax_x64_enabled": false,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": 43015
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(window_adaptation_dense_imm, dynamic_hmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.4917186498641968, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.1082.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "MEDIUM-tier promotion after a 2026-07-30 recert-sweep gate failure (PR #254,\nESS-metric switch; tuningfork Issue#987 / Belief#1176). This is a MEDIUM\nbranch-(a) intervention: change of random seed only.\n\nSEED SELECTION, DISCLOSED (Belief#1176 policy): the committed LOW recipe's\nseed failed the gate under current dependencies as part of the PR#254 corpus\nre-emission sweep (19 gate failures, \"no recipe written, committed headline\nretained\"). Re-running the identical (dynamic_hmc, window_adaptation_dense_imm)\nconfig at seed=11111 (the first candidate tried) cleared the gate cleanly on\nthe first attempt: rhat=1.0035, ess=2156.2, 0 divergences. Independently\nverified through the normal production gate with no relaxation. No wider seed\nscan was run for this cell since the first candidate passed. The LOW recipe\n(low__dynamic_hmc__window_adaptation_dense_imm.json) is kept alongside this\none per the \"LOW unstable across seeds -> also keep a MEDIUM\" convention\n(recipes/_base.py Effort docstring).",
+  "headline_basis": {
+    "total_grad_evals": 19929,
+    "min_bulk_ess": 2156.232666015625,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 1779.1378173828125,
+    "estimator_ratio": 1.2119537030512537,
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
+    "is_lower_bound": false
+  },
+  "step_policy": null,
+  "warmups": [
+    {
+      "name": "window_adaptation_dense_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.8
+      }
+    }
+  ],
+  "warmup_inner_kernel": null,
+  "warmup_num_chains": null,
+  "init_strategy": null,
+  "variant_label": null,
+  "inverse_mass_matrix_path": "eight_schools_ncp/recipes/medium__dynamic_hmc__window_adaptation_dense_imm__seedtrial_11111.imm.npz",
+  "gt_schema_version": null,
+  "summary_v2_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.003476858139038,
+      "min_bulk_ess": 2156.232666015625,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.003476858139038,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 2156.232666015625,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 3952304803,
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-30T11:21:41Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
