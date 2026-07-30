@@ -147,6 +147,72 @@ recipes against a freshly computed ESS: the estimator convention has changed
 since emission. R-hat is the safe cross-era signal here, and only because the
 discrepancy is structural (11.4 vs 1.004) rather than marginal.
 
+### 2026-07-30 — why an explicit init cannot yet be specified for this model
+
+Follow-up to the entry above. The intent was to pin `init_strategy` on the 11
+in-scope cells so chains cannot descend into the decoy basin — a deliberate
+experimental control on a known bimodal target, not a special case. The schema
+already supports it (`uniform_perchain` / `zero_perchain`, validated in
+`recipes/_base.py`, allowed for the window-adaptation families). Measurement says
+no expressible spec is reliable, so the cells are left unpinned and the finding is
+recorded instead.
+
+**Why the geometry is hostile.** In unconstrained space the certified mode sits at
+`alpha -0.742, beta -3.037, delta -2.952, gamma -0.641, sigma_obs -0.567,
+u0 2.308, v0 1.588` with per-coordinate SDs of 0.016 to 0.083. The coordinates
+span -3.04 to +2.31 while the posterior itself is three orders of magnitude
+tighter, so **any** single absolute box is 140 to 250 posterior SDs from the mode.
+`uniform_perchain` applies ONE scalar `(low, high)` to every coordinate, which is
+the crux: the decoy basin surrounds the ORIGIN (its coordinates are `alpha -0.167,
+gamma -0.013`, all above the true mode), so a box near zero lands in the decoy,
+while a box far enough negative to avoid it lands in a steep tail where step-size
+adaptation collapses.
+
+**Candidate scan** (1024 draws per box; "nearer ref" = closer to the certified
+mode than to the decoy in unconstrained Euclidean distance):
+
+| box | non-finite | median logp | nearer ref |
+|---|---|---|---|
+| `[-0.25, 0.25]` | 1.5% | -4692 | 0.0% |
+| `[-1.0, 1.0]` | 71.2% | -4302 | 17.6% |
+| `[-2.0, 2.0]` (numpyro's effective box) | 83.8% | -6091 | 50.6% |
+| `[-3.1, 2.4]` (posterior bounding box) | 81.7% | -7053 | 61.0% |
+| `[-1.5, -0.5]` | 2.3% | -33176 | 100.0% |
+| `N(0, 0.1^2)` | 0.3% | -4768 | 0.0% |
+
+Validity and basin-side pull in opposite directions: the boxes that are finite are
+in the decoy's basin, and the box that is entirely on the reference side sits at
+median log-density -33176.
+
+**Gate outcomes**, `dmhmc` × `window_adaptation_dense_imm`, 3 seeds each, run
+through the production emit path so the verdict is the production verdict.
+"off-mode" counts chains whose per-parameter mean exceeds 5 reference SDs:
+
+| init | PASS | off-mode chains | failure signature |
+|---|---|---|---|
+| current (single broadcast) | 1/3 | 7/12 | decoy at \|z\| ~26, or all-chain collapse at \|z\| ~131 |
+| `uniform_perchain [-1.5, -0.5]` | 2/3 | 2/12 | step-size collapse at \|z\| ~220 |
+| `uniform_perchain [-1.0, 0.0]` | 0/3 | 6/12 | 1000+ divergences from non-finite starts |
+| `uniform_perchain [-2.0, 0.0]` | 1/3 | 5/12 | 2000 divergences; collapse at \|z\| ~240 |
+| `zero_perchain N(0, 0.1^2)` | 0/3 | 6/12 | exactly 2 of 4 chains in the decoy at every seed |
+
+`[-1.5, -0.5]` is the best expressible option and a real improvement — off-mode
+chains fall from 7/12 to 2/12 and the pass rate doubles — but it still fails 1 seed
+in 3, so pinning it would trade a documented coin flip for an undocumented one.
+The `zero_perchain` row is the clearest evidence that the origin lies on the basin
+boundary: 2 of 4 chains land in the decoy at every seed tested, with R-hat pinned
+between 1.7351 and 1.7374.
+
+Note also that `uniform_perchain` performs no validity check of its own — numpyro's
+`initialize_model` does (0 of 32 seeds returned a non-finite log-density or
+gradient), but the `init_strategy` path bypasses it, which is what produces the
+1000-to-2000-divergence rows above.
+
+**Conclusion.** A reliable init for this model needs per-coordinate bounds (or a
+validity-guarded draw at posterior scale), neither of which the current
+`init_strategy` schema can express. That is a harness change, tracked separately;
+these cells stay unpinned until it lands.
+
 **Consequence.** The `dense`/`diag`/`low_rank` distinction is cosmetic for the
 low-effort HMC-family cells: they all store the same `step_size`
 (0.039880085113090075) and the same length-7 **diagonal** inverse mass matrix
