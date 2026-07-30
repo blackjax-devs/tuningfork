@@ -24,10 +24,14 @@ def _positive_int(name: str, value: Any) -> int:
     return value
 
 
-def _seed(name: str, value: Any) -> int:
+def _non_negative_int(name: str, value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{name} must be a non-negative integer; got {value!r}")
     return value
+
+
+def _seed(name: str, value: Any) -> int:
+    return _non_negative_int(name, value)
 
 
 def _stages(recipe: Recipe) -> list[dict[str, Any]]:
@@ -103,18 +107,30 @@ def resolve_execution_plan(
     elif isinstance(raw_warmup, (list, tuple)):
         if len(raw_warmup) != nphases:
             raise ValueError(
-                f"num_warmup has {len(raw_warmup)} entries; expected {nphases}"
+                f"num_warmup list length {len(raw_warmup)} does not match "
+                f"the number of warmup phases ({nphases})"
             )
         counts = list(raw_warmup)
     else:
         raise ValueError("num_warmup must be an int, list[int], tuple[int], or None")
-    counts = [_positive_int(f"num_warmup[{i}]", c) for i, c in enumerate(counts)]
+    # ``no_warmup`` is a true zero-step execution.  Normalize both omitted and
+    # caller-supplied counts so the plan cannot accidentally render a warmup.
+    normalized_counts: list[int] = []
+    for i, (stage, count) in enumerate(zip(stages, counts)):
+        if stage["name"] == "no_warmup":
+            if raw_warmup is not None:
+                _non_negative_int(f"num_warmup[{i}]", count)
+            normalized_counts.append(0)
+        else:
+            normalized_counts.append(_positive_int(f"num_warmup[{i}]", count))
+    counts = normalized_counts
     raw_w = (
         ov.warmup_num_chains
         if ov.warmup_num_chains is not None
         else getattr(recipe, "warmup_num_chains", None)
     )
     if raw_w is None:
+        # The schema's omitted topology means one warmup per sampling chain.
         ws = [chains] * nphases
     elif isinstance(raw_w, (list, tuple)):
         ws = list(raw_w)
@@ -123,6 +139,47 @@ def resolve_execution_plan(
     if len(ws) != nphases:
         raise ValueError(f"warmup_num_chains has {len(ws)} entries; expected {nphases}")
     ws = [_positive_int(f"warmup_num_chains[{i}]", w) for i, w in enumerate(ws)]
+    # No-warmup has no warmup topology; canonicalize its stage count so W does
+    # not affect the executable plan or emitter dispatch.
+    ws = [chains if stage["name"] == "no_warmup" else w for stage, w in zip(stages, ws)]
+
+    # Emitters currently implement only a small set of warmup chain topologies.
+    # Reject the rest before any source rendering, rather than silently choosing
+    # the single-chain path.
+    is_laplace = recipe.base_method_name.startswith("laplace_")
+    window_names = {
+        "window_adaptation_diag_imm",
+        "window_adaptation_dense_imm",
+        "window_adaptation_low_rank_imm",
+    }
+    if nphases > 1:
+        phase_names = tuple(stage["name"] for stage in stages)
+        expected_laplace_phases = (
+            "window_adaptation_diag_imm",
+            "window_adaptation_dense_imm",
+        )
+        if not is_laplace or phase_names != expected_laplace_phases:
+            raise NotImplementedError(
+                "multi-phase code generation currently requires a Laplace recipe "
+                "with exactly diagonal then dense window-adaptation phases; got "
+                f"{phase_names!r}"
+            )
+        for i, (stage, w) in enumerate(zip(stages, ws)):
+            if w != 1:
+                raise NotImplementedError(
+                    f"warmup chain topology W={w}, S={chains} for stage "
+                    f"{i} ({stage['name']!r}) is not supported by code generation"
+                )
+    elif stages[0]["name"] != "no_warmup":
+        w = ws[0]
+        supported = (
+            w in {1, chains} if stages[0]["name"] in window_names else w == chains
+        )
+        if not supported:
+            raise NotImplementedError(
+                f"warmup chain topology W={w}, S={chains} for stage "
+                f"0 ({stages[0]['name']!r}) is not supported by code generation"
+            )
     plans = tuple(
         WarmupStagePlan(s["name"], s["params"], counts[i], ws[i])
         for i, s in enumerate(stages)

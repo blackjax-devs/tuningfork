@@ -53,18 +53,18 @@ def test_precedence_and_warmup_shape():
     assert plan.recipe_ref == "mvn_10/low__hmc__window_adaptation_diag_imm"
 
 
-def test_multiphase_scalar_rejected_and_w_mismatch_preserved():
+def test_non_laplace_multiphase_execution_fails_closed():
     r = recipe(
         warmups=[
             {"name": "a", "params": {"n_warmup": 2}},
             {"name": "b", "params": {"n_warmup": 3}},
         ],
-        warmup_num_chains=[1, 2],
+        warmup_num_chains=[2, 2],
     )
     with pytest.raises(ValueError):
         resolve_execution_plan(r, ExecutionOverrides(num_warmup=4))
-    plan = resolve_execution_plan(r)
-    assert [s.num_chains for s in plan.config.warmup_stages] == [1, 2]
+    with pytest.raises(NotImplementedError, match="multi-phase code generation"):
+        resolve_execution_plan(r)
 
 
 def test_single_phase_flat_fields_win_over_compatibility_list():
@@ -97,12 +97,12 @@ def test_seed_zero_and_default_budget_fallbacks():
             resolve_execution_plan(recipe(), ExecutionOverrides(**{field: -1}))
 
 
-def test_warmup_chain_count_accepts_any_positive_count():
+def test_window_warmup_accepts_explicit_single_chain_topology():
     assert (
-        resolve_execution_plan(recipe(), ExecutionOverrides(warmup_num_chains=[3]))
+        resolve_execution_plan(recipe(), ExecutionOverrides(warmup_num_chains=[1]))
         .config.warmup_stages[0]
         .num_chains
-        == 3
+        == 1
     )
 
 
@@ -218,3 +218,106 @@ def test_plan_is_frozen_and_x64_is_typed():
     assert isinstance(p.config.requires_x64, bool)
     with pytest.raises(dataclasses.FrozenInstanceError):
         p.artifact_filename = "x"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("override", [None, 0, 8, [0], [8]])
+def test_no_warmup_is_canonical_zero_and_ignores_topology(override):
+    r = recipe(
+        warmup_name="no_warmup",
+        warmup_params={"n_warmup": 17},
+        warmups=[{"name": "no_warmup", "params": {"n_warmup": 17}}],
+    )
+    p = resolve_execution_plan(
+        r,
+        ExecutionOverrides(
+            num_warmup=override,
+            warmup_num_chains=[1],
+        ),
+    )
+    assert p.config.warmup_stages[0].num_warmup == 0
+    assert p.config.warmup_stages[0].num_chains == p.config.num_chains
+
+
+def test_no_warmup_rejects_negative_override():
+    r = recipe(
+        warmup_name="no_warmup",
+        warmup_params={"n_warmup": 17},
+        warmups=[{"name": "no_warmup", "params": {"n_warmup": 17}}],
+    )
+    with pytest.raises(ValueError, match="non-negative integer"):
+        resolve_execution_plan(r, ExecutionOverrides(num_warmup=-1))
+
+
+@pytest.mark.parametrize("warmup_num_chains", [[2], [4]])
+def test_unsupported_window_topology_fails_closed(warmup_num_chains):
+    with pytest.raises(NotImplementedError, match="warmup chain topology"):
+        resolve_execution_plan(
+            recipe(),
+            ExecutionOverrides(num_chains=3, warmup_num_chains=warmup_num_chains),
+        )
+
+
+def test_single_phase_laplace_defaults_to_sampling_chain_topology():
+    r = recipe(
+        base_method_name="laplace_hmc",
+        warmup_num_chains=None,
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 10}}],
+    )
+    plan = resolve_execution_plan(r, ExecutionOverrides(num_chains=2))
+    assert plan.config.warmup_stages[0].num_chains == 2
+
+    explicit_single = resolve_execution_plan(
+        r, ExecutionOverrides(num_chains=2, warmup_num_chains=[1])
+    )
+    assert explicit_single.config.warmup_stages[0].num_chains == 1
+
+
+def test_multiphase_laplace_rejects_sampling_chain_topology():
+    r = recipe(
+        base_method_name="laplace_hmc",
+        warmup_name="window_adaptation_dense_imm",
+        warmups=[
+            {"name": "window_adaptation_diag_imm", "params": {"n_warmup": 2}},
+            {"name": "window_adaptation_dense_imm", "params": {"n_warmup": 3}},
+        ],
+    )
+    with pytest.raises(NotImplementedError, match="W=2, S=2"):
+        resolve_execution_plan(r, ExecutionOverrides(num_chains=2))
+
+
+def test_two_phase_laplace_accepts_explicit_single_chain_topology():
+    r = recipe(
+        base_method_name="laplace_hmc",
+        warmup_name="window_adaptation_dense_imm",
+        warmups=[
+            {"name": "window_adaptation_diag_imm", "params": {"n_warmup": 2}},
+            {"name": "window_adaptation_dense_imm", "params": {"n_warmup": 3}},
+        ],
+        warmup_num_chains=[1, 1],
+    )
+    plan = resolve_execution_plan(r, ExecutionOverrides(num_chains=2))
+    assert [stage.num_chains for stage in plan.config.warmup_stages] == [1, 1]
+
+
+@pytest.mark.parametrize(
+    "warmups",
+    [
+        [
+            {"name": "window_adaptation_dense_imm", "params": {"n_warmup": 2}},
+            {"name": "window_adaptation_diag_imm", "params": {"n_warmup": 3}},
+        ],
+        [
+            {"name": "window_adaptation_diag_imm", "params": {"n_warmup": 2}},
+            {"name": "window_adaptation_dense_imm", "params": {"n_warmup": 3}},
+            {"name": "window_adaptation_dense_imm", "params": {"n_warmup": 4}},
+        ],
+    ],
+)
+def test_multiphase_laplace_rejects_unimplemented_phase_choreography(warmups):
+    r = recipe(
+        base_method_name="laplace_hmc",
+        warmups=warmups,
+        warmup_num_chains=[1] * len(warmups),
+    )
+    with pytest.raises(NotImplementedError, match="diagonal then dense"):
+        resolve_execution_plan(r, ExecutionOverrides(num_chains=2))

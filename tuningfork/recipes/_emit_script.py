@@ -52,6 +52,8 @@ from tuningfork.recipes._emit import (
     emit_sampler,
     emit_warmup,
 )
+from tuningfork.recipes._execution_plan import ExecutionOverrides
+from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
 if TYPE_CHECKING:
     from tuningfork.recipes._base import Recipe
@@ -223,7 +225,7 @@ def _build_inference_loop(
     *,
     num_samples: int,
     sampler_seed: int,
-    tuning_seed: int,
+    reinit_seed: int,
     num_chains: int,
     use_progress_bar: bool,
     warmup_is_perchain: bool,
@@ -296,7 +298,7 @@ def _build_inference_loop(
             " type than warmup)."
         )
         a(
-            f"_reinit_keys = jax.random.split(jax.random.key({tuning_seed + 999}),"
+            f"_reinit_keys = jax.random.split(jax.random.key({reinit_seed}),"
             f" num_chains)"
         )
         if warmup_is_perchain:
@@ -419,6 +421,7 @@ def emit_script(
     *,
     num_samples: int | None = None,
     sampler_seed: int | None = None,
+    reinit_seed: int | None = None,
     num_chains: int | None = None,
     num_warmup: int | list[int] | None = None,
     progress_bar: bool | None = None,
@@ -446,6 +449,9 @@ def emit_script(
         RNG seed for the post-warmup sampling. Defaults to
         ``recipe.tuning_seed + 1`` so the emitted script is deterministic
         given the recipe.
+    reinit_seed : int, optional
+        RNG seed used when a sampler requires per-chain state reinitialization
+        after warmup. Defaults to ``recipe.tuning_seed + 999``.
     num_chains : int, optional
         Number of chains for the vmap-scan inference loop. When ``None``,
         derived from the recipe: ``recipe.warmup_params.get("num_chains",
@@ -463,8 +469,8 @@ def emit_script(
           equal the number of warmup phases in ``recipe.warmups``; otherwise
           a ``ValueError`` is raised.  Maps onto ``$wp0_n_warmup``,
           ``$wp1_n_warmup``, … in the template.
-        - An ``int`` passed for a multi-phase warmup is treated as a 1-element
-          list; if there is more than one phase a ``ValueError`` is raised.
+        - An ``int`` passed for a multi-phase warmup is rejected because it
+          cannot identify a count for every phase.
 
         Typical use: fast dry-run without editing the recipe.::
 
@@ -484,21 +490,18 @@ def emit_script(
         Runtime override for ``recipe.warmup_num_chains``.  Affects which warmup
         template variant is selected:
 
-        - ``None`` (default): falls back to ``recipe.warmup_num_chains``, which
-          is itself ``None`` for legacy recipes (uses the multichain template).
+        - ``None`` (default): falls back to ``recipe.warmup_num_chains``. If
+          both are ``None``, every warmup phase uses the sampling chain count.
         - ``[1]`` or all-ones list: forces the single-chain warmup template
           (``window_adaptation_*.py.tmpl``) — the ONE knob that selects
           single-chain topology.  Recommended for expensive-logprob models to
           avoid vmap-of-while_loop; unrelated to ``progress_bar``.
         - ``[W]`` with ``W == num_chains``: same as ``None`` — uses the multichain
           template.
-        - ``[W]`` with ``W != num_chains``: uses the multichain template (vmap
-          over W chains); the reduce+broadcast is handled by the emitted script's
-          runner, not by template selection.
-
-        Only the first entry is used for single-phase warmups; for multi-phase
-        warmups (``laplace_multiphase``), the template is already single-chain
-        by design and this argument has no effect.
+        Other single-phase window-adaptation topologies fail closed until code
+        generation implements their reduce-and-broadcast choreography.
+        Multi-phase generation currently supports only the two-phase Laplace
+        diagonal-to-dense path with one warmup chain per phase.
 
     Returns
     -------
@@ -518,36 +521,38 @@ def emit_script(
     ValueError
         If ``num_warmup`` is a list whose length does not match the number of
         warmup phases in ``recipe.warmups``.
+    NotImplementedError
+        If the requested warmup chain topology is not supported by code
+        generation.
     """
-    if sampler_seed is None:
-        sampler_seed = recipe.tuning_seed + 1
+    plan = resolve_execution_plan(
+        recipe,
+        ExecutionOverrides(
+            sampler_seed=sampler_seed,
+            reinit_seed=reinit_seed,
+            num_samples=num_samples,
+            num_chains=num_chains,
+            progress_bar=progress_bar,
+            num_warmup=num_warmup,
+            warmup_num_chains=warmup_num_chains,
+        ),
+    )
+    config = plan.config
+    sampler_seed = config.sampler_seed
+    reinit_seed = config.reinit_seed
+    num_samples = config.num_samples
+    num_chains = config.num_chains
+    _warmup_pb = config.progress_bar
+    _sampling_pb = config.progress_bar
+    _warmup_counts = [stage.num_warmup for stage in config.warmup_stages]
+    _warmup_chain_counts = [stage.num_chains for stage in config.warmup_stages]
 
-    # Resolve num_samples: prefer calibration_budget (validated config), then 1000.
-    if num_samples is None:
-        num_samples = int(recipe.calibration_budget.get("n_samples") or 1000)
-
-    if num_chains is None:
-        num_chains = recipe.warmup_params.get(
-            "num_chains",
-            recipe.calibration_budget.get("num_chains", 1),
-        )
-
-    # Resolve progress_bar overrides.
-    # When None: defaults to False (preserves multichain warmup for recipes that spec it).
-    # When True or False: user's choice (True forces single-chain for vmap compatibility).
-    _warmup_pb = False if progress_bar is None else bool(progress_bar)
-    _sampling_pb = False if progress_bar is None else bool(progress_bar)
-
-    # x64 requirement: look up the model in the registry and check requires_x64.
-    # This mirrors the runner logic at _recipe_runner.py:551-554.
+    # x64 requirement is part of the resolved executable configuration.
     # The x64 line must appear BEFORE any JAX computation (build_logdensity_fn,
     # jax.random.key, etc.), so it is injected into the preamble immediately
     # after ``import jax``.
-    from tuningfork.model import MODELS as _MODELS
-
-    _posterior_meta = _MODELS[recipe.model_name]
     _x64_config_line = (
-        _X64_CONFIG_LINE if _posterior_meta.requires_x64 else _X64_CONFIG_LINE_EMPTY
+        _X64_CONFIG_LINE if config.requires_x64 else _X64_CONFIG_LINE_EMPTY
     )
 
     # Normalise warmup_params key spelling: groundtruth recipes use
@@ -570,36 +575,7 @@ def emit_script(
     # auto-expands when new hyperparameter fields are added to recipes.
     # Resolve n_warmup for single-phase warmups.
     # num_warmup override takes precedence; recipe value is the fallback.
-    _n_warmup_recipe = recipe.warmup_params.get("n_warmup", 1000)
-    if num_warmup is None:
-        _n_warmup_resolved = _n_warmup_recipe
-    elif isinstance(num_warmup, int):
-        _n_warmup_resolved = num_warmup
-    elif isinstance(num_warmup, list):
-        # list for single-phase: must be length 1 (or raise)
-        n_phases = len(recipe.warmups) if recipe.warmups else 1
-        if n_phases == 1:
-            if len(num_warmup) != 1:
-                raise ValueError(
-                    f"num_warmup list length {len(num_warmup)} does not match "
-                    f"single-phase warmup (expected 1 entry). "
-                    f"For single-phase warmups, pass an int or a 1-element list."
-                )
-            _n_warmup_resolved = num_warmup[0]
-        else:
-            # Multi-phase: validate length matches phases; $n_warmup uses first entry
-            # (for template templates that still reference it), per-phase uses $wpN_n_warmup.
-            if len(num_warmup) != n_phases:
-                raise ValueError(
-                    f"num_warmup list length {len(num_warmup)} does not match "
-                    f"number of warmup phases {n_phases} in recipe.warmups. "
-                    f"Provide exactly {n_phases} entries (one per phase)."
-                )
-            _n_warmup_resolved = num_warmup[0]  # fallback for $n_warmup slot
-    else:
-        raise TypeError(
-            f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
-        )
+    _n_warmup_resolved = _warmup_counts[0]
 
     ctx = {
         "recipe_id": (
@@ -613,7 +589,7 @@ def emit_script(
         "effort": recipe.effort.value,
         "recipe_hash": _recipe_hash(recipe),
         "verdict": recipe.gate_evidence.get("auto", {}).get("verdict", "NOT_RUN"),
-        "tuning_seed": recipe.tuning_seed,
+        "tuning_seed": config.tuning_seed,
         "sampler_seed": sampler_seed,
         "num_samples": num_samples,
         "num_chains": num_chains,
@@ -834,13 +810,7 @@ def emit_script(
     if _is_laplace and _is_multiphase_warmup:
         # Build per-phase num_warmup overrides: None → use recipe value per phase.
         _per_phase_n_warmup: list[int | None]
-        if num_warmup is None:
-            _per_phase_n_warmup = [None] * len(recipe.warmups)
-        elif isinstance(num_warmup, list):
-            _per_phase_n_warmup = list(num_warmup)
-        else:
-            # int passed for multi-phase: already caught above (single-phase only)
-            _per_phase_n_warmup = [None] * len(recipe.warmups)
+        _per_phase_n_warmup = list(_warmup_counts)
 
         for _i, _phase in enumerate(recipe.warmups):
             _phase_params = _phase["params"]
@@ -918,18 +888,15 @@ def emit_script(
                 )
             ctx["window_adaptation_extra_kwargs"] = f"max_rank={_max_rank},"
 
-    # Resolve effective warmup_num_chains: call-time override wins over recipe-stamped.
-    # None → fall back to recipe.warmup_num_chains (may also be None for legacy recipes).
-    _wnc_emit: list[int] | None = (
-        warmup_num_chains if warmup_num_chains is not None else recipe.warmup_num_chains
-    )
+    # The execution plan has already applied override precedence and canonicalized
+    # omitted topology to the sampling chain count.
+    _wnc_emit = _warmup_chain_counts
     # For single-phase warmups, the first (and only) entry drives template selection:
     # W == 1 → force single-chain template (independent perf knob — avoids
     # vmap-of-while_loop for expensive-logprob models; unrelated to progress_bar).
     # W == num_chains → use the multichain template.
-    # W != num_chains but W > 1 → use multichain template (vmap over W; reduce+broadcast
-    # is the runner's concern, not the template's).
-    _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
+    # Other values were rejected while resolving the executable plan.
+    _warmup_W0 = _wnc_emit[0]
 
     # Registry entry for the sampler — needed by both emit_warmup (A3) and
     # emit_sampler (A2). Resolved once here before warmup dispatch.
@@ -948,7 +915,7 @@ def emit_script(
     # flag now only controls whether emitted calls are wrapped in
     # `with blackjax.progress_bar():` (see emit_warmup / _build_inference_loop).
     _is_wa_multichain = (
-        not _is_laplace
+        not _is_multiphase_warmup
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
         and not (_warmup_W0 == 1)
     )
@@ -961,9 +928,9 @@ def emit_script(
     #
     # SPECIAL CASE (preserved from pre-A3 logic): laplace multi-phase recipes
     # dispatch to "laplace_multiphase_warmup" REGARDLESS of recipe.warmup_name.
-    # recipe.warmup_name for laplace HIGH recipes is the FINAL phase's warmup
-    # (e.g. "window_adaptation_dense_imm"), but the warmup body is always the
-    # multi-phase orchestration template when len(recipe.warmups) > 1.
+    # The compatibility ``recipe.warmup_name`` may identify the first phase;
+    # the ordered ``recipe.warmups`` list is authoritative whenever it contains
+    # multiple phases, so dispatch to the explicit orchestration emitter.
     _EMIT_WARMUP_NAMES = frozenset(
         {
             "no_warmup",
@@ -1066,8 +1033,7 @@ def emit_script(
     # with what emit_warmup actually emitted. progress_bar no longer forces
     # single-chain, so it plays no role here either.
     _uses_multichain_warmup_tmpl = (
-        not _is_laplace
-        and not _is_multiphase_warmup
+        not _is_multiphase_warmup
         and not _resolved_warmup_init_is_single_chain
         and not (_warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS)
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
@@ -1100,7 +1066,7 @@ def emit_script(
     inference_loop = _build_inference_loop(
         num_samples=num_samples,
         sampler_seed=sampler_seed,
-        tuning_seed=recipe.tuning_seed,
+        reinit_seed=reinit_seed,
         num_chains=num_chains,
         use_progress_bar=_sampling_pb,
         warmup_is_perchain=_resolved_warmup_is_perchain,
