@@ -38,14 +38,26 @@ precision is confounded with version in that sample because their baseline stack
 skew old — so their residual cannot be attributed to dependencies.  The set is
 pinned at ``reemit_sweep.PRECISION_FLIP_CELLS``.
 
-The residual on the remaining cells is **version drift**, not seed noise.  An
-emit is deterministic given its seed and configuration, so a faithfully replayed
-cell can only move because its dependencies moved.  This is measured, not
-inferred: jax 0.10.0 -> 0.10.1 shifts one model's adapted warmup step size by
-~16% with the RNG stream and a single sampler step both bit-identical — chaotic
-amplification through a thousand-step warmup, not a numerics bug.  The report
-therefore groups drift by the ORIGINATING version combination, so it shows which
-upgrades move our numbers.
+The residual on the remaining cells is **consistent with version drift, not proof
+of it** — an earlier version of this paragraph claimed the residual simply *is*
+drift, which overstated what the report established; corrected here post-merge.
+Determinism pins only the *replay* case: a cell whose ``tuning_seed`` matches its
+committed counterpart is a pure function of its dependencies, so movement there
+did come from a dependency change. Two things break the inference from "residual
+moved" to "therefore drift": most of the cells that anchored the original claim
+are near-exact replays, where ``run_noise_implied`` sits at 1.000 by algebra and
+carries no information either way; and a few cells are not replays at all —
+``mclmc_lrd``'s adaptive warmup re-derives its own ``tuning_seed`` and moved two
+cells 27.8% and 3.8% on an UNCHANGED stack, non-dependency movement the same size
+as the residual under study. jax 0.10.0 -> 0.10.1 shifting one model's adapted
+warmup step size by ~16% with the RNG stream and a single sampler step both
+bit-identical is real, measured evidence that dependency drift happens and can be
+large; it does not establish that every residual below is dependency drift rather
+than seed re-derivation or the precision confound above. Read a cell's
+``run_noise_implied`` as consistent with drift, not proof of it, unless its
+``tuning_seed`` is confirmed unchanged from the committed side. The report still
+groups drift by the ORIGINATING version combination, which stays useful
+independent of attribution — it shows which stacks a cell came from.
 
 What the report does NOT establish about the estimator effect
 ------------------------------------------------------------
@@ -118,9 +130,11 @@ class CellDelta:
     ``precision_flip`` marks a cell replayed at a different float precision than
     the run it reproduces, so its residual has an unmodelled cause that is
     confounded with version in this corpus.  ``run_noise_implied`` is whatever
-    remains.  On the cells where neither flag is set it is version drift, not seed
-    fragility: an emit is deterministic given its seed and configuration, so a
-    faithful replay can only move because its dependencies moved.
+    remains.  On the cells where neither flag is set it is *consistent with*
+    version drift, not proof of it — the attribution is compromised where the
+    cell is a near-exact replay (residual sits at 1.000 by algebra) or where
+    ``tuning_seed`` itself changed (an adaptive-warmup re-derivation, not a
+    dependency effect).  See the module docstring's correction for the caveat.
     """
 
     recipe: str
@@ -467,10 +481,11 @@ def summarise(deltas: list[CellDelta]) -> None:
         )
         _quantiles(residuals)
         print(
-            f"  This is VERSION DRIFT, not seed fragility: an emit is deterministic\n"
-            f"  given its seed and configuration, so a faithful replay can only move\n"
-            f"  because its dependencies moved.  {drifted} of {len(drift_cohort)}\n"
-            f"  replayed cells were committed under a different blackjax or jax."
+            f"  Consistent with version drift, not proof of it: most control cells\n"
+            f"  are near-exact replays and carry no information either way, and a\n"
+            f"  few are not replays at all (see module docstring correction).\n"
+            f"  {drifted} of {len(drift_cohort)} replayed cells were committed under\n"
+            f"  a different blackjax or jax."
         )
         _drift_by_origin(drift_cohort)
 
