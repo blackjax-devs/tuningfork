@@ -42,7 +42,12 @@ from tuningfork.catalog.diagnostics import (
     render_universal_summary,
     samples_to_idata,
 )
-from tuningfork.catalog.emit import emit_script
+from tuningfork.catalog.emit import (
+    GeneratedProgramError,
+    LaunchResult,
+    emit_script,
+    execute_recipe,
+)
 from tuningfork.catalog.inspect import list_recipes, load_recipe, summarize_recipe
 from tuningfork.catalog.render import load_chain_stats, load_idata, load_samples
 
@@ -67,4 +72,7 @@ __all__ = [
     "format_timing_context",
     # emit
     "emit_script",
+    "execute_recipe",
+    "LaunchResult",
+    "GeneratedProgramError",
 ]
