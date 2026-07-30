@@ -2,12 +2,17 @@
 
 ## TL;DR
 
-**The in-scope PASS verdicts below are not reproducible and should be treated as
-provisional** — see the 2026-07-29 entry under History. The posterior has an
-absorbing secondary mode ~420 nats behind a barrier, and every recipe run starts
-all chains from a single hostile `init_to_uniform` point, so each run is a
-lottery over which chains fall in. The same cell passes at some seeds and fails
-at others under both the current and the original dependency stack.
+**The in-scope LOW-effort PASS verdicts below are not reproducible and should be
+treated as provisional** — see the 2026-07-29 entry under History. The posterior
+has an absorbing secondary mode ~420 nats behind a barrier, and every LOW-effort
+recipe run starts all chains from a single hostile `init_to_uniform` point, so
+each run is a lottery over which chains fall in. The same cell passes at some
+seeds and fails at others under both the current and the original dependency
+stack. **7 of the 8 affected cells have a reliable MEDIUM-effort alternative**
+using a GT-informed `init_strategy` + a disclosed, seed-selected seed — see the
+2026-07-30 entry under History and prefer the `medium__*__gt_informed_init.json`
+recipes over the corresponding `low__*` ones. `hmc + window_adaptation_dense_imm
++ inner_nuts` is the one exception that stays unresolved at LOW.
 
 Stiff ODE posterior with bimodal structure. Dense and low_rank IMM PASS for NUTS/dmhmc/dynamic_hmc/hmc at LOW effort. **Diag IMM FAILS for dynamic_hmc and dmhmc** at LOW effort and even MEDIUM; the stiff ODE geometry requires off-diagonal mass matrix structure. `mhmc` is structurally unsuitable (step_size collapses). MCLMC variants FAIL (warmup hang). VI is out_of_scope.
 [boundary: dense/low_rank IMM PASS holds at LOW n_warmup=1000; diag IMM FAIL confirmed across multiple step policies; nearest FAIL: dynamic_hmc+diag_imm (see recipes/failed__dynamic_hmc__window_adaptation_diag_imm.json); dense IMM PASS for nuts (see recipes/failed__nuts__window_adaptation_dense_imm.json — this one actually FAILS too, see below)]
@@ -17,6 +22,17 @@ Stiff ODE posterior with bimodal structure. Dense and low_rank IMM PASS for NUTS
 `recipes/low__nuts__window_adaptation_low_rank_imm.json` — LOW effort, PASS.
 `recipes/low__dynamic_hmc__window_adaptation_dense_imm.json` — LOW effort, PASS.
 `recipes/low__mclmc__mclmc_tuning.json` — LOW effort, PASS.
+
+**MEDIUM-tier, GT-informed-init recipes (2026-07-30, see History below) — prefer
+these over the LOW recipes above where both exist**, since the LOW recipes are
+the unreliable single-broadcast-init lottery described in the TL;DR:
+`recipes/medium__dmhmc__window_adaptation_dense_imm__gt_informed_init.json`,
+`recipes/medium__dmhmc__window_adaptation_low_rank_imm__gt_informed_init.json`,
+`recipes/medium__dynamic_hmc__window_adaptation_dense_imm__gt_informed_init.json`,
+`recipes/medium__dynamic_hmc__window_adaptation_low_rank_imm__gt_informed_init.json`,
+`recipes/medium__hmc__window_adaptation_diag_imm__inner_nuts__gt_informed_init.json`,
+`recipes/medium__hmc__window_adaptation_low_rank_imm__inner_nuts__gt_informed_init.json`,
+`recipes/medium__nuts__window_adaptation_low_rank_imm__gt_informed_init.json`.
 
 ## Sampling quirks
 
@@ -242,6 +258,90 @@ under the same tuning seed, and at baseline they recorded metrics identical to
 sixteen digits across preconditioners. Any "invariant across preconditioners"
 reasoning about these cells is therefore vacuous — the preconditioner never
 varied.
+
+### 2026-07-30 — MEDIUM-tier promotion: seed selection ratified (Belief#1176), 7 of 8 cells promoted
+
+Follow-up to both entries above. JP ratified two policy points that change what
+"done" means for the 11 in-scope cells (Belief#1175, Belief#1176): (1) the prior
+"no expressible init_strategy fixes this model" conclusion held only at LOW
+tier, where `recipes/_base.py` disqualifies ANY specified init by construction;
+at MEDIUM tier a specified init is exactly the schema-sanctioned branch-(a)
+intervention ("try alternate initialisations"), so the best expressible box
+(`uniform_perchain [-1.5, -0.5]`) becomes usable. (2) Seed selection ("seed-
+hacking") is a legitimate recipe-authoring practice, not a data-integrity
+violation, provided the chosen seed is independently verified through the
+normal production gate with no relaxation, and provided the selection is
+disclosed with the full x-of-k pass-rate table, not just the winning seed.
+
+**The 5/7 table this promotion is based on** (measured on the reference cell
+`dmhmc x window_adaptation_dense_imm`, reproduced from the entry above):
+
+| seed | provenance | verdict | R-hat | min-ESS | off-mode |
+|---|---|---|---|---|---|
+| 11111 | LRD cert seed | PASS | 1.0057 | 2326.93 | 0/4 |
+| 22222 | LRD cert seed | PASS | 1.0022 | 2254.67 | 0/4 |
+| 33333 | LRD cert seed | PASS | 1.0027 | 2340.34 | 0/4 |
+| 682737 | this cell's recorded `tuning_seed` | FAIL | 2.7738 | 4.63 | 2/4 |
+| 682738 | exploratory | PASS | 1.0030 | 2339.34 | 0/4 |
+| 682739 | exploratory | PASS | 1.0038 | 2320.00 | 0/4 |
+| 20260517 | `RECIPE_SEED`, the general path's default | FAIL | 1.5940 | 6.75 | 1/4 |
+
+The two seeds that fail are exactly the two an unaware rerun would reach for by
+default: this cell's own recorded `tuning_seed` (682737) and `RECIPE_SEED`
+(20260517), the general emit path's hardcoded default. That is what makes the
+disclosure meaningful rather than decorative — a naive re-run of this model
+lands on FAIL both ways it could plausibly try.
+
+**Promotion run.** All 8 promotable LOW cells (every in-scope LOW cell except
+`mclmc`, which was not part of the 11 recert failures) were re-run with
+`init_strategy={"type": "uniform_perchain", "low": -1.5, "high": -0.5}` at
+seed=11111 (one member of the passing set above, chosen as the default since
+it is already a recognised seed elsewhere in the corpus), through the normal
+production emit path (`emit_low_recipe_for_cell`), with every other parameter
+(step policy, target_acceptance=0.99, n_warmup=1000, n_samples=1000,
+num_chains=4, warmup_inner_kernel where applicable) held identical to the
+committed LOW recipe:
+
+| cell | verdict @ seed 11111 | R-hat | min-ESS |
+|---|---|---|---|
+| `dmhmc` + `window_adaptation_dense_imm` | PASS | 1.0019 | 3844.4 |
+| `dmhmc` + `window_adaptation_low_rank_imm` | PASS | 1.0065 | 736.1 |
+| `dynamic_hmc` + `window_adaptation_dense_imm` | PASS | 1.0028 | 2029.9 |
+| `dynamic_hmc` + `window_adaptation_low_rank_imm` | PASS | 1.0022 | 2385.8 |
+| `hmc` + `window_adaptation_diag_imm` (`inner_nuts`) | PASS | 1.0056 | 1405.1 |
+| `hmc` + `window_adaptation_low_rank_imm` (`inner_nuts`) | PASS | 1.0056 | 1405.1 |
+| `nuts` + `window_adaptation_low_rank_imm` | PASS | 1.0042 | 2221.9 |
+| `hmc` + `window_adaptation_dense_imm` (`inner_nuts`) | REVIEW (rhat=1.0134) | — | — |
+
+7 of 8 cleared PASS at seed 11111 on the first attempt and are promoted;
+`medium__<method>__<warmup>__gt_informed_init.json` recipes are committed for
+each (`notes` field carries the same disclosure as this entry).
+
+**`hmc` + `window_adaptation_dense_imm` + `inner_nuts` does not promote.**
+Extended to a 7-seed scan (11111, 22222, 33333, 44444, 55555, 682738, 682739),
+all at the same GT-informed init, this cell never clears a clean PASS:
+
+| seed | verdict | R-hat | min-ESS | divergences |
+|---|---|---|---|---|
+| 11111 | REVIEW | 1.0134 | 14408.2 | 0 |
+| 22222 | FAIL | 1.6361 | 6.6 | 0 |
+| 33333 | FAIL | 1.8026 | 5.9 | 0 |
+| 44444 | FAIL | 1.6007 | 6.6 | 1000 |
+| 55555 | REVIEW | 1.0201 | 14408.2 | 0 |
+| 682738 | FAIL | 1.6628 | 6.5 | 0 |
+| 682739 | REVIEW | 1.0216 | 14408.2 | 0 |
+
+0 of 7 clean PASS (3 REVIEW, 4 FAIL). This is a genuinely harder cell than the
+other 7 dense/low_rank/diag combinations at the same init and step policy —
+the dense-IMM + `inner_nuts` warmup path has a narrower or differently-shaped
+basin of attraction than its diag/low_rank siblings, which is consistent with
+the corpus-wide dense-mass-matrix fragility pattern discussed in Belief#1166 /
+Belief#1172. Per Belief#1176's "no gate relaxation" clause, none of the REVIEW
+results are promoted. This cell **stays at LOW** (its existing, unreliable
+`low__hmc__window_adaptation_dense_imm__inner_nuts.json` recipe) with no
+MEDIUM counterpart; it is a candidate for either a wider seed/box scan or the
+harness-level fix (Issue#255 / Issue#994) before a HIGH-effort escalation is
+warranted.
 
 ## Citations
 

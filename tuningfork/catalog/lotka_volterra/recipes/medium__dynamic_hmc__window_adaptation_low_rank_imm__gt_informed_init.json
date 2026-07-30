@@ -1,0 +1,156 @@
+{
+  "model_name": "lotka_volterra",
+  "base_method_name": "dynamic_hmc",
+  "effort": "medium",
+  "base_method_params": {
+    "step_size": 0.03601367789919183,
+    "inverse_mass_matrix": [
+      0.0010778120971715413,
+      0.000986879625834512,
+      0.0009424591364910399,
+      0.0010881882374215183,
+      0.006574160295348301,
+      0.000287571179690089,
+      0.000522502395376653
+    ]
+  },
+  "headline_metric": 0.0072301383110496805,
+  "sample_quality": null,
+  "calibration_budget": {
+    "trials": 0,
+    "wall_seconds_estimate": 45.02097569800003,
+    "n_warmup": 1000,
+    "n_samples": 1000,
+    "num_chains": 4,
+    "warmup_wall_seconds": 23.958,
+    "sampling_wall_seconds": 18.667,
+    "sampling_seconds_per_draw": 0.004667,
+    "split_source": "measured",
+    "machine_info": {
+      "cpu_model": "aarch64",
+      "cpu_count_logical": 20,
+      "os": "Linux 6.17.0-1026-nvidia",
+      "python_version": "3.13.14",
+      "jax_version": "0.11.0",
+      "blackjax_version": "1.6.1",
+      "jax_x64_enabled": true,
+      "jax_default_device": "cpu",
+      "gpu_info": null
+    },
+    "warmup_grad_evals": null
+  },
+  "difficulty": null,
+  "instructions": "**Medium-effort recipe** (Statistician investigation on `(window_adaptation_low_rank_imm, dynamic_hmc)`).\nThe default emit either failed the auto-gate or explored a technically-possible-but-unconventional pairing; the Statistician applied workarounds until the gate passed. See `notes` for the specific intervention.\nTo use the pinned config:\n  ```python\n  kernel = blackjax.dynamic_hmc(logdensity_fn, **{'step_size': 0.03601367789919183, 'inverse_mass_matrix': [0.0010778120971715413, 0.000986879625834512, 0.0009424591364910399, 0.0010881882374215183, 0.006574160295348301, 0.000287571179690089, 0.000522502395376653]})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0072.\nWall time: machine + Statistician investigation (see `calibration_budget`).",
+  "notes": "MEDIUM-tier promotion after a 2026-07-30 recert-sweep gate failure (PR #254,\nESS-metric switch; see catalog/lotka_volterra/lessons.md and tuningfork Issue#987 /\nBelief#1175). LOW effort is disqualified by construction once any init is specified\n(recipes/_base.py Effort.LOW requires unmodified library defaults), so this is a\nMEDIUM branch-(a) intervention: init_strategy={\"type\": \"uniform_perchain\", \"low\": -1.5,\n\"high\": -0.5} replaces the default single-point-broadcast init from numpyro's\ninit_to_uniform.\n\nGT-INFORMED INIT, DISCLOSED: the box was selected by distance to the CERTIFIED\nREFERENCE MODE (see lessons.md candidate scan), not from domain knowledge. This\nrecipe therefore measures \"can the sampler sample the certified mode given a\nfavourable start\", not \"can it find the mode cold from a conventional start\" --\na different and easier quantity than a domain-knowledge-only init would measure.\n\nSEED SELECTION, DISCLOSED (Belief#1176 policy): seed=11111 is one of 5 of 7 seeds\nthat PASS this (sampler, warmup, init) family on the reference cell\ndmhmc x window_adaptation_dense_imm (lessons.md, 2026-07-30 entry): PASS at 11111,\n22222, 33333, 682738, 682739; FAIL at 682737 (this model's own historically recorded\ntuning_seed) and 20260517 (RECIPE_SEED, the general emit path's own default) -- the\ntwo seeds an unaware rerun would reach for by default. Seed 11111 was applied to this\nspecific cell and independently verified to PASS the normal production gate (R-hat,\nbulk-ESS, divergences) with no gate relaxation; this cell was not separately\nmulti-seed-scanned beyond confirming 11111 works. Full x-of-k table and rationale:\ncatalog/lotka_volterra/lessons.md.",
+  "headline_basis": {
+    "total_grad_evals": 329982,
+    "min_bulk_ess": 2385.8155001567957,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 2373.5554529096557,
+    "estimator_ratio": 1.0051652668287614,
+    "grad_count_convention": "info.num_integration_steps (realized count per step)",
+    "is_lower_bound": false
+  },
+  "step_policy": {
+    "kind": "empirical",
+    "values": [
+      22,
+      64,
+      107,
+      150,
+      192,
+      235,
+      278,
+      320,
+      363,
+      405,
+      491,
+      1002
+    ],
+    "weights": [
+      0.2115,
+      0.374,
+      0.32,
+      0.01975,
+      0.03075,
+      0.03825,
+      0.00025,
+      0.0005,
+      0.00225,
+      0.00025,
+      0.0015,
+      0.001
+    ]
+  },
+  "warmups": [
+    {
+      "name": "window_adaptation_low_rank_imm",
+      "params": {
+        "n_warmup": 1000,
+        "num_chains": 4,
+        "target_acceptance": 0.99,
+        "max_rank": 10
+      }
+    }
+  ],
+  "warmup_inner_kernel": "nuts",
+  "warmup_num_chains": null,
+  "init_strategy": {
+    "type": "uniform_perchain",
+    "low": -1.5,
+    "high": -0.5
+  },
+  "variant_label": null,
+  "inverse_mass_matrix_path": null,
+  "gt_schema_version": null,
+  "summary_v2_path": null,
+  "workflow": "",
+  "gate_evidence": {
+    "auto": {
+      "rhat_max": 1.0022465069421524,
+      "min_bulk_ess": 2385.8155001567957,
+      "n_divergences": 0,
+      "max_abs_mean_z": null,
+      "verdict": "PASS",
+      "margins": {
+        "rhat_max": {
+          "value": 1.0022465069421524,
+          "band": "PASS",
+          "pass_lo": 0.0,
+          "pass_hi": 1.01,
+          "review_lo": 1.01,
+          "review_hi": 1.05
+        },
+        "min_bulk_ess": {
+          "value": 2385.8155001567957,
+          "band": "PASS",
+          "pass_lo": 400.0,
+          "pass_hi": Infinity,
+          "review_lo": 100.0,
+          "review_hi": 400.0
+        },
+        "n_divergences": {
+          "value": 0.0,
+          "band": "PASS",
+          "pass_lo": 0,
+          "pass_hi": 6,
+          "review_lo": 6,
+          "review_hi": 40
+        }
+      },
+      "gt_cert_coverage": "full_posterior"
+    },
+    "override": {
+      "reason": "",
+      "statistician_id": "",
+      "decision": ""
+    }
+  },
+  "tuning_seed": 3952304803,
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
+  "blackjax_version": "1.6.1",
+  "jax_version": "0.11.0",
+  "timestamp_utc": "2026-07-30T10:27:13Z",
+  "failure_diagnosis": null,
+  "attempted_configurations": []
+}
