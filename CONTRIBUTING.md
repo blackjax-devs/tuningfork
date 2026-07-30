@@ -2,6 +2,23 @@
 
 This document outlines the conventions for developing and testing `tuningfork`.
 
+## Recipe and Sampling Architecture
+
+Changes to recipes, sampling execution, calibration, certification,
+revalidation, or recipe benchmarks must follow the
+[codegen-first recipe lifecycle](docs/design/codegen-first-recipes.md).
+
+The load-bearing rules are:
+
+- codegen is the only sampling path whose output may become catalog or
+  certification evidence;
+- a custom sampling script represents a missing codegen capability and must be
+  replaced by typed recipe support plus a regression test;
+- the generated routine must be checked against every material field in the
+  recipe; and
+- no recipe refactor may discard failed attempts, review history, diagnoses,
+  gate evidence, provenance, or unknown legacy annotations.
+
 ## Test Layout
 
 Tests mirror the source structure under `tuningfork/`:
