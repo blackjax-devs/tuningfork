@@ -137,6 +137,32 @@ The oracle 0.249 is a reference ceiling, not the committed artifact.
 Full integrator ladder validated; internal LRD certified PASS at 426× ESS/grad.
 See `catalog/mclmc-routing-taxonomy.md` for routing taxonomy and scientific context.
 
+### 2026-07-30 — 2 LOW cells promoted to MEDIUM after a recert-sweep gate failure
+
+The 2026-07-30 corpus recert sweep (tuningfork PR #254, ESS-metric switch) found
+`low__dynamic_hmc__window_adaptation_dense_imm` and
+`low__mhmc__window_adaptation_dense_imm__inner_nuts` failing the gate at their
+committed seed under current dependencies (blackjax 1.6.1 / jax 0.11.0) — both
+are in the PR's "19 gate failures, no recipe written" set. Per Belief#1176
+(seed selection is permitted at MEDIUM tier provided it is disclosed and
+independently gate-verified with no relaxation), a 3-seed scan of each cell's
+exact committed configuration (same step_policy / target_acceptance /
+warmup_inner_kernel, only the seed varies) found:
+
+| cell | seed=11111 | seed=22222 | seed=33333 |
+|---|---|---|---|
+| `dynamic_hmc` + `window_adaptation_dense_imm` | REVIEW (rhat=1.0200, ess=236.7) | REVIEW (rhat=1.0339, ess=105.5) | **PASS** (rhat=1.0061, ess=736.3) |
+| `mhmc` + `window_adaptation_dense_imm` (`inner_nuts`) | FAIL (rhat=1.2890, ess=11.6) | FAIL (rhat=1.3977, ess=11.9) | **PASS** (rhat=1.0020, ess=3379.3) |
+
+1 of 3 clean PASS for each cell. Both are promoted to MEDIUM at seed=33333:
+`recipes/medium__dynamic_hmc__window_adaptation_dense_imm__reseed.json` and
+`recipes/medium__mhmc__window_adaptation_dense_imm__inner_nuts__reseed.json`
+(each recipe's `notes` field carries the same disclosure as this entry). The
+LOW recipes stay committed unchanged (they still record the historical PASS at
+their original seed and dependency stack, now unreproducible under current
+dependencies — same "LOW unstable across seeds" pattern documented for
+`lotka_volterra`).
+
 ## Dynamic-L Sweep (avg ladder)
 
 Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds

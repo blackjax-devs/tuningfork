@@ -224,6 +224,36 @@ The following case studies document the investigation path and distilled lessons
 - 2026-05-18: 7-seed sweep at the recertification config under the *original* Uniform/Cauchy priors reveals 44 % gate-failure rate; warmup-adaptation capture by unit-root attractor is the mechanism; **Pathfinder→NUTS rescues the failing seed**; led to the multipathfinder pin (subsequently retired 2026-05-19 once PR #27 priors made the attractor unreachable)
 - 2026-05-18: 7-variant init-range sweep; **no winner** for diverse-init multipathfinder; archival now that the multipathfinder pre-stage is retired
 - 2026-05-18: PR #27 prior revision: Beta(4,4) factor on phi + Normal(0,5) on mu. Trial-level divergences 1.22 % → 0.03 %. The bulk-shift is what enabled the 2026-05-19 simplification back to bare `window_adaptation_diag_imm`
+- 2026-07-30: `low__dmhmc__window_adaptation_dense_imm` and `low__dynamic_hmc__window_adaptation_dense_imm` fail the 2026-07-30 corpus recert sweep (PR #254, ESS-metric switch) and do **not** recover with a plain reseed — see the dedicated entry below.
+
+### 2026-07-30 — dense-IMM `dmhmc`/`dynamic_hmc` recert-sweep failures do not recover with a reseed
+
+Both `low__dmhmc__window_adaptation_dense_imm` and
+`low__dynamic_hmc__window_adaptation_dense_imm` are in the 2026-07-30 corpus
+recert sweep's (tuningfork PR #254, ESS-metric switch) "19 gate failures, no
+recipe written" set. Per the same Belief#1176 procedure applied successfully
+to `horseshoe`, `ill_cond_50`, `eight_schools_ncp`, and `radon` elsewhere in
+this recert pass, a 3-seed scan (11111, 22222, 33333) of each cell's exact
+committed configuration was run, holding the empirical step_policy /
+target_acceptance=0.8 / n_warmup=1000 / num_chains=4 fixed:
+
+| cell | seed=11111 | seed=22222 | seed=33333 |
+|---|---|---|---|
+| `dmhmc` + `window_adaptation_dense_imm` | FAIL (rhat=1.0992, ess=27.4, 1 div) | FAIL (rhat=1.1021, ess=26.5, 0 div) | FAIL (rhat=1.1303, ess=20.4, 2 div) |
+| `dynamic_hmc` + `window_adaptation_dense_imm` | FAIL (rhat=1.0738, ess=37.7, 0 div) | FAIL (rhat=1.0827, ess=31.9, 1 div) | FAIL (rhat=1.0693, ess=38.4, 0 div) |
+
+0 of 3 clean PASS for either cell, and — unlike `lotka_volterra`'s chaotic
+per-seed lottery — the failure signature is consistent rather than bimodal:
+R-hat sits in a narrow 1.07–1.13 band and min-ESS in a narrow 20–38 band
+across all three seeds for each cell, with no seed coming close to the PASS
+threshold. This reads as a genuine dependency-sensitive degradation on the
+d=503 dense-IMM warmup path rather than a seed lottery — consistent with the
+corpus-wide dense-mass-matrix fragility pattern (Belief#1166 / Belief#1172) —
+but that has not been confirmed by a dedicated investigation (no GT-informed-
+init scan of the kind done for `lotka_volterra` has been attempted here).
+Both cells are left unpromoted; their existing `low__*` recipes are unchanged
+and should be treated as unreproducible under current dependencies pending
+further investigation or the harness-level fix (Issue#255 / Issue#994).
 
 ## Citations
 

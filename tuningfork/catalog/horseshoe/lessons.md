@@ -86,6 +86,42 @@ LRD equivalence-to-baseline finding recorded; routing lesson: route horseshoe to
 See `catalog/mclmc-routing-taxonomy.md` §3 (Category C routing).
 See `tests/mclmc_lrd/test_internal_lrd_horseshoe.py` for the runnable script.
 
+### 2026-07-30 — MEDIUM recipe re-certified after a recert-sweep gate failure; LOW `dmhmc`+dense_imm cell stays unresolved
+
+The 2026-07-30 corpus recert sweep (tuningfork PR #254, ESS-metric switch)
+found `medium__nuts__window_adaptation_diag_imm` (this model's canonical NUTS
+recipe) and `low__dmhmc__window_adaptation_dense_imm` both failing the gate at
+their committed seed under current dependencies (blackjax 1.6.1 / jax 0.11.0)
+— both are in the PR's "19 gate failures, no recipe written" set.
+
+**`medium__nuts__window_adaptation_diag_imm` recovers with a plain reseed.**
+Per Belief#1176, re-running the identical (nuts, window_adaptation_diag_imm)
+config at seed=11111 (the first candidate tried) cleared the gate cleanly:
+rhat=1.0089, ess=831.2, 0 divergences. The recipe file was re-emitted in place
+(same filename, still `effort=medium`) with the seed selection disclosed in
+`notes`.
+
+**`low__dmhmc__window_adaptation_dense_imm` does NOT recover with a reseed.**
+A 3-seed scan (682737 — the committed seed, 11111, 22222) all hard-fail with a
+consistent signature, not a borderline miss:
+
+| seed | verdict | R-hat | min-ESS |
+|---|---|---|---|
+| 682737 (committed) | FAIL | 1.1493 | 18.7 |
+| 11111 | FAIL | 1.1690 | 16.3 |
+| 22222 | FAIL | 1.2434 | 12.1 |
+
+Unlike the ill_cond_50 / lotka_volterra dense-IMM cells recovered elsewhere in
+this recert pass, this cell shows no seed that comes close to PASS in 3 tries
+(rhat stays in 1.15–1.24 across all three, not oscillating toward 1.01). This
+looks more like a genuine dependency-sensitive regression on the d=204 dense
+Welford IMM + empirical step-policy combination than a seed lottery, but that
+has not been confirmed — no GT-informed-init investigation (of the kind done
+for `lotka_volterra`) has been attempted here. This cell is left unpromoted;
+its existing `low__dmhmc__window_adaptation_dense_imm.json` recipe is
+unchanged and should be treated as unreproducible under current dependencies
+pending further investigation.
+
 ## Dynamic-L Sweep (avg ladder)
 
 Run date: 2026-06-19 | Source: sweep_dynl_variety_results.json, medians over 3 seeds

@@ -45,6 +45,23 @@ The empirical pattern: dynamic-L laplace variants (`laplace_dhmc`, `laplace_dmhm
 - 2026-05-19: full laplace_* × {diag, dense} sweep run. 7/8 cells PASS; W2×laplace_hmc REVIEW surfaces the supersession claim above.
 - 2026-05-18: laplace-marginal preflight — warmup pathway verified end-to-end via `_laplace_adapter.resolve_warmup_algorithm` substituting `blackjax.hmc` at warmup time. E2E test at `tests/inference/warmup/test_laplace_e2e_verify.py` PASSes (n_warmup=500, n_samples=1000, IMM (2,2) phi-dimensional, 0 divergence rate).
 
+### 2026-07-30 — `dynamic_hmc`+dense_imm promoted to MEDIUM after a recert-sweep gate failure
+
+The 2026-07-30 corpus recert sweep (tuningfork PR #254, ESS-metric switch)
+found `low__dynamic_hmc__window_adaptation_dense_imm` failing the gate at its
+committed seed under current dependencies (blackjax 1.6.1 / jax 0.11.0) — one
+of the PR's "19 gate failures, no recipe written" set (this model's only
+affected cell; note line 25 above, which cites this exact recipe as evidence
+of resonance-avoidance, was written before this regression and is currently
+stale for the LOW recipe specifically).
+
+Per Belief#1176, re-running the identical config at seed=11111 (the first
+candidate tried) cleared the gate cleanly on the first attempt: rhat=1.0035,
+ess=2156.2, 0 divergences — no wider seed scan was needed. Promoted to
+`recipes/medium__dynamic_hmc__window_adaptation_dense_imm__reseed.json` (the
+seed selection is disclosed in the recipe's `notes` field); the LOW recipe is
+kept unchanged alongside it.
+
 ## Citations
 
 **Posteriordb reference**: [posteriordb.org #3 (eight_schools_centeredncp)](https://posteriordb.org/)
