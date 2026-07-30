@@ -196,9 +196,31 @@ through the production emit path so the verdict is the production verdict.
 | `uniform_perchain [-2.0, 0.0]` | 1/3 | 5/12 | 2000 divergences; collapse at \|z\| ~240 |
 | `zero_perchain N(0, 0.1^2)` | 0/3 | 6/12 | exactly 2 of 4 chains in the decoy at every seed |
 
-`[-1.5, -0.5]` is the best expressible option and a real improvement — off-mode
-chains fall from 7/12 to 2/12 and the pass rate doubles — but it still fails 1 seed
-in 3, so pinning it would trade a documented coin flip for an undocumented one.
+**Widened seed set** (superseding the 3-seed reading above, which understated the
+candidate). `uniform_perchain [-1.5, -0.5]` over every seed tried:
+
+| seed | provenance | verdict | R-hat | min-ESS | off-mode |
+|---|---|---|---|---|---|
+| 11111 | LRD cert seed | PASS | 1.0057 | 2326.93 | 0/4 |
+| 22222 | LRD cert seed | PASS | 1.0022 | 2254.67 | 0/4 |
+| 33333 | LRD cert seed | PASS | 1.0027 | 2340.34 | 0/4 |
+| 682737 | this cell's recorded `tuning_seed` | FAIL | 2.7738 | 4.63 | 2/4 |
+| 682738 | exploratory | PASS | 1.0030 | 2339.34 | 0/4 |
+| 682739 | exploratory | PASS | 1.0038 | 2320.00 | 0/4 |
+| 20260517 | `RECIPE_SEED`, the general path's default | FAIL | 1.5940 | 6.75 | 1/4 |
+
+5 of 7. The current single-broadcast init over the same seeds is 1 of 4
+(682738 PASS; 682737, 682739, 20260517 FAIL). Every passing run has **zero**
+off-mode chains and zero divergences, so when the init works it works cleanly —
+the decoy is absent rather than merely rare.
+
+But it fails at the two seeds that matter institutionally: `RECIPE_SEED`
+(20260517), which is what the general emit path uses by default, and 682737,
+which is what these cells actually record. The three LRD cert seeds all pass,
+so a 3-seed verdict here depends entirely on **which** triple is chosen. Note
+also that the ≥2-of-3 cert bar lives in `recipes/emit_mclmc_lrd.py` and governs
+the low-rank-diagonal MCLMC path only; `emit_low_recipe_for_cell`, which produces
+these cells, is single-seed with no multi-seed bar.
 The `zero_perchain` row is the clearest evidence that the origin lies on the basin
 boundary: 2 of 4 chains land in the decoy at every seed tested, with R-hat pinned
 between 1.7351 and 1.7374.
