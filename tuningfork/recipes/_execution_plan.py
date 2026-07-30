@@ -1,0 +1,171 @@
+"""Typed, canonical execution-plan values used by recipe code generation."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any
+
+
+def _json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError("execution configuration cannot contain NaN or infinity")
+        return value
+    if isinstance(value, Mapping):
+        if any(not isinstance(k, str) for k in value):
+            raise TypeError("execution configuration mapping keys must be strings")
+        return {k: _json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_value(v) for v in value]
+    raise TypeError(f"value of type {type(value).__name__} is not JSON-safe")
+
+
+def canonical_json(value: Any) -> str:
+    """Return strict, deterministic JSON for an executable value."""
+    return json.dumps(
+        _json_value(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
+def _digest(prefix: str, value: Any) -> str:
+    return hashlib.sha256((prefix + canonical_json(value)).encode("utf-8")).hexdigest()
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {k: _thaw(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(v) for v in value]
+    return value
+
+
+@dataclass(frozen=True)
+class ExecutionOverrides:
+    sampler_seed: int | None = None
+    num_samples: int | None = None
+    num_chains: int | None = None
+    progress_bar: bool | None = None
+    num_warmup: int | tuple[int, ...] | list[int] | None = None
+    warmup_num_chains: tuple[int, ...] | list[int] | None = None
+    reinit_seed: int | None = None
+
+
+@dataclass(frozen=True)
+class WarmupStagePlan:
+    name: str
+    params: Mapping[str, Any]
+    num_warmup: int
+    num_chains: int
+
+
+@dataclass(frozen=True)
+class ExecutableConfigurationSnapshot:
+    model_name: str
+    base_method_name: str
+    warmup_name: str
+    base_method_params: Mapping[str, Any]
+    warmup_params: Mapping[str, Any]
+    warmup_stages: tuple[WarmupStagePlan, ...]
+    warmup_inner_kernel: str | None
+    init_strategy: Mapping[str, Any] | None
+    step_policy: Mapping[str, Any] | None
+    tuning_seed: int
+    sampler_seed: int
+    reinit_seed: int
+    num_samples: int
+    num_chains: int
+    progress_bar: bool
+    requires_x64: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "model_name": self.model_name,
+            "base_method_name": self.base_method_name,
+            "warmup_name": self.warmup_name,
+            "base_method_params": _thaw(self.base_method_params),
+            "warmup_params": _thaw(self.warmup_params),
+            "warmup_stages": [
+                {
+                    "name": stage.name,
+                    "params": _thaw(stage.params),
+                    "num_warmup": stage.num_warmup,
+                    "num_chains": stage.num_chains,
+                }
+                for stage in self.warmup_stages
+            ],
+            "warmup_inner_kernel": self.warmup_inner_kernel,
+            "init_strategy": _thaw(self.init_strategy),
+            "step_policy": _thaw(self.step_policy),
+            "tuning_seed": self.tuning_seed,
+            "sampler_seed": self.sampler_seed,
+            "reinit_seed": self.reinit_seed,
+            "num_samples": self.num_samples,
+            "num_chains": self.num_chains,
+            "progress_bar": self.progress_bar,
+            "requires_x64": self.requires_x64,
+        }
+
+    @property
+    def config_hash(self) -> str:
+        return _digest("tuningfork.execution-config.v1\0", self.as_dict())
+
+
+@dataclass(frozen=True)
+class ExecutionPlan:
+    config: ExecutableConfigurationSnapshot
+    recipe_ref: str
+    artifact_filename: str
+    plan_hash: str
+
+    @property
+    def executable_config_hash(self) -> str:
+        return self.config.config_hash
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "config": self.config.as_dict(),
+            "recipe_ref": self.recipe_ref,
+            "artifact_filename": self.artifact_filename,
+        }
+
+    @classmethod
+    def build(
+        cls,
+        config: ExecutableConfigurationSnapshot,
+        recipe_ref: str,
+        artifact_filename: str,
+    ) -> ExecutionPlan:
+        body = {"config": config.as_dict(), "artifact_filename": artifact_filename}
+        return cls(
+            config,
+            recipe_ref,
+            artifact_filename,
+            _digest("tuningfork.execution-plan.v1\0", body),
+        )
+
+
+__all__ = [
+    "ExecutionOverrides",
+    "WarmupStagePlan",
+    "ExecutableConfigurationSnapshot",
+    "ExecutionPlan",
+    "canonical_json",
+]
