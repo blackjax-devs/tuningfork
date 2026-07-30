@@ -213,6 +213,24 @@ def _tracked_at_or_before(baseline: str, rel: Path) -> bool:
     disambiguates: it is non-empty only if some commit reachable from
     ``baseline`` touched this exact path, which is only true in the second
     case.
+
+    KNOWN GAP, confirmed by direct reproduction (not just reasoned about): a
+    rename between the baseline and HEAD is invisible to this check, because
+    it only ever asks "does history AT OR BEFORE baseline mention this exact
+    path" — a rename commit that happens strictly AFTER baseline is outside
+    that range by construction, so the new name looks exactly like a
+    genuinely new path even though an old-named ancestor with real baseline
+    history exists.  Concretely: ``git mv old.json new.json`` plus a config
+    edit in the same or a later commit makes ``new.json`` read as
+    ``new_since_baseline`` (excused, not a failure) instead of
+    ``missing_baseline`` (a failure) — a config regression bundled with a
+    rename is currently a working dodge around this gate.  Closing it would
+    need a second, forward-looking pass (``git log --diff-filter=R
+    <baseline>..HEAD -- <rel>``) to resolve a renamed-since-baseline path back
+    to its pre-rename name before deciding it is new; not implemented here.
+    No cell in the corpus as of this check exercises this gap (verified: none
+    of the ``new_since_baseline`` cells this revision produces has a rename
+    edge in its history), so it is a documented limitation, not a live one.
     """
     proc = subprocess.run(
         ["git", "log", "-1", "--format=%H", baseline, "--", str(rel)],
