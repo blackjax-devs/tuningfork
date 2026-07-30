@@ -20,7 +20,14 @@ from typing import Any
 
 __all__ = ["emit_init_strategy"]
 
-_TYPES = {"prior_sample", "zero", "uniform", "zero_perchain", "uniform_perchain"}
+_TYPES = {
+    "prior_sample",
+    "zero",
+    "uniform",
+    "zero_perchain",
+    "uniform_perchain",
+    "reference_summary",
+}
 
 
 def _number(strategy: dict[str, Any], key: str) -> float:
@@ -52,6 +59,15 @@ def _validate(strategy: dict[str, Any] | None, num_chains: int) -> str:
             raise ValueError(f"init_strategy type={type_!r} requires low and high")
         if _number(strategy, "low") >= _number(strategy, "high"):
             raise ValueError("init_strategy requires low < high")
+    if type_ == "reference_summary":
+        required = {"mean", "std", "offsets", "source_path", "source_sha256"}
+        missing = required.difference(strategy)
+        if missing:
+            raise ValueError(f"reference_summary missing keys: {sorted(missing)!r}")
+        if set(strategy["mean"]) != set(strategy["std"]):
+            raise ValueError("reference_summary mean/std keys must match")
+        if not isinstance(strategy["offsets"], list) or not strategy["offsets"]:
+            raise ValueError("reference_summary offsets must be a non-empty list")
     if (
         type_ == "zero_perchain"
         and "jitter" in strategy
@@ -98,6 +114,28 @@ def emit_init_strategy(
             "    for k, x in zip(_init_keys, _init_leaves)",
             "])",
             "_init_position_is_prebatched = False",
+        ]
+    elif type_ == "reference_summary":
+        import json
+
+        means = json.dumps(strategy_values["mean"], separators=(",", ":"))
+        stds = json.dumps(strategy_values["std"], separators=(",", ":"))
+        offsets = json.dumps(strategy_values["offsets"], separators=(",", ":"))
+        lines += [
+            f"# reference_summary source: {strategy_values['source_path']} sha256={strategy_values['source_sha256']}",
+            f"_reference_summary_mean = {means}",
+            f"_reference_summary_std = {stds}",
+            f"_reference_summary_offsets = {offsets}",
+            "_reference_summary_keys = tuple(_reference_summary_mean)",
+            "_reference_summary_positions = []",
+            "for _reference_summary_chain in range(num_chains):",
+            "    _reference_summary_offset = _reference_summary_offsets[_reference_summary_chain % len(_reference_summary_offsets)]",
+            "    _reference_summary_positions.append({",
+            "        _key: jnp.asarray(_reference_summary_mean[_key], dtype=init_position[_key].dtype) + _reference_summary_offset * jnp.asarray(_reference_summary_std[_key], dtype=init_position[_key].dtype)",
+            "        for _key in _reference_summary_keys",
+            "    })",
+            "init_position = jax.tree.map(lambda *xs: jnp.stack(xs, axis=0), *_reference_summary_positions)",
+            "_init_position_is_prebatched = True",
         ]
     else:
         lines.append("_init_strategy_key = jax.random.fold_in(_init_key, 42)")

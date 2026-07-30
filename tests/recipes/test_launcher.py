@@ -17,10 +17,43 @@ from tuningfork.recipes._base import Effort, Recipe
 from tuningfork.recipes._execution_manifest import ExecutionManifest
 from tuningfork.recipes._execution_plan import ExecutionOverrides
 from tuningfork.recipes._execution_receipt import ExecutionReceipt
-from tuningfork.recipes._launcher import GeneratedProgramError, launch_generated_program
+from tuningfork.recipes._launcher import (
+    ExecutionTimings,
+    GeneratedProgramError,
+    _parse_timings,
+    launch_generated_program,
+)
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
 pytestmark = pytest.mark.slow
+
+
+def test_parse_timings_accepts_one_valid_sentinel() -> None:
+    timings = _parse_timings(
+        b'TUNINGFORK_TIMINGS {"sampling_seconds":2,"total_seconds":5,"warmup_seconds":3}\n'
+    )
+    assert timings == ExecutionTimings(3.0, 2.0, 5.0)
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        b'TUNINGFORK_TIMINGS {"sampling_seconds":2,"total_seconds":5,"warmup_seconds":3}\n'
+        b'TUNINGFORK_TIMINGS {"sampling_seconds":2,"total_seconds":5,"warmup_seconds":3}\n',
+        b"TUNINGFORK_TIMINGS not-json\n",
+        b'TUNINGFORK_TIMINGS {"sampling_seconds":-1,"total_seconds":5,"warmup_seconds":3}\n',
+        b'TUNINGFORK_TIMINGS {"sampling_seconds":4,"total_seconds":5,"warmup_seconds":3}\n',
+        b'TUNINGFORK_TIMINGS {"sampling_seconds":2,"total_seconds":5}\n',
+        b'TUNINGFORK_TIMINGS {"extra":0,"sampling_seconds":2,"total_seconds":5,"warmup_seconds":3}\n',
+    ],
+)
+def test_parse_timings_rejects_invalid_sentinel(stdout: bytes) -> None:
+    with pytest.raises(ValueError):
+        _parse_timings(stdout)
+
+
+def test_parse_timings_is_optional_for_hand_authored_sources() -> None:
+    assert _parse_timings(b"DONE\n") is None
 
 
 def _sha256(path: Path) -> str:

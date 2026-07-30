@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -228,7 +228,14 @@ class RecipeFailedError(RuntimeError):
 # ── init_strategy validation ──────────────────────────────────────────────────
 
 _VALID_INIT_STRATEGY_TYPES: frozenset[str] = frozenset(
-    {"prior_sample", "zero", "uniform", "zero_perchain", "uniform_perchain"}
+    {
+        "prior_sample",
+        "zero",
+        "uniform",
+        "zero_perchain",
+        "uniform_perchain",
+        "reference_summary",
+    }
 )
 
 
@@ -280,6 +287,92 @@ def validate_init_strategy(v: dict[str, Any] | None) -> None:
                     f"init_strategy type='zero_perchain' jitter must be >= 0; "
                     f"got jitter={v['jitter']!r}"
                 )
+    if type_ == "reference_summary":
+        import math
+        import re
+
+        def _numeric_tree(value: Any, label: str) -> tuple[int, ...]:
+            if isinstance(value, bool):
+                raise ValueError(f"reference_summary {label} contains boolean")
+            if isinstance(value, (int, float)):
+                number = float(value)
+                if not math.isfinite(number):
+                    raise ValueError(
+                        f"reference_summary {label} contains non-finite value"
+                    )
+                return ()
+            if isinstance(value, list):
+                shapes = [_numeric_tree(item, label) for item in value]
+                if shapes and any(shape != shapes[0] for shape in shapes[1:]):
+                    raise ValueError(f"reference_summary {label} has ragged shape")
+                return (len(value),) + (shapes[0] if shapes else ())
+            raise ValueError(
+                f"reference_summary {label} must contain only numeric lists"
+            )
+
+        required = {"mean", "std", "offsets", "source_path", "source_sha256"}
+        missing = required.difference(v)
+        if missing:
+            raise ValueError(
+                "init_strategy type='reference_summary' missing keys: "
+                f"{sorted(missing)!r}"
+            )
+        if not isinstance(v["mean"], dict) or not isinstance(v["std"], dict):
+            raise ValueError(
+                "reference_summary mean and std must be JSON object mappings"
+            )
+        if set(v["mean"]) != set(v["std"]):
+            raise ValueError("reference_summary mean/std keys must match")
+        offsets = v["offsets"]
+        if not isinstance(offsets, list) or not offsets:
+            raise ValueError("reference_summary offsets must be a non-empty list")
+        if any(isinstance(x, bool) for x in offsets):
+            raise ValueError("reference_summary offsets must not contain booleans")
+        try:
+            values = [float(x) for x in offsets]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reference_summary offsets must be numeric") from exc
+
+        if not all(math.isfinite(x) for x in values):
+            raise ValueError("reference_summary offsets must be finite")
+        if not isinstance(v["source_path"], str) or not v["source_path"]:
+            raise ValueError("reference_summary source_path must be a non-empty string")
+        if not isinstance(v["source_sha256"], str) or len(v["source_sha256"]) != 64:
+            raise ValueError(
+                "reference_summary source_sha256 must be a SHA-256 hex digest"
+            )
+        try:
+            int(v["source_sha256"], 16)
+        except ValueError as exc:
+            raise ValueError(
+                "reference_summary source_sha256 must be hexadecimal"
+            ) from exc
+        mean_shapes: dict[str, tuple[int, ...]] = {}
+        for name in ("mean", "std"):
+            for key, values in v[name].items():
+                mean_shape = _numeric_tree(values, f"{name}[{key!r}]")
+                if name == "std":
+
+                    def _check_nonnegative(item: Any) -> None:
+                        if isinstance(item, list):
+                            for child in item:
+                                _check_nonnegative(child)
+                        elif float(item) < 0:
+                            raise ValueError(
+                                f"reference_summary std[{key!r}] must be non-negative"
+                            )
+
+                    _check_nonnegative(values)
+                if name == "mean":
+                    mean_shapes[key] = mean_shape
+                elif mean_shapes.get(key) != mean_shape:
+                    raise ValueError(
+                        f"reference_summary mean/std[{key!r}] shapes must match"
+                    )
+        if not re.fullmatch(r"[0-9a-f]{64}", v["source_sha256"]):
+            raise ValueError(
+                "reference_summary source_sha256 must be lowercase hexadecimal"
+            )
 
 
 def validate_warmup_num_chains(v: list[int] | None, n_phases: int) -> None:
@@ -694,6 +787,19 @@ class Recipe:
             d[key] = value
         return d
 
+    def catalog_stem(self, *, filename_tag: str | None = None) -> str:
+        """Return the canonical filename stem for this recipe and its artifacts."""
+        if self.effort == Effort.GROUNDTRUTH:
+            return "groundtruth"
+        name = self.variant_label or self.base_method_name
+        baked_from = (self.calibration_budget or {}).get("baked_from", {})
+        baked_warmup = (
+            baked_from.get("warmup_name", "") if isinstance(baked_from, dict) else ""
+        )
+        warmup = self.warmup_name or baked_warmup
+        stem = f"{self.effort.value}__{name}__{warmup}"
+        return f"{stem}__{filename_tag}" if filename_tag else stem
+
     def save(
         self,
         root: Path,
@@ -732,29 +838,9 @@ class Recipe:
         model_dir = Path(root) / self.model_name
         if self.effort == Effort.GROUNDTRUTH:
             target_dir = model_dir
-            filename = "groundtruth.json"
         else:
             target_dir = model_dir / "recipes"
-            _name_slot = (
-                self.variant_label
-                if self.variant_label is not None
-                else self.base_method_name
-            )
-            # When warmup_name is blank (baked recipes), fall back to the
-            # original warmup name stored in calibration_budget["baked_from"]
-            # so the filename reads <effort>__<method>__<warmup> rather than
-            # <effort>__<method>__ (dangling double-underscore).
-            _warmup_segment = self.warmup_name or (
-                (self.calibration_budget or {})
-                .get("baked_from", {})
-                .get("warmup_name", "")
-                if isinstance(self.calibration_budget, dict)
-                else ""
-            )
-            stem = f"{self.effort.value}__{_name_slot}__{_warmup_segment}"
-            if filename_tag:
-                stem = f"{stem}__{filename_tag}"
-            filename = f"{stem}.json"
+        filename = f"{self.catalog_stem(filename_tag=filename_tag)}.json"
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / filename
         d = self.to_dict()
@@ -1509,29 +1595,11 @@ class Recipe:
         import numpy as np
 
         model_dir = root / self.model_name
-        _name_slot = (
-            self.variant_label
-            if self.variant_label is not None
-            else self.base_method_name
-        )
         if self.effort == Effort.GROUNDTRUTH:
             sidecar_dir = model_dir
-            filename = "groundtruth.imm.npz"
         else:
             sidecar_dir = model_dir / "recipes"
-            # Mirror the save() fallback: baked recipes have warmup_name=""
-            # so read the original name from calibration_budget["baked_from"].
-            _warmup_segment = self.warmup_name or (
-                (self.calibration_budget or {})
-                .get("baked_from", {})
-                .get("warmup_name", "")
-                if isinstance(self.calibration_budget, dict)
-                else ""
-            )
-            stem = f"{self.effort.value}__{_name_slot}__{_warmup_segment}"
-            if filename_tag:
-                stem = f"{stem}__{filename_tag}"
-            filename = f"{stem}.imm.npz"
+        filename = f"{self.catalog_stem(filename_tag=filename_tag)}.imm.npz"
         sidecar_dir.mkdir(parents=True, exist_ok=True)
         sidecar_path = sidecar_dir / filename
 
@@ -1589,6 +1657,37 @@ class Recipe:
             else:
                 # Legacy flat format.
                 return jnp.asarray(data["imm"])
+
+    def normalize_pinned_replay(self) -> Recipe:
+        """Return the canonical no-warmup form of a baked replay recipe.
+
+        Baked recipes historically blanked their warmup fields.  Keep that
+        legacy identity in ``calibration_budget["baked_from"]`` while exposing
+        a real zero-step stage to execution-plan consumers.  Existing
+        provenance keys are never overwritten, making this transformation
+        idempotent and lossless for evidence and unknown schema fields.
+        """
+        import copy
+
+        budget = copy.deepcopy(self.calibration_budget or {})
+        provenance = budget.setdefault("baked_from", {})
+        if not isinstance(provenance, dict):
+            provenance = {"legacy": provenance}
+            budget["baked_from"] = provenance
+        provenance.setdefault("warmup_name", self.warmup_name)
+        provenance.setdefault("warmup_params", copy.deepcopy(self.warmup_params))
+        provenance.setdefault("warmups", copy.deepcopy(self.warmups))
+        provenance.setdefault(
+            "warmup_num_chains", copy.deepcopy(self.warmup_num_chains)
+        )
+        return replace(
+            self,
+            warmup_name="no_warmup",
+            warmup_params={},
+            warmups=[{"name": "no_warmup", "params": {}}],
+            warmup_num_chains=None,
+            calibration_budget=budget,
+        )
 
     def is_failed(self) -> bool:
         """Return True iff this recipe is FAILED (no gate-passing config found).

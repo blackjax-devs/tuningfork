@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any
 
 from tuningfork.recipes._emit_script import emit_script
 from tuningfork.recipes._launcher import (
+    ExecutionTimings,
     GeneratedProgramError,
     LaunchResult,
     launch_generated_program,
@@ -67,13 +68,23 @@ def execute_recipe(
     python_executable: str = sys.executable,
     env: Mapping[str, str] | None = None,
     reference_identity: Mapping[str, Any] | None = None,
+    diagnostics: bool | None = None,
 ) -> LaunchResult:
     """Emit a recipe and execute the generated program with a verified receipt.
 
     The recipe-generation overrides are forwarded to :func:`emit_script`.
     Launcher controls are forwarded to :func:`launch_generated_program`.
     Emission always completes first; any emission error prevents launching.
+    ``diagnostics`` optionally overrides the child tap-diagnostics environment.
     """
+    if diagnostics is not None:
+        if not isinstance(diagnostics, bool):
+            raise TypeError("diagnostics must be a bool or None")
+        if env is not None and "TUNINGFORK_TAP_DIAGNOSTICS" in env:
+            raise ValueError(
+                "diagnostics conflicts with explicit TUNINGFORK_TAP_DIAGNOSTICS"
+            )
+
     source = emit_script(
         recipe,
         num_samples=num_samples,
@@ -84,17 +95,24 @@ def execute_recipe(
         progress_bar=progress_bar,
         warmup_num_chains=warmup_num_chains,
     )
+    launch_env: Mapping[str, str] | None
+    if diagnostics is not None:
+        launch_env = dict(env or {})
+        launch_env["TUNINGFORK_TAP_DIAGNOSTICS"] = "1" if diagnostics else "0"
+    else:
+        launch_env = env
     return launch_generated_program(
         source,
         run_root,
         timeout=timeout,
         python_executable=python_executable,
-        env=env,
+        env=launch_env,
         reference_identity=reference_identity,
     )
 
 
 __all__ = [
+    "ExecutionTimings",
     "GeneratedProgramError",
     "LaunchResult",
     "emit_script",

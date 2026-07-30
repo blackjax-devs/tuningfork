@@ -76,6 +76,20 @@ def _is_gradient_free(base_method: BaseMethod) -> bool:
     return len(base_method.per_chain_param_keys) == 0
 
 
+def _is_numeric_tree(value: Any) -> bool:
+    """Return whether ``value`` is an inline finite numeric scalar/tree."""
+    import math
+    import numbers
+
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, numbers.Real):
+        return math.isfinite(float(value))
+    if isinstance(value, (list, tuple)):
+        return all(_is_numeric_tree(item) for item in value)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -182,8 +196,21 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
 
     # Default step_size + IMM (used for no_warmup path init).
     _bm_step_size = ctx.get("bm_step_size", 1.0)
+    _bm_imm = ctx.get("bm_inverse_mass_matrix")
+    _is_baked_replay = bool(ctx.get("is_baked_replay", False))
+    if _is_baked_replay and (
+        not _is_numeric_tree(_bm_step_size) or not _is_numeric_tree(_bm_imm)
+    ):
+        raise ValueError(
+            "No-warmup replay requires numeric inline step_size and "
+            "inverse_mass_matrix; "
+            "refusing to use a sidecar sentinel or invent sampler tuning."
+        )
     a(f"_default_step_size = {_bm_step_size!r}")
-    a("_default_imm = jnp.ones(_n_params)")
+    if not _is_numeric_tree(_bm_imm):
+        a("_default_imm = jnp.ones(_n_params)")
+    else:
+        a(f"_default_imm = jnp.asarray({_bm_imm!r})")
 
     # num_integration_steps: recipe-pinned HP for hmc/mhmc/rmhmc.
     if has_nis:
@@ -249,6 +276,9 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         a("        step_size=step_size,")
         a("        inverse_mass_matrix=inverse_mass_matrix,")
         a("        integration_steps_fn=_integration_steps_fn,")
+        if ctx.get("chees_adapted", False):
+            a("        next_random_arg_fn=_next_random_arg_fn,")
+            a("        integration_steps_params=_integration_steps_params,")
         a("    ).step")
     elif name == "dmhmc":
         a("    return blackjax.dmhmc(")
@@ -280,6 +310,53 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("# kernel_builder is the protocol expected by the inference loop when")
     a("# _adapted_params is multi-chain: each chain builds its own kernel.")
     a("kernel_builder = _build_kernel")
+
+    # Explicit state initializer used by pre-batched no-warmup replay.  The
+    # kernel builder returns a step callable, not a SamplingAlgorithm, so state
+    # construction must call the concrete BlackJAX factory directly.
+    if name in {"dynamic_hmc", "dmhmc"}:
+        a("")
+        a("def _state_init(position, rng_key):")
+        a(f"    return blackjax.{name}(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        inverse_mass_matrix=_default_imm,")
+        a("        integration_steps_fn=_integration_steps_fn,")
+        if name == "dynamic_hmc" and ctx.get("chees_adapted", False):
+            a("        next_random_arg_fn=_next_random_arg_fn,")
+            a("        integration_steps_params=_integration_steps_params,")
+        a("    ).init(position, rng_key)")
+    elif name == "ghmc":
+        a("")
+        a("def _state_init(position, rng_key=None):")
+        a("    return blackjax.ghmc(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        momentum_inverse_scale=_default_imm,")
+        a("        alpha=_alpha,")
+        a("        delta=_delta,")
+        a("    ).init(position, rng_key)")
+    elif name == "rmhmc":
+        a("")
+        a("def _state_init(position, rng_key=None):")
+        a("    return blackjax.rmhmc(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        mass_matrix=_imm_to_mass_matrix(_default_imm),")
+        a("        num_integration_steps=_num_steps,")
+        a("    ).init(position)")
+    else:
+        a("")
+        a("def _state_init(position, rng_key=None):")
+        a(f"    return blackjax.{name}(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        inverse_mass_matrix=_default_imm,")
+        if has_nis:
+            a("        num_integration_steps=_num_steps,")
+        if name == "nuts":
+            a(f"        max_num_doublings={ctx.get('max_num_doublings', 10)!r},")
+        a("    ).init(position)")
 
     # _state_reinit for dynamic_hmc / dmhmc / ghmc.
     if needs_reinit:

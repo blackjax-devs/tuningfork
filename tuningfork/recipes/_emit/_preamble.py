@@ -15,7 +15,8 @@
 
 Replaces ``_templates/preamble.py.tmpl`` (43 LOC, string.Template).
 All slot resolution is done in Python — no $slot markers in the output.
-D8 compliant: emitted string imports only tuningfork.model (allowed).
+D8 compliant: core choreography stays inline; canonical model and optional
+diagnostics policy are the only tuningfork imports.
 """
 
 from __future__ import annotations
@@ -54,9 +55,9 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a("")
     a("The model definition is imported from ``tuningfork.model`` (canonical NumPyro")
     a("code, no template-drift risk). The inference choreography (warmup + sampler +")
-    a("loop) is hand-written in this script with no tuningfork imports -- so the")
-    a("emitted choreography is auditable in one file, while the model code stays")
-    a("single-sourced upstream.")
+    a("loop) is hand-written in this script, so the emitted choreography is")
+    a("auditable in one file. Model code and opt-in tap diagnostics stay")
+    a("single-sourced in their canonical tuningfork modules.")
     a("")
     a("Run with::")
     a("")
@@ -68,6 +69,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
 
     # Timing + imports
     a("import time as _recipe_time")
+    a("import json")
     a("_recipe_t0 = _recipe_time.perf_counter()")
     a("import jax")
 

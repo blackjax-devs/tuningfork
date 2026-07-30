@@ -247,6 +247,100 @@ def test_no_warmup_is_canonical_zero_and_ignores_topology(override):
     assert p.config.warmup_stages[0].num_chains == p.config.num_chains
 
 
+def test_legacy_baked_recipe_is_normalized_before_plan() -> None:
+    from tuningfork.recipes import Effort, Recipe
+
+    r = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 9},
+        warmups=[],
+        warmup_num_chains=[1],
+        calibration_budget={
+            "num_chains": 2,
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"},
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=3,
+    )
+    plan = resolve_execution_plan(r)
+    assert plan.config.warmup_name == "no_warmup"
+    assert plan.config.warmup_stages[0].name == "no_warmup"
+    assert plan.config.warmup_stages[0].num_warmup == 0
+    assert plan.artifact_filename.endswith("__no_warmup.draws.npz")
+
+
+def test_reference_summary_replay_accepts_prebatched_no_warmup() -> None:
+    from tuningfork.recipes import Effort, Recipe
+
+    r = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 9},
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 9}}],
+        warmup_num_chains=[1],
+        calibration_budget={"num_chains": 2},
+        init_strategy={
+            "type": "reference_summary",
+            "mean": {"x": [0.0]},
+            "std": {"x": [1.0]},
+            "offsets": [0.1, -0.1],
+            "source_path": "reference/summary.json",
+            "source_sha256": "a" * 64,
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=3,
+    )
+    plan = resolve_execution_plan(r.normalize_pinned_replay())
+    assert plan.config.warmup_name == "no_warmup"
+    assert plan.config.warmup_stages[0].num_chains == plan.config.num_chains
+    assert plan.config.init_strategy is not None
+    assert plan.config.init_strategy["type"] == "reference_summary"
+
+
+@pytest.mark.parametrize("warmup_name", ["pathfinder", "mclmc_tuning"])
+def test_reference_summary_rejects_non_window_non_replay_topology(warmup_name) -> None:
+    r = recipe(
+        warmup_name=warmup_name,
+        warmup_params={"n_warmup": 10},
+        warmups=[{"name": warmup_name, "params": {"n_warmup": 10}}],
+        init_strategy={
+            "type": "reference_summary",
+            "mean": {"x": [0.0]},
+            "std": {"x": [1.0]},
+            "offsets": [0.1, -0.1],
+            "source_path": "reference/summary.json",
+            "source_sha256": "a" * 64,
+        },
+    )
+    with pytest.raises(ValueError, match="window-adaptation or no-warmup"):
+        resolve_execution_plan(r)
+
+
+@pytest.mark.parametrize("init_kind", ["uniform_perchain", "zero_perchain"])
+def test_perchain_initialization_rejects_no_warmup_topology(init_kind) -> None:
+    r = recipe(
+        warmup_name="no_warmup",
+        warmup_params={},
+        warmups=[{"name": "no_warmup", "params": {}}],
+        init_strategy={"type": init_kind, "low": -1.0, "high": 1.0},
+    )
+    with pytest.raises(ValueError, match="window-adaptation or no-warmup"):
+        resolve_execution_plan(r)
+
+
 def test_no_warmup_rejects_negative_override():
     r = recipe(
         warmup_name="no_warmup",

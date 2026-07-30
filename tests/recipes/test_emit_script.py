@@ -15,20 +15,18 @@
 
 Phase R3.5 round-trip CI gate (locked decision D10).
 
-Post-R3.5-MVP clarification (2026-05-17): the **inference choreography**
-(warmup + sampler + inference loop) is STRICT — zero ``import tuningfork`` in
-those parts of the emitted script.  The **model definition** is imported via
+The core **inference choreography** (warmup + sampler + inference loop) is
+emitted inline. The **model definition** is imported via
 ``from tuningfork.model import MODELS``: the canonical NumPyro code lives
-upstream and is not duplicated in a template (no template-drift risk on the
-largest, most-stable code surface).
+upstream and is not duplicated in a template. The optional tap diagnostics
+wrapper imports its canonical compatibility and artifact policy.
 
 The tests below enforce:
 
 - Emitted script is syntactically valid Python.
-- The two specific tuningfork imports allowed are ``tuningfork.model`` and
-  ``tuningfork.model._numpyro``; no other tuningfork modules may be imported
-  (no recipe schema, no calibration code, no sampler/warmup wrappers — the
-  inference choreography must stand alone, auditable inline).
+- The specific tuningfork imports allowed are the two model modules and the
+  opt-in tap module; no recipe schema, calibration code, or sampler/warmup
+  wrappers may be imported.
 - The emitted script executes end-to-end and reports divergence count.
 
 NOTE: e2e emit-execute tests run a minimal 10-sample / minimal-warmup config;
@@ -51,17 +49,22 @@ from tuningfork.catalog import emit_script, load_recipe
 _CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
 
 # Exactly the tuningfork modules an emitted script is allowed to import.
-# The inference choreography (warmup/sampler/loop) must NOT depend on any
-# other tuningfork module — only the model definition is sourced upstream.
+# The core warmup/sampler/loop stays inline; model and optional instrumentation
+# policy remain single-sourced upstream.
 _ALLOWED_TUNINGFORK_IMPORTS = frozenset(
-    {"tuningfork.model", "tuningfork.model._numpyro"}
+    {
+        "tuningfork.diagnostics._tap",
+        "tuningfork.model",
+        "tuningfork.model._numpyro",
+    }
 )
 
 # Top-level packages the emitted script may import.  tuningfork imports are
 # further restricted by _ALLOWED_TUNINGFORK_IMPORTS (checked separately).
 # stdlib modules used by the emitted preamble/postamble (e.g. ``time`` for
-# wall-clock timing, ``warnings`` for the progress_bar=True single-chain
-# warmup advisory) are also allowlisted here.
+# wall-clock timing, ``json`` for machine-readable timing, diagnostics cleanup,
+# and ``warnings`` for the progress_bar=True single-chain warmup advisory) are
+# also allowlisted here.
 # VI templates additionally import ``optax`` (VI optimizer) and ``collections``
 # (stdlib; for inline NamedTuple definition without the typing module).
 _ALLOWED_TOP_LEVEL = frozenset(
@@ -73,6 +76,11 @@ _ALLOWED_TOP_LEVEL = frozenset(
         "arviz",
         "tuningfork",
         "time",
+        "json",
+        "atexit",
+        "contextlib",
+        "logging",
+        "os",
         "warnings",
         "optax",
         "collections",
@@ -144,14 +152,11 @@ def test_emit_script_rmhmc_template_valid_python() -> None:
 
 
 @pytest.mark.fast
-def test_emit_script_inference_choreography_has_no_tuningfork() -> None:
-    """The inference choreography (warmup + sampler + loop) has zero ``import tuningfork``.
+def test_emit_script_imports_only_canonical_tuningfork_dependencies() -> None:
+    """Generated programs import only canonical model/diagnostics dependencies.
 
-    The only tuningfork imports allowed in the whole script are
-    ``tuningfork.model`` and ``tuningfork.model._numpyro`` (model definition
-    + logdensity_fn builder).  Everything else — warmup call, sampler call,
-    inference loop — must go directly through BlackJAX so the emitted
-    choreography is auditable inline.
+    Warmup, sampler, and inference-loop implementation still go directly
+    through BlackJAX and remain auditable inline.
     """
     recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
     recipe = load_recipe(recipe_path)
@@ -172,10 +177,9 @@ def test_emit_script_inference_choreography_has_no_tuningfork() -> None:
         name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
     ]
     assert not disallowed, (
-        "Emitted script imports tuningfork modules outside the model-import "
+        "Emitted script imports tuningfork modules outside the canonical "
         f"allowlist {_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
-        "The inference choreography (warmup + sampler + loop) must be inline "
-        "and tuningfork-free; only the model definition is sourced upstream."
+        "The warmup, sampler, and inference loop must remain inline."
     )
 
 
@@ -892,6 +896,308 @@ def test_emit_script_warmup_inner_kernel_substitute_family_unchanged() -> None:
     )
 
 
+@pytest.mark.fast
+def test_no_warmup_replay_emits_pinned_hmc_geometry() -> None:
+    """Baked no-warmup HMC replay must carry step size and diagonal IMM."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={
+            "step_size": 0.03125,
+            "num_integration_steps": 7,
+            "inverse_mass_matrix": [1.0, 2.0],
+        },
+        warmup_params={},
+        calibration_budget={
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    script = emit_script(recipe, num_samples=2, num_chains=1)
+    assert "_default_step_size = 0.03125" in script
+    assert "_default_imm = jnp.asarray([1.0, 2.0])" in script
+    assert "_shared_step_size = _default_step_size" in script
+    assert "_shared_imm = _default_imm" in script
+
+
+@pytest.mark.fast
+def test_no_warmup_replay_rejects_missing_hmc_tuning() -> None:
+    """Baked replay fails closed instead of inventing identity tuning."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="nuts",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1},
+        warmup_params={},
+        calibration_budget={
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    with pytest.raises(
+        ValueError, match="No-warmup replay requires pinned inverse_mass_matrix"
+    ):
+        emit_script(recipe, num_samples=2)
+
+
+@pytest.mark.fast
+def test_adapted_hmc_sidecar_sentinel_is_not_emitted_inline() -> None:
+    """Adapted runs leave sidecar-backed IMM resolution to warmup."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={
+            "step_size": 0.1,
+            "num_integration_steps": 7,
+            "inverse_mass_matrix": "sidecar",
+        },
+        warmup_params={"n_warmup": 1},
+        calibration_budget={},
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    script = emit_script(recipe, num_samples=1, num_chains=1)
+    assert "jnp.asarray('sidecar')" not in script
+    assert "_default_imm = jnp.ones(_n_params)" in script
+
+
+@pytest.mark.fast
+def test_no_warmup_replay_rejects_sidecar_imm_sentinel() -> None:
+    """Pinned replay cannot defer IMM resolution to a sidecar at runtime."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={
+            "step_size": 0.1,
+            "num_integration_steps": 7,
+            "inverse_mass_matrix": "sidecar",
+        },
+        warmup_params={},
+        calibration_budget={
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    with pytest.raises(ValueError, match="numeric inline .*inverse_mass_matrix"):
+        emit_script(recipe, num_samples=1, num_chains=1)
+
+
+@pytest.mark.fast
+def test_pinned_laplace_replay_fails_closed() -> None:
+    """Laplace replay cannot silently replace its phi-space pinned metric."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="laplace_hmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={
+            "step_size": 0.1,
+            "num_integration_steps": 7,
+            "inverse_mass_matrix": [2.0],
+        },
+        warmup_params={},
+        calibration_budget={
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+    )
+
+    with pytest.raises(NotImplementedError, match="Pinned Laplace replay"):
+        emit_script(recipe, num_samples=1, num_chains=1)
+
+
+@pytest.mark.fast
+def test_meads_low_rank_configuration_fails_closed() -> None:
+    """Codegen must reject MEADS metric structures it cannot preserve."""
+    from dataclasses import replace
+
+    recipe = load_recipe(_CATALOG_ROOT / "mvn_10" / "recipes" / "low__ghmc__meads.json")
+    recipe = replace(
+        recipe,
+        warmup_params={**recipe.warmup_params, "low_rank_rank": 2},
+        warmups=[
+            {
+                "name": "meads",
+                "params": {**recipe.warmup_params, "low_rank_rank": 2},
+            }
+        ],
+    )
+
+    with pytest.raises(NotImplementedError, match="MEADS low-rank"):
+        emit_script(recipe, num_samples=1, num_warmup=1, num_chains=8)
+
+
+@pytest.mark.fast
+def test_legacy_baked_manifest_and_draws_basename_match() -> None:
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 9},
+        warmups=[],
+        calibration_budget={
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+    script = emit_script(recipe, num_samples=1, num_chains=1)
+    assert '"artifact_filename":"mvn_10__hmc__no_warmup.draws.npz"' in script
+    assert '"mvn_10" + "__" + "hmc" + "__" + "no_warmup"' in script
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    ("path", "warmup_marker", "param_marker"),
+    [
+        (
+            "tuningfork/catalog/mvn_10/recipes/low__dynamic_hmc__chees.json",
+            "blackjax.chees_adaptation",
+            "_next_random_arg_fn",
+        ),
+        (
+            "tuningfork/catalog/mvn_10/recipes/low__ghmc__meads.json",
+            "blackjax.meads_adaptation",
+            "momentum_inverse_scale",
+        ),
+    ],
+)
+def test_emit_ensemble_warmup_contract(
+    path: str, warmup_marker: str, param_marker: str
+) -> None:
+    recipe = load_recipe(path)
+    script = emit_script(recipe, num_samples=1, num_warmup=1, num_chains=4)
+    compile(script, path, "exec")
+    assert warmup_marker in script
+    assert param_marker in script
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("recipe_name", "num_chains"),
+    [
+        ("low__dynamic_hmc__chees.json", 4),
+        ("low__ghmc__meads.json", 8),
+    ],
+)
+def test_generated_ensemble_warmup_executes(
+    tmp_path: Path, recipe_name: str, num_chains: int
+) -> None:
+    """CHEES and MEADS execute through the same generated-program boundary."""
+    import numpy as np
+
+    from tuningfork.catalog import execute_recipe
+
+    recipe = load_recipe(_CATALOG_ROOT / "mvn_10" / "recipes" / recipe_name)
+    result = execute_recipe(
+        recipe,
+        tmp_path / recipe_name,
+        num_samples=2,
+        num_warmup=1,
+        num_chains=num_chains,
+        timeout=120,
+    )
+
+    assert result.artifact_path is not None
+    with np.load(result.artifact_path, allow_pickle=False) as artifact:
+        assert artifact["x"].shape == (num_chains, 2, 10)
+    assert result.timings is not None
+
+
+@pytest.mark.e2e
+def test_generated_pinned_reference_summary_replay_executes(tmp_path: Path) -> None:
+    """Pinned no-warmup replay initializes and samples every chain in codegen."""
+    import hashlib
+    import json
+    from dataclasses import replace
+
+    import numpy as np
+
+    from tuningfork.catalog import execute_recipe
+
+    recipe = load_recipe(
+        _CATALOG_ROOT
+        / "mvn_10"
+        / "recipes"
+        / "low__nuts__window_adaptation_diag_imm.json"
+    )
+    summary_path = _CATALOG_ROOT / "mvn_10" / "reference" / "summary.json"
+    raw_summary = summary_path.read_bytes()
+    summary = json.loads(raw_summary)
+    replay = replace(
+        recipe.normalize_pinned_replay(),
+        init_strategy={
+            "type": "reference_summary",
+            "mean": summary["mean"],
+            "std": summary["std"],
+            "offsets": [0.1, -0.1],
+            "source_path": "mvn_10/reference/summary.json",
+            "source_sha256": hashlib.sha256(raw_summary).hexdigest(),
+        },
+    )
+
+    result = execute_recipe(
+        replay,
+        tmp_path,
+        num_samples=3,
+        num_chains=2,
+        timeout=120,
+    )
+
+    assert result.artifact_path is not None
+    with np.load(result.artifact_path, allow_pickle=False) as artifact:
+        assert artifact["x"].shape == (2, 3, 10)
+    assert result.timings is not None
+    assert result.timings.warmup_seconds >= 0
+    assert result.timings.sampling_seconds >= 0
+
+
 @pytest.mark.e2e
 def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> None:
     """L2 fidelity test: emit_script's warmup produces valid adapted params.
@@ -1008,10 +1314,9 @@ def test_emit_script_laplace_high_recipe_is_valid_python() -> None:
 def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
     """D8: emitted laplace HIGH recipe has zero forbidden tuningfork imports.
 
-    The only allowed tuningfork imports are ``tuningfork.model`` and
-    ``tuningfork.model._numpyro``.  The inference choreography (laplace preamble
-    + multiphase warmup + sampler + inference loop) must be completely free of
-    tuningfork.warmup, tuningfork.recipes, tuningfork.calibration, etc.
+    Only the canonical model and optional diagnostics modules are allowed.
+    The inference choreography (laplace preamble + multiphase warmup + sampler
+    + inference loop) must not import warmup, recipes, calibration, etc.
 
     Also checks that blackjax is imported (required for the laplace kernels),
     and that ``from blackjax.mcmc.laplace_marginal import laplace_marginal_factory``
@@ -1040,7 +1345,7 @@ def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
     assert not disallowed, (
         "Emitted laplace HIGH script imports tuningfork modules outside the allowlist "
         f"{_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
-        "The inference choreography must be tuningfork-free (D8 STRICT)."
+        "The inference choreography must remain inline (D8 STRICT)."
     )
 
     # Positive checks: laplace_marginal_factory must be inlined (D8-compliant path).

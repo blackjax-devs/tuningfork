@@ -954,6 +954,68 @@ def test_from_warmup_only_bake_warmup_clears_warmup_name() -> None:
 
 
 @pytest.mark.fast
+def test_normalize_pinned_replay_is_lossless_and_preserves_provenance() -> None:
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="",
+        effort=Effort.FAILED,
+        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        warmup_params={"n_warmup": 12},
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 12}}],
+        warmup_num_chains=[1],
+        calibration_budget={
+            "baked_from": {"warmup_name": "legacy_name", "custom": "keep"},
+            "extra": {"evidence": True},
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        gate_evidence={"auto": {"verdict": "FAIL"}},
+        tuning_seed=0,
+    )
+    normalized = recipe.normalize_pinned_replay()
+    assert normalized.warmup_name == "no_warmup"
+    assert normalized.warmup_params == {}
+    assert normalized.warmups == [{"name": "no_warmup", "params": {}}]
+    assert normalized.warmup_num_chains is None
+    assert normalized.calibration_budget["baked_from"]["warmup_name"] == "legacy_name"
+    assert normalized.calibration_budget["baked_from"]["custom"] == "keep"
+    assert normalized.calibration_budget["baked_from"]["warmup_params"] == {
+        "n_warmup": 12
+    }
+    assert normalized.calibration_budget["extra"] == {"evidence": True}
+    assert normalized.effort is Effort.FAILED
+    assert normalized.gate_evidence == recipe.gate_evidence
+
+
+@pytest.mark.fast
+def test_catalog_stem_preserves_baked_warmup_and_variant_identity() -> None:
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="",
+        effort=Effort.LOW,
+        base_method_params={},
+        warmup_params={},
+        calibration_budget={
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
+        },
+        headline_metric=None,
+        sample_quality=None,
+        difficulty=None,
+        instructions="",
+        variant_label="policy_v1",
+    )
+    assert recipe.catalog_stem() == "low__policy_v1__window_adaptation_diag_imm"
+    assert (
+        recipe.catalog_stem(filename_tag="trial")
+        == "low__policy_v1__window_adaptation_diag_imm__trial"
+    )
+
+
+@pytest.mark.fast
 def test_from_warmup_only_effort_override() -> None:
     """from_warmup_only with effort=Effort.LOW produces a LOW recipe."""
     import jax

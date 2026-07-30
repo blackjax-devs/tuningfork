@@ -31,6 +31,55 @@ _STDERR_FILENAME = "stderr.log"
 _RECEIPT_FILENAME = "execution_receipt.json"
 _WORK_DIRECTORY = "work"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_TIMINGS_SENTINEL = "TUNINGFORK_TIMINGS "
+
+
+@dataclass(frozen=True)
+class ExecutionTimings:
+    """Validated wall-clock timings reported by a generated program."""
+
+    warmup_seconds: float
+    sampling_seconds: float
+    total_seconds: float
+
+
+def _parse_timings(stdout: bytes) -> ExecutionTimings | None:
+    """Parse the optional machine-readable timing sentinel from stdout."""
+    matches = [
+        line[len(_TIMINGS_SENTINEL) :]
+        for line in stdout.decode("utf-8", errors="replace").splitlines()
+        if line.startswith(_TIMINGS_SENTINEL)
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("stdout contains duplicate timing sentinels")
+    try:
+        payload = json.loads(matches[0])
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError("timing sentinel is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("timing sentinel payload must be an object")
+    required_fields = {"warmup_seconds", "sampling_seconds", "total_seconds"}
+    if set(payload) != required_fields:
+        raise ValueError(
+            "timing sentinel fields must be exactly " f"{sorted(required_fields)!r}"
+        )
+    values: list[float] = []
+    for name in ("warmup_seconds", "sampling_seconds", "total_seconds"):
+        value = payload.get(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"timing sentinel field {name!r} must be numeric")
+        value = float(value)
+        if not np.isfinite(value) or value < 0:
+            raise ValueError(
+                f"timing sentinel field {name!r} must be finite and non-negative"
+            )
+        values.append(value)
+    warmup, sampling, total = values
+    if total < warmup + sampling:
+        raise ValueError("timing sentinel total_seconds is less than its components")
+    return ExecutionTimings(warmup, sampling, total)
 
 
 @dataclass(frozen=True)
@@ -49,6 +98,7 @@ class LaunchResult:
     artifact_sha256: str | None
     manifest: ExecutionManifest
     receipt: ExecutionReceipt
+    timings: ExecutionTimings | None
 
 
 class GeneratedProgramError(RuntimeError):
@@ -306,6 +356,7 @@ def _finish_attempt(
     environment: Mapping[str, Any],
     reference_identity: Mapping[str, Any] | None,
     error: str | None,
+    timings: ExecutionTimings | None,
 ) -> LaunchResult:
     def build_receipt(receipt_error: str | None) -> ExecutionReceipt:
         return ExecutionReceipt.create(
@@ -360,6 +411,7 @@ def _finish_attempt(
         artifact_sha256=artifact_sha256,
         manifest=manifest,
         receipt=receipt,
+        timings=timings,
     )
 
 
@@ -437,6 +489,7 @@ def launch_generated_program(
     returncode: int | None = None
     timed_out = False
     error: str | None = None
+    timings: ExecutionTimings | None = None
     with (
         tempfile.TemporaryFile() as stdout_stream,
         tempfile.TemporaryFile() as stderr_stream,
@@ -477,6 +530,11 @@ def launch_generated_program(
         stdout_bytes = stdout_stream.read()
         stderr_stream.seek(0)
         stderr_bytes = stderr_stream.read()
+
+    try:
+        timings = _parse_timings(stdout_bytes)
+    except ValueError as exc:
+        error = _append_error(error, str(exc))
 
     source_path = run_dir / _PROGRAM_FILENAME
     for directory, label in (
@@ -683,6 +741,7 @@ def launch_generated_program(
         environment=environment,
         reference_identity=reference_identity,
         error=error,
+        timings=timings,
     )
     if result.receipt.status == "failed":
         raise GeneratedProgramError(
@@ -691,4 +750,9 @@ def launch_generated_program(
     return result
 
 
-__all__ = ["GeneratedProgramError", "LaunchResult", "launch_generated_program"]
+__all__ = [
+    "ExecutionTimings",
+    "GeneratedProgramError",
+    "LaunchResult",
+    "launch_generated_program",
+]

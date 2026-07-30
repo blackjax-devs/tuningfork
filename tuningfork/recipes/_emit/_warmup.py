@@ -95,6 +95,10 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
         body = _emit_mclmc_tuning(ctx)
     elif warmup_name == "mclmc_lrd_tuning":
         body = _emit_mclmc_lrd_tuning(ctx)
+    elif warmup_name == "chees":
+        body = _emit_chees(ctx)
+    elif warmup_name == "meads":
+        body = _emit_meads(ctx)
     else:
         raise ValueError(
             f"emit_warmup: unsupported warmup_name {warmup_name!r}. "
@@ -108,6 +112,85 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
 # ---------------------------------------------------------------------------
 # no_warmup
 # ---------------------------------------------------------------------------
+
+
+def _emit_chees(ctx: dict[str, Any]) -> str:
+    """Emit CHEES's joint multi-chain adaptation contract."""
+    n = ctx["n_warmup"]
+    target = ctx.get(
+        "wp_target_acceptance_rate", ctx.get("target_acceptance_rate", 0.651)
+    )
+    max_lf = ctx.get("wp_max_leapfrog_steps", 1000)
+    lr = ctx.get("wp_optim_learning_rate", 0.05)
+    step = ctx.get("bm_step_size", 0.5)
+    jitter = ctx.get("wp_init_jitter_scale", 0.5)
+    lines = [
+        f"# === WARMUP: chees (joint multi-chain, n_warmup={n}) ===",
+        "if num_chains < 1:",
+        "    raise ValueError('CHEES requires num_chains >= 1')",
+        "_chees = blackjax.chees_adaptation(logdensity_fn, num_chains, "
+        f"target_acceptance_rate={target}, max_leapfrog_steps={max_lf})",
+        "_chees_init_key = jax.random.fold_in(jax.random.key("
+        + str(ctx["tuning_seed"])
+        + "), 0xC4EE5717)",
+        "_chees_leaves, _chees_treedef = jax.tree.flatten(init_position)",
+        "_chees_keys = jax.random.split(_chees_init_key, len(_chees_leaves))",
+        "_chees_positions = jax.tree.map(lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position)",
+        f"_chees_positions = jax.tree.map(lambda x, k: x + {jitter!r} * jax.random.normal(k, x.shape, dtype=x.dtype), _chees_positions, jax.tree.unflatten(_chees_treedef, _chees_keys))",
+        "import optax",
+        f"_chees_optim = optax.adam({lr!r}, b1=0.0, b2=0.95)",
+        f"_chees_results, _ = _chees.run(jax.random.key({ctx['tuning_seed']}), _chees_positions, {step!r}, _chees_optim, num_steps={n})",
+        "_state_post_warmup = _chees_results.state",
+        "_chees_raw = _chees_results.parameters",
+        "_adapted_params = {",
+        '    "step_size": jnp.asarray(_chees_raw["step_size"]),',
+        '    "inverse_mass_matrix": jnp.asarray(_chees_raw["inverse_mass_matrix"]),',
+        '    "integration_steps_fn": _chees_raw["integration_steps_fn"],',
+        '    "next_random_arg_fn": _chees_raw["next_random_arg_fn"],',
+        '    "integration_steps_params": _chees_raw["integration_steps_params"],',
+        "}",
+        "_integration_steps_fn = _adapted_params['integration_steps_fn']",
+        "_next_random_arg_fn = _adapted_params['next_random_arg_fn']",
+        "_integration_steps_params = _adapted_params['integration_steps_params']",
+        "_warmup_is_perchain = False",
+    ]
+    return "\n".join(lines)
+
+
+def _emit_meads(ctx: dict[str, Any]) -> str:
+    """Emit MEADS's joint multi-chain GHMC adaptation contract."""
+    if ctx.get("wp_low_rank_rank") is not None:
+        raise NotImplementedError(
+            "MEADS low-rank adaptation is not yet represented losslessly by "
+            "code generation"
+        )
+    n = ctx["n_warmup"]
+    folds = ctx.get("wp_num_folds", 4)
+    mult = ctx.get("wp_step_size_multiplier", 0.5)
+    damp = ctx.get("wp_damping_slowdown", 1.0)
+    jitter = ctx.get("wp_init_jitter_scale", 0.5)
+    lines = [
+        f"# === WARMUP: meads (joint multi-chain, n_warmup={n}, num_folds={folds}) ===",
+        f"if num_chains < {folds!r}: raise ValueError('MEADS requires num_chains >= num_folds')",
+        "_meads = blackjax.meads_adaptation(logdensity_fn, num_chains, "
+        f"num_folds={folds}, step_size_multiplier={mult!r}, damping_slowdown={damp!r})",
+        f"_meads_init_key = jax.random.fold_in(jax.random.key({ctx['tuning_seed']}), 0x4EADD117)",
+        "_meads_positions = jax.tree.map(lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position)",
+        "_meads_leaves, _meads_treedef = jax.tree.flatten(_meads_positions)",
+        "_meads_leaf_keys = jax.random.split(_meads_init_key, len(_meads_leaves))",
+        f"_meads_positions = jax.tree.unflatten(_meads_treedef, [x + {jitter!r} * jax.random.normal(k, x.shape, dtype=x.dtype) for x, k in zip(_meads_leaves, _meads_leaf_keys)])",
+        f"_meads_results, _ = _meads.run(jax.random.key({ctx['tuning_seed']}), _meads_positions, num_steps={n})",
+        "_state_post_warmup = _meads_results.state",
+        "_meads_raw = _meads_results.parameters",
+        "_adapted_params = {",
+        '    "step_size": jnp.asarray(_meads_raw["step_size"]),',
+        '    "inverse_mass_matrix": jnp.concatenate([x.reshape(-1) for x in jax.tree.leaves(_meads_raw["momentum_inverse_scale"])]),',
+        '    "alpha": jnp.asarray(_meads_raw["alpha"]),',
+        '    "delta": jnp.asarray(_meads_raw["delta"]),',
+        "}",
+        "_warmup_is_perchain = False",
+    ]
+    return "\n".join(lines)
 
 
 def _emit_no_warmup() -> str:

@@ -26,6 +26,7 @@ Test isolates ``_load_from_cache`` (no JAX, no sampler invocation).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -154,9 +155,10 @@ def _failed_recipe():
 
 def test_regenerate_idata_is_exported() -> None:
     """regenerate_idata is accessible from the catalog public API."""
-    from tuningfork.catalog import regenerate_idata
+    from tuningfork.catalog import load_generated_idata, regenerate_idata
 
     assert callable(regenerate_idata)
+    assert callable(load_generated_idata)
 
 
 def test_regenerate_idata_signature() -> None:
@@ -193,7 +195,7 @@ def test_regenerate_idata_executes_generated_recipe(
         return SimpleNamespace(artifact_path=artifact)
 
     monkeypatch.setattr("tuningfork.catalog.emit.execute_recipe", _fake_execute)
-    monkeypatch.setattr(_mod, "_artifact_to_idata", lambda path: expected)
+    monkeypatch.setattr(_mod, "load_generated_idata", lambda path: expected)
 
     recipe = _failed_recipe()
 
@@ -272,6 +274,112 @@ def test_regenerate_idata_keeps_groundtruth_as_an_lfs_backed_load(
     )
 
     assert _mod.regenerate_idata(recipe, catalog_root=tmp_path) is expected
+    assert calls == [(recipe, tmp_path)]
+
+
+def test_cached_force_regeneration_uses_generated_execution_and_recipe_sample_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Forced cache population goes through codegen with the pinned draw count."""
+    import tuningfork.catalog._rerun_inference as _mod
+    from tuningfork.recipes._base import Effort
+
+    recipe = _failed_recipe()
+    recipe = replace(
+        recipe,
+        effort=Effort.LOW,
+        calibration_budget={"n_samples": 37, "num_chains": 3},
+        tuning_seed=73,
+    )
+    calls: list[tuple[object, Path, dict[str, object]]] = []
+    expected = object()
+
+    def _execute(r, run_root, **kwargs):
+        calls.append((r, run_root, kwargs))
+        return SimpleNamespace(artifact_path=tmp_path / "generated.npz")
+
+    monkeypatch.setattr(
+        "tuningfork.catalog.emit.execute_recipe",
+        _execute,
+    )
+    (tmp_path / "generated.npz").write_bytes(b"placeholder")
+    monkeypatch.setattr(_mod, "load_generated_idata", lambda path: expected)
+    monkeypatch.setattr(_mod, "_save_to_cache", lambda *args: None)
+    monkeypatch.setattr(_mod, "_write_cache_params_sidecar", lambda *args: None)
+
+    assert (
+        _mod.cached_idata_for_recipe(
+            recipe, catalog_root=tmp_path, force_regenerate=True
+        )
+        is expected
+    )
+    assert len(calls) == 1
+    copied, run_root, kwargs = calls[0]
+    assert getattr(copied, "tuning_seed") == recipe.tuning_seed
+    assert run_root == tmp_path / recipe.model_name / "_cache" / "generated_runs"
+    assert kwargs == {"num_samples": 37}
+
+
+def test_cached_force_regeneration_preserves_zero_seed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seed zero is an executable value, not an absent configuration."""
+    import tuningfork.catalog._rerun_inference as _mod
+    from tuningfork.recipes._base import Effort
+
+    recipe = replace(_failed_recipe(), effort=Effort.LOW, tuning_seed=0)
+    calls: list[dict[str, object]] = []
+
+    def _regenerate(_recipe, **kwargs):
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(
+        _mod,
+        "regenerate_idata",
+        _regenerate,
+    )
+    monkeypatch.setattr(_mod, "_save_to_cache", lambda *args: None)
+    monkeypatch.setattr(_mod, "_write_cache_params_sidecar", lambda *args: None)
+
+    _mod.cached_idata_for_recipe(recipe, catalog_root=tmp_path, force_regenerate=True)
+
+    assert calls[0]["seed"] == 0
+
+
+def test_cached_groundtruth_force_is_load_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Groundtruth always loads its LFS artifact, ignoring cache regeneration."""
+    import tuningfork.catalog._rerun_inference as _mod
+
+    expected = object()
+    recipe = SimpleNamespace(
+        effort=SimpleNamespace(value="groundtruth"), model_name="mvn_10"
+    )
+    calls: list[tuple[object, Path]] = []
+
+    def _load(value, *, cache_dir):
+        calls.append((value, cache_dir))
+        return expected
+
+    monkeypatch.setattr(
+        "tuningfork.catalog.render.load_idata",
+        _load,
+    )
+    monkeypatch.setattr(
+        "tuningfork.catalog.emit.execute_recipe",
+        lambda *args, **kwargs: pytest.fail(
+            "groundtruth must not execute generated code"
+        ),
+    )
+
+    assert (
+        _mod.cached_idata_for_recipe(
+            recipe, catalog_root=tmp_path, force_regenerate=True
+        )
+        is expected
+    )
     assert calls == [(recipe, tmp_path)]
 
 

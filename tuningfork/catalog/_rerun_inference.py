@@ -40,7 +40,11 @@ if TYPE_CHECKING:
 
 _CATALOG_ROOT = Path(__file__).parent
 
-__all__ = ["cached_idata_for_recipe", "regenerate_idata"]
+__all__ = [
+    "cached_idata_for_recipe",
+    "load_generated_idata",
+    "regenerate_idata",
+]
 
 
 def cached_idata_for_recipe(
@@ -100,15 +104,26 @@ def cached_idata_for_recipe(
     else:
         catalog_root = Path(catalog_root)
 
-    # Derive cache stem from recipe identity
-    # For GROUNDTRUTH: use "groundtruth"
-    # For others: use effort__sampler__warmup
-    if recipe.effort.value == "groundtruth":
-        recipe_stem = "groundtruth"
-    else:
-        recipe_stem = (
-            f"{recipe.effort.value}__{recipe.base_method_name}__{recipe.warmup_name}"
-        )
+    # Groundtruth is an LFS-backed artifact, not a recipe to execute.  Keep
+    # this path load-only even when callers request force regeneration; in
+    # particular, never create a derived cache entry for groundtruth.
+    if getattr(getattr(recipe, "effort", None), "value", None) == "groundtruth":
+        from tuningfork.catalog.render import load_idata
+
+        return load_idata(recipe, cache_dir=catalog_root)
+
+    # FAILED recipes intentionally remain non-executable through this cache
+    # helper.  ``regenerate_idata`` is a separate explicit diagnostic API that
+    # permits failed-config execution, but populating the ordinary cache must
+    # preserve the fail-closed contract.
+    if getattr(getattr(recipe, "effort", None), "value", None) == "failed":
+        from tuningfork.recipes._base import RecipeFailedError
+
+        raise RecipeFailedError(recipe)
+
+    # Keep cache identity aligned with Recipe.save(), including baked warmup
+    # provenance and variant labels.
+    recipe_stem = recipe.catalog_stem()
 
     # Construct cache paths
     cache_dir = catalog_root / recipe.model_name / "_cache"
@@ -128,10 +143,20 @@ def cached_idata_for_recipe(
             f"directly if you don't want to persist."
         )
 
-    # Explicit re-sample: run the pipeline and persist to cache.
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
-
-    idata = run_recipe_to_idata(recipe, catalog_root=catalog_root)
+    # Explicit re-sample: execute the public generated program and persist its
+    # verified artifact to the ordinary cache.  Resolve the recipe's configured
+    # sample count rather than silently replacing it with a helper default.
+    configured_samples = (
+        (recipe.calibration_budget or {}).get("n_samples")
+        or (recipe.warmup_params or {}).get("n_samples")
+        or 1000
+    )
+    regeneration_options: dict[str, Any] = {
+        "n_samples": int(configured_samples),
+        "catalog_root": catalog_root,
+    }
+    regeneration_options["seed"] = recipe.tuning_seed
+    idata = regenerate_idata(recipe, **regeneration_options)
     _save_to_cache(idata, draws_cache, stats_cache)
     # Stale-cache guard (issue #244): co-write a params sidecar beside the draws
     # cache so a later `make revalidate-w1` can tell whether these draws still
@@ -234,10 +259,10 @@ def regenerate_idata(
         raise RuntimeError(
             "Generated recipe execution succeeded without a verified artifact"
         )
-    return _artifact_to_idata(result.artifact_path)
+    return load_generated_idata(result.artifact_path)
 
 
-def _artifact_to_idata(artifact_path: Path | str) -> arviz.InferenceData:
+def load_generated_idata(artifact_path: Path | str) -> arviz.InferenceData:
     """Load a verified generated ``.npz`` artifact into InferenceData."""
     from tuningfork.catalog.diagnostics import samples_to_idata
 
@@ -292,6 +317,11 @@ def _artifact_to_idata(artifact_path: Path | str) -> arviz.InferenceData:
         chain_stats=chain_stats or None,
         n_chunks=1,
     )
+
+
+# Private compatibility name for callers written before the artifact adapter
+# became part of the generated-execution API.
+_artifact_to_idata = load_generated_idata
 
 
 def _load_from_cache(

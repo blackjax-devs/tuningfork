@@ -25,6 +25,9 @@ Coverage:
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -576,3 +579,116 @@ class TestCellRegenSeed:
         s1 = _cell_regen_seed(key, base_seed=42)
         s2 = _cell_regen_seed(key, base_seed=0)
         assert s1 != s2
+
+
+class TestGeneratedResampling:
+    """Generated execution is used for both re-generation paths."""
+
+    def _recipe(self):
+        @dataclass(frozen=True)
+        class RecipeStub:
+            warmup_name: str
+            warmup_params: dict
+            warmups: list
+            warmup_num_chains: list | None
+            base_method_params: dict
+            tuning_seed: int = 0
+            init_strategy: dict | None = None
+
+            def normalize_pinned_replay(self):
+                from dataclasses import replace
+
+                return replace(
+                    self,
+                    warmup_name="no_warmup",
+                    warmup_params={},
+                    warmups=[{"name": "no_warmup", "params": {}}],
+                    warmup_num_chains=None,
+                )
+
+        return RecipeStub(
+            "window_adaptation_diag_imm",
+            {"n_warmup": 100},
+            [{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 100}}],
+            [1],
+            {"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        )
+
+    def test_path_b_uses_generated_no_warmup_and_pinned_params(
+        self, tmp_path, monkeypatch
+    ):
+        from tuningfork.calibration import revalidation
+
+        recipe = self._recipe()
+        summary_dir = tmp_path / "model" / "reference"
+        summary_dir.mkdir(parents=True)
+        (summary_dir / "summary.json").write_text(
+            json.dumps({"mean": {"x": [0.0]}, "std": {"x": [1.0]}})
+        )
+        artifact = tmp_path / "draws.npz"
+        np.savez(
+            artifact,
+            x=np.ones((2, 3, 1)),
+            _ss_is_divergent=np.array([[False, True, False], [False, False, False]]),
+        )
+        calls = []
+        monkeypatch.setattr(
+            "tuningfork.catalog.inspect.load_recipe", lambda _path: recipe
+        )
+        monkeypatch.setattr(
+            "tuningfork.catalog.emit.execute_recipe",
+            lambda configured, run_root, **kwargs: (
+                calls.append((configured, run_root, kwargs))
+                or SimpleNamespace(artifact_path=artifact)
+            ),
+        )
+
+        draws, n_div = revalidation._resample_with_divcount(
+            tmp_path / "model" / "recipes" / "recipe.json",
+            3,
+            skip_warmup=True,
+            seed=17,
+        )
+
+        configured, run_root, kwargs = calls[0]
+        assert configured is not recipe
+        assert configured.warmup_name == "no_warmup"
+        assert configured.tuning_seed == 17
+        assert configured.init_strategy["type"] == "reference_summary"
+        assert configured.init_strategy["mean"] == {"x": [0.0]}
+        assert configured.warmup_params == {}
+        assert configured.warmups == [{"name": "no_warmup", "params": {}}]
+        assert configured.base_method_params == recipe.base_method_params
+        assert run_root == tmp_path / "model" / "_cache" / "generated_runs"
+        assert kwargs == {"num_samples": 3}
+        np.testing.assert_array_equal(draws["x"], np.ones((2, 3, 1)))
+        assert n_div == 1
+
+    def test_path_c_executes_unchanged_recipe(self, tmp_path, monkeypatch):
+        from tuningfork.calibration import revalidation
+
+        recipe = self._recipe()
+        recipe = dataclass_replace(recipe, tuning_seed=99)
+        artifact = tmp_path / "draws.npz"
+        np.savez(artifact, x=np.zeros((1, 2, 1)))
+        calls = []
+        monkeypatch.setattr(
+            "tuningfork.catalog.inspect.load_recipe", lambda _path: recipe
+        )
+        monkeypatch.setattr(
+            "tuningfork.catalog.emit.execute_recipe",
+            lambda configured, run_root, **kwargs: (
+                calls.append((configured, kwargs))
+                or SimpleNamespace(artifact_path=artifact)
+            ),
+        )
+
+        revalidation._resample_with_divcount(
+            tmp_path / "model" / "recipes" / "recipe.json",
+            2,
+            skip_warmup=False,
+            seed=23,
+        )
+
+        assert calls[0][0].tuning_seed == 23
+        assert calls[0][1] == {"num_samples": 2}

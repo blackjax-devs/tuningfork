@@ -33,6 +33,10 @@ emit_step_policy(spec) -> str
 
 from __future__ import annotations
 
+from tuningfork.recipes._emit._diagnostics import (
+    emit_diagnostics,
+    emit_diagnostics_close,
+)
 from tuningfork.recipes._emit._init_strategy import emit_init_strategy
 from tuningfork.recipes._emit._laplace_preamble import emit_laplace_preamble
 from tuningfork.recipes._emit._postamble import emit_postamble
@@ -42,6 +46,8 @@ from tuningfork.recipes._emit._step_policy import emit_step_policy
 from tuningfork.recipes._emit._warmup import emit_warmup
 
 __all__ = [
+    "emit_diagnostics",
+    "emit_diagnostics_close",
     "emit_init_strategy",
     "emit_preamble",
     "emit_laplace_preamble",

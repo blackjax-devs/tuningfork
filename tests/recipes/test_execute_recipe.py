@@ -107,5 +107,29 @@ def test_execute_recipe_propagates_generated_program_error(monkeypatch):
 
 def test_execute_recipe_public_exports():
     assert catalog.execute_recipe is emit_module.execute_recipe
+    assert catalog.ExecutionTimings is emit_module.ExecutionTimings
     assert catalog.LaunchResult is emit_module.LaunchResult
     assert catalog.GeneratedProgramError is emit_module.GeneratedProgramError
+
+
+def test_execute_recipe_diagnostics_sets_child_environment(monkeypatch):
+    calls = []
+    monkeypatch.setattr(emit_module, "emit_script", lambda *args, **kwargs: "source")
+    monkeypatch.setattr(
+        emit_module,
+        "launch_generated_program",
+        lambda *args, **kwargs: (calls.append(kwargs) or object()),
+    )
+
+    emit_module.execute_recipe(object(), Path("runs"), diagnostics=True)
+    assert calls[0]["env"] == {"TUNINGFORK_TAP_DIAGNOSTICS": "1"}
+
+
+def test_execute_recipe_diagnostics_rejects_conflicting_environment():
+    with pytest.raises(ValueError, match="diagnostics conflicts"):
+        emit_module.execute_recipe(
+            object(),
+            Path("runs"),
+            diagnostics=False,
+            env={"TUNINGFORK_TAP_DIAGNOSTICS": "1"},
+        )

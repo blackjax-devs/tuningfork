@@ -68,6 +68,16 @@ def resolve_execution_plan(
     recipe: Recipe, overrides: ExecutionOverrides | None = None
 ) -> ExecutionPlan:
     """Resolve defaults and overrides, rejecting ambiguous executable values."""
+    # Legacy baked recipes blanked warmup_name/warmups.  Normalize once at the
+    # plan boundary so stage counts, manifests, and emitted source agree.
+    budget = getattr(recipe, "calibration_budget", {}) or {}
+    if (
+        getattr(recipe, "warmup_name", None) == ""
+        and isinstance(budget, Mapping)
+        and isinstance(budget.get("baked_from"), Mapping)
+        and hasattr(recipe, "normalize_pinned_replay")
+    ):
+        recipe = recipe.normalize_pinned_replay()
     ov = overrides or ExecutionOverrides()
     if not isinstance(ov, ExecutionOverrides):
         raise TypeError("overrides must be an ExecutionOverrides instance")
@@ -193,11 +203,19 @@ def resolve_execution_plan(
     init_kind = (
         init_strategy.get("type") if isinstance(init_strategy, Mapping) else None
     )
-    if init_kind in {"uniform_perchain", "zero_perchain"}:
-        if nphases != 1 or stages[0]["name"] not in window_names or ws[0] != chains:
+    if init_kind in {"uniform_perchain", "zero_perchain", "reference_summary"}:
+        single_phase = nphases == 1 and ws[0] == chains
+        # Adaptation can consume per-chain initial positions directly.  A
+        # normalized pinned replay has no adaptation stage, but still needs
+        # the same pre-batched (one row per sampling chain) contract.
+        valid_topology = single_phase and (
+            stages[0]["name"] in window_names
+            or (init_kind == "reference_summary" and stages[0]["name"] == "no_warmup")
+        )
+        if not valid_topology:
             raise ValueError(
                 f"init_strategy type={init_kind!r} requires a single-phase "
-                "window-adaptation warmup with W=S; got "
+                "window-adaptation or no-warmup topology with W=S; got "
                 f"stages={tuple(stage['name'] for stage in stages)!r}, "
                 f"W={tuple(ws)!r}, S={chains}"
             )

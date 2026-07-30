@@ -27,6 +27,9 @@ Design decisions
   tuningfork`` — it's auditable in one file and shows the exact BlackJAX
   call shape.  The **model** is imported via ``from tuningfork.model import
   MODELS`` (canonical NumPyro code lives upstream; not duplicated here).
+  Opt-in tap instrumentation is imported from
+  ``tuningfork.diagnostics._tap`` so its compatibility and artifact policy
+  stays single-sourced.
   This avoids template-drift risk on the largest, most-stable code surface
   while preserving the design-smell forcing function on the actual wiring
   layer (per Principle A — heavy sampler/warmup template = upstream BlackJAX
@@ -45,6 +48,8 @@ from typing import TYPE_CHECKING
 
 from tuningfork._version import __version__
 from tuningfork.recipes._emit import (
+    emit_diagnostics,
+    emit_diagnostics_close,
     emit_init_strategy,
     emit_laplace_preamble,
     emit_postamble,
@@ -86,6 +91,23 @@ _WARMUP_TIMING_BLOCK_NO_WARMUP = (
 # after warmup). Resolved at emit time — no try/except NameError needed.
 _STATE_REINIT_SAMPLERS = frozenset(
     {"dynamic_hmc", "dmhmc", "ghmc", "laplace_dhmc", "laplace_dmhmc"}
+)
+
+_REPLAY_HMC_SAMPLERS = frozenset(
+    {
+        "nuts",
+        "hmc",
+        "mhmc",
+        "rmhmc",
+        "dynamic_hmc",
+        "dmhmc",
+        "ghmc",
+        "barker",
+    }
+)
+
+_UNSUPPORTED_PINNED_REPLAY_SAMPLERS = frozenset(
+    {"laplace_hmc", "laplace_mhmc", "laplace_dhmc", "laplace_dmhmc"}
 )
 
 # The generated ``sample_stats`` payload is intentionally a fixed matrix of
@@ -243,8 +265,11 @@ def _build_inference_loop(
     use_progress_bar: bool,
     warmup_is_perchain: bool,
     warmup_init_is_single_chain: bool,
+    warmup_init_is_prebatched: bool = False,
     needs_state_reinit: bool,
     has_per_chain_L: bool = False,
+    no_warmup_step_size_expr: str = 'float(_adapted_params.get("step_size", 1.0))',
+    no_warmup_imm_expr: str = "jnp.ones(_n_dims)",
 ) -> str:
     """Build straight-line inference loop code with all branches resolved at emit time.
 
@@ -285,7 +310,20 @@ def _build_inference_loop(
     a("")
 
     # Step-size / IMM resolution
-    if warmup_init_is_single_chain:
+    if warmup_init_is_prebatched:
+        a("# no_warmup: init strategy already supplied one position per chain.")
+        a("from jax.flatten_util import ravel_pytree as _il_ravel")
+        a("_il_flat, _ = _il_ravel(init_position)")
+        a("_n_dims = int(_il_flat.shape[-1])")
+        a(
+            f"_batched_step_size = jnp.broadcast_to({no_warmup_step_size_expr}, (num_chains,))"
+        )
+        a(
+            f"_batched_imm = jnp.broadcast_to({no_warmup_imm_expr}, (num_chains,) + jnp.asarray({no_warmup_imm_expr}).shape)"
+        )
+        a(f"_init_keys = jax.random.split(jax.random.key({reinit_seed}), num_chains)")
+        a("_state_post_warmup = jax.vmap(_state_init)(init_position, _init_keys)")
+    elif warmup_init_is_single_chain:
         # no_warmup: broadcast state, set defaults
         a("# no_warmup: broadcast init_position-derived state to (num_chains, ...).")
         a(
@@ -293,18 +331,18 @@ def _build_inference_loop(
             "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
             " _state_post_warmup)"
         )
-        a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
+        a(f"_shared_step_size = {no_warmup_step_size_expr}")
         a("from jax.flatten_util import ravel_pytree as _il_ravel")
         a("_il_flat, _ = _il_ravel(init_position)")
         a("_n_dims = int(_il_flat.shape[0])")
-        a("_shared_imm = jnp.ones(_n_dims)")
+        a(f"_shared_imm = {no_warmup_imm_expr}")
     elif not warmup_is_perchain:
         # Single-chain warmup → scalar shared params
         a("# Single-chain warmup: adapted params are scalar / un-batched.")
         a('_shared_step_size = _adapted_params["step_size"]')
         a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
 
-    if needs_state_reinit:
+    if needs_state_reinit and not warmup_init_is_prebatched:
         a("")
         a(
             "# Re-init per-chain state (dynamic_hmc / dmhmc / ghmc: different state"
@@ -314,7 +352,7 @@ def _build_inference_loop(
             f"_reinit_keys = jax.random.split(jax.random.key({reinit_seed}),"
             f" num_chains)"
         )
-        if warmup_is_perchain:
+        if warmup_is_perchain and not warmup_init_is_prebatched:
             a('_batched_step_size = _adapted_params["step_size"]')
             a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
             a(
@@ -355,8 +393,9 @@ def _build_inference_loop(
         )
     elif warmup_is_perchain:
         a("# Per-chain warmup: each chain gets its own (step_size, imm).")
-        a('_batched_step_size = _adapted_params["step_size"]')
-        a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+        if not warmup_init_is_prebatched:
+            a('_batched_step_size = _adapted_params["step_size"]')
+            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
         a("")
         a("def _step_one_chain(state, key, step_size, imm):")
         a("    return kernel_builder(step_size, imm)(key, state)")
@@ -519,6 +558,15 @@ def emit_script(
         If the requested warmup chain topology is not supported by code
         generation.
     """
+    # Keep legacy baked recipes on the same canonical executable identity as
+    # the execution-plan resolver (zero-step ``no_warmup`` stage).
+    _budget = getattr(recipe, "calibration_budget", {}) or {}
+    if (
+        getattr(recipe, "warmup_name", None) == ""
+        and isinstance(_budget, dict)
+        and isinstance(_budget.get("baked_from"), dict)
+    ):
+        recipe = recipe.normalize_pinned_replay()
     plan = resolve_execution_plan(
         recipe,
         ExecutionOverrides(
@@ -533,6 +581,7 @@ def emit_script(
     )
     manifest = ExecutionManifest.from_plan(plan, generator_version=__version__)
     config = plan.config
+    config_values = config.as_dict()
     sampler_seed = config.sampler_seed
     reinit_seed = config.reinit_seed
     num_samples = config.num_samples
@@ -598,20 +647,20 @@ def emit_script(
         "warmup_progress_bar": _warmup_pb,
         "sampling_progress_bar": _sampling_pb,
     }
-    _init_strategy = (
-        None if config.init_strategy is None else dict(config.init_strategy)
-    )
+    _init_strategy = config_values["init_strategy"]
     _init_strategy_kind = (
         "prior_sample" if _init_strategy is None else _init_strategy.get("type")
     )
     ctx["init_position_is_prebatched"] = _init_strategy_kind in {
         "uniform_perchain",
         "zero_perchain",
+        "reference_summary",
     }
     init_body = emit_init_strategy(_init_strategy, num_chains)
     step_policy_body = (
-        emit_step_policy(config.step_policy)
+        emit_step_policy(config_values["step_policy"])
         if recipe.base_method_name in {"dynamic_hmc", "dmhmc"}
+        and recipe.warmup_name != "chees"
         else None
     )
     # T1.5: resolve postamble info-diagnostics and draws-stats blocks at emit time.
@@ -676,6 +725,37 @@ def emit_script(
     # them reference $bm_step_size, $bm_num_integration_steps, $wp_n_warmup, etc.
     ctx.update({f"bm_{k}": v for k, v in recipe.base_method_params.items()})
     ctx.update({f"wp_{k}": v for k, v in recipe.warmup_params.items()})
+
+    # A baked recipe has no adaptation phase: replay must use the exact pinned
+    # sampler geometry, rather than silently falling back to library defaults.
+    # Legacy ``no_warmup`` scaffolds remain allowed to use identity IMM.
+    _is_no_warmup = recipe.warmup_name in {"", "no_warmup"}
+    _is_baked_replay = recipe.warmup_name == "" or bool(
+        isinstance(recipe.calibration_budget, dict)
+        and recipe.calibration_budget.get("baked_from")
+    )
+    ctx["is_baked_replay"] = _is_baked_replay
+    if (
+        _is_baked_replay
+        and recipe.base_method_name in _UNSUPPORTED_PINNED_REPLAY_SAMPLERS
+    ):
+        raise NotImplementedError(
+            "Pinned Laplace replay requires a phi-space reference initializer "
+            "and metric representation; code generation refuses to substitute "
+            "an identity inverse mass matrix."
+        )
+    if _is_baked_replay and recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _missing = [
+            key
+            for key in ("step_size", "inverse_mass_matrix")
+            if recipe.base_method_params.get(key) is None
+        ]
+        if _missing:
+            raise ValueError(
+                "No-warmup replay requires pinned "
+                f"{', '.join(_missing)} for {recipe.base_method_name}; "
+                "refusing to invent sampler tuning."
+            )
 
     # The warmup template needs to call the right blackjax algorithm. The recipe-
     # runner uses `resolve_warmup_algorithm` which substitutes `blackjax.nuts` for
@@ -957,12 +1037,14 @@ def emit_script(
             "laplace_multiphase_warmup",
             "mclmc_tuning",
             "mclmc_lrd_tuning",
+            "chees",
+            "meads",
         }
     )
     _effective_warmup_name = (
         "laplace_multiphase_warmup"
         if (_is_laplace and _is_multiphase_warmup)
-        else recipe.warmup_name
+        else ("no_warmup" if _is_no_warmup else recipe.warmup_name)
     )
     if _effective_warmup_name in _EMIT_WARMUP_NAMES:
         warmup_body = emit_warmup(_effective_warmup_name, _bm_entry, ctx)
@@ -1015,16 +1097,16 @@ def emit_script(
     )
     if recipe.base_method_name in _EMIT_SAMPLER_NAMES:
         # A2: Python emit-function (descriptor-driven; no .tmpl file).
+        ctx["chees_adapted"] = recipe.warmup_name == "chees"
         sampler_body = emit_sampler(_bm_entry, ctx)
     else:
         sampler_body = _load_template(
             f"samplers/{recipe.base_method_name}.py.tmpl"
         ).safe_substitute(ctx)
-
     # T1.3: strip the try/except NameError _state_post_warmup block from
     # sampler templates for non-no_warmup recipes (dead code for those paths).
     # For no_warmup, the block is the initialization path and must be kept.
-    if recipe.warmup_name != "no_warmup":
+    if not _is_no_warmup or ctx["init_position_is_prebatched"]:
         sampler_body = _strip_no_warmup_try_block(sampler_body)
 
     # T1.1: resolve the 3 inference-loop sentinels at emit time.
@@ -1032,7 +1114,12 @@ def emit_script(
     # base_method_name) — no runtime try/except NameError probes needed.
     #
     # _warmup_init_is_single_chain: True iff warmup_name == "no_warmup"
-    _resolved_warmup_init_is_single_chain = recipe.warmup_name == "no_warmup"
+    _resolved_warmup_init_is_single_chain = (
+        _is_no_warmup and not ctx["init_position_is_prebatched"]
+    )
+    _resolved_warmup_init_is_prebatched = (
+        _is_no_warmup and ctx["init_position_is_prebatched"]
+    )
 
     # _warmup_is_perchain: True iff the selected warmup template sets it True.
     # Specifically: multichain window_adaptation templates + VI warmups +
@@ -1054,6 +1141,7 @@ def emit_script(
         _uses_multichain_warmup_tmpl
         or recipe.warmup_name in _VI_WARMUP_NAMES
         or recipe.warmup_name in _MCLMC_WARMUP_NAMES
+        or _resolved_warmup_init_is_prebatched
     )
     # mclmc warmups also return per-chain L — the inference loop needs a
     # separate batched_L vmap axis alongside step_size and imm.
@@ -1065,13 +1153,22 @@ def emit_script(
         recipe.base_method_name in _STATE_REINIT_SAMPLERS
         or ctx["_laplace_needs_warmup_state_reinit"]
     )
+    if (recipe.base_method_name, recipe.warmup_name) in {
+        ("dynamic_hmc", "chees"),
+        ("ghmc", "meads"),
+    }:
+        _resolved_needs_state_reinit = False
+
+    _no_warmup_step_expr = 'float(_adapted_params.get("step_size", 1.0))'
+    _no_warmup_imm_expr = "jnp.ones(_n_dims)"
+    if recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _no_warmup_step_expr = "_default_step_size"
+        _no_warmup_imm_expr = "_default_imm"
 
     # T1.4: emit timing block without try/except — no_warmup path omits
     # block_until_ready (state not yet set at this point in assembly).
     _timing_block = (
-        _WARMUP_TIMING_BLOCK_NO_WARMUP
-        if _resolved_warmup_init_is_single_chain
-        else _WARMUP_TIMING_BLOCK_WARMUP
+        _WARMUP_TIMING_BLOCK_NO_WARMUP if _is_no_warmup else _WARMUP_TIMING_BLOCK_WARMUP
     )
 
     # T1.1: build straight-line inference loop (no try/except NameError probes).
@@ -1083,10 +1180,15 @@ def emit_script(
         use_progress_bar=_sampling_pb,
         warmup_is_perchain=_resolved_warmup_is_perchain,
         warmup_init_is_single_chain=_resolved_warmup_init_is_single_chain,
+        warmup_init_is_prebatched=_resolved_warmup_init_is_prebatched,
         needs_state_reinit=_resolved_needs_state_reinit,
         has_per_chain_L=_resolved_has_per_chain_L,
+        no_warmup_step_size_expr=_no_warmup_step_expr,
+        no_warmup_imm_expr=_no_warmup_imm_expr,
     )
 
+    diagnostics_body = emit_diagnostics(ctx)
+    ctx["diagnostics_close_body"] = emit_diagnostics_close()
     postamble = emit_postamble(ctx)
 
     # Laplace setup first narrows the full model position to phi-space. The
@@ -1097,7 +1199,7 @@ def emit_script(
     sections = [preamble]
     if _is_laplace:
         sections.append(emit_laplace_preamble(ctx))
-    sections.extend([init_body, warmup_body, _timing_block])
+    sections.extend([init_body, diagnostics_body, warmup_body, _timing_block])
     if step_policy_body is not None:
         sections.append(step_policy_body)
     sections.extend([sampler_body, inference_loop, postamble])

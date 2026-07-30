@@ -134,7 +134,42 @@ def test_valid_init_strategy_types_constant() -> None:
         "uniform",
         "zero_perchain",
         "uniform_perchain",
+        "reference_summary",
     }
+
+
+def test_reference_summary_rejects_nonfinite_and_shape_mismatch() -> None:
+    valid: dict[str, Any] = {
+        "type": "reference_summary",
+        "mean": {"x": [0.0, 1.0]},
+        "std": {"x": [1.0, 2.0]},
+        "offsets": [0.1, -0.1],
+        "source_path": "model/reference/summary.json",
+        "source_sha256": "0" * 64,
+    }
+    validate_init_strategy(valid)
+    with pytest.raises(ValueError, match="non-finite"):
+        validate_init_strategy({**valid, "mean": {"x": [float("nan")]}})
+    with pytest.raises(ValueError, match="shapes"):
+        validate_init_strategy({**valid, "std": {"x": [1.0]}})
+    with pytest.raises(ValueError, match="lowercase"):
+        validate_init_strategy({**valid, "source_sha256": "A" * 64})
+
+
+def test_reference_summary_validates_every_leaf_and_rejects_boolean_offsets() -> None:
+    valid: dict[str, Any] = {
+        "type": "reference_summary",
+        "mean": {"x": [0.0, 1.0], "y": [[2.0], [3.0]]},
+        "std": {"x": [1.0, 2.0], "y": [[0.5], [0.25]]},
+        "offsets": [0.1, -0.1],
+        "source_path": "model/reference/summary.json",
+        "source_sha256": "0" * 64,
+    }
+    validate_init_strategy(valid)
+    with pytest.raises(ValueError, match=r"mean/std\['x'\] shapes"):
+        validate_init_strategy({**valid, "std": {**valid["std"], "x": [1.0]}})
+    with pytest.raises(ValueError, match="booleans"):
+        validate_init_strategy({**valid, "offsets": [True]})
 
 
 # ---------------------------------------------------------------------------

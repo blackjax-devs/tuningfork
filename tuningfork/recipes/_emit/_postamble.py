@@ -35,7 +35,8 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     ctx : dict
         Substitution context from ``emit_script()``.
         Required keys: info_diagnostics_block, draws_ss_block,
-        model_name, base_method_name, warmup_name, recipe_id.
+        diagnostics_close_body, model_name, base_method_name, warmup_name,
+        recipe_id.
 
     Returns
     -------
@@ -53,6 +54,7 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     a("# buffer-pool contention (same deadlock pattern as the gp_regression recert")
     a("# hang, 2026-05-28).")
     a("jax.block_until_ready((_samples, _infos))")
+    a(ctx["diagnostics_close_body"])
     a("")
     a("# Timing split: warmup vs sampling -- stamped immediately after the sync so the")
     a("# clock captures actual compute wall, not dispatch latency.")
@@ -108,6 +110,9 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     a('    f" sampling_wall_seconds={_sampling_wall:.1f}"')
     a('    f" wall_seconds={_recipe_wall:.1f}"')
     a(")")
+    a(
+        'print("TUNINGFORK_TIMINGS " + json.dumps({"sampling_seconds": _sampling_wall, "total_seconds": _recipe_wall, "warmup_seconds": _warmup_wall}, sort_keys=True, separators=(",", ":")))'
+    )
     a("# Naive scalar verdict signal -- sufficient for the round-trip CI gate.")
     a('print("DONE")')
 

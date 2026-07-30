@@ -48,8 +48,8 @@ threshold update propagates automatically.
 Path codes
 ----------
 A   Per-recipe draws cache exists        → load + W1 gate (seconds)
-B   No cache, standard MCMC              → ``run_recipe_to_idata(skip_warmup=True)``
-C   No cache, MCLMC / CHEES / sidecar-IMM → ``run_recipe_to_idata(skip_warmup=False)``
+B   No cache, standard MCMC              → generated no-warmup recipe
+C   No cache, MCLMC / CHEES / sidecar-IMM → generated recipe with full warmup
 SK  SMC / VI / no GT / large-nc chees   → skip (W1 N/A or infeasible on CPU)
 
 CLI usage
@@ -91,6 +91,7 @@ import sys
 import time
 import traceback
 import warnings
+from dataclasses import replace
 
 import numpy as np
 
@@ -438,33 +439,68 @@ def _resample_with_divcount(
     -------
     tuple of (draws, n_divergences)
         ``draws``: ``{site: np.ndarray(n_chains, n_draws[, *event])}``.
-        ``n_divergences``: from ``idata.sample_stats``, or ``None`` when not
-        available (MCLMC / info-less paths).
+        ``n_divergences``: from the generated artifact's ``_ss_is_divergent``
+        array, or ``None`` when not available (MCLMC / info-less paths).
     """
+    from tuningfork.catalog.emit import execute_recipe
     from tuningfork.catalog.inspect import load_recipe
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     recipe = load_recipe(recipe_path.absolute())
-    kwargs: dict = {
-        "n_samples": n_samples,
-        "skip_warmup": skip_warmup,
-        "_suppress_print": True,
-    }
+
+    # Path B replays the committed tuning through the generated no-warmup
+    # choreography.  The sampler's pinned step size/IMM remain in
+    # ``base_method_params``; only the warmup descriptor is replaced.  Path C
+    # passes the loaded recipe unchanged so its full warmup is regenerated.
+    generated_recipe = recipe
     if seed is not None:
-        kwargs["force_resample_config"] = {"seed": seed}
+        generated_recipe = replace(generated_recipe, tuning_seed=seed)
+    if skip_warmup:
+        summary_path = recipe_path.parent.parent / "reference" / "summary.json"
+        try:
+            raw_summary = summary_path.read_bytes()
+            summary = json.loads(raw_summary)
+            means = summary["mean"]
+            stds = summary["std"]
+            if not isinstance(means, dict) or not isinstance(stds, dict):
+                raise ValueError("mean/std must be JSON objects")
+            if set(means) != set(stds) or not means:
+                raise ValueError("mean/std must have matching non-empty keys")
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Malformed or missing reference summary at {summary_path}: {exc}"
+            ) from exc
+        catalog_root = recipe_path.parent.parent.parent
+        strategy = {
+            "type": "reference_summary",
+            "mean": means,
+            "std": stds,
+            "offsets": [0.1, -0.1, 0.05, -0.05],
+            "source_path": str(summary_path.relative_to(catalog_root)),
+            "source_sha256": hashlib.sha256(raw_summary).hexdigest(),
+        }
+        from tuningfork.recipes._base import validate_init_strategy
 
-    idata = run_recipe_to_idata(recipe, **kwargs)
+        validate_init_strategy(strategy)
+        generated_recipe = replace(
+            generated_recipe.normalize_pinned_replay(),
+            init_strategy=strategy,
+        )
 
-    post = idata.posterior
-    draws: dict[str, np.ndarray] = {
-        str(v): np.asarray(post[v], dtype=np.float64) for v in post.data_vars
-    }
+    run_root = recipe_path.parent.parent / "_cache" / "generated_runs"
+    execute_kwargs: dict = {"num_samples": n_samples}
+    result = execute_recipe(generated_recipe, run_root, **execute_kwargs)
+    if result.artifact_path is None:
+        raise RuntimeError("generated recipe execution produced no draws artifact")
 
-    n_div: int | None = None
-    if hasattr(idata, "sample_stats"):
-        ss = idata.sample_stats
-        if hasattr(ss, "diverging"):
-            n_div = int(np.sum(np.asarray(ss.diverging)))
+    with np.load(result.artifact_path, allow_pickle=False) as raw:
+        draws = {
+            site: raw[site].astype(np.float64)
+            for site in raw.files
+            if not site.startswith("_ss_")
+        }
+        n_div: int | None = None
+        if "_ss_is_divergent" in raw.files:
+            n_div = int(np.sum(np.asarray(raw["_ss_is_divergent"])))
 
     return draws, n_div
 

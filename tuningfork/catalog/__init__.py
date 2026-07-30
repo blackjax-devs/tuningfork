@@ -33,6 +33,7 @@ Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
 
 from tuningfork.catalog._rerun_inference import (
     cached_idata_for_recipe,
+    load_generated_idata,
     regenerate_idata,
 )
 from tuningfork.catalog._timing import compute_total_warmup_steps, format_timing_context
@@ -43,6 +44,7 @@ from tuningfork.catalog.diagnostics import (
     samples_to_idata,
 )
 from tuningfork.catalog.emit import (
+    ExecutionTimings,
     GeneratedProgramError,
     LaunchResult,
     emit_script,
@@ -61,6 +63,7 @@ __all__ = [
     "load_chain_stats",
     "load_idata",
     "cached_idata_for_recipe",
+    "load_generated_idata",
     "regenerate_idata",
     "samples_to_idata",
     # diagnostics
@@ -73,6 +76,7 @@ __all__ = [
     # emit
     "emit_script",
     "execute_recipe",
+    "ExecutionTimings",
     "LaunchResult",
     "GeneratedProgramError",
 ]
