@@ -248,6 +248,49 @@ def test_recipe_unknown_top_level_fields_roundtrip(tmp_path: Path) -> None:
 
 
 @pytest.mark.fast
+def test_recipe_to_dict_canonical_and_legacy_are_lossless() -> None:
+    """Canonical serialization is pure while the CLI can request flat warmups."""
+    recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
+    attempt = AttemptedConfig(
+        base_method_params={"step_size": 0.01},
+        warmup_params={"n_warmup": 10},
+        seed=3,
+        gate_verdict={"verdict": "FAIL"},
+        wall_seconds=1.0,
+        note="free text",
+    )
+    recipe = dataclasses.replace(
+        recipe,
+        failure_diagnosis="historical diagnosis",
+        attempted_configurations=[attempt],
+        _extra_fields={"extension": {"kept": True}},
+    )
+    before = dataclasses.asdict(recipe)
+
+    canonical = recipe.to_dict()
+    assert "warmup_name" not in canonical
+    assert "warmup_params" not in canonical
+    assert canonical["effort"] == "low"
+    assert canonical["failure_diagnosis"] == "historical diagnosis"
+    assert canonical["attempted_configurations"] == [dataclasses.asdict(attempt)]
+    assert canonical["extension"] == {"kept": True}
+    assert "_extra_fields" not in canonical
+    assert dataclasses.asdict(recipe) == before
+
+    legacy = recipe.to_dict(include_legacy_warmup_fields=True)
+    assert legacy["warmup_name"] == recipe.warmup_name
+    assert legacy["warmup_params"] == recipe.warmup_params
+
+
+@pytest.mark.fast
+def test_recipe_to_dict_extension_collision_is_rejected() -> None:
+    recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
+    recipe = dataclasses.replace(recipe, _extra_fields={"model_name": "collision"})
+    with pytest.raises(ValueError, match="collides with a canonical Recipe field"):
+        recipe.to_dict()
+
+
+@pytest.mark.fast
 def test_attempted_configurations_preserve_mixed_shapes(tmp_path: Path) -> None:
     """Canonical attempts are typed; historical shapes remain exact raw dicts."""
     recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
@@ -678,6 +721,27 @@ def test_save_imm_sidecar_lrd_structured_keys(tmp_path: Path) -> None:
     assert jnp.allclose(jnp.asarray(data["lam"]), lam)
     # Flat "imm" key must NOT be present.
     assert "imm" not in data
+
+
+@pytest.mark.fast
+def test_to_dict_preserves_lrd_for_save_sidecar(tmp_path: Path) -> None:
+    """Canonical serialization keeps namedtuple IMM values detectable by save."""
+    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
+
+    imm = LowRankInverseMassMatrix(sigma=jnp.ones(2), U=jnp.eye(2, 1), lam=jnp.ones(1))
+    recipe = dataclasses.replace(
+        Recipe(**_RECIPE_KWARGS_MINIMAL),
+        base_method_params={"inverse_mass_matrix": imm},
+    )
+    assert isinstance(
+        recipe.to_dict()["base_method_params"]["inverse_mass_matrix"], type(imm)
+    )
+    saved = recipe.save(tmp_path)
+    assert recipe.inverse_mass_matrix_path is not None
+    assert (tmp_path / recipe.inverse_mass_matrix_path).exists()
+    assert (
+        "inverse_mass_matrix" not in json.loads(saved.read_text())["base_method_params"]
+    )
 
 
 @pytest.mark.fast

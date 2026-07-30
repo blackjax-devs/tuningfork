@@ -653,6 +653,47 @@ class Recipe:
 
     # ── persistence ──────────────────────────────────────────────────────────
 
+    def to_dict(self, *, include_legacy_warmup_fields: bool = False) -> dict[str, Any]:
+        """Return a canonical, independent mapping for recipe serialization.
+
+        By default the consolidated ``warmups`` schema is emitted.  The CLI
+        compatibility path can request the legacy flat warmup keys explicitly.
+        """
+        # ``asdict`` recursively copies nested dataclasses (including typed
+        # AttemptedConfig entries), so this method never mutates the recipe.
+        raw = asdict(self)
+
+        def _serialize(value: Any) -> Any:
+            if isinstance(value, Enum):
+                return value.value
+            if isinstance(value, dict):
+                return {key: _serialize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [_serialize(item) for item in value]
+            if isinstance(value, tuple) and hasattr(value, "_fields"):
+                # Preserve namedtuple-backed structured values such as
+                # LowRankInverseMassMatrix for save()'s sidecar detection.
+                return type(value)(*(_serialize(item) for item in value))
+            if isinstance(value, tuple):
+                return [_serialize(item) for item in value]
+            return value
+
+        d = _serialize(raw)
+        extras = d.pop("_extra_fields", {})
+        if not include_legacy_warmup_fields:
+            d.pop("warmup_name", None)
+            d.pop("warmup_params", None)
+        # Merge extensions only after canonical fields are established, so a
+        # future schema promotion cannot be silently overwritten.
+        for key, value in extras.items():
+            if key in d:
+                raise ValueError(
+                    f"Cannot serialize extension field {key!r}: "
+                    "it collides with a canonical Recipe field"
+                )
+            d[key] = value
+        return d
+
     def save(
         self,
         root: Path,
@@ -716,35 +757,7 @@ class Recipe:
             filename = f"{stem}.json"
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / filename
-        d = asdict(self)
-        extras = d.pop("_extra_fields", {})
-        # asdict recurses; enum values become their raw value via the Enum's __repr__
-        # but we need the string value, not "Effort.LOW" — override explicitly.
-        d["effort"] = self.effort.value
-        # asdict already recursively converts AttemptedConfig instances to dicts
-        # and enums via the default=str handler. We just need to handle enums that
-        # might have been converted to "FailureDiagnosis.value" format.
-        if d["failure_diagnosis"] is not None:
-            # If it's still an enum object, get its value
-            if hasattr(d["failure_diagnosis"], "value"):
-                d["failure_diagnosis"] = d["failure_diagnosis"].value
-            # else it's already a string from default=str
-        # Schema extension (§2.4): drop legacy flat fields from save output; emit only
-        # the ``warmups`` list so new recipes use the consolidated schema.
-        # ``warmup_name`` / ``warmup_params`` are retained as instance fields
-        # for backward-compat within the Python process (read from ``warmups``
-        # in Recipe.load) but must NOT be written to new JSON files.
-        d.pop("warmup_name", None)
-        d.pop("warmup_params", None)
-        # Preserve unknown top-level fields without allowing them to overwrite
-        # canonical schema fields if a future schema promotes one of them.
-        for key, value in extras.items():
-            if key in d:
-                raise ValueError(
-                    f"Cannot serialize extension field {key!r}: "
-                    "it collides with a canonical Recipe field"
-                )
-            d[key] = value
+        d = self.to_dict()
         # Auto-write LRD IMM sidecar when imm_sidecar="auto" and inverse_mass_matrix
         # is a LowRankInverseMassMatrix namedtuple (not JSON-serialisable inline).
         if imm_sidecar == "auto" or imm_sidecar is True:

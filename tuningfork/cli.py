@@ -306,9 +306,7 @@ def _cmd_warmup(args: argparse.Namespace) -> int:
 
         save_path = Path(args.save)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        d = recipe.__dict__.copy()
-        # Convert effort Enum to string value
-        d["effort"] = recipe.effort.value
+        d = recipe.to_dict(include_legacy_warmup_fields=True)
         with save_path.open("w") as fh:
             json.dump(d, fh, indent=2, default=str)
         print(f"Recipe saved to {save_path}")
