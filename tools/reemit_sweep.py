@@ -146,6 +146,14 @@ PRECISION_FLIP_CELLS: dict[str, str] = {
     "radon/low__mhmc__window_adaptation_diag_imm__inner_nuts.json": (
         "jax_x64_enabled True -> False"
     ),
+    # 2026-07-30 recert (tuningfork PR #257): baseline was captured on a CUDA
+    # GPU host with x64 ambient-on; the re-emit ran on this project's aarch64
+    # CPU host under the documented float32 default. radon does not set
+    # requires_x64, so both runs are within protocol -- same shape as the 16
+    # entries above, discovered later because #257 never saw the
+    # verify_emitted_configs.py gate (merged 4 seconds after the PR that wired
+    # it into CI, #256).
+    "radon/medium__dynamic_hmc__chees.json": "jax_x64_enabled True -> False",
     "stoch_vol/low__mhmc__window_adaptation_diag_imm.json": (
         "jax_x64_enabled True -> False"
     ),
