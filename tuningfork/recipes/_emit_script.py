@@ -39,12 +39,11 @@ Design decisions
 
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 from string import Template
 from typing import TYPE_CHECKING
 
+from tuningfork._version import __version__
 from tuningfork.recipes._emit import (
     emit_init_strategy,
     emit_laplace_preamble,
@@ -54,6 +53,7 @@ from tuningfork.recipes._emit import (
     emit_step_policy,
     emit_warmup,
 )
+from tuningfork.recipes._execution_manifest import ExecutionManifest
 from tuningfork.recipes._execution_plan import ExecutionOverrides
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
@@ -400,24 +400,6 @@ def _load_template(relpath: str) -> Template:
     return Template((_TEMPLATES_DIR / relpath).read_text())
 
 
-def _recipe_hash(recipe: Recipe) -> str:
-    """SHA-1 of the canonical recipe JSON; first 12 chars."""
-    payload = json.dumps(
-        {
-            "model_name": recipe.model_name,
-            "base_method_name": recipe.base_method_name,
-            "warmup_name": recipe.warmup_name,
-            "effort": recipe.effort.value,
-            "base_method_params": recipe.base_method_params,
-            "warmup_params": recipe.warmup_params,
-            "tuning_seed": recipe.tuning_seed,
-        },
-        sort_keys=True,
-        default=str,
-    )
-    return hashlib.sha1(payload.encode()).hexdigest()[:12]
-
-
 def emit_script(
     recipe: Recipe,
     *,
@@ -538,6 +520,7 @@ def emit_script(
             warmup_num_chains=warmup_num_chains,
         ),
     )
+    manifest = ExecutionManifest.from_plan(plan, generator_version=__version__)
     config = plan.config
     sampler_seed = config.sampler_seed
     reinit_seed = config.reinit_seed
@@ -588,7 +571,8 @@ def emit_script(
         "base_method_name": recipe.base_method_name,
         "warmup_name": recipe.warmup_name,
         "effort": recipe.effort.value,
-        "recipe_hash": _recipe_hash(recipe),
+        "plan_hash": manifest.plan_hash,
+        "execution_manifest_json": manifest.to_json(),
         "verdict": recipe.gate_evidence.get("auto", {}).get("verdict", "NOT_RUN"),
         "tuning_seed": config.tuning_seed,
         "sampler_seed": sampler_seed,

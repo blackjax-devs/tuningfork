@@ -31,7 +31,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     ctx : dict
         Substitution context from ``emit_script()``.
         Required keys: recipe_id, model_name, base_method_name, warmup_name,
-        recipe_hash, effort, verdict, x64_config_line,
+        plan_hash, execution_manifest_json, effort, verdict, x64_config_line,
         tuning_seed, num_chains.
 
     Returns
@@ -48,7 +48,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a(
         f"Source recipe: {ctx['recipe_id']} (model={ctx['model_name']}, sampler={ctx['base_method_name']}, warmup={ctx['warmup_name']})"
     )
-    a(f"Recipe hash:   {ctx['recipe_hash']}")
+    a(f"Execution plan hash: {ctx['plan_hash']}")
     a(f"Effort:        {ctx['effort']}")
     a(f"Verdict:       {ctx['verdict']} (expected; pinned at recipe-emission time)")
     a("")
@@ -63,6 +63,8 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a("    uv run --with tuningfork --with jax --with blackjax --with numpyro \\\\")
     a("        python <this_script>.py")
     a('"""')
+    a("")
+    a(f"EXECUTION_MANIFEST_JSON = {ctx['execution_manifest_json']!r}")
 
     # Timing + imports
     a("import time as _recipe_time")

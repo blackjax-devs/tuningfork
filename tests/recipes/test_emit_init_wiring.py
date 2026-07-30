@@ -4,9 +4,9 @@ import ast
 
 import pytest
 
+from tuningfork.base_method import BASE_METHODS
 from tuningfork.recipes._emit._preamble import emit_preamble
 from tuningfork.recipes._emit._warmup import emit_warmup
-
 
 pytestmark = pytest.mark.fast
 
@@ -17,7 +17,8 @@ def _preamble_ctx() -> dict[str, object]:
         "model_name": "mvn_10",
         "base_method_name": "nuts",
         "warmup_name": "window_adaptation_diag_imm",
-        "recipe_hash": "abc123",
+        "plan_hash": "abc123",
+        "execution_manifest_json": "{}",
         "effort": "low",
         "verdict": "green",
         "x64_config_line": "",
@@ -52,7 +53,7 @@ def test_preamble_binds_and_reuses_init_key() -> None:
 def test_multichain_warmup_resolves_initial_position_topology(prebatched: bool) -> None:
     source = emit_warmup(
         "window_adaptation_diag_imm",
-        base_method=object(),  # descriptor is unused by this warmup family
+        base_method=BASE_METHODS["nuts"],
         ctx={**_warmup_ctx(prebatched=prebatched), "_warmup_is_multichain": True},
     )
     ast.parse(source)

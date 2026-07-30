@@ -82,7 +82,9 @@ def test_uniform_int_policy_emits_catalog_bounds() -> None:
 
 
 def test_dynamic_none_policy_emits_default_bounds() -> None:
-    recipe = _recipe("german_credit/recipes/low__dmhmc__window_adaptation_dense_imm.json")
+    recipe = _recipe(
+        "german_credit/recipes/low__dmhmc__window_adaptation_dense_imm.json"
+    )
     source = emit_script(recipe, num_warmup=1, num_samples=1)
     assert "jax.random.randint(key, (), 1, 10)" in source
 
@@ -97,7 +99,9 @@ def test_resolver_rejects_perchain_init_with_single_warmup_chain() -> None:
 
 
 def test_resolver_rejects_step_policy_on_non_dynamic_sampler() -> None:
-    recipe = _recipe("lotka_volterra/recipes/low__hmc__window_adaptation_diag_imm__inner_nuts.json")
+    recipe = _recipe(
+        "lotka_volterra/recipes/low__hmc__window_adaptation_diag_imm__inner_nuts.json"
+    )
     invalid = dataclasses.replace(
         recipe,
         step_policy={"kind": "uniform_int", "low": 1, "high": 10},
