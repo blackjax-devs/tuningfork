@@ -94,12 +94,26 @@ recipe) and `low__dmhmc__window_adaptation_dense_imm` both failing the gate at
 their committed seed under current dependencies (blackjax 1.6.1 / jax 0.11.0)
 — both are in the PR's "19 gate failures, no recipe written" set.
 
-**`medium__nuts__window_adaptation_diag_imm` recovers with a plain reseed.**
-Per Belief#1176, re-running the identical (nuts, window_adaptation_diag_imm)
-config at seed=11111 (the first candidate tried) cleared the gate cleanly:
-rhat=1.0089, ess=831.2, 0 divergences. The recipe file was re-emitted in place
-(same filename, still `effort=medium`) with the seed selection disclosed in
-`notes`.
+**`medium__nuts__window_adaptation_diag_imm` recovers with a plain reseed — but
+the first pass at this measured it under the wrong configuration.** The
+2026-07-30 recert re-emit call forwarded `seed` and `target_acceptance` but not
+`sampler_kwargs_override`, so it silently dropped this cell's committed
+`base_method_params.max_num_doublings=15` and ran at the registry default (10)
+instead. The recorded PASS (rhat=1.0089, ess=831.2) therefore verified an
+easier configuration than the one the recipe claimed to reproduce — root-caused
+and disclosed in `tuningfork` PR fixing tf-recert-fixforward (verify_emitted_configs
+config-fidelity gate; the corpus-wide config-fidelity check this PR fixes forward).
+
+Re-measured under enforced fidelity via `tools/reemit_sweep.py`'s new
+`recertify()` (reads `base_method_params` — including `max_num_doublings` —
+from the b09c2476 baseline artifact rather than a hand-typed call): the SAME
+seed=11111 still clears the gate cleanly with `max_num_doublings=15` correctly
+applied — rhat=1.0045, ess=1092.3, 0 divergences, max_abs_mean_z=3.145 (better
+on every axis than the defective run, and this run's `sample_quality` was
+computed against the reference too, which the defective run's was not). No
+wider seed scan was needed. The recipe file was re-emitted in place (same
+filename, still `effort=medium`) with both the dropped-parameter finding and
+the seed selection disclosed in `notes`.
 
 **`low__dmhmc__window_adaptation_dense_imm` does NOT recover with a reseed.**
 A 3-seed scan (682737 — the committed seed, 11111, 22222) all hard-fail with a
