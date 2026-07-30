@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+EXECUTION_CONFIG_HASH_DOMAIN = "tuningfork.execution-config.v1\0"
+EXECUTION_PLAN_HASH_DOMAIN = "tuningfork.execution-plan.v1\0"
+
 
 def _json_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, bool, int)):
@@ -39,6 +42,19 @@ def canonical_json(value: Any) -> str:
 
 def _digest(prefix: str, value: Any) -> str:
     return hashlib.sha256((prefix + canonical_json(value)).encode("utf-8")).hexdigest()
+
+
+def execution_config_hash(config: Mapping[str, Any]) -> str:
+    """Digest the canonical executable configuration representation."""
+    return _digest(EXECUTION_CONFIG_HASH_DOMAIN, config)
+
+
+def execution_plan_hash(config: Mapping[str, Any], artifact_filename: str) -> str:
+    """Digest plan identity; ``recipe_ref`` is presentation metadata and excluded."""
+    return _digest(
+        EXECUTION_PLAN_HASH_DOMAIN,
+        {"config": dict(config), "artifact_filename": artifact_filename},
+    )
 
 
 def _freeze(value: Any) -> Any:
@@ -125,7 +141,7 @@ class ExecutableConfigurationSnapshot:
 
     @property
     def config_hash(self) -> str:
-        return _digest("tuningfork.execution-config.v1\0", self.as_dict())
+        return execution_config_hash(self.as_dict())
 
 
 @dataclass(frozen=True)
@@ -153,12 +169,12 @@ class ExecutionPlan:
         recipe_ref: str,
         artifact_filename: str,
     ) -> ExecutionPlan:
-        body = {"config": config.as_dict(), "artifact_filename": artifact_filename}
+        plan_hash = execution_plan_hash(config.as_dict(), artifact_filename)
         return cls(
             config,
             recipe_ref,
             artifact_filename,
-            _digest("tuningfork.execution-plan.v1\0", body),
+            plan_hash,
         )
 
 
@@ -168,4 +184,6 @@ __all__ = [
     "ExecutableConfigurationSnapshot",
     "ExecutionPlan",
     "canonical_json",
+    "execution_config_hash",
+    "execution_plan_hash",
 ]
