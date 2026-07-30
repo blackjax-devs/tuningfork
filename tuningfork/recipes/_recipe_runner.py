@@ -67,7 +67,7 @@ from tuningfork.base_method._warmup_to_sampler_transform import transform_warmup
 from tuningfork.calibration.statistician_gate import auto_gate
 from tuningfork.calibration.tune import default_params_for, default_value_for_space
 from tuningfork.metrics.grad_counter import total_grad_evals
-from tuningfork.metrics.headline import min_bulk_ess_per_grad
+from tuningfork.metrics.headline import HEADLINE_ESS_ESTIMATOR, build_headline_basis
 from tuningfork.metrics.reference_compare import (
     compute_sample_quality as _compute_sample_quality,
 )
@@ -1969,35 +1969,36 @@ def emit_low_recipe_for_cell(
     headline: float | None = None
     _headline_basis: dict | None = None
     if grad_evals > 0:
-        headline = float(min_bulk_ess_per_grad(mc_positions, grad_evals))
         # Gap-1 (decisions/2026-05-30): capture accounting details so cross-recipe
         # comparisons are interpretable (convention varies by base_method family).
-        # Back-compute min_bulk_ess = headline × grad_evals (exact, no rounding).
-        _is_laplace = sampler_name in LAPLACE_METHOD_NAMES
-        _headline_basis = {
-            "total_grad_evals": int(grad_evals),
-            "min_bulk_ess": headline * grad_evals,  # back-derived from headline
+        headline, _headline_basis = build_headline_basis(
+            mc_positions,
+            denominator=grad_evals,
+            total_grad_evals=grad_evals,
             # Complete formula text from BaseMethod.grad_count_convention (single
             # source of truth), not a truncated slice of the general notes.
-            "grad_count_convention": base_method.grad_count_convention or sampler_name,
-            "is_lower_bound": _is_laplace,
-        }
+            grad_count_convention=base_method.grad_count_convention or sampler_name,
+            is_lower_bound=sampler_name in LAPLACE_METHOD_NAMES,
+        )
     elif grad_evals == 0 and gate_verdict.min_bulk_ess is not None:
         # Gradient-free sampler (e.g. elliptical_slice, rwm).
         # Headline = min_bulk_ess / n_total_samples (efficiency per draw, not per grad).
         # Phase 8B.3 ratified convention: don't leave headline null/inf for gradient-free.
-        _n_total = n_samples * num_chains
-        _min_ess: float = gate_verdict.min_bulk_ess  # narrowed: not None above
-        headline = _min_ess / _n_total
-        _grad_free_convention = (
-            "0 (gradient-free; headline = min_bulk_ess/n_total_samples)"
+        #
+        # This branch used to source its ESS from the gate verdict while the
+        # gradient path used a different estimator, so the two headline
+        # conventions disagreed while each stayed internally self-consistent.
+        # Both now go through build_headline_basis on the same draws, which also
+        # stamps the estimator provenance the self-consistency check cannot see.
+        headline, _headline_basis = build_headline_basis(
+            mc_positions,
+            denominator=n_samples * num_chains,
+            total_grad_evals=0,
+            grad_count_convention=(
+                "0 (gradient-free; headline = min_bulk_ess/n_total_samples)"
+            ),
+            is_lower_bound=False,
         )
-        _headline_basis = {
-            "total_grad_evals": 0,
-            "min_bulk_ess": _min_ess,
-            "grad_count_convention": _grad_free_convention,
-            "is_lower_bound": False,
-        }
 
     # --- Compute sample_quality (GT-agreement; compare draws to reference) ---
     # Uses the same aligned GT keys used by auto_gate above.
@@ -3189,6 +3190,11 @@ def stamp_headline_from_chain_stats(
     No re-sampling is required.  If chain_stats are unavailable, ``headline_metric``
     is left as-is (null) and a warning is printed.
 
+    The gate ESS reused here is ``blackjax.diagnostics.ess_bulk``, which is also
+    the headline estimator — so a stamped headline is on the same footing as an
+    emitted one.  What it cannot supply is the legacy side-by-side value, since
+    that needs the draws; those basis fields are null rather than absent.
+
     Parameters
     ----------
     recipe
@@ -3283,6 +3289,12 @@ def stamp_headline_from_chain_stats(
     _basis = {
         "total_grad_evals": int(grad_evals),
         "min_bulk_ess": float(min_bulk_ess),
+        # The gate ESS this path recovers is already the headline estimator, so
+        # the provenance stamp is honest.  There are no draws here, so the legacy
+        # side-by-side value cannot be computed — null, never a silent fallback.
+        "ess_estimator": HEADLINE_ESS_ESTIMATOR,
+        "min_bulk_ess_classic_legacy": None,
+        "estimator_ratio": None,
         "grad_count_convention": base_method.grad_count_convention
         or recipe.base_method_name,
         "is_lower_bound": _is_laplace,

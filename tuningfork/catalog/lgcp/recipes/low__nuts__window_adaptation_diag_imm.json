@@ -6,7 +6,7 @@
     "step_size": 0.2425297051668167,
     "inverse_mass_matrix": "sidecar"
   },
-  "headline_metric": 0.06844642013311386,
+  "headline_metric": 0.07011461588541666,
   "sample_quality": {
     "mae_vs_reference": 0.04197924807817468,
     "q05_error": 0.142701823802429,
@@ -15,13 +15,13 @@
   },
   "calibration_budget": {
     "trials": 0,
-    "wall_seconds_estimate": 15.377378342032898,
+    "wall_seconds_estimate": 14.86540738097392,
     "n_warmup": 1000,
     "n_samples": 1000,
     "num_chains": 4,
-    "warmup_wall_seconds": 9.957,
-    "sampling_wall_seconds": 4.027,
-    "sampling_seconds_per_draw": 0.001007,
+    "warmup_wall_seconds": 9.536,
+    "sampling_wall_seconds": 3.904,
+    "sampling_seconds_per_draw": 0.000976,
     "split_source": "measured",
     "machine_info": {
       "cpu_model": "aarch64",
@@ -37,11 +37,14 @@
     "warmup_grad_evals": 92204
   },
   "difficulty": null,
-  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.2425297051668167, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0684.\nWall time to produce this recipe: ~15 s (machine-only).",
+  "instructions": "**Low-effort recipe** (conventional `(window_adaptation_diag_imm, nuts)` pairing; library defaults passed the auto-gate at first emit).\nTo use the pinned config (skip warmup at runtime):\n  ```python\n  kernel = blackjax.nuts(logdensity_fn, **{'step_size': 0.2425297051668167, 'inverse_mass_matrix': 'sidecar'})\n  ```\nExpected `min-bulk-ESS / total_grad_evals`: 0.0701.\nWall time to produce this recipe: ~14 s (machine-only).",
   "notes": "",
   "headline_basis": {
     "total_grad_evals": 60000,
-    "min_bulk_ess": 4106.785207986832,
+    "min_bulk_ess": 4206.876953125,
+    "ess_estimator": "ess_bulk",
+    "min_bulk_ess_classic_legacy": 4106.78515625,
+    "estimator_ratio": 1.02437229927226,
     "grad_count_convention": "info.num_integration_steps",
     "is_lower_bound": false
   },
@@ -117,10 +120,10 @@
     }
   },
   "tuning_seed": 682737,
-  "tuningfork_version": "0.0.2.dev127+g79ffb7325",
+  "tuningfork_version": "0.0.2.dev143+gb09c24766",
   "blackjax_version": "1.6.1",
   "jax_version": "0.11.0",
-  "timestamp_utc": "2026-07-29T09:00:23Z",
+  "timestamp_utc": "2026-07-29T14:46:57Z",
   "failure_diagnosis": null,
   "attempted_configurations": []
 }

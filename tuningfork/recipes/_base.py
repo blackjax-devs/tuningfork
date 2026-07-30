@@ -357,7 +357,9 @@ class Recipe:
         base_method_params)``.  Filled at every effort tier that produces a
         gate-passing recipe (LOW, MEDIUM, HIGH all run warmup + sampler at
         recipe-build time).  ``None`` means "not yet measured" — used only
-        for in-flight scaffolding stubs.
+        for in-flight scaffolding stubs.  The bulk-ESS is the rank-normalised
+        split-chain estimator (``blackjax.diagnostics.ess_bulk``); see
+        ``catalog/RECIPE_SCHEMA.md`` §4.5 and ``headline_basis`` below.
     sample_quality
         Optional dict of quality metrics vs. reference draws
         (``{"mae_vs_reference": ..., "q05_error": ...}``); filled by the
@@ -456,6 +458,11 @@ class Recipe:
     # headline_basis records the accounting details behind headline_metric so that
     # cross-recipe comparisons are interpretable (Gap-1, decisions/2026-05-30).
     # None when headline_metric is None (e.g., failed recipes or scaffolding stubs).
+    # Keys: total_grad_evals, min_bulk_ess, ess_estimator, min_bulk_ess_classic_legacy,
+    # estimator_ratio, grad_count_convention, is_lower_bound.  ess_estimator is the
+    # provenance stamp — a basis that merely reproduces headline_metric is
+    # self-consistent under ANY estimator, so consistency alone cannot audit it.
+    # Full field semantics: catalog/RECIPE_SCHEMA.md §4.5.
     headline_basis: dict[str, Any] | None = None  # optional; added 2026-05-30
 
     # ---- Callable-injection policy ----

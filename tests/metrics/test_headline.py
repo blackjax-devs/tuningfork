@@ -35,9 +35,16 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import pytest
+from blackjax.diagnostics import effective_sample_size, ess_bulk
 
 from tuningfork.metrics.grad_counter import total_grad_evals
-from tuningfork.metrics.headline import min_bulk_ess_per_grad
+from tuningfork.metrics.headline import (
+    build_headline_basis,
+    estimator_ratio,
+    min_bulk_ess,
+    min_bulk_ess_classic_legacy,
+    min_bulk_ess_per_grad,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -334,3 +341,171 @@ class TestIntegrationWithGradCounter:
 
         assert isinstance(headline, float)
         assert headline > 0.0
+
+
+# ---------------------------------------------------------------------------
+# 7. Which ESS estimator the headline uses
+# ---------------------------------------------------------------------------
+
+
+def _heavy_tailed_slow_mixing(key: jax.Array, C: int = 4, S: int = 1000) -> jnp.ndarray:
+    """exp(AR(1) φ=0.95) — draws where the two ESS estimators disagree sharply.
+
+    Chosen because it exercises BOTH mechanisms that separate ``ess_bulk`` from
+    ``effective_sample_size``: strong autocorrelation makes each chain half look
+    like a distinct chain once split, and the lognormal marginal is exactly what
+    rank normalisation is for.  Measured across seeds 0–5 the ratio sits in
+    0.12–0.30 (a 3–8× gap) and never changes sign, so the fixture discriminates
+    without being seed-fragile.
+    """
+    eps = jax.random.normal(key, (S, C, 3))
+
+    def step(x_prev, eps_t):
+        x_t = 0.95 * x_prev + eps_t
+        return x_t, x_t
+
+    _, xs = jax.lax.scan(step, jnp.zeros((C, 3)), eps)
+    return jnp.exp(jnp.moveaxis(xs, 0, 1))  # (C, S, 3)
+
+
+class TestEstimatorContract:
+    """The headline numerator is rank-normalised split-chain bulk-ESS."""
+
+    def test_helpers_pin_to_their_blackjax_functions(self) -> None:
+        """min_bulk_ess ↔ ess_bulk and min_bulk_ess_classic_legacy ↔ effective_sample_size."""
+        samples = {"x": _heavy_tailed_slow_mixing(_key(70))}
+        flat = samples["x"]
+
+        expected_rank = float(jnp.min(ess_bulk(flat, chain_axis=0, sample_axis=1)))
+        expected_classic = float(
+            jnp.min(effective_sample_size(flat, chain_axis=0, sample_axis=1))
+        )
+
+        assert min_bulk_ess(samples) == pytest.approx(expected_rank, rel=1e-9)
+        assert min_bulk_ess_classic_legacy(samples) == pytest.approx(
+            expected_classic, rel=1e-9
+        )
+
+    def test_headline_uses_rank_normalised_not_classic_ess(self) -> None:
+        """min_bulk_ess_per_grad reports the ess_bulk value, not effective_sample_size.
+
+        Positive control for the estimator switch.  Wiring
+        ``_min_ess_over_sites(states_position, effective_sample_size)`` back into
+        ``min_bulk_ess_per_grad`` turns this red: on these draws the two
+        estimators are 3–8× apart, far outside the 1% band below.
+        """
+        C, S = 4, 1000
+        n_grad_evals = C * S
+        samples = {"x": _heavy_tailed_slow_mixing(_key(71), C, S)}
+
+        rank = min_bulk_ess(samples)
+        classic = min_bulk_ess_classic_legacy(samples)
+
+        # Guard the fixture itself: a fixture that stopped discriminating would
+        # make the assertions below vacuous, and it should say so out loud.
+        assert classic / rank > 3.0, (
+            f"fixture no longer separates the estimators (rank={rank:.1f}, "
+            f"classic={classic:.1f}); the test below would be vacuous"
+        )
+
+        headline = min_bulk_ess_per_grad(samples, n_grad_evals=n_grad_evals)
+
+        assert headline == pytest.approx(rank / n_grad_evals, rel=1e-9), (
+            f"headline={headline!r} does not match the rank-normalised value "
+            f"{rank / n_grad_evals!r}; the headline numerator must be ess_bulk"
+        )
+        assert headline != pytest.approx(classic / n_grad_evals, rel=1e-2), (
+            f"headline={headline!r} matches the LEGACY estimator "
+            f"{classic / n_grad_evals!r} — effective_sample_size is still wired in"
+        )
+
+    def test_estimator_ratio_is_rank_over_classic(self) -> None:
+        """estimator_ratio isolates the estimator effect on one fixed set of draws."""
+        samples = {"x": _heavy_tailed_slow_mixing(_key(72))}
+        rank = min_bulk_ess(samples)
+        classic = min_bulk_ess_classic_legacy(samples)
+
+        assert estimator_ratio(rank, classic) == pytest.approx(rank / classic, rel=1e-9)
+
+    @pytest.mark.parametrize(
+        "rank,classic",
+        [(100.0, 0.0), (100.0, float("nan")), (float("inf"), 100.0), (100.0, None)],
+    )
+    def test_estimator_ratio_is_null_when_undefined(self, rank, classic) -> None:
+        """A degenerate ratio is recorded as null, never as an inf that reads as real."""
+        assert estimator_ratio(rank, classic) is None
+
+    def test_basis_stamps_provenance_and_carries_both_estimators(self) -> None:
+        """build_headline_basis records which estimator ran plus the legacy value."""
+        samples = {"x": _heavy_tailed_slow_mixing(_key(73))}
+        grad_evals = 8000
+
+        headline, basis = build_headline_basis(
+            samples,
+            denominator=grad_evals,
+            total_grad_evals=grad_evals,
+            grad_count_convention="2",
+            is_lower_bound=False,
+        )
+
+        assert basis["ess_estimator"] == "ess_bulk"
+        assert basis["min_bulk_ess"] == pytest.approx(min_bulk_ess(samples), rel=1e-9)
+        assert basis["min_bulk_ess_classic_legacy"] == pytest.approx(
+            min_bulk_ess_classic_legacy(samples), rel=1e-9
+        )
+        assert basis["estimator_ratio"] == pytest.approx(
+            basis["min_bulk_ess"] / basis["min_bulk_ess_classic_legacy"], rel=1e-9
+        )
+        assert basis["grad_count_convention"] == "2"
+        assert basis["is_lower_bound"] is False
+        assert headline == pytest.approx(
+            min_bulk_ess_per_grad(samples, grad_evals), rel=1e-9
+        )
+
+    def test_basis_reproduces_the_headline_exactly(self) -> None:
+        """headline == basis.min_bulk_ess / total_grad_evals with no rounding slack.
+
+        The catalog-wide invariant test uses a 1e-9 band, so the back-derivation
+        has to be exact rather than merely close.
+        """
+        samples = {"x": _heavy_tailed_slow_mixing(_key(74))}
+        grad_evals = 12345
+
+        headline, basis = build_headline_basis(
+            samples,
+            denominator=grad_evals,
+            total_grad_evals=grad_evals,
+            grad_count_convention="2",
+            is_lower_bound=False,
+        )
+        derived = basis["min_bulk_ess"] / basis["total_grad_evals"]
+        assert abs(headline - derived) <= 1e-12 * max(abs(headline), abs(derived))
+
+    def test_basis_gradient_free_denominator_differs_from_grad_evals(self) -> None:
+        """Gradient-free: total_grad_evals=0 while the divisor is the draw count."""
+        C, S = 4, 1000
+        samples = {"x": _heavy_tailed_slow_mixing(_key(75), C, S)}
+
+        headline, basis = build_headline_basis(
+            samples,
+            denominator=C * S,
+            total_grad_evals=0,
+            grad_count_convention="0 (gradient-free; headline = min_bulk_ess/n_total_samples)",
+            is_lower_bound=False,
+        )
+
+        assert basis["total_grad_evals"] == 0
+        assert basis["ess_estimator"] == "ess_bulk"
+        assert headline == pytest.approx(min_bulk_ess(samples) / (C * S), rel=1e-9)
+
+    def test_basis_rejects_nonpositive_denominator(self) -> None:
+        """A zero divisor is a caller bug, not an inf headline to be shipped."""
+        samples = {"x": jax.random.normal(_key(76), (2, 100, 3))}
+        with pytest.raises(ValueError, match="denominator must be positive"):
+            build_headline_basis(
+                samples,
+                denominator=0,
+                total_grad_evals=0,
+                grad_count_convention="x",
+                is_lower_bound=False,
+            )
