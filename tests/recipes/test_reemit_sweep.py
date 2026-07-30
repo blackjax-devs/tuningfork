@@ -278,6 +278,93 @@ class TestConfigFidelityIsAStandingGate:
         )
 
 
+def _minimal_cfg(**overrides):
+    """A CellConfig for a real (sampler, warmup) pair, for fidelity-check tests."""
+    fields = {
+        "recipe_path": Path("tuningfork/catalog/mvn_10/recipes/low__nuts__w.json"),
+        "model_name": "mvn_10",
+        "warmup_name": "window_adaptation_diag_imm",
+        "sampler_name": "nuts",
+        "effort": "low",
+        "harness": "recipe_runner",
+        "n_warmup": 1000,
+        "n_samples": 1000,
+        "num_chains": 4,
+        "seed": 20260517,
+    }
+    fields.update(overrides)
+    return driver.CellConfig(**fields)
+
+
+def _committed(x64, **overrides):
+    """A committed artifact recording ``x64`` as the precision it ran at."""
+    doc = {
+        "warmups": [{"params": {}}],
+        "base_method_params": {},
+        "calibration_budget": {"machine_info": {"jax_x64_enabled": x64}},
+    }
+    doc.update(overrides)
+    return doc
+
+
+class TestPrecisionFidelity:
+    """A replay must run at the float precision of the run it reproduces.
+
+    Every other comparison in ``config_fidelity_violations`` is of a recorded
+    PARAMETER.  x64 is not one — it follows the model's ``requires_x64`` and
+    otherwise the ambient environment — so a cell committed under
+    ``JAX_ENABLE_X64=1`` can be replayed in float32 with every parameter check
+    green.  That is not hypothetical: it happened to 15 cells while both gates
+    reported 0 mismatches on all 138.
+    """
+
+    def test_an_unpinned_precision_flip_is_a_violation(self) -> None:
+        cfg = _minimal_cfg(recorded_x64=False)
+        assert (
+            cfg.key not in driver.PRECISION_FLIP_CELLS
+        ), "fixture cell is pinned, so this test would pass for the wrong reason"
+        bad = driver.config_fidelity_violations(cfg, _committed(True))
+        assert any("jax_x64_enabled" in v for v in bad), bad
+
+    def test_a_missing_baseline_flag_is_a_violation(self) -> None:
+        """An absent flag means the committed precision is unknown, not float32."""
+        cfg = _minimal_cfg(recorded_x64=False)
+        committed = _committed(True)
+        committed["calibration_budget"]["machine_info"] = {}
+        bad = driver.config_fidelity_violations(cfg, committed)
+        assert any("jax_x64_enabled" in v for v in bad), bad
+
+    def test_matching_precision_is_not_a_violation(self) -> None:
+        cfg = _minimal_cfg(recorded_x64=False)
+        bad = driver.config_fidelity_violations(cfg, _committed(False))
+        assert not any("jax_x64_enabled" in v for v in bad), bad
+
+    def test_pinned_flips_are_accepted_and_each_records_its_transition(self) -> None:
+        """The pin is an acceptance list, so an empty or unreasoned one is a lie.
+
+        Emptying it would make every known flip re-appear as a gate failure, and
+        an entry with no recorded transition tells a reader nothing about what was
+        accepted — the same discipline CONFIG_CORRECTION_CELLS is held to.
+        """
+        assert driver.PRECISION_FLIP_CELLS
+        for key, reason in driver.PRECISION_FLIP_CELLS.items():
+            assert "/" in key, f"{key!r} should be '<model>/<filename>'"
+            assert "jax_x64_enabled" in reason, f"{key} does not record its transition"
+
+    def test_every_pinned_flip_is_accepted_rather_than_reported(self) -> None:
+        assert driver.PRECISION_FLIP_CELLS, "nothing pinned; the test proves nothing"
+        for pinned in driver.PRECISION_FLIP_CELLS:
+            model, filename = pinned.split("/", 1)
+            cfg = _minimal_cfg(
+                model_name=model,
+                recipe_path=Path(f"tuningfork/catalog/{model}/recipes/{filename}"),
+                recorded_x64=False,
+            )
+            assert cfg.key == pinned
+            bad = driver.config_fidelity_violations(cfg, _committed(True))
+            assert not any("jax_x64_enabled" in v for v in bad), f"{pinned}: {bad}"
+
+
 class TestScopeDecisions:
     """Cells outside the migration are declined, not silently emitted."""
 

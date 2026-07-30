@@ -87,6 +87,84 @@ CONFIG_CORRECTION_CELLS: dict[str, str] = {
     ),
 }
 
+#: Cells whose re-emit ran at a different float precision than the run it
+#: reproduces, keyed by cell with the recorded ``jax_x64_enabled`` transition.
+#:
+#: x64 is a per-model attribute (``Posterior.requires_x64``, honoured at
+#: ``_recipe_runner.py:1431``) rather than a recorded parameter, so it is set by
+#: the ambient environment for every model that does not demand it.  These cells
+#: were committed with ``JAX_ENABLE_X64=1`` ambient — off-protocol, since none of
+#: their models sets ``requires_x64`` — and the re-emit ran under the documented
+#: float32 default.  Three artifact signals agree on the same set: the recorded
+#: flag, the decimal precision of the adapted ``step_size`` (float64-exact ->
+#: float32-exact), and the dtype of the ``.imm.npz`` sidecar (9 of them,
+#: float64 -> float32).
+#:
+#: The re-emit is arguably the MORE correct run, so these are not re-emitted
+#: again.  They are pinned because their movement has an unmodelled cause: they
+#: are enriched in the residual tails (extreme movers 5/16 here vs 7/122
+#: elsewhere, one-sided Fisher p = 0.005), so pooling them into the version-drift
+#: aggregate attributes precision to dependencies.  ``estimator_delta_report``
+#: reports them as their own category for that reason.
+#:
+#: Every entry is a deliberate, recorded acceptance.  Do NOT add one to silence a
+#: fresh flip: an unpinned flip is a real finding — a run executed at a precision
+#: its own artifact does not claim.
+PRECISION_FLIP_CELLS: dict[str, str] = {
+    "banana/medium__adjusted_mclmc_dynamic__adjusted_mclmc_tuning.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "eight_schools_ncp/low__dmhmc__window_adaptation_dense_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "eight_schools_ncp/low__hmc__window_adaptation_low_rank_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "german_credit/low__dynamic_hmc__chees.json": "jax_x64_enabled True -> False",
+    "german_credit/medium__hmc__window_adaptation_diag_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "irt_2pl/low__hmc__window_adaptation_diag_imm__inner_nuts.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "irt_2pl/low__hmc__window_adaptation_low_rank_imm__inner_nuts.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "irt_2pl/low__mhmc__window_adaptation_diag_imm__inner_nuts.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "irt_2pl/low__nuts__window_adaptation_dense_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "mvn_10/low__mclmc__mclmc_tuning.json": "jax_x64_enabled True -> False",
+    "mvn_10/medium__hmc__window_adaptation_dense_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "mvn_10/medium__hmc__window_adaptation_diag_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "radon/low__mhmc__window_adaptation_diag_imm__inner_nuts.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "stoch_vol/low__mhmc__window_adaptation_diag_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    "stoch_vol/low__nuts__window_adaptation_diag_imm.json": (
+        "jax_x64_enabled True -> False"
+    ),
+    # Also a config correction: the baseline recorded no machine_info at all, so
+    # the precision it ran at is not merely different, it is unknown.
+    "radon/low__nuts__window_adaptation_diag_imm.json": (
+        "jax_x64_enabled absent -> False"
+    ),
+}
+
+
+def recorded_x64(recipe: dict) -> bool | None:
+    """The float precision an artifact records having run at, or ``None``."""
+    machine_info = (recipe.get("calibration_budget") or {}).get("machine_info") or {}
+    return machine_info.get("jax_x64_enabled")
+
 
 @dataclass
 class CellConfig:
@@ -117,6 +195,11 @@ class CellConfig:
     pilot_n_warmup: int | None = None
     pilot_n_samples: int | None = None
     config_correction: bool = False
+    #: ``jax_x64_enabled`` as recorded by the artifact this config was read FROM.
+    #: Not a settable input — x64 follows the model's ``requires_x64`` and the
+    #: ambient environment — but recording it is what lets the fidelity check see
+    #: a replay that ran at a different precision than the run it reproduces.
+    recorded_x64: bool | None = None
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -401,6 +484,25 @@ def config_fidelity_violations(cfg: CellConfig, committed: dict) -> list[str]:
             f"warmup_num_chains={committed['warmup_num_chains']!r} is not an "
             f"argument of the emit path, so it cannot be replayed"
         )
+
+    # --- the float precision the run executed at ---
+    # Every comparison above is of a recorded PARAMETER.  x64 is not one: it
+    # follows the model's requires_x64 and otherwise the ambient environment, so a
+    # replay can execute the same cell in float32 that was committed in float64
+    # and every parameter check stays green — which is what happened to 15 cells,
+    # while both gates reported 0 mismatches.  The artifact already records the
+    # flag, so comparing it costs nothing and closes that axis.
+    #
+    # Vacuous where the committed side IS the artifact being reconstructed (the
+    # plan-side, self-reproducibility use); live where committed comes from
+    # another revision (the artifact-side use).
+    committed_x64 = recorded_x64(committed)
+    if committed_x64 != cfg.recorded_x64 and cfg.key not in PRECISION_FLIP_CELLS:
+        violations.append(
+            f"machine_info.jax_x64_enabled: committed {committed_x64!r}, replay "
+            f"{cfg.recorded_x64!r} — the run executed at a different float "
+            f"precision than the run it reproduces"
+        )
     return violations
 
 
@@ -610,6 +712,7 @@ def reconstruct(
         pilot_n_warmup=pilot_n_warmup,
         pilot_n_samples=pilot_n_samples,
         config_correction=config_correction,
+        recorded_x64=recorded_x64(recipe),
         notes=notes,
     )
 

@@ -24,18 +24,67 @@ both in ``headline_basis``.  That fixes one leg of the decomposition:
     total_change       = new_headline / committed_headline            (what ships)
     run_noise_implied  = total_change / estimator_ratio               (residual)
 
-A third cause is reported separately rather than folded into the residual: some
-committed recipes carry a gradient budget no stated protocol reproduces, so
-re-measuring them corrects a denominator.  Pooling those with genuine replays is
-how a 10x budget error reads as a 9.4x estimator anomaly.
+Two further causes are reported separately rather than folded into the residual:
 
-The residual is **version drift**, not seed noise.  An emit is deterministic
-given its seed and configuration, so a faithfully replayed cell can only move
-because its dependencies moved.  This is measured, not inferred: jax 0.10.0 ->
-0.10.1 shifts one model's adapted warmup step size by ~16% with the RNG stream
-and a single sampler step both bit-identical — chaotic amplification through a
-thousand-step warmup, not a numerics bug.  The report therefore groups drift by
-the ORIGINATING version combination, so it shows which upgrades move our numbers.
+*Config corrections.*  Some committed recipes carry a gradient budget no stated
+protocol reproduces, so re-measuring them corrects a denominator.  Pooling those
+with genuine replays is how a 10x budget error reads as a 9.4x estimator anomaly.
+
+*Precision flips.*  16 cells were committed with ``JAX_ENABLE_X64=1`` ambient and
+replayed under the documented float32 default, so they ran at a different float
+precision than the run they reproduce.  They are enriched in the residual tails
+(extreme movers 5/16 versus 7/122 elsewhere, one-sided Fisher p = 0.005), and
+precision is confounded with version in that sample because their baseline stacks
+skew old — so their residual cannot be attributed to dependencies.  The set is
+pinned at ``reemit_sweep.PRECISION_FLIP_CELLS``.
+
+The residual on the remaining cells is **consistent with version drift, not proof
+of it** — an earlier version of this paragraph claimed the residual simply *is*
+drift, which overstated what the report established; corrected here post-merge.
+Determinism pins only the *replay* case: a cell whose ``tuning_seed`` matches its
+committed counterpart is a pure function of its dependencies, so movement there
+did come from a dependency change. Two things break the inference from "residual
+moved" to "therefore drift": most of the cells that anchored the original claim
+are near-exact replays, where ``run_noise_implied`` sits at 1.000 by algebra and
+carries no information either way; and a few cells are not replays at all —
+``mclmc_lrd``'s adaptive warmup re-derives its own ``tuning_seed`` and moved two
+cells 27.8% and 3.8% on an UNCHANGED stack, non-dependency movement the same size
+as the residual under study. jax 0.10.0 -> 0.10.1 shifting one model's adapted
+warmup step size by ~16% with the RNG stream and a single sampler step both
+bit-identical is real, measured evidence that dependency drift happens and can be
+large; it does not establish that every residual below is dependency drift rather
+than seed re-derivation or the precision confound above. Read a cell's
+``run_noise_implied`` as consistent with drift, not proof of it, unless its
+``tuning_seed`` is confirmed unchanged from the committed side. The report still
+groups drift by the ORIGINATING version combination, which stays useful
+independent of attribution — it shows which stacks a cell came from.
+
+What the report does NOT establish about the estimator effect
+------------------------------------------------------------
+The above-1.25 ``estimator_ratio`` tail is concentrated on ``eight_schools_ncp``
+(14 of the 20 tail cells; 23% of the cohort but 70% of the tail, one-sided Fisher
+p = 9.3e-07) and ``irt_2pl`` (4 of 20, p = 0.039), so the concentration is real
+rather than an artefact of over-representation.  The MECHANISM is not identifiable
+from this corpus, and no causal story should be read into the concentration:
+
+- ``estimator_ratio`` is a ratio of MINIMA over dimensions, and the two minima may
+  be attained at different dimensions.  It answers "how much does the headline
+  move", not "what happens to a marginal".
+- Neither the per-dimension ESS nor the argmin site is recorded anywhere, so no
+  mechanistic claim can be checked against the artifacts at all.
+- No artifact-observable quantity discriminates the tail: Spearman rho of
+  ``estimator_ratio`` against ESS/total-draws -0.19, ``rhat_max`` -0.07,
+  ``n_divergences`` +0.09, log10 grad evals -0.07 (n = 137, no |t| > 2.3).
+- Funnel geometry specifically does NOT explain it: four hierarchical models in
+  the same cohort sit at ~1.01 (``stoch_vol`` 1.011, ``horseshoe`` 1.013,
+  ``radon`` 1.016, ``irt_1pl`` 1.021), ``neals_funnel`` has zero re-emitted cells,
+  the two largest ratios are non-hierarchical (``german_credit`` 3.920,
+  ``banana`` 1.985), and rank normalisation moves heavy-tailed slow-mixing draws
+  in the OPPOSITE direction — the positive-control fixture in
+  ``tests/metrics/test_headline.py`` sits at ratio 0.12-0.30.
+
+Per-dimension ESS would make the question answerable; see the per-dimension
+gate-stats issue.
 
 Why that matters more than the estimator switch: a corpus emitted across many
 dependency stacks is internally incoherent, and cross-model comparison is what
@@ -74,13 +123,18 @@ CATALOG = REPO_ROOT / "tuningfork" / "catalog"
 class CellDelta:
     """One cell's before/after headline decomposition.
 
-    Three causes are kept apart on purpose.  ``estimator_ratio`` is the switch
+    Four causes are kept apart on purpose.  ``estimator_ratio`` is the switch
     under study, measured on one fixed set of draws.  ``config_correction`` marks
     a cell whose committed gradient budget was itself wrong, so its movement is
     dominated by the budget being fixed rather than by anything about the metric.
-    ``run_noise_implied`` is whatever remains.  It is version drift, not seed
-    fragility: an emit is deterministic given its seed and configuration, so a
-    faithful replay can only move because its dependencies moved.
+    ``precision_flip`` marks a cell replayed at a different float precision than
+    the run it reproduces, so its residual has an unmodelled cause that is
+    confounded with version in this corpus.  ``run_noise_implied`` is whatever
+    remains.  On the cells where neither flag is set it is *consistent with*
+    version drift, not proof of it — the attribution is compromised where the
+    cell is a near-exact replay (residual sits at 1.000 by algebra) or where
+    ``tuning_seed`` itself changed (an adaptive-warmup re-derivation, not a
+    dependency effect).  See the module docstring's correction for the caveat.
     """
 
     recipe: str
@@ -93,6 +147,9 @@ class CellDelta:
     run_noise_implied: float | None
     ess_estimator: str | None
     config_correction: bool = False
+    precision_flip: bool = False
+    x64_before: bool | None = None
+    x64_after: bool | None = None
     grad_evals_before: int | None = None
     grad_evals_after: int | None = None
     committed_blackjax: str | None = None
@@ -188,6 +245,18 @@ def compute_delta(path: Path, rev: str) -> CellDelta:
         if abs(budget_ratio - 1.0) > 0.05:
             notes.append(f"gradient budget {grad_before} -> {grad_after}")
 
+    # Precision is not a recorded parameter, so a cell can be replayed in float32
+    # that was committed in float64 with every parameter check green.  Detected
+    # from the artifacts rather than trusted from the pin, so a fresh flip is
+    # separated too — the pin only records which ones are already known.
+    x64_before = _recorded_x64(committed) if committed is not None else None
+    x64_after = _recorded_x64(new)
+    precision_flip = committed is not None and (
+        cell_key in _precision_flip_cells() or x64_before != x64_after
+    )
+    if precision_flip:
+        notes.append(f"x64 {x64_before} -> {x64_after}")
+
     total_change = _safe_ratio(new.get("headline_metric"), committed_headline)
     return CellDelta(
         recipe=rel.replace("tuningfork/catalog/", "").replace("/recipes/", " / "),
@@ -200,6 +269,9 @@ def compute_delta(path: Path, rev: str) -> CellDelta:
         run_noise_implied=_safe_ratio(total_change, ratio),
         ess_estimator=basis.get("ess_estimator"),
         config_correction=config_correction,
+        precision_flip=precision_flip,
+        x64_before=x64_before,
+        x64_after=x64_after,
         grad_evals_before=grad_before,
         grad_evals_after=grad_after,
         committed_blackjax=(committed or {}).get("blackjax_version"),
@@ -209,23 +281,41 @@ def compute_delta(path: Path, rev: str) -> CellDelta:
     )
 
 
-def _config_correction_cells() -> dict[str, str]:
-    """The re-emit driver's list of cells emitted under a corrected protocol."""
+def _driver():
+    """Import the re-emit driver from tools/, which is a script dir, not a package."""
     import importlib.util
     import sys
 
     path = REPO_ROOT / "tools" / "reemit_sweep.py"
     if not path.exists():
-        return {}
+        return None
     spec = importlib.util.spec_from_file_location("reemit_sweep", path)
     if spec is None or spec.loader is None:
-        return {}
+        return None
     module = importlib.util.module_from_spec(spec)
     # Register before executing: the module's dataclasses resolve annotations by
     # looking themselves up in sys.modules.
     sys.modules["reemit_sweep"] = module
     spec.loader.exec_module(module)
-    return dict(module.CONFIG_CORRECTION_CELLS)
+    return module
+
+
+def _config_correction_cells() -> dict[str, str]:
+    """The re-emit driver's list of cells emitted under a corrected protocol."""
+    driver = _driver()
+    return {} if driver is None else dict(driver.CONFIG_CORRECTION_CELLS)
+
+
+def _precision_flip_cells() -> dict[str, str]:
+    """The re-emit driver's list of cells replayed at a different float precision."""
+    driver = _driver()
+    return {} if driver is None else dict(driver.PRECISION_FLIP_CELLS)
+
+
+def _recorded_x64(recipe: dict) -> bool | None:
+    """The float precision an artifact records having run at, or ``None``."""
+    machine_info = (recipe.get("calibration_budget") or {}).get("machine_info") or {}
+    return machine_info.get("jax_x64_enabled")
 
 
 def _fmt(value: float | None, spec: str = ".4g") -> str:
@@ -316,6 +406,41 @@ def _drift_by_origin(deltas: list[CellDelta]) -> None:
         print(f"  {len(v):>4}  {median:>7.3f}  {v[0]:>7.3f}  {v[-1]:>7.3f}  {stack}")
 
 
+def _precision_flip_section(flips: list[CellDelta]) -> None:
+    """Report cells replayed at a different float precision, as their own cause.
+
+    Kept out of the version-drift aggregate for the same reason config corrections
+    are kept out of the estimator statistics: their residual has a second cause,
+    and pooling them attributes precision to dependencies.  Enrichment in the
+    tails is the reason this matters rather than being mere hygiene.
+    """
+    residuals = sorted(
+        d.run_noise_implied for d in flips if d.run_noise_implied is not None
+    )
+    print(
+        "\n--- precision flips (replayed at a different float precision; "
+        "NOT version drift) ---"
+    )
+    print(
+        "    x64 follows the model's requires_x64 and otherwise the ambient\n"
+        "    environment, so these ran in float32 what was committed in float64.\n"
+        "    Their residual confounds precision with version and is not\n"
+        "    attributable to either; estimator_ratio is unaffected (one run)."
+    )
+    if residuals:
+        extreme = sum(1 for r in residuals if r < 0.5 or r > 2.0)
+        print(
+            f"    {len(flips)} cells, residual "
+            f"{residuals[0]:.3f} - {residuals[-1]:.3f}, "
+            f"{extreme} beyond 2x in either direction"
+        )
+    for d in sorted(flips, key=lambda x: x.run_noise_implied or 0.0):
+        print(
+            f"  {_fmt(d.run_noise_implied, '.3f'):>8}  {d.recipe}  "
+            f"[x64 {d.x64_before} -> {d.x64_after}]"
+        )
+
+
 def summarise(deltas: list[CellDelta]) -> None:
     """Report each cause separately, then the review surfaces."""
     _rebaselining_summary(deltas)
@@ -330,6 +455,12 @@ def summarise(deltas: list[CellDelta]) -> None:
         print("\nNo re-emitted cells carry an estimator ratio.")
         return
 
+    # Precision flips stay in the estimator statistics — estimator_ratio is
+    # computed on ONE set of draws, so a precision change cannot contaminate it —
+    # but they leave the residual aggregate, where it would be read as drift.
+    drift_cohort = [d for d in replays if not d.precision_flip]
+    flips = [d for d in replays if d.precision_flip]
+
     print(
         f"\nestimator_ratio — the switch, isolated on fixed draws ({len(ratios)} cells)"
     )
@@ -340,22 +471,26 @@ def summarise(deltas: list[CellDelta]) -> None:
     print(f"  above 3.0            : {sum(r > 3.0 for r in ratios)}")
 
     residuals = sorted(
-        d.run_noise_implied for d in replays if d.run_noise_implied is not None
+        d.run_noise_implied for d in drift_cohort if d.run_noise_implied is not None
     )
     if residuals:
-        drifted = sum(1 for d in replays if d.version_drift)
+        drifted = sum(1 for d in drift_cohort if d.version_drift)
         print(
             f"\nrun_noise_implied — everything the estimator does not explain "
-            f"({len(residuals)} cells)"
+            f"({len(residuals)} cells, precision flips excluded)"
         )
         _quantiles(residuals)
         print(
-            f"  This is VERSION DRIFT, not seed fragility: an emit is deterministic\n"
-            f"  given its seed and configuration, so a faithful replay can only move\n"
-            f"  because its dependencies moved.  {drifted} of {len(replays)} replayed\n"
-            f"  cells were committed under a different blackjax or jax."
+            f"  Consistent with version drift, not proof of it: most control cells\n"
+            f"  are near-exact replays and carry no information either way, and a\n"
+            f"  few are not replays at all (see module docstring correction).\n"
+            f"  {drifted} of {len(drift_cohort)} replayed cells were committed under\n"
+            f"  a different blackjax or jax."
         )
-        _drift_by_origin(replays)
+        _drift_by_origin(drift_cohort)
+
+    if flips:
+        _precision_flip_section(flips)
 
     print("\n--- review surface (a): total change beyond 25% ---")
     movers = [
@@ -382,7 +517,7 @@ def summarise(deltas: list[CellDelta]) -> None:
     )
     unstable = [
         d
-        for d in replays
+        for d in drift_cohort
         if d.run_noise_implied is not None
         and (d.run_noise_implied < 0.5 or d.run_noise_implied > 2.0)
     ]
