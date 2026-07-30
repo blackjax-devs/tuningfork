@@ -111,8 +111,11 @@ def test_a_planted_mismatch_is_caught(tmp_path: Path) -> None:
     driver_spec.loader.exec_module(driver)  # type: ignore[union-attr]
 
     catalog = _REPO_ROOT / "tuningfork" / "catalog"
-    source = catalog / "banana" / "recipes" / (
-        "medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json"
+    source = (
+        catalog
+        / "banana"
+        / "recipes"
+        / ("medium__dynamic_hmc__window_adaptation_diag_imm__policy_v1-medium.json")
     )
     if not source.exists():
         pytest.skip("fixture recipe not in the catalog")
@@ -121,9 +124,9 @@ def test_a_planted_mismatch_is_caught(tmp_path: Path) -> None:
     assert isinstance(cfg, driver.CellConfig)
 
     committed = json.loads(source.read_text())
-    assert not driver.config_fidelity_violations(cfg, committed), (
-        "fixture already mismatches itself, so the planted change proves nothing"
-    )
+    assert not driver.config_fidelity_violations(
+        cfg, committed
+    ), "fixture already mismatches itself, so the planted change proves nothing"
 
     # Derived from what was reconstructed rather than hard-coded, so the plant is
     # guaranteed to differ whatever the fixture records.
