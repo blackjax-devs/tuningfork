@@ -46,10 +46,12 @@ from string import Template
 from typing import TYPE_CHECKING
 
 from tuningfork.recipes._emit import (
+    emit_init_strategy,
     emit_laplace_preamble,
     emit_postamble,
     emit_preamble,
     emit_sampler,
+    emit_step_policy,
     emit_warmup,
 )
 from tuningfork.recipes._execution_plan import ExecutionOverrides
@@ -492,10 +494,9 @@ def emit_script(
 
         - ``None`` (default): falls back to ``recipe.warmup_num_chains``. If
           both are ``None``, every warmup phase uses the sampling chain count.
-        - ``[1]`` or all-ones list: forces the single-chain warmup template
-          (``window_adaptation_*.py.tmpl``) — the ONE knob that selects
-          single-chain topology.  Recommended for expensive-logprob models to
-          avoid vmap-of-while_loop; unrelated to ``progress_bar``.
+        - ``[1]`` with more than one sampling chain selects shared single-chain
+          warmup. Recommended for expensive-logprob models to avoid
+          vmap-of-while_loop; unrelated to ``progress_bar``.
         - ``[W]`` with ``W == num_chains``: same as ``None`` — uses the multichain
           template.
         Other single-phase window-adaptation topologies fail closed until code
@@ -602,6 +603,22 @@ def emit_script(
         "warmup_progress_bar": _warmup_pb,
         "sampling_progress_bar": _sampling_pb,
     }
+    _init_strategy = (
+        None if config.init_strategy is None else dict(config.init_strategy)
+    )
+    _init_strategy_kind = (
+        "prior_sample" if _init_strategy is None else _init_strategy.get("type")
+    )
+    ctx["init_position_is_prebatched"] = _init_strategy_kind in {
+        "uniform_perchain",
+        "zero_perchain",
+    }
+    init_body = emit_init_strategy(_init_strategy, num_chains)
+    step_policy_body = (
+        emit_step_policy(config.step_policy)
+        if recipe.base_method_name in {"dynamic_hmc", "dmhmc"}
+        else None
+    )
     # T1.5: resolve postamble info-diagnostics and draws-stats blocks at emit time.
     ctx["info_diagnostics_block"] = _build_info_diagnostics_block(
         recipe.base_method_name
@@ -892,11 +909,11 @@ def emit_script(
     # omitted topology to the sampling chain count.
     _wnc_emit = _warmup_chain_counts
     # For single-phase warmups, the first (and only) entry drives template selection:
-    # W == 1 → force single-chain template (independent perf knob — avoids
-    # vmap-of-while_loop for expensive-logprob models; unrelated to progress_bar).
-    # W == num_chains → use the multichain template.
+    # W == 1 < S selects shared single-chain warmup; W == S uses the per-chain
+    # template, including the degenerate one-chain case.
     # Other values were rejected while resolving the executable plan.
     _warmup_W0 = _wnc_emit[0]
+    _uses_shared_window_warmup = _warmup_W0 == 1 and num_chains > 1
 
     # Registry entry for the sampler — needed by both emit_warmup (A3) and
     # emit_sampler (A2). Resolved once here before warmup dispatch.
@@ -917,7 +934,7 @@ def emit_script(
     _is_wa_multichain = (
         not _is_multiphase_warmup
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
-        and not (_warmup_W0 == 1)
+        and not _uses_shared_window_warmup
     )
     ctx["_warmup_is_multichain"] = _is_wa_multichain
 
@@ -1035,7 +1052,7 @@ def emit_script(
     _uses_multichain_warmup_tmpl = (
         not _is_multiphase_warmup
         and not _resolved_warmup_init_is_single_chain
-        and not (_warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS)
+        and not _uses_shared_window_warmup
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
     )
     _resolved_warmup_is_perchain = (
@@ -1077,37 +1094,16 @@ def emit_script(
 
     postamble = emit_postamble(ctx)
 
-    # Assembly order:
-    # - Standard:  [preamble, warmup_body, sampler_body, inference_loop, postamble]
-    # - Laplace:   [preamble, laplace_preamble, warmup_body, sampler_body, ...]
-    #
-    # The laplace_preamble is inserted after the standard preamble to:
-    # 1. Split init_position into phi_init and theta_init
-    # 2. Build log_joint_fn (wrapping the joint logdensity_fn from preamble)
-    # 3. Build LaplaceMarginal factories for each warmup phase
-    # 4. Override init_position and logdensity_fn for the warmup templates
-    # Model definition is imported from tuningfork.model in the preamble;
-    # no separate model template assembled here (post R3.5-MVP clarification).
+    # Laplace setup first narrows the full model position to phi-space. The
+    # configured initialization strategy must run after that transformation and
+    # before warmup, matching the execution plan's position-space semantics.
+    # Dynamic-HMC step policies are defined after warmup and before every
+    # constructor that consumes them.
+    sections = [preamble]
     if _is_laplace:
-        laplace_preamble = emit_laplace_preamble(ctx)
-        return "\n\n".join(
-            [
-                preamble,
-                laplace_preamble,
-                warmup_body,
-                _timing_block,
-                sampler_body,
-                inference_loop,
-                postamble,
-            ]
-        )
-    return "\n\n".join(
-        [
-            preamble,
-            warmup_body,
-            _timing_block,
-            sampler_body,
-            inference_loop,
-            postamble,
-        ]
-    )
+        sections.append(emit_laplace_preamble(ctx))
+    sections.extend([init_body, warmup_body, _timing_block])
+    if step_policy_body is not None:
+        sections.append(step_policy_body)
+    sections.extend([sampler_body, inference_loop, postamble])
+    return "\n\n".join(sections)

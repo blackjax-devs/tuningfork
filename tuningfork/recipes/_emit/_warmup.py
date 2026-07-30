@@ -205,12 +205,16 @@ def _emit_window_adaptation(
         a(f"    target_acceptance_rate={target_acceptance_rate}{warmup_extra_kwargs},")
         a(")")
         a(f"_warmup_keys = jax.random.split(jax.random.key({tuning_seed}), num_chains)")
-        a("# Replicate init_position to (num_chains, ...) for vmap.")
-        a("_init_positions = jax.tree.map(")
-        a(
-            "    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position"
-        )
-        a(")")
+        if ctx.get("init_position_is_prebatched", False):
+            a("# Initial positions are already batched at generation time.")
+            a("_init_positions = init_position")
+        else:
+            a("# Replicate init_position to (num_chains, ...) for vmap.")
+            a("_init_positions = jax.tree.map(")
+            a(
+                "    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position"
+            )
+            a(")")
         a("")
         a("")
         a("@jax.vmap")

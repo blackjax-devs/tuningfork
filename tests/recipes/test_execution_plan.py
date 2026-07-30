@@ -188,7 +188,6 @@ def test_material_fields_affect_config_hash_and_metadata_does_not():
         "base_method_params": {"step_size": 0.2},
         "warmup_params": {"n_warmup": 99},
         "init_strategy": {"type": "zero"},
-        "step_policy": {"kind": "fixed"},
         "tuning_seed": 8,
         "model_name": "gp_regression",
         "base_method_name": "nuts",
@@ -201,6 +200,16 @@ def test_material_fields_affect_config_hash_and_metadata_does_not():
         recipe(effort="high", notes="x", verdict="REVIEW", workflow="y")
     )
     assert metadata.plan_hash == baseline.plan_hash
+
+    dynamic = recipe(base_method_name="dynamic_hmc")
+    dynamic_with_policy = recipe(
+        base_method_name="dynamic_hmc",
+        step_policy={"kind": "uniform_int", "low": 1, "high": 10},
+    )
+    assert (
+        resolve_execution_plan(dynamic).executable_config_hash
+        != resolve_execution_plan(dynamic_with_policy).executable_config_hash
+    )
 
 
 def test_requires_x64_comes_from_model_registry():

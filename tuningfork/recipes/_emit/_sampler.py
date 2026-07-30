@@ -248,12 +248,14 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         a("        logdensity_fn,")
         a("        step_size=step_size,")
         a("        inverse_mass_matrix=inverse_mass_matrix,")
+        a("        integration_steps_fn=_integration_steps_fn,")
         a("    ).step")
     elif name == "dmhmc":
         a("    return blackjax.dmhmc(")
         a("        logdensity_fn,")
         a("        step_size=step_size,")
         a("        inverse_mass_matrix=inverse_mass_matrix,")
+        a("        integration_steps_fn=_integration_steps_fn,")
         a("    ).step")
     elif name == "ghmc":
         a(
@@ -290,6 +292,7 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             a("        logdensity_fn,")
             a("        step_size=step_size,")
             a("        inverse_mass_matrix=inverse_mass_matrix,")
+            a("        integration_steps_fn=_integration_steps_fn,")
             a("    ).init(position, rng_key)")
         elif name == "dmhmc":
             a("def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):")
@@ -298,6 +301,7 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             a("        logdensity_fn,")
             a("        step_size=step_size,")
             a("        inverse_mass_matrix=inverse_mass_matrix,")
+            a("        integration_steps_fn=_integration_steps_fn,")
             a("    ).init(position, rng_key)")
         elif name == "ghmc":
             a("def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):")

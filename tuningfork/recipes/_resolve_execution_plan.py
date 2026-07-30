@@ -180,6 +180,29 @@ def resolve_execution_plan(
                 f"warmup chain topology W={w}, S={chains} for stage "
                 f"0 ({stages[0]['name']!r}) is not supported by code generation"
             )
+
+    init_strategy = getattr(recipe, "init_strategy", None)
+    init_kind = (
+        init_strategy.get("type") if isinstance(init_strategy, Mapping) else None
+    )
+    if init_kind in {"uniform_perchain", "zero_perchain"}:
+        if nphases != 1 or stages[0]["name"] not in window_names or ws[0] != chains:
+            raise ValueError(
+                f"init_strategy type={init_kind!r} requires a single-phase "
+                "window-adaptation warmup with W=S; got "
+                f"stages={tuple(stage['name'] for stage in stages)!r}, "
+                f"W={tuple(ws)!r}, S={chains}"
+            )
+
+    step_policy = getattr(recipe, "step_policy", None)
+    if step_policy is not None and recipe.base_method_name not in {
+        "dynamic_hmc",
+        "dmhmc",
+    }:
+        raise ValueError(
+            "step_policy is only executable for dynamic_hmc and dmhmc recipes; "
+            f"got {recipe.base_method_name!r}"
+        )
     plans = tuple(
         WarmupStagePlan(s["name"], s["params"], counts[i], ws[i])
         for i, s in enumerate(stages)
@@ -203,8 +226,8 @@ def resolve_execution_plan(
             for s in plans
         ),
         warmup_inner_kernel=copy.deepcopy(getattr(recipe, "warmup_inner_kernel", None)),
-        init_strategy=_freeze(copy.deepcopy(getattr(recipe, "init_strategy", None))),
-        step_policy=_freeze(copy.deepcopy(getattr(recipe, "step_policy", None))),
+        init_strategy=_freeze(copy.deepcopy(init_strategy)),
+        step_policy=_freeze(copy.deepcopy(step_policy)),
         tuning_seed=tuning_seed,
         sampler_seed=seed,
         reinit_seed=reinit_seed,
