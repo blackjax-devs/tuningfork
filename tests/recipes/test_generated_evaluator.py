@@ -190,6 +190,56 @@ def test_artifact_rejects_semantically_invalid_stats(tmp_path, name, value, mess
         load_generated_artifact(path, _manifest("hmc"))
 
 
+def test_artifact_accepts_float32_unit_interval_roundoff(tmp_path):
+    path = tmp_path / "draws.npz"
+    one_ulp_above_one = np.nextafter(np.float32(1.0), np.float32(2.0))
+    stats = _valid_stats("hmc")
+    stats["_ss_acceptance_rate"] = np.full((2, 3), one_ulp_above_one)
+    np.savez(path, x=np.ones((2, 3)), **stats)
+
+    data = load_generated_artifact(path, _manifest("hmc"))
+
+    assert data.chain_stats["acceptance_rate"].dtype == np.float32
+    assert np.all(data.chain_stats["acceptance_rate"] == one_ulp_above_one)
+
+
+def test_artifact_accepts_float32_unit_interval_roundoff_below_zero(tmp_path):
+    path = tmp_path / "draws.npz"
+    one_ulp_below_zero = np.nextafter(np.float32(0.0), np.float32(-1.0))
+    stats = _valid_stats("hmc")
+    stats["_ss_acceptance_rate"] = np.full((2, 3), one_ulp_below_zero)
+    np.savez(path, x=np.ones((2, 3)), **stats)
+
+    data = load_generated_artifact(path, _manifest("hmc"))
+
+    assert data.chain_stats["acceptance_rate"].dtype == np.float32
+    assert np.all(data.chain_stats["acceptance_rate"] == one_ulp_below_zero)
+
+
+def test_artifact_rejects_float32_unit_interval_beyond_roundoff(tmp_path):
+    path = tmp_path / "draws.npz"
+    eps = np.finfo(np.float32).eps
+    beyond_tolerance = np.float32(1.0 + 3 * eps)
+    stats = _valid_stats("hmc")
+    stats["_ss_acceptance_rate"] = np.full((2, 3), beyond_tolerance)
+    np.savez(path, x=np.ones((2, 3)), **stats)
+
+    with pytest.raises(ValueError, match="unit interval"):
+        load_generated_artifact(path, _manifest("hmc"))
+
+
+def test_artifact_rejects_float32_unit_interval_below_roundoff(tmp_path):
+    path = tmp_path / "draws.npz"
+    eps = np.finfo(np.float32).eps
+    beyond_tolerance = np.float32(-3 * eps)
+    stats = _valid_stats("hmc")
+    stats["_ss_acceptance_rate"] = np.full((2, 3), beyond_tolerance)
+    np.savez(path, x=np.ones((2, 3)), **stats)
+
+    with pytest.raises(ValueError, match="unit interval"):
+        load_generated_artifact(path, _manifest("hmc"))
+
+
 def test_artifact_rejects_missing_or_unexpected_stats(tmp_path):
     path = tmp_path / "draws.npz"
     stats = _valid_stats("hmc")

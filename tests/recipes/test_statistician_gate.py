@@ -63,6 +63,7 @@ Dimension-aware (Šidák) PASS band
         max_abs_mean_z >= 4.0 at any d → FAIL (the fixed FAIL boundary is untouched).
 """
 
+import json
 import math
 import types
 
@@ -70,6 +71,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from tuningfork.calibration._gate.bands import _build_margin
 from tuningfork.calibration.statistician_gate import (
     DEFAULT_THRESHOLDS,
     Z_VERDICT_ESS_CEILING,
@@ -334,6 +336,31 @@ def test_resolve_thresholds_funnel_tag():
     assert resolved["min_bulk_ess"]["review"] == (10.0, 50.0)
     # Other thresholds unchanged
     assert resolved["rhat_max"] == DEFAULT_THRESHOLDS["rhat_max"]
+
+
+def test_unbounded_gate_margin_is_strict_json_and_finite_bounds_stay_numeric():
+    """Unbounded threshold edges are explicit JSON objects, not Infinity."""
+    posterior = types.SimpleNamespace(tags=("funnel",))
+    rng = np.random.RandomState(123)
+    samples = _make_clean_samples(rng, n_chains=4, n_samples=500, dim=1)
+    verdict = auto_gate(samples, _make_info(4, 500), posterior=posterior)
+    margin = verdict.margins["min_bulk_ess"]
+
+    assert margin["pass_lo"] == 50.0
+    assert margin["review_lo"] == 10.0
+    assert margin["review_hi"] == 50.0
+    assert margin["pass_hi"] == {
+        "schema": "tuningfork.gate-threshold-bound.v1",
+        "kind": "unbounded",
+        "sign": "positive",
+    }
+    json.dumps(verdict.to_dict(), allow_nan=False)
+
+
+def test_gate_margin_rejects_nonfinite_observed_metric():
+    """Only semantic threshold infinities are encodable; observations are finite."""
+    with pytest.raises(ValueError, match="non-finite observed metric"):
+        _build_margin(float("inf"), {"pass": (0.0, 1.0)}, "PASS")
 
 
 # ---------------------------------------------------------------------------

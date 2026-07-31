@@ -32,9 +32,28 @@ as ``num_integration_steps`` for HMC. The emission should create the file:
   ``low__hmc__window_adaptation_diag_imm__inner_nuts.json``
 """
 
+import shutil
+from pathlib import Path
+
 import pytest
 
 pytestmark = pytest.mark.slow
+
+
+def _hydrate_mvn10_reference(catalog_root: Path) -> None:
+    """Copy the canonical reference into the isolated scratch catalog."""
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "tuningfork"
+        / "catalog"
+        / "mvn_10"
+        / "groundtruth_samples"
+        / "blackjax"
+    )
+    target = catalog_root / "mvn_10" / "groundtruth_samples" / "blackjax"
+    target.mkdir(parents=True)
+    for name in ("summary_v2.json", "draws.npz"):
+        shutil.copy2(source / name, target / name)
 
 
 def test_inner_nuts_hmc_emit_mvn10(tmp_path):
@@ -52,6 +71,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     from tuningfork.recipes._base import Effort, Recipe
     from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
 
+    _hydrate_mvn10_reference(tmp_path)
     result = emit_low_recipe_for_cell(
         "mvn_10",
         "window_adaptation_diag_imm",
@@ -93,19 +113,8 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         result.gate_min_ess is not None and result.gate_min_ess > 0
     ), f"min_ess must be positive (chain mixed at all); got {result.gate_min_ess!r}"
 
-    # Soft gate: FAIL with 0 divergences + finite diagnostics = pure MC noise on a
-    # tiny run.  Skip the recipe-file assertions (recipe not emitted on non-PASS),
-    # but do NOT fail the test.  The structural pipeline is demonstrably correct.
-    if result.verdict != "PASS":
-        pytest.skip(
-            f"verdict={result.verdict} "
-            f"(rhat={result.gate_rhat_max:.4f}, ess={result.gate_min_ess:.1f}, "
-            f"n_div={result.gate_n_div}); "
-            "recipe not emitted on non-PASS, so filename + Recipe.load checks are "
-            "unreachable.  Hard structural gates (n_div=0, finite rhat, ess>0) all "
-            "passed — this is MC noise on a 4×1000-sample run, not an algorithm "
-            "regression.  This is MC noise on a 4×1000-sample run per the noisy-assertion guidance."
-        )
+    assert result.verdict in {"PASS", "REVIEW", "FAIL"}
+    assert result.recipe_path is not None
 
     # --- Filename must include __inner_nuts tag (§3.5) ---
     expected_path = (

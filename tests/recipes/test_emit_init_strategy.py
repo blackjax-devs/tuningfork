@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import pytest
 
 from tuningfork.recipes._emit._init_strategy import emit_init_strategy
-from tuningfork.recipes._recipe_runner import _apply_init_strategy
+from tuningfork.recipes._init_strategy import apply_init_strategy
 
 
 def _tree_calls(source: str) -> list[str]:
@@ -82,12 +82,12 @@ def test_rejects_unknown_or_malformed_strategy(strategy):
         {"type": "uniform_perchain", "low": -1.0, "high": 1.0},
     ],
 )
-def test_emitted_source_matches_runner(strategy):
+def test_emitted_source_matches_apply_init_strategy(strategy):
     seed = 17
     num_chains = 3
     init = {"a": jnp.array([1.0, -2.0]), "b": jnp.array(0.5)}
     init_key = jax.random.split(jax.random.key(seed), 3)[0]
-    expected = _apply_init_strategy(
+    expected = apply_init_strategy(
         strategy or {"type": "prior_sample"},
         init,
         jax.random.fold_in(init_key, 42),

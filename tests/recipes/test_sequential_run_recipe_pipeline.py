@@ -339,43 +339,6 @@ def test_large_diff_recorded(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _compute_warmup_grad_evals CUMSUM path (unchanged)
-# ---------------------------------------------------------------------------
-
-
-def test_compute_warmup_grad_evals_cumsum():
-    from unittest.mock import MagicMock
-
-    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
-
-    nis = np.ones((4, 10), dtype=int) * 7
-    mock_info = MagicMock()
-    mock_info.num_integration_steps = nis
-
-    wge = _compute_warmup_grad_evals(
-        batched_params={},
-        batched_warmup_info=mock_info,
-        base_method=None,
-        n_warmup=10,
-        num_chains=4,
-    )
-    assert wge == 4 * 10 * 7
-
-
-def test_compute_warmup_grad_evals_mclmc():
-    from tuningfork.recipes._recipe_runner import _compute_warmup_grad_evals
-
-    wge = _compute_warmup_grad_evals(
-        batched_params={"_total_tuning_steps": 3333},
-        batched_warmup_info=None,
-        base_method=None,
-        n_warmup=10000,
-        num_chains=4,
-    )
-    assert wge == 3333 * 2 * 4
-
-
-# ---------------------------------------------------------------------------
 # Regression: laplace_dhmc typo (P0.T0.1)
 # ---------------------------------------------------------------------------
 

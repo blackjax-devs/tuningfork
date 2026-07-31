@@ -91,6 +91,35 @@ def _atomic_write_text(path: Path, text: str) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _atomic_savez_compressed(path: Path, **arrays: Any) -> None:
+    """Durably replace an NPZ sidecar without exposing a partial archive."""
+    import numpy as np
+
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+b",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            np.savez_compressed(stream, **arrays)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 class Effort(str, Enum):
     """Calibration effort tier — measures human + machine wall time to produce
     a recipe that the Statistician auto-gate approves.
@@ -688,7 +717,7 @@ class Recipe:
     #
     # Validated at :py:meth:`Recipe.load` time via :py:func:`validate_init_strategy`
     # so unknown types / malformed specs raise immediately.
-    # Applied at execution time by ``_apply_init_strategy`` in ``_recipe_runner.py``.
+    # Applied at execution time by the shared initialization transformation.
     # ``low`` / ``high`` are site-agnostic (all parameters share the same bounds);
     # per-site bounds are deferred to a future schema extension.
     init_strategy: dict[str, Any] | None = None
@@ -1200,9 +1229,9 @@ class Recipe:
 
         # Apply init_strategy override (e.g. zero-init, uniform jitter).
         if init_strategy is not None:
-            from tuningfork.recipes._recipe_runner import _apply_init_strategy
+            from tuningfork.recipes._init_strategy import apply_init_strategy
 
-            init_position = _apply_init_strategy(init_strategy, init_position, init_key)
+            init_position = apply_init_strategy(init_strategy, init_position, init_key)
 
         # MEDIUM recipes are single-chain by design: they capture one chain's
         # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
@@ -1647,9 +1676,9 @@ class Recipe:
                 _save_kwargs["seed"] = int(seed)
             if note:
                 _save_kwargs["note"] = str(note)
-            np.savez_compressed(sidecar_path, **_save_kwargs)
+            _atomic_savez_compressed(sidecar_path, **_save_kwargs)
         else:
-            np.savez_compressed(sidecar_path, imm=np.asarray(imm))
+            _atomic_savez_compressed(sidecar_path, imm=np.asarray(imm))
 
         return str(sidecar_path.relative_to(root))
 

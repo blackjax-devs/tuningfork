@@ -142,52 +142,6 @@ TRANSITIONAL_DEBT_BASELINE: Counter[Hit] = Counter(
         ("calibration/tune.py", "_run_trial", "run_inference_algorithm"): 1,
         ("calibration/tune.py", "_run_warmup", "runner"): 1,
         ("recipes/_base.py", "Recipe.from_warmup_only", "runner"): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_build_vmapped_inference._step_one_chain",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_build_vmapped_inference._step_one_chain_gf",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_build_vmapped_inference._step_one_chain_laplace",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_build_vmapped_inference._step_one_chain_mclmc",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_reinit_batched_state._init_one_chain_dyn",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_reinit_batched_state._init_one_chain_laplace",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_reinit_batched_state._init_one_chain_mclmc_dyn",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "_reinit_batched_state._init_one_chain_mclmc_dyn_r",
-            "factory",
-        ): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "emit_low_recipe_for_cell",
-            "run_inference_algorithm",
-        ): 1,
-        ("recipes/_recipe_runner.py", "emit_low_recipe_for_cell", "runner"): 1,
         ("recipes/_smc_runner.py", "emit_smc_recipe_for_cell", "factory"): 2,
         ("recipes/_smc_runner.py", "emit_smc_recipe_for_cell", "run_smc"): 1,
         ("recipes/emit_mclmc_lrd.py", "_run_cert_seed", "runner"): 1,

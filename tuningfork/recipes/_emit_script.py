@@ -878,21 +878,21 @@ def emit_script(
 
     if _is_laplace:
         # Import the phi/theta split table from the recipe runner.
-        from tuningfork.recipes._recipe_runner import _LAPLACE_PHI_THETA_SPLITS
+        from tuningfork.recipes._laplace_config import LAPLACE_PHI_THETA_SPLITS
 
-        if recipe.model_name not in _LAPLACE_PHI_THETA_SPLITS:
+        if recipe.model_name not in LAPLACE_PHI_THETA_SPLITS:
             raise ValueError(
                 f"laplace_* recipe requested for model {recipe.model_name!r} but no "
                 "phi/theta split is registered in _LAPLACE_PHI_THETA_SPLITS. "
                 "Add an entry before calling emit_script for this model."
             )
-        phi_sites, theta_sites = _LAPLACE_PHI_THETA_SPLITS[recipe.model_name]
+        phi_sites, theta_sites = LAPLACE_PHI_THETA_SPLITS[recipe.model_name]
         ctx["phi_sites_repr"] = repr(phi_sites)
         ctx["theta_sites_repr"] = repr(theta_sites)
 
         # Build the LaplaceMarginal factory expression for each warmup phase.
         # All _LAPLACE_OPTIMIZER_KWARG_NAMES keys from phase/recipe params are included.
-        from tuningfork.recipes._recipe_runner import _extract_laplace_optimizer_kwargs
+        from tuningfork.recipes._laplace_config import extract_laplace_optimizer_kwargs
 
         def _laplace_factory_expr(opt_kwargs: dict) -> str:
             kwargs_str = ", ".join(f"{k}={v!r}" for k, v in opt_kwargs.items())
@@ -902,7 +902,7 @@ def emit_script(
         if _is_multiphase_warmup:
             _factory_exprs = []
             for _phase in recipe.warmups:
-                _phase_opt_kwargs = _extract_laplace_optimizer_kwargs(
+                _phase_opt_kwargs = extract_laplace_optimizer_kwargs(
                     _phase["params"], recipe.base_method_params
                 )
                 _factory_exprs.append(_laplace_factory_expr(_phase_opt_kwargs))
@@ -910,7 +910,7 @@ def emit_script(
             ctx["num_warmup_phases"] = len(recipe.warmups)
         else:
             # Single-phase: extract optimizer kwargs from warmup_params then bm fallback.
-            _single_opt_kwargs = _extract_laplace_optimizer_kwargs(
+            _single_opt_kwargs = extract_laplace_optimizer_kwargs(
                 recipe.warmup_params, recipe.base_method_params
             )
             ctx["laplace_factories_expr"] = _laplace_factory_expr(_single_opt_kwargs)
@@ -919,7 +919,7 @@ def emit_script(
         # Build a Python dict literal of optimizer kwargs for the sampler template.
         # Templates use $bm_optimizer_kwargs_expr to get all optimizer kwargs as a
         # dict they can spread: **_optimizer_kwargs.
-        _bm_opt_kwargs = _extract_laplace_optimizer_kwargs(recipe.base_method_params)
+        _bm_opt_kwargs = extract_laplace_optimizer_kwargs(recipe.base_method_params)
         ctx["bm_optimizer_kwargs_expr"] = repr(_bm_opt_kwargs)
 
     # ── Multi-phase warmup slot population ───────────────────────────────────
@@ -950,7 +950,7 @@ def emit_script(
                 "maxiter", recipe.base_method_params.get("maxiter", 30)
             )
             # Full optimizer kwargs for per-phase notes (informational only in comment).
-            _ph_opt = _extract_laplace_optimizer_kwargs(
+            _ph_opt = extract_laplace_optimizer_kwargs(
                 _phase_params, recipe.base_method_params
             )
             ctx[f"{_prefix}optimizer_kwargs"] = _ph_opt

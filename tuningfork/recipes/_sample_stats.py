@@ -190,7 +190,16 @@ def validate_sample_stats(stats: Mapping[str, np.ndarray], method_name: str) -> 
             raise ValueError(f"sample statistic {name!r} must contain booleans")
     for name in contract.unit_interval_fields:
         value = stats[name]
-        if np.any(value < 0) or np.any(value > 1):
+        # JAX reductions can accumulate a one-ULP overshoot in float32 (for
+        # example, an observed acceptance rate of 1.0000001192092896).
+        # Preserve that artifact exactly, while allowing only a couple of
+        # representable roundoff steps around the interval boundaries.
+        tolerance = (
+            2 * np.finfo(value.dtype).eps
+            if np.issubdtype(value.dtype, np.floating)
+            else 0
+        )
+        if np.any(value < -tolerance) or np.any(value > 1 + tolerance):
             raise ValueError(
                 f"sample statistic {name!r} must be within the unit interval"
             )

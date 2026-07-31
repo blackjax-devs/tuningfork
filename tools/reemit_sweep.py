@@ -167,6 +167,8 @@ PRECISION_FLIP_CELLS: dict[str, str] = {
     ),
 }
 
+_NON_REPLAYABLE_RECIPE_PARAMETER_KEYS = frozenset({"k_rank", "ncp_variant"})
+
 
 def recorded_x64(recipe: dict) -> bool | None:
     """The float precision an artifact records having run at, or ``None``."""
@@ -195,6 +197,7 @@ class CellConfig:
     policy_tag: str | None = None
     warmup_inner_kernel: str | None = None
     init_strategy: dict[str, Any] | None = None
+    variant_label: str | None = None
     # Low-rank-diagonal harness inputs.  These are genuine SETTINGS, not
     # outputs: the pilot's effective sample size gates how much rank the
     # rank-safety check will allow, so a smaller pilot silently collapses the
@@ -293,7 +296,7 @@ def _seed_candidates() -> list[int]:
     every ``tuning_seed`` in the committed corpus; anything else is skipped rather
     than guessed at.
     """
-    from tuningfork.recipes._recipe_runner import RECIPE_SEED
+    from tuningfork.recipes._certification_runner import RECIPE_SEED
 
     return [RECIPE_SEED, _predicted_tuning_seed(RECIPE_SEED), 11111, 22222, 33333]
 
@@ -330,14 +333,18 @@ def _reconstruct_sampler_kwargs(
     Returns ``(override_or_None, notes, blocking_reason_or_None)``.
     """
     from tuningfork.calibration.tune import default_params_for
-    from tuningfork.recipes._recipe_runner import _RECIPE_PROVENANCE_KEYS
 
     pinned = dict(recipe.get("base_method_params") or {})
     defaults = default_params_for(base_method)
     notes: list[str] = []
 
     # Never replayable: adapted by warmup, non-serialisable, or consumer-only.
-    for k in ("step_size", "inverse_mass_matrix", "L", *_RECIPE_PROVENANCE_KEYS):
+    for k in (
+        "step_size",
+        "inverse_mass_matrix",
+        "L",
+        *_NON_REPLAYABLE_RECIPE_PARAMETER_KEYS,
+    ):
         pinned.pop(k, None)
 
     sampler_name = recipe.get("base_method_name")
@@ -532,7 +539,7 @@ def reconstruct(
     )
     from tuningfork.model import MODELS
     from tuningfork.recipes import Recipe
-    from tuningfork.recipes._recipe_runner import RECIPE_SEED
+    from tuningfork.recipes._certification_runner import RECIPE_SEED
     from tuningfork.warmup import WARMUPS
 
     def skip(reason: str) -> Skip:
@@ -716,6 +723,7 @@ def reconstruct(
         policy_tag=policy_tag,
         warmup_inner_kernel=warmup_inner_kernel,
         init_strategy=recipe.get("init_strategy"),
+        variant_label=recipe.get("variant_label"),
         k_rank=k_rank,
         pilot_n_warmup=pilot_n_warmup,
         pilot_n_samples=pilot_n_samples,
@@ -829,10 +837,10 @@ def recertify(
     Returns
     -------
     CellResult
-        The outcome of the run: PASS writes the recipe (and its own fresh
-        ``base_method_params``, drawn straight from ``shared_kwargs`` rather
-        than retyped); REVIEW/FAIL/ERROR write nothing, matching
-        ``emit_low_recipe_for_cell``'s own contract.
+        The outcome of the generated run. Every valid PASS, REVIEW, FAIL, or
+        ERROR attempt is appended to the recipe with its receipt and evidence;
+        the materialized current view is updated without erasing prior
+        attempts. Invalid intent or a corrupt existing target fails closed.
     """
     source_path = recipe_path
     _scratch: Path | None = None
@@ -867,7 +875,7 @@ def recertify(
         raise ValueError(f"cannot recertify {recipe_path}: {cfg.reason}")
 
     from tuningfork.recipes._base import Effort
-    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+    from tuningfork.recipes._certification_runner import emit_low_recipe_for_cell
 
     return emit_low_recipe_for_cell(
         model_name=cfg.model_name,
@@ -885,6 +893,7 @@ def recertify(
         effort=Effort(cfg.effort),
         warmup_inner_kernel=cfg.warmup_inner_kernel,
         init_strategy=cfg.init_strategy,
+        variant_label=cfg.variant_label,
         catalog_root=catalog_root,
         verbose=verbose,
     )
@@ -1015,6 +1024,8 @@ def _config_flags(c: CellConfig) -> list[str]:
         flags.append("policy_tag")
     if c.init_strategy:
         flags.append("init_strategy")
+    if c.variant_label:
+        flags.append("variant_label")
     if c.sampler_kwargs_override:
         flags.append("sampler_kwargs_override")
     if c.n_warmup != 1000:
@@ -1053,6 +1064,7 @@ def _as_invocation(c: CellConfig) -> dict[str, Any]:
         "policy_tag": c.policy_tag,
         "warmup_inner_kernel": c.warmup_inner_kernel,
         "init_strategy": c.init_strategy,
+        "variant_label": c.variant_label,
         "k_rank": c.k_rank,
         "pilot_n_warmup": c.pilot_n_warmup,
         "pilot_n_samples": c.pilot_n_samples,

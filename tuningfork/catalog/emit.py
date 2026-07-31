@@ -62,6 +62,24 @@ RECIPE_EVIDENCE_HASH_DOMAIN = RECIPE_EVIDENCE_SCHEMA + "\0"
 _NONFINITE_TAG = "\u0000tuningfork_recipe_evidence_nonfinite_float"
 
 
+def canonical_recipe_snapshot(recipe: Recipe) -> dict[str, Any]:
+    """Return the lossless, JSON-safe recipe identity used in receipts.
+
+    Receipt production and certification binding must compare the same
+    materialized representation.  In particular, this normalizes namedtuple
+    and tuple values to JSON arrays and tags non-finite floats before hashing.
+    """
+    to_dict = getattr(recipe, "to_dict", None)
+    if not callable(to_dict):
+        raise TypeError(
+            "recipe must provide to_dict(include_legacy_warmup_fields=True)"
+        )
+    snapshot = to_dict(include_legacy_warmup_fields=True)
+    if not isinstance(snapshot, Mapping):
+        raise TypeError("recipe.to_dict() must return a mapping")
+    return _receipt_snapshot_value(copy.deepcopy(dict(snapshot)))
+
+
 def _receipt_snapshot_value(value: Any) -> Any:
     """Convert non-finite floats to strict-JSON, tagged values recursively."""
     if isinstance(value, float):
@@ -93,15 +111,7 @@ def _recipe_reference_identity(
         raise GeneratedProgramError("reference_identity must be a mapping or None")
     if caller_identity is not None and RECIPE_EVIDENCE_KEY in caller_identity:
         raise ValueError(f"reference_identity key {RECIPE_EVIDENCE_KEY!r} is reserved")
-    to_dict = getattr(recipe, "to_dict", None)
-    if not callable(to_dict):
-        raise TypeError(
-            "recipe must provide to_dict(include_legacy_warmup_fields=True)"
-        )
-    snapshot = to_dict(include_legacy_warmup_fields=True)
-    if not isinstance(snapshot, Mapping):
-        raise TypeError("recipe.to_dict() must return a mapping")
-    snapshot = _receipt_snapshot_value(copy.deepcopy(dict(snapshot)))
+    snapshot = canonical_recipe_snapshot(recipe)
     canonical_snapshot = canonical_json(snapshot)
     snapshot_hash = hashlib.sha256(
         (RECIPE_EVIDENCE_HASH_DOMAIN + canonical_snapshot).encode("utf-8")
@@ -194,6 +204,7 @@ __all__ = [
     "LaunchResult",
     "emit_script",
     "execute_recipe",
+    "canonical_recipe_snapshot",
     "RECIPE_EVIDENCE_HASH_DOMAIN",
     "RECIPE_EVIDENCE_KEY",
     "RECIPE_EVIDENCE_SCHEMA",

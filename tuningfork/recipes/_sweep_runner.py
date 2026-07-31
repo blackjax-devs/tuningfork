@@ -310,8 +310,8 @@ def sweep_and_pick(
     from pathlib import Path as _Path
 
     from tuningfork.recipes._base import Effort
-    from tuningfork.recipes._recipe_runner import (
-        _CATALOG_ROOT,
+    from tuningfork.recipes._certification_runner import (
+        DEFAULT_CATALOG_ROOT,
         emit_low_recipe_for_cell,
     )
 
@@ -321,7 +321,7 @@ def sweep_and_pick(
             f"got sampler={sampler!r}. For other samplers, use emit_low_recipe_for_cell."
         )
 
-    _root = _Path(catalog_root) if catalog_root is not None else _CATALOG_ROOT
+    _root = _Path(catalog_root) if catalog_root is not None else DEFAULT_CATALOG_ROOT
     all_results: list[CandidateResult] = []
     winner: CandidateResult | None = None
 

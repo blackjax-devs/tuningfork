@@ -18,10 +18,7 @@ from pathlib import Path
 import pytest
 
 import tuningfork.recipes._base as recipe_base
-from tuningfork.recipes._attempt_evidence import (
-    append_attempt,
-    build_attempt_record,
-)
+from tuningfork.recipes._attempt_evidence import append_attempt, build_attempt_record
 from tuningfork.recipes._base import Effort, Recipe
 
 pytestmark = pytest.mark.fast

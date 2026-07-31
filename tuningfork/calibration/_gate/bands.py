@@ -217,13 +217,40 @@ def _build_margin(value: float, bands: dict, band: str) -> dict:
         Always contains ``{"value": float, "band": str}``, plus band-limit
         keys present in ``bands``.
     """
-    margin: dict = {"value": float(value), "band": band}
+    observed = float(value)
+    if not math.isfinite(observed):
+        raise ValueError(
+            "non-finite observed metric cannot be recorded in a gate margin"
+        )
+
+    margin: dict = {"value": observed, "band": band}
     if "pass" in bands:
         lo, hi = bands["pass"]
-        margin["pass_lo"] = lo
-        margin["pass_hi"] = hi
+        margin["pass_lo"] = _json_threshold_bound(lo)
+        margin["pass_hi"] = _json_threshold_bound(hi)
     if "review" in bands:
         lo, hi = bands["review"]
-        margin["review_lo"] = lo
-        margin["review_hi"] = hi
+        margin["review_lo"] = _json_threshold_bound(lo)
+        margin["review_hi"] = _json_threshold_bound(hi)
     return margin
+
+
+def _json_threshold_bound(value: float) -> float | dict:
+    """Return a strict-JSON representation of a threshold bound.
+
+    Infinite bounds are semantic (they mean that a band is unbounded), so
+    encode them explicitly rather than relying on JSON's non-standard
+    ``Infinity`` token.  NaN is never a meaningful threshold and remains an
+    error.  The representation is versioned to make its meaning stable for
+    persisted certification evidence.
+    """
+    bound = float(value)
+    if math.isfinite(bound):
+        return bound
+    if math.isinf(bound):
+        return {
+            "schema": "tuningfork.gate-threshold-bound.v1",
+            "kind": "unbounded",
+            "sign": "positive" if bound > 0 else "negative",
+        }
+    raise ValueError("NaN is not a valid gate threshold bound")

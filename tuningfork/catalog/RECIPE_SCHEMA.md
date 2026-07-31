@@ -327,8 +327,8 @@ The field exists because a `headline_basis` that merely reproduces `headline_met
 
 | Path | Source of `min_bulk_ess` |
 |---|---|
-| `_recipe_runner.emit_low_recipe_for_cell` (gradient) | `metrics.headline.build_headline_basis` over the run's draws |
-| `_recipe_runner.emit_low_recipe_for_cell` (gradient-free) | same function, same draws; denominator is the total draw count |
+| generated certification (gradient) | `metrics.headline.build_headline_basis` over the generated run's validated draws |
+| generated certification (gradient-free) | same evaluator and draws; denominator is the total draw count |
 | `recipes/emit_mclmc_lrd.py` | `metrics.headline.min_bulk_ess` over the cert-seed draws |
 | `_recipe_runner.stamp_headline_from_chain_stats` | the gate's `ess_bulk` value, recovered without re-sampling |
 

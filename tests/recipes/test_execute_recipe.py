@@ -1,5 +1,6 @@
 import copy
 import hashlib
+from collections import namedtuple
 from pathlib import Path
 
 import pytest
@@ -189,6 +190,27 @@ def test_execute_recipe_real_recipe_encodes_nonfinite_gate_evidence(monkeypatch)
     }
     assert snapshot["unknown_annotation"] == {"keep": True}
     assert canonical_json(snapshot)
+
+
+def test_canonical_recipe_snapshot_matches_receipt_for_structured_values(monkeypatch):
+    point = namedtuple("Point", "x y")(1, 2)
+    recipe = _Recipe()
+    recipe.snapshot["structured"] = point
+    seen = []
+    monkeypatch.setattr(emit_module, "emit_script", lambda *args, **kwargs: "source")
+    monkeypatch.setattr(
+        emit_module,
+        "launch_generated_program",
+        lambda *args, **kwargs: (seen.append(kwargs) or object()),
+    )
+
+    emit_module.execute_recipe(recipe, Path("runs"))
+
+    snapshot = seen[0]["reference_identity"][emit_module.RECIPE_EVIDENCE_KEY][
+        "snapshot"
+    ]
+    assert snapshot == emit_module.canonical_recipe_snapshot(recipe)
+    assert snapshot["structured"] == [1, 2]
 
 
 def test_execute_recipe_recipe_evidence_is_immutable_and_preserves_caller_identity(
