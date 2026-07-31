@@ -11,27 +11,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Elliptical Slice Sampler algorithm entry for the tuningfork algorithm registry.
+"""Descriptor for Elliptical Slice recipe emission.
 
-Wraps ``blackjax.elliptical_slice`` (Murray, Adams & MacKay 2010) for
-latent-Gaussian models of the form::
+The upstream ``blackjax.elliptical_slice`` method (Murray, Adams & MacKay
+2010) targets latent-Gaussian models of the form::
 
     p(f | y) ∝ N(f; mean, cov) * likelihood(y | f)
 
-The Gaussian prior is encoded in ``prior_cov`` + ``prior_mean`` at factory
-time; the caller supplies the **likelihood-only** function as ``logdensity_fn``
-(NOT the joint log-posterior).
+The Gaussian prior is encoded in ``prior_cov`` + ``prior_mean``. A future
+generated route must supply the **likelihood-only** function, not the joint
+log-posterior.
 
-IMPORTANT: the upstream BlackJAX parameter is named ``loglikelihood_fn`` but
-our registry wrapper names its first argument ``logdensity_fn`` for interface
-uniformity.  Callers must supply a likelihood-only function here.
+The upstream BlackJAX parameter is named ``loglikelihood_fn``.
 
-Hyperparameter-free: no BO-tunable parameters (``default_hp_space=()``).
+Hyperparameter-free: no declared scalar parameters (``default_hp_space=()``).
 Gradient-free: ``grad_count_per_step=0``.
 No MH step: ``target_acceptance_rate=None`` (slice sampler always accepts).
 
-``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
-``NotImplementedError`` for this method; a specialised wiring path is required.
+``extra_required_kwargs=("prior_cov", "prior_mean")``: generated emission
+does not currently support this method. Enabling it requires typed recipe
+inputs for the Gaussian prior and a corresponding sampler emitter.
 
 References
 ----------
@@ -40,59 +39,23 @@ References
   Intelligence and Statistics (AISTATS 2010)*, JMLR W&CP 9.
 """
 
-import blackjax
 import jax.numpy as jnp
 
-from tuningfork.base_method._base import BaseMethod, HyperparamSpace  # noqa: F401
+from tuningfork.base_method._base import BaseMethod
 
-__all__ = ["ENTRY", "_factory"]
-
-
-def _factory(logdensity_fn, *, prior_cov, prior_mean, **kwargs):
-    """Build a ``blackjax.elliptical_slice`` kernel.
-
-    Parameters
-    ----------
-    logdensity_fn
-        **Likelihood-only** log-density callable ``f -> log p(y | f)``.
-        The Gaussian prior is encoded via ``prior_mean`` and ``prior_cov``
-        and must NOT be included here.  Note: upstream BlackJAX names this
-        parameter ``loglikelihood_fn`` — our wrapper renames it for registry
-        uniformity, but the semantic is the same.
-    prior_cov
-        Prior covariance matrix of shape ``(d, d)``.
-    prior_mean
-        Prior mean vector of shape ``(d,)``.
-    **kwargs
-        Accepted for interface uniformity; ignored.
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A BlackJAX kernel object with ``.init`` and ``.step`` methods.
-    """
-    # Pass-through wrapper.  blackjax.elliptical_slice's first arg is
-    # named loglikelihood_fn upstream; conceptually it is the LIKELIHOOD
-    # ONLY (the Gaussian prior is encoded in mean + cov).  Callers must
-    # supply a likelihood-only function as logdensity_fn here.
-    return blackjax.elliptical_slice(logdensity_fn, mean=prior_mean, cov=prior_cov)
+__all__ = ["ENTRY"]
 
 
 ENTRY = BaseMethod(
     name="elliptical_slice",
     family="mcmc",
-    factory=_factory,
     grad_count_per_step=lambda info: jnp.asarray(0),  # gradient-free
     grad_count_convention="0 (gradient-free)",
     default_hp_space=(),  # truly HP-free
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # slice sampler; no MH step
     extra_required_kwargs=("prior_cov", "prior_mean"),
-    # T2.3 descriptors: gradient-free, no adapted step_size/imm from warmup.
-    per_chain_param_keys=(),  # no_warmup returns empty batched_params.
-    reinit_state=False,  # EllipticalSliceState from .init() is directly usable.
-    extra_kwarg_builder=None,  # prior_cov/prior_mean are injected via shared_kwargs
-    # from the posterior entry in the runner (model-specific, not a portable builder).
+    # Gradient-free: no adapted step_size or mass matrix from warmup.
     notes=(
         "Murray, Adams & MacKay 2010 elliptical slice sampler for latent-Gaussian "
         "models p(f|y) ∝ N(f; mean, cov) * likelihood(y|f). The 'logdensity_fn' "
@@ -101,6 +64,7 @@ ENTRY = BaseMethod(
         "Gradient-free (grad_count_per_step=0). EllipSliceInfo carries (momentum, "
         "theta, subiter); no acceptance_rate field — slice sampling always accepts "
         "after a finite number of bracket-shrink subiters. extra_required_kwargs=('prior_cov', 'prior_mean'); "
-        "no_warmup raises NotImplementedError; a specialised wiring path is required."
+        "generated emission currently reports this method as unsupported. Enabling it "
+        "requires typed recipe inputs for the Gaussian prior and a corresponding sampler emitter."
     ),
 )

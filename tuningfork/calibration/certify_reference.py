@@ -104,7 +104,7 @@ class PreAdaptedWarmup(NamedTuple):
 class AdaptationParams:
     """Tuned NUTS parameters from window adaptation warmup.
 
-    Used as informative priors (not optima) for BO tuning search ranges.
+    Retained as reference-adaptation evidence, not sampler configuration input.
 
     Parameters
     ----------

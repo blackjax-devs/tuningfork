@@ -14,7 +14,7 @@
 """NumPyro helper for building BlackJAX-ready log-density functions.
 
 This is the single helper used by every Path-B (long-NUTS) reference run and by
-every BO tuning / warmup-only run that needs ``logdensity_fn``.
+every generated recipe execution that needs ``logdensity_fn``.
 
 Also provides SMC-specific helpers (W1/W2, Phase 8B.1):
   - ``build_smc_logfns`` — splits the joint log-density into (logprior_fn, loglik_fn)
@@ -238,8 +238,8 @@ def build_prior_sample_fn(
     a non-trivial bijector (e.g. positive-constrained parameters) are handled
     transparently by ``Predictive``.
 
-    The ``init_particles_from_prior`` helper in ``tuningfork.runner.smc``
-    calls this function's output as ``prior_sample_fn(key, n_particles)``.
+    Generated SMC programs call this function's output as
+    ``prior_sample_fn(key, n_particles)`` when initializing particles.
     """
     if entry.analytic_sampler is not None:
         # Fast path: analytically-defined prior sampler.

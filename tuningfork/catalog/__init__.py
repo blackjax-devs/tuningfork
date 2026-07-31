@@ -18,7 +18,7 @@ This subpackage is the consumer-side surface. Users typically do:
     from tuningfork.catalog import load_recipe, load_idata, summarize_recipe
 
 The generator-side wiring (``model/``, ``base_method/``, ``warmup/``, ``smc/``,
-``recipes/``, ``calibration/``, ``metrics/``, ``runner/``) lives outside this
+``recipes/``, ``calibration/``, and ``metrics/``) lives outside this
 subpackage and is used to PRODUCE the recipes the catalog SERVES.
 
 Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
@@ -33,6 +33,8 @@ Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
 
 from tuningfork.catalog._rerun_inference import (
     cached_idata_for_recipe,
+    load_generated_idata,
+    prepare_pinned_replay,
     regenerate_idata,
 )
 from tuningfork.catalog._timing import compute_total_warmup_steps, format_timing_context
@@ -42,7 +44,14 @@ from tuningfork.catalog.diagnostics import (
     render_universal_summary,
     samples_to_idata,
 )
-from tuningfork.catalog.emit import emit_script
+from tuningfork.catalog.emit import (
+    ExecutionTimings,
+    GeneratedProgramError,
+    LaunchResult,
+    emit_script,
+    emit_smc_script,
+    execute_recipe,
+)
 from tuningfork.catalog.inspect import list_recipes, load_recipe, summarize_recipe
 from tuningfork.catalog.render import load_chain_stats, load_idata, load_samples
 
@@ -56,7 +65,9 @@ __all__ = [
     "load_chain_stats",
     "load_idata",
     "cached_idata_for_recipe",
+    "load_generated_idata",
     "regenerate_idata",
+    "prepare_pinned_replay",
     "samples_to_idata",
     # diagnostics
     "render_universal_summary",
@@ -67,4 +78,9 @@ __all__ = [
     "format_timing_context",
     # emit
     "emit_script",
+    "emit_smc_script",
+    "execute_recipe",
+    "ExecutionTimings",
+    "LaunchResult",
+    "GeneratedProgramError",
 ]

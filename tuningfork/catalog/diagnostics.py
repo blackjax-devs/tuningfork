@@ -101,8 +101,9 @@ GRADIENT_MH_WITH_ENERGY = {"nuts", "hmc", "mhmc", "dynamic_hmc", "dmhmc", "rmhmc
 # Mapping from our chain_stats field names (blackjax NUTSInfo._fields) to
 # ArviZ's canonical sample_stats group names.
 # Reference: https://python.arviz.org/en/stable/schema/schema.html#sample-stats
-# Only keys that map to a per-step scalar stat are listed. Vectors (e.g.
-# `momentum`) and nested fields (`proposal`) are intentionally dropped.
+# Known BlackJAX fields are mapped to ArviZ's canonical names. Fields not
+# listed here are retained under their original names when they contain a
+# per-step array.
 #
 # ArviZ canonical sample_stats keys (per the schema, 2026-05-12):
 #   lp, acceptance_rate, step_size, step_size_nom, tree_depth, n_steps,
@@ -143,11 +144,16 @@ def _chain_stats_to_sample_stats(
     chain_stats: dict[str, np.ndarray],
     is_multichain: bool,
     n_chunks: int = 1,
+    expected_draws: int | None = None,
+    expected_topology: tuple[int, int] | None = None,
 ) -> dict[str, np.ndarray]:
     """Project our chain_stats dict to ArviZ sample_stats schema.
 
-    Renames known per-step scalar fields per ``_CHAIN_STATS_TO_SAMPLE_STATS``;
-    drops fields that don't map cleanly (multi-dim, nested, or unrecognised).
+    Renames known fields per ``_CHAIN_STATS_TO_SAMPLE_STATS`` and retains all
+    other per-step arrays under their original names. Values without a draw
+    dimension are rejected rather than silently discarded. If two input keys
+    resolve to the same output name, a ``ValueError`` is raised rather than
+    overwriting one of the values.
 
     Reshape behaviour (when ``is_multichain=False``):
 
@@ -158,13 +164,38 @@ def _chain_stats_to_sample_stats(
       "1 long chain × split-into-chunks for split-R̂" convention and lets
       ArviZ treat the chunks as chains for downstream diagnostics.
     """
+    _validate_n_chunks(n_chunks)
     out: dict[str, np.ndarray] = {}
-    for our_name, arviz_name in _CHAIN_STATS_TO_SAMPLE_STATS.items():
-        if our_name not in chain_stats:
-            continue
-        arr = np.asarray(chain_stats[our_name])
+    source_by_output_name: dict[str, str] = {}
+    resolved: dict[str, tuple[str, np.ndarray]] = {}
+    for our_name, value in chain_stats.items():
+        arviz_name = _CHAIN_STATS_TO_SAMPLE_STATS.get(our_name, our_name)
+        arr = np.asarray(value)
+        if arviz_name in source_by_output_name:
+            previous = source_by_output_name[arviz_name]
+            raise ValueError(
+                f"chain_stats fields {previous!r} and {our_name!r} both map "
+                f"to sample_stats name {arviz_name!r}"
+            )
+        source_by_output_name[arviz_name] = our_name
+        resolved[arviz_name] = (our_name, arr)
+
+    arrays: dict[str, np.ndarray] = {}
+    for arviz_name, (our_name, arr) in resolved.items():
         if arr.ndim < 1:
-            continue  # not a per-step array
+            raise ValueError(
+                f"chain_stats field {our_name!r} must have a draw dimension"
+            )
+        arrays[arviz_name] = arr
+
+    _validate_draw_topology(
+        arrays,
+        n_chunks,
+        is_multichain=is_multichain,
+        expected_draws=expected_draws,
+        expected_topology=expected_topology,
+    )
+    for arviz_name, arr in arrays.items():
         if not is_multichain:
             if n_chunks > 1:
                 # Single-chain → reshape to (n_chunks, n_draws // n_chunks, ...)
@@ -181,6 +212,61 @@ def _chain_stats_to_sample_stats(
                     arr = arr[np.newaxis, ...]
         out[arviz_name] = arr
     return out
+
+
+def _validate_n_chunks(n_chunks: int) -> None:
+    """Reject invalid chunk controls before any reshape can lose data."""
+    if isinstance(n_chunks, bool) or not isinstance(n_chunks, (int, np.integer)):
+        raise ValueError("n_chunks must be a positive integer")
+    if n_chunks <= 0:
+        raise ValueError("n_chunks must be a positive integer")
+
+
+def _validate_draw_topology(
+    arrays: dict[str, np.ndarray],
+    n_chunks: int,
+    *,
+    is_multichain: bool,
+    expected_draws: int | None = None,
+    expected_topology: tuple[int, int] | None = None,
+) -> int | None:
+    """Ensure all arrays share one lossless chain/draw topology."""
+    if is_multichain:
+        topologies = set()
+        for arr in arrays.values():
+            if arr.ndim < 2:
+                raise ValueError(
+                    "multichain arrays must have leading chain and draw dimensions"
+                )
+            topologies.add(tuple(arr.shape[:2]))
+        if expected_topology is not None:
+            topologies.add(expected_topology)
+        if not topologies:
+            return expected_topology[1] if expected_topology is not None else None
+        if len(topologies) != 1:
+            raise ValueError(
+                "all arrays must have the same leading (chain, draw) topology"
+            )
+        topology = next(iter(topologies))
+        if min(topology) < 1:
+            raise ValueError("chain and draw dimensions must both be non-empty")
+        return topology[1]
+
+    lengths = {arr.shape[0] for arr in arrays.values()}
+    if expected_draws is not None:
+        lengths.add(expected_draws)
+    if not lengths:
+        return expected_draws
+    if len(lengths) != 1:
+        raise ValueError("all per-step arrays must have the same number of draws")
+    n_draws = lengths.pop()
+    if n_chunks > n_draws:
+        raise ValueError("n_chunks cannot exceed the number of draws")
+    if n_draws % n_chunks:
+        raise ValueError(
+            f"number of draws ({n_draws}) must be divisible by n_chunks ({n_chunks})"
+        )
+    return n_draws
 
 
 def samples_to_idata(
@@ -209,7 +295,8 @@ def samples_to_idata(
         ``acceptance_rate``, ``num_integration_steps``) are renamed per
         ArviZ's canonical sample_stats schema (``diverging``, ``energy``,
         ``acceptance_rate``, ``n_steps``) and attached to the ``sample_stats``
-        group. Unknown / nested / vector fields are dropped silently.
+        group. Unknown and vector per-step fields are retained under their
+        input names; values without a draw dimension are rejected.
         When None (default), only the posterior group is populated.
     n_chunks
         When ``is_multichain=False`` and ``n_chunks > 1``: split the single
@@ -230,18 +317,30 @@ def samples_to_idata(
     if az is None:
         raise ImportError("arviz is required for diagnostics rendering")
 
+    _validate_n_chunks(n_chunks)
+
+    sample_arrays = {name: np.asarray(arr) for name, arr in samples_dict.items()}
+    if not sample_arrays:
+        raise ValueError("samples_dict must contain at least one posterior variable")
+    if any(arr.ndim < 1 for arr in sample_arrays.values()):
+        raise ValueError("sample arrays must have a draw dimension")
+    n_draws = _validate_draw_topology(
+        sample_arrays, n_chunks, is_multichain=is_multichain
+    )
+    posterior_topology = None
+    if is_multichain:
+        posterior_topology = tuple(next(iter(sample_arrays.values())).shape[:2])
+
     # Ensure multi-chain shape for all params
     if not is_multichain:
         mc_samples = {}
-        for name, arr in samples_dict.items():
-            arr_np = np.asarray(arr)
+        for name, arr_np in sample_arrays.items():
             if n_chunks > 1:
                 # Split single chain into n_chunks contiguous chunks.
                 # arr_np: (n_draws, *event)  →  (n_chunks, per_chunk, *event)
                 n_total = arr_np.shape[0]
                 per_chunk = n_total // n_chunks
-                truncated = arr_np[: n_chunks * per_chunk]
-                mc_samples[name] = truncated.reshape(
+                mc_samples[name] = arr_np.reshape(
                     n_chunks, per_chunk, *arr_np.shape[1:]
                 )
             else:
@@ -255,7 +354,11 @@ def samples_to_idata(
 
     if chain_stats is not None:
         sample_stats = _chain_stats_to_sample_stats(
-            chain_stats, is_multichain, n_chunks=n_chunks
+            chain_stats,
+            is_multichain,
+            n_chunks=n_chunks,
+            expected_draws=None if is_multichain else n_draws,
+            expected_topology=posterior_topology,
         )
         return az.from_dict({"posterior": mc_samples, "sample_stats": sample_stats})
 

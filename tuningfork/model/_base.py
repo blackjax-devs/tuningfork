@@ -162,15 +162,16 @@ class Posterior:
     # ``prior_cov_diag``: diagonal of the prior covariance Σ for each site.
     #   E.g. {"log_noise_scale": [1.0], "f_raw": [1.0, ..., 1.0]}
     #
-    # The ``no_warmup`` runner uses these to call ``blackjax.elliptical_slice``
-    # with the correct Gaussian prior structure.  The recipe runner builds the
-    # likelihood-only logdensity by subtracting the Gaussian prior from the
-    # joint log-posterior:
+    # The generated ``no_warmup`` protocol uses these to call
+    # ``blackjax.elliptical_slice`` with the correct Gaussian prior structure.
+    # Generated execution builds the likelihood-only logdensity by subtracting
+    # the Gaussian prior from the joint log-posterior:
     #   loglik(x) = logposterior(x) − logprior_gaussian(x, µ, diag(Σ))
     #   logprior_gaussian = −0.5 · Σ_site Σ_dim (x − µ)² / σ²
     #
     # Only ``latent_gaussian`` class models need these fields.  Leaving them
-    # ``None`` for other models is correct; the no_warmup runner raises a clear
+    # ``None`` for other models is correct; the generated no_warmup protocol
+    # raises a clear
     # error if ``elliptical_slice`` is attempted without them.
     prior_mean: dict[str, list[float]] | None = None
     prior_cov_diag: dict[str, list[float]] | None = None

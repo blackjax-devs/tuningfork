@@ -13,18 +13,11 @@
 # limitations under the License.
 """Descriptor-driven Python emit-function for sampler sections.
 
-Replaces the 15 ``.tmpl`` files in
-``_templates/samplers/{nuts,hmc,mhmc,rmhmc,dynamic_hmc,dmhmc,ghmc,
-laplace_hmc,laplace_mhmc,laplace_dhmc,laplace_dmhmc,
-mala,barker,rwm,vi_sampler}.py.tmpl``
-(695 LOC total) with a single Python entry point.
+The sampler families are emitted directly through this single Python entry
+point.
 
-All routing is resolved at generation time (P1 straight-line principle).
-No dispatch on ``base_method_name`` string equality — every fork comes
-from descriptors (``per_chain_param_keys``, ``reinit_state``,
-``extra_required_kwargs``) or family-level structural differences.
-
-D8 compliant: emitted strings contain no ``import tuningfork``.
+All routing is resolved at generation time. Emitted strings contain no
+``import tuningfork``.
 
 Family groupings
 ----------------
@@ -66,14 +59,105 @@ def _is_vi(base_method: BaseMethod) -> bool:
     return base_method.name in _VI_NAMES
 
 
-def _needs_imm(base_method: BaseMethod) -> bool:
-    """True when step_size + inverse_mass_matrix are per-chain adapted params."""
-    return "inverse_mass_matrix" in base_method.per_chain_param_keys
+def _is_numeric_tree(value: Any) -> bool:
+    """Return whether ``value`` is an inline finite numeric scalar/tree."""
+    import math
+    import numbers
+
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, numbers.Real):
+        return math.isfinite(float(value))
+    if isinstance(value, (list, tuple)):
+        return all(_is_numeric_tree(item) for item in value)
+    return False
 
 
-def _is_gradient_free(base_method: BaseMethod) -> bool:
-    """True when per_chain_param_keys is empty (no warmup-adapted params)."""
-    return len(base_method.per_chain_param_keys) == 0
+def _is_sidecar_sentinel(value: Any) -> bool:
+    return isinstance(value, str) and value == "sidecar"
+
+
+def _validate_low_rank_marker(
+    value: Any,
+) -> tuple[list[Any], list[list[Any]], list[Any]]:
+    """Validate and unpack the JSON-safe low-rank IMM marker."""
+    if not isinstance(value, dict) or set(value) != {"type", "sigma", "U", "lam"}:
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: expected exactly type, "
+            "sigma, U, lam"
+        )
+    if value["type"] != "low_rank_inverse_mass_matrix":
+        raise ValueError(f"Unsupported inverse mass marker type: {value['type']!r}")
+    sigma, basis, lam = value["sigma"], value["U"], value["lam"]
+    if (
+        not isinstance(sigma, list)
+        or not isinstance(basis, list)
+        or not isinstance(lam, list)
+    ):
+        raise ValueError("Malformed low-rank inverse mass marker: arrays must be lists")
+    if not all(isinstance(row, list) for row in basis):
+        raise ValueError("Malformed low-rank inverse mass marker: U must be a matrix")
+    if not sigma or not basis or not lam:
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: arrays must be non-empty"
+        )
+    if len(basis) != len(sigma) or len(basis[0]) != len(lam):
+        raise ValueError("Malformed low-rank inverse mass marker: inconsistent shapes")
+    if len(lam) > len(sigma):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: rank exceeds dimension"
+        )
+    if any(len(row) != len(lam) for row in basis):
+        raise ValueError("Malformed low-rank inverse mass marker: inconsistent U rows")
+    import math
+    import numbers
+
+    def valid_scalar(x: Any) -> bool:
+        return (
+            isinstance(x, numbers.Real)
+            and not isinstance(x, bool)
+            and math.isfinite(float(x))
+        )
+
+    if not all(valid_scalar(x) and x > 0 for x in sigma + lam):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: sigma and lam must be "
+            "positive finite numbers"
+        )
+    if not all(valid_scalar(x) for row in basis for x in row):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: U must contain finite real numbers"
+        )
+    import numpy as np
+
+    gram = np.asarray(basis, dtype=float).T @ np.asarray(basis, dtype=float)
+    if not np.allclose(gram, np.eye(len(lam)), rtol=1e-5, atol=1e-6):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: U columns must be orthonormal"
+        )
+    return sigma, basis, lam
+
+
+def _emit_imm_assignment(lines: list[str], target: str, value: Any) -> None:
+    """Emit a strict inline IMM assignment, including low-rank markers."""
+    if isinstance(value, dict):
+        sigma, basis, lam = _validate_low_rank_marker(value)
+        lines.append(
+            "from blackjax.mcmc.metrics import LowRankInverseMassMatrix "
+            "as _LowRankInverseMassMatrix"
+        )
+        lines.append(f"{target} = _LowRankInverseMassMatrix(")
+        lines.append(f"    sigma=jnp.asarray({sigma!r}),")
+        lines.append(f"    U=jnp.asarray({basis!r}),")
+        lines.append(f"    lam=jnp.asarray({lam!r}),")
+        lines.append(")")
+    elif _is_numeric_tree(value):
+        lines.append(f"{target} = jnp.asarray({value!r})")
+    else:
+        raise ValueError(
+            "No-warmup replay requires a numeric inverse mass matrix or a "
+            "valid low-rank marker"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -84,17 +168,13 @@ def _is_gradient_free(base_method: BaseMethod) -> bool:
 def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     """Emit the sampler section for a recipe reproduction script.
 
-    Replaces the per-method ``.py.tmpl`` template files with a single
-    descriptor-driven Python function.
+    Emits the sampler section with a descriptor-driven Python function.
 
     Parameters
     ----------
     base_method : BaseMethod
-        Registry entry for the sampler.  Descriptors consumed:
+        Registry entry for the sampler.
         - ``base_method.name`` — method identifier string.
-        - ``base_method.per_chain_param_keys`` — drives which adapted params
-          the kernel factory call needs.
-        - ``base_method.reinit_state`` — drives ``_state_reinit`` emission.
         - ``base_method.extra_required_kwargs`` — drives laplace / VI dispatch.
     ctx : dict
         Substitution context from ``emit_script()``.  Required keys depend on
@@ -103,8 +183,8 @@ def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     Returns
     -------
     str
-        Python source for the sampler block (D8 compliant — no tuningfork
-        inference imports).
+        Python source for the sampler block, with no tuningfork inference
+        imports.
     """
     if _is_vi(base_method):
         body = _emit_vi_sampler(base_method, ctx)
@@ -119,6 +199,10 @@ def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             body = _emit_mala(base_method, ctx)
         elif name == "mclmc":
             body = _emit_mclmc(base_method, ctx)
+        elif name == "adjusted_mclmc":
+            body = _emit_adjusted_mclmc(base_method, ctx)
+        elif name == "adjusted_mclmc_dynamic":
+            body = _emit_adjusted_mclmc(base_method, ctx)
         else:
             # HMC family: nuts, hmc, mhmc, rmhmc, dynamic_hmc, dmhmc, ghmc, barker
             body = _emit_hmc_family(base_method, ctx)
@@ -154,11 +238,8 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     require a different state type than NUTSState (which warmup produces).
     """
     name = base_method.name
-    # Use structural frozenset for the emit-time _state_reinit decision.
-    # ghmc has reinit_state=False in the registry descriptor (the runner uses
-    # MEADS warmup which produces GHMCState directly) but the emitted script
-    # DOES need _state_reinit because window_adaptation warmup produces NUTSState,
-    # not GHMCState.  This mirrors _STATE_REINIT_SAMPLERS in _emit_script.py.
+    # These samplers need a state conversion when window adaptation produces a
+    # NUTS state rather than the sampler-specific state.
     _HMC_EMIT_REINIT = frozenset({"dynamic_hmc", "dmhmc", "ghmc"})
     needs_reinit = name in _HMC_EMIT_REINIT
     has_nis = name in _HMC_WITH_NIS
@@ -182,8 +263,22 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
 
     # Default step_size + IMM (used for no_warmup path init).
     _bm_step_size = ctx.get("bm_step_size", 1.0)
+    _bm_imm = ctx.get("bm_inverse_mass_matrix")
+    _is_baked_replay = bool(ctx.get("is_baked_replay", False))
+    if _is_baked_replay and (
+        not _is_numeric_tree(_bm_step_size)
+        or (not _is_numeric_tree(_bm_imm) and not isinstance(_bm_imm, dict))
+    ):
+        raise ValueError(
+            "No-warmup replay requires numeric inline step_size and "
+            "inverse_mass_matrix; "
+            "refusing to use a sidecar sentinel or invent sampler tuning."
+        )
     a(f"_default_step_size = {_bm_step_size!r}")
-    a("_default_imm = jnp.ones(_n_params)")
+    if _bm_imm is None or (_is_sidecar_sentinel(_bm_imm) and not _is_baked_replay):
+        a("_default_imm = jnp.ones(_n_params)")
+    else:
+        _emit_imm_assignment(lines, "_default_imm", _bm_imm)
 
     # num_integration_steps: recipe-pinned HP for hmc/mhmc/rmhmc.
     if has_nis:
@@ -248,12 +343,17 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         a("        logdensity_fn,")
         a("        step_size=step_size,")
         a("        inverse_mass_matrix=inverse_mass_matrix,")
+        a("        integration_steps_fn=_integration_steps_fn,")
+        if ctx.get("chees_adapted", False):
+            a("        next_random_arg_fn=_next_random_arg_fn,")
+            a("        integration_steps_params=_integration_steps_params,")
         a("    ).step")
     elif name == "dmhmc":
         a("    return blackjax.dmhmc(")
         a("        logdensity_fn,")
         a("        step_size=step_size,")
         a("        inverse_mass_matrix=inverse_mass_matrix,")
+        a("        integration_steps_fn=_integration_steps_fn,")
         a("    ).step")
     elif name == "ghmc":
         a(
@@ -279,6 +379,53 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("# _adapted_params is multi-chain: each chain builds its own kernel.")
     a("kernel_builder = _build_kernel")
 
+    # Explicit state initializer used by pre-batched no-warmup replay.  The
+    # kernel builder returns a step callable, not a SamplingAlgorithm, so state
+    # construction must call the concrete BlackJAX factory directly.
+    if name in {"dynamic_hmc", "dmhmc"}:
+        a("")
+        a("def _state_init(position, rng_key):")
+        a(f"    return blackjax.{name}(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        inverse_mass_matrix=_default_imm,")
+        a("        integration_steps_fn=_integration_steps_fn,")
+        if name == "dynamic_hmc" and ctx.get("chees_adapted", False):
+            a("        next_random_arg_fn=_next_random_arg_fn,")
+            a("        integration_steps_params=_integration_steps_params,")
+        a("    ).init(position, rng_key)")
+    elif name == "ghmc":
+        a("")
+        a("def _state_init(position, rng_key=None):")
+        a("    return blackjax.ghmc(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        momentum_inverse_scale=_default_imm,")
+        a("        alpha=_alpha,")
+        a("        delta=_delta,")
+        a("    ).init(position, rng_key)")
+    elif name == "rmhmc":
+        a("")
+        a("def _state_init(position, rng_key=None):")
+        a("    return blackjax.rmhmc(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        mass_matrix=_imm_to_mass_matrix(_default_imm),")
+        a("        num_integration_steps=_num_steps,")
+        a("    ).init(position)")
+    else:
+        a("")
+        a("def _state_init(position, rng_key=None):")
+        a(f"    return blackjax.{name}(")
+        a("        logdensity_fn,")
+        a("        step_size=_default_step_size,")
+        a("        inverse_mass_matrix=_default_imm,")
+        if has_nis:
+            a("        num_integration_steps=_num_steps,")
+        if name == "nuts":
+            a(f"        max_num_doublings={ctx.get('max_num_doublings', 10)!r},")
+        a("    ).init(position)")
+
     # _state_reinit for dynamic_hmc / dmhmc / ghmc.
     if needs_reinit:
         a("")
@@ -290,6 +437,7 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             a("        logdensity_fn,")
             a("        step_size=step_size,")
             a("        inverse_mass_matrix=inverse_mass_matrix,")
+            a("        integration_steps_fn=_integration_steps_fn,")
             a("    ).init(position, rng_key)")
         elif name == "dmhmc":
             a("def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):")
@@ -298,6 +446,7 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             a("        logdensity_fn,")
             a("        step_size=step_size,")
             a("        inverse_mass_matrix=inverse_mass_matrix,")
+            a("        integration_steps_fn=_integration_steps_fn,")
             a("    ).init(position, rng_key)")
         elif name == "ghmc":
             a("def _state_reinit(step_size, inverse_mass_matrix, position, rng_key):")
@@ -310,11 +459,11 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             a("        delta=_delta,")
             a("    ).init(position, rng_key)")
 
-    # no_warmup init block (T1.3: only emitted for no_warmup recipes).
+    # no_warmup initialization block.
     # The caller (_emit_script.py) strips this block for non-no_warmup paths.
     # We still emit it so the no_warmup path works correctly.
     a("")
-    a("# Bind _state_post_warmup: warmup template sets it when adaptation runs.")
+    a("# Bind _state_post_warmup produced by the warmup stage.")
     a("# For no_warmup, initialise from init_position here.")
     a("try:")
     a("    _state_post_warmup")
@@ -409,7 +558,7 @@ def _emit_mala(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("# kernel_builder is the protocol expected by the inference loop.")
     a("kernel_builder = _build_kernel")
     a("")
-    a("# Bind _state_post_warmup: warmup template sets it when adaptation runs;")
+    a("# Bind _state_post_warmup produced by the warmup stage;")
     a("# for no_warmup we initialize from init_position here.")
     a("try:")
     a("    _state_post_warmup")
@@ -474,6 +623,13 @@ def _emit_rwm(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         "    return unravel(flat + jax.random.normal(rng_key, shape=flat.shape) * _default_step_size)"
     )
     a("")
+    a("def _state_init(position, rng_key):")
+    a("    return blackjax.mclmc(")
+    a("        logdensity_fn,")
+    a("        step_size=_default_step_size,")
+    a("        inverse_mass_matrix=_default_imm,")
+    a("        L=_default_L,")
+    a("    ).init(position, rng_key)")
     a("")
     a("try:")
     a("    _state_post_warmup")
@@ -503,7 +659,7 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     """Emit sampler block for the Laplace family.
 
     log_joint_fn and theta_init come from the laplace_preamble section above.
-    D8: no logdensity_fn reference — laplace_* uses log_joint_fn directly.
+    Laplace samplers use log_joint_fn directly rather than logdensity_fn.
     """
     name = base_method.name
     # needs_reinit governs _state_reinit emission:
@@ -525,7 +681,7 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
 
     a(f"# === SAMPLER: {name} (Laplace-marginalised sampler on phi-space) ===")
     a("# log_joint_fn and theta_init come from the laplace_preamble section above.")
-    a("# D8: no logdensity_fn reference -- laplace_* uses log_joint_fn directly.")
+    a("# Laplace samplers use log_joint_fn directly.")
     a("from jax.flatten_util import ravel_pytree as _ravel_pytree")
     a("")
     a("_flat_phi_init, _ = _ravel_pytree(init_position)")
@@ -725,7 +881,7 @@ def _emit_vi_sampler(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a(f"import {vi_module} as {vp}_module")
     a(f"from jax.flatten_util import ravel_pytree as {vp}_ravel")
     a("")
-    a("# Inline state definition (D8: no tuningfork import in inference choreography).")
+    a("# Inline state definition keeps the generated program self-contained.")
     a(
         f"{vi_state_name} = {vp}_collections.namedtuple("
         f'    "{vi_state_name}", ["position", "vi_state"]'
@@ -758,7 +914,7 @@ def _emit_vi_sampler(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("")
     a("# Bind _state_post_warmup for the no_warmup path: run the full VI optimisation")
     a("# loop here and store the final VI state (position = variational mean).")
-    a("# For a VI-warmup recipe this block is unreachable -- warmup template sets it.")
+    a("# For a VI-warmup recipe this block is unreachable -- warmup sets it.")
     a("try:")
     a("    _state_post_warmup")
     a("except NameError:")
@@ -814,11 +970,23 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
       resolver in ``_build_info_diagnostics_block`` (mclmc is not in
       ``_SAMPLERS_WITH_IS_DIVERGENT``).
     - ``blackjax.mclmc.init`` requires an ``rng_key`` (to generate the initial
-      unit-vector momentum).  The warmup template handles init; the
+      unit-vector momentum).  The warmup stage handles init; the
       ``kernel_builder`` here is for the *sampling* phase only.
     """
     lines: list[str] = []
     a = lines.append
+    step = ctx.get("bm_step_size")
+    trajectory_length = ctx.get("bm_L")
+    imm = ctx.get("bm_inverse_mass_matrix")
+    baked = bool(ctx.get("is_baked_replay", False))
+    if baked and (
+        not _is_numeric_tree(step)
+        or not _is_numeric_tree(trajectory_length)
+        or (not _is_numeric_tree(imm) and not isinstance(imm, dict))
+    ):
+        raise ValueError(
+            "No-warmup mclmc replay requires numeric step_size, L, and IMM"
+        )
 
     a("# === SAMPLER: mclmc ===")
     a("# kernel_builder(step_size, imm, L) wraps blackjax.mclmc.")
@@ -830,6 +998,15 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a(
         "import blackjax.mcmc.mclmc  # noqa: F401 (needed for init; sampler uses blackjax.mclmc)"
     )
+    a("from jax.flatten_util import ravel_pytree as _ravel_pytree")
+    a("_flat_init, _ = _ravel_pytree(init_position)")
+    a("_n_params = int(_flat_init.shape[0])")
+    a(f"_default_step_size = {step if step is not None else 1.0!r}")
+    a(f"_default_L = {trajectory_length if trajectory_length is not None else 1.0!r}")
+    if imm is None or (_is_sidecar_sentinel(imm) and not baked):
+        a("_default_imm = jnp.ones(_n_params)")
+    else:
+        _emit_imm_assignment(lines, "_default_imm", imm)
     a("")
     a("")
     a("def kernel_builder(step_size, imm, L=None):")
@@ -838,21 +1015,110 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("        logdensity_fn,")
     a("        step_size=step_size,")
     a("        inverse_mass_matrix=imm,")
-    a("        L=L if L is not None else 1.0,")
+    a("        L=L if L is not None else _default_L,")
     a("    ).step")
     a("")
+    a("")
+    a("def _state_init(position, rng_key):")
+    a("    return blackjax.mclmc(")
+    a("        logdensity_fn, step_size=_default_step_size,")
+    a("        inverse_mass_matrix=_default_imm, L=_default_L")
+    a("    ).init(position, rng_key)")
     a("")
     a("try:")
     a("    _state_post_warmup")
     a("except NameError:")
-    a("    # no_warmup path: init from init_position with a fixed key.")
+    a("    # no_warmup path: init from init_position with the per-chain key.")
     a("    _warmup_init_is_single_chain = True")
-    a("    _no_warmup_init_key = jax.random.key(0)")
-    a("    _state_post_warmup = blackjax.mclmc(")
-    a("        logdensity_fn,")
-    a("        step_size=1.0,")
-    a("        inverse_mass_matrix=1.0,")
-    a("        L=1.0,")
-    a("    ).init(init_position, _no_warmup_init_key)")
+    a("    _state_post_warmup = _state_init(init_position, jax.random.key(0))")
 
+    return "\n".join(lines)
+
+
+def _emit_adjusted_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
+    """Emit static adjusted-MCLMC sampler with recipe-pinned L support."""
+    dynamic = base_method.name == "adjusted_mclmc_dynamic"
+    lines: list[str] = []
+    a = lines.append
+    step = ctx.get("bm_step_size", 1.0)
+    L = ctx.get("bm_L", 1.0)
+    imm = ctx.get("bm_inverse_mass_matrix")
+    baked = bool(ctx.get("is_baked_replay", False))
+    if baked and (
+        not _is_numeric_tree(step)
+        or not _is_numeric_tree(L)
+        or (imm is not None and not _is_numeric_tree(imm) and not isinstance(imm, dict))
+    ):
+        raise ValueError(
+            "No-warmup adjusted_mclmc replay requires numeric step_size, L, and IMM"
+        )
+    a("# === SAMPLER: adjusted_mclmc ===")
+    if dynamic:
+        a(
+            "from blackjax.mcmc.adjusted_mclmc_dynamic import make_random_trajectory_length_fn"
+        )
+        a("_steps_fn = make_random_trajectory_length_fn(True)")
+    a("from jax.flatten_util import ravel_pytree as _ravel_pytree")
+    a("_flat_init, _ = _ravel_pytree(init_position)")
+    a("_n_params = int(_flat_init.shape[0])")
+    a(f"_default_step_size = {step!r}")
+    a(f"_default_L = {L!r}")
+    if imm is None or (imm == "sidecar" and not baked):
+        a("_default_imm = jnp.ones(_n_params)")
+    else:
+        _emit_imm_assignment(lines, "_default_imm", imm)
+    a("")
+    a("def kernel_builder(step_size, imm, L=None):")
+    a("    _L = _default_L if L is None else L")
+    if dynamic:
+        a("    _trajectory_parameter = jnp.maximum(1.0, _L / step_size)")
+    else:
+        a(
+            "    _trajectory_parameter = "
+            "jnp.maximum(1, jnp.round(_L / step_size)).astype(jnp.int32)"
+        )
+    a(
+        "    return blackjax.adjusted_mclmc_dynamic("
+        if dynamic
+        else "    return blackjax.adjusted_mclmc("
+    )
+    a("        logdensity_fn, step_size=step_size,")
+    if dynamic:
+        a("        inverse_mass_matrix=imm, integration_steps_fn=_steps_fn,")
+        a("        integration_steps_params=(_trajectory_parameter,),")
+    else:
+        a("        inverse_mass_matrix=imm,")
+        a("        integration_steps_params=(_trajectory_parameter,),")
+    a("    ).step")
+    a("")
+    a("def _state_init(position, rng_key=None):  # noqa: ARG001")
+    if dynamic:
+        a(
+            "    return blackjax.adjusted_mclmc_dynamic.init(position, logdensity_fn, rng_key)"
+        )
+    else:
+        a("    return blackjax.adjusted_mclmc.init(position, logdensity_fn)")
+    a("")
+    a("try:")
+    a("    _state_post_warmup")
+    a("except NameError:")
+    a("    _warmup_init_is_single_chain = True")
+    if dynamic:
+        a("    _state_post_warmup = _state_init(init_position, jax.random.key(0))")
+    else:
+        a("    _state_post_warmup = _state_init(init_position)")
+    if dynamic:
+        a("")
+        a(
+            "def _state_reinit(step_size, inverse_mass_matrix, position, rng_key, L=None):"
+        )
+        a("    return blackjax.adjusted_mclmc_dynamic(")
+        a(
+            "        logdensity_fn, step_size=step_size, inverse_mass_matrix=inverse_mass_matrix,"
+        )
+        a("        integration_steps_fn=_steps_fn,")
+        a(
+            "        integration_steps_params=(jnp.maximum(1.0, (L if L is not None else _default_L) / step_size),),"
+        )
+        a("    ).init(position, rng_key)")
     return "\n".join(lines)

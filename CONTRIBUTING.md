@@ -2,6 +2,23 @@
 
 This document outlines the conventions for developing and testing `tuningfork`.
 
+## Recipe and Sampling Architecture
+
+Changes to recipes, sampling execution, calibration, certification,
+revalidation, or recipe benchmarks must follow the
+[codegen-first recipe lifecycle](docs/design/codegen-first-recipes.md).
+
+The load-bearing rules are:
+
+- codegen is the only sampling path whose output may become catalog or
+  certification evidence;
+- a custom sampling script represents a missing codegen capability and must be
+  replaced by typed recipe support plus a regression test;
+- the generated routine must be checked against every material field in the
+  recipe; and
+- no recipe refactor may discard failed attempts, review history, diagnoses,
+  gate evidence, provenance, or unknown legacy annotations.
+
 ## Test Layout
 
 Tests mirror the source structure under `tuningfork/`:
@@ -15,7 +32,6 @@ tests/
 ├── recipes/                # Recipe schema + emission + emit_script tests
 ├── metrics/                # Headline metric + diagnostics
 ├── reference/              # Reference cache I/O + posteriordb cross-checks
-├── tuning/                 # Optuna BO tests (formerly tier_b)
 ├── notebooks/              # tuningfork.catalog.inspect / render tests
 ├── numpyro/                # NumPyro integration helpers
 ├── e2e/                    # End-to-end gate tests
@@ -138,7 +154,6 @@ Post-R3 restructure (2026-05-17), the package is split into two layers.
 | Recipe schema + generators + emit_script templates | `tuningfork/recipes/` | `tests/recipes/` |
 | Metrics (headline, diagnostics) | `tuningfork/metrics/` | `tests/metrics/` |
 | Reference certification + xcheck logic | `tuningfork/calibration/certify_reference.py`, `tuningfork/_cache_io.py`, `tuningfork/_posteriordb_xcheck.py` | `tests/reference/` |
-| Optuna BO tuning loop | `tuningfork/calibration/tune.py` | `tests/tuning/` |
 | SMC runner | `tuningfork/runner/` | `tests/runner/` |
 
 **Catalog layer** (user-facing; consumes recipes):
@@ -177,7 +192,7 @@ make benchmark-pr
 - **D5 budget cap**: select < 180 s, exec ≤ 240 s per cell.
 - **n_samples=500**: minimum for reliable GT z-score at threshold=2.0.
 - **GT-correctness gate**: each benchmark asserts `max_abs_mean_z < 2.0` vs `reference/summary.json` AFTER the timed run. This makes the benchmark a *correctness regression test*, not just timing.
-- **Two modes**: `e2e` (full warmup+sample) and `calibrated` (skip_warmup=True, sample only). Families where skip_warmup raises (mclmc momentum init, laplace phi-space) are `e2e` only.
+- **Two modes**: `e2e` (full warmup+sample) and `calibrated` (generated execution using the canonical pinned no-warmup replay, sample only). MCLMC cells remain `e2e` where the benchmark is intended to measure tuning; Laplace cells are `e2e` because pinned replay still needs a phi-space initializer.
 - **GitHub Actions**: nightly runs full Tier 1+2; per-PR runs Tier 1 calibrated only. Results stored as artifacts (90-day retention) + trend tracking via `benchmark-action/github-action-benchmark`.
 
 ### Adding a new benchmark cell

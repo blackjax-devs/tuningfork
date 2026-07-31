@@ -17,41 +17,36 @@ This is the entry point for recipe portability (Principle F): given a Recipe,
 emit a Python script that reproduces the recipe's inference with the wiring
 code visible inline.
 
-Templates live in ``_templates/`` and use string.Template ($slot) substitution
-because Python code contains curly braces that conflict with str.format.
-
-Design decisions
-----------------
-- **D8 STRICT (clarified 2026-05-17 post R3.5-MVP)**: the **inference
-  choreography** (warmup + sampler + inference loop) has zero ``import
-  tuningfork`` — it's auditable in one file and shows the exact BlackJAX
-  call shape.  The **model** is imported via ``from tuningfork.model import
-  MODELS`` (canonical NumPyro code lives upstream; not duplicated here).
-  This avoids template-drift risk on the largest, most-stable code surface
-  while preserving the design-smell forcing function on the actual wiring
-  layer (per Principle A — heavy sampler/warmup template = upstream BlackJAX
-  design issue).
-- **D9**: pure function — returns a string; no side effects.  The caller
-  writes to whatever path they want.
-- **D10**: hand-written templates + round-trip CI gate in
-  ``tests/recipes/test_emit_script.py``.
+The emitted warmup, sampler, and inference loop contain no ``import
+tuningfork`` so the exact BlackJAX call shape is auditable in one file. The
+canonical model remains imported from ``tuningfork.model`` and optional tap
+instrumentation from ``tuningfork.diagnostics._tap``. This module is otherwise
+pure: it returns source text and leaves persistence to the caller. Generated
+programs are covered by syntax and execution contracts.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
-from string import Template
 from typing import TYPE_CHECKING
 
+from tuningfork._version import __version__
 from tuningfork.recipes._emit import (
+    EMITTABLE_WARMUP_NAMES,
+    emit_diagnostics,
+    emit_diagnostics_close,
+    emit_init_strategy,
     emit_laplace_preamble,
     emit_postamble,
     emit_preamble,
     emit_sampler,
+    emit_step_policy,
     emit_warmup,
 )
+from tuningfork.recipes._execution_manifest import ExecutionManifest
+from tuningfork.recipes._execution_plan import ExecutionOverrides
+from tuningfork.recipes._execution_telemetry import TELEMETRY_SCHEMA
+from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
+from tuningfork.recipes._sample_stats import SAMPLE_STAT_PREFIX, sample_stat_fields
 
 if TYPE_CHECKING:
     from tuningfork.recipes._base import Recipe
@@ -63,7 +58,7 @@ _X64_CONFIG_LINE = 'jax.config.update("jax_enable_x64", True)  # required by thi
 _X64_CONFIG_LINE_EMPTY = ""
 
 # Timing block inserted between warmup_body and sampler_body.
-# T1.4: resolved at emit time — no_warmup path omits block_until_ready
+# Resolved at emit time: no_warmup omits block_until_ready
 # (no _state_post_warmup exists before the sampler template sets it).
 # Non-no_warmup path emits block_until_ready directly (no try/except).
 _WARMUP_TIMING_BLOCK_WARMUP = (
@@ -81,62 +76,39 @@ _WARMUP_TIMING_BLOCK_NO_WARMUP = (
 # Sentinel set of samplers that define _state_reinit (require state type change
 # after warmup). Resolved at emit time — no try/except NameError needed.
 _STATE_REINIT_SAMPLERS = frozenset(
-    {"dynamic_hmc", "dmhmc", "ghmc", "laplace_dhmc", "laplace_dmhmc"}
+    {
+        "dynamic_hmc",
+        "dmhmc",
+        "ghmc",
+        "adjusted_mclmc_dynamic",
+        "laplace_dhmc",
+        "laplace_dmhmc",
+    }
 )
 
-# T1.5: Info-field sets per sampler — resolved at emit time.
-# is_divergent: HMC-family only.
-_SAMPLERS_WITH_IS_DIVERGENT = frozenset(
+_REPLAY_HMC_SAMPLERS = frozenset(
     {
         "nuts",
         "hmc",
         "mhmc",
-        "dmhmc",
-        "dynamic_hmc",
-        "ghmc",
         "rmhmc",
-        "laplace_hmc",
-        "laplace_dhmc",
-        "laplace_mhmc",
-        "laplace_dmhmc",
-    }
-)
-# acceptance_rate: all MCMC except VI; VI only has elbo.
-_VI_SAMPLER_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
-# Unadjusted MCLMC has MCLMCInfo._fields=(logdensity,kinetic_change,energy_change,nonans)
-# — no acceptance_rate, no is_divergent, no is_accepted.  adjusted_mclmc /
-# adjusted_mclmc_dynamic ARE MH-adjusted and DO have acceptance_rate, so they stay
-# on the default path.
-_MCLMC_UNADJUSTED_NAMES = frozenset({"mclmc"})
-# is_accepted (in addition to acceptance_rate): HMC + MH-family except pure NUTS.
-# NUTS has acceptance_rate but not is_accepted.
-_SAMPLERS_WITH_IS_ACCEPTED = frozenset(
-    {
-        "hmc",
-        "mhmc",
-        "dmhmc",
         "dynamic_hmc",
+        "dmhmc",
         "ghmc",
-        "rmhmc",
-        "mala",
         "barker",
-        "rwm",
-        "laplace_hmc",
-        "laplace_dhmc",
-        "laplace_mhmc",
-        "laplace_dmhmc",
+        "mclmc",
+        "adjusted_mclmc",
+        "adjusted_mclmc_dynamic",
     }
 )
-# Per-step stats to persist: vary by sampler.
-# All HMC-family have is_divergent + energy; NUTS also has num_integration_steps.
-# acceptance_rate and is_accepted vary; VI has none of these.
-_SAMPLERS_WITH_NIS_STAT = frozenset(
-    {"nuts", "hmc", "mhmc", "dmhmc", "dynamic_hmc", "ghmc", "rmhmc"}
+
+_UNSUPPORTED_PINNED_REPLAY_SAMPLERS = frozenset(
+    {"laplace_hmc", "laplace_mhmc", "laplace_dhmc", "laplace_dmhmc"}
 )
 
 
 def _build_info_diagnostics_block(sampler_name: str) -> str:
-    """T1.5: build resolved info-diagnostics block for the postamble.
+    """Build the resolved info-diagnostics block for the postamble.
 
     Replaces the hasattr(_infos, ...) probes with straight-line code per
     sampler family.
@@ -145,49 +117,37 @@ def _build_info_diagnostics_block(sampler_name: str) -> str:
         '_acceptance = float("nan")',
         "_n_div = 0",
     ]
-    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
+    fields = sample_stat_fields(sampler_name)
+    if "is_divergent" in fields:
         lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
-    if (
-        sampler_name not in _VI_SAMPLER_NAMES
-        and sampler_name not in _MCLMC_UNADJUSTED_NAMES
-    ):
+    if "acceptance_rate" in fields:
         lines.append("_acceptance = float(jnp.mean(_infos.acceptance_rate))")
     return "\n".join(lines)
 
 
 def _build_draws_ss_block(sampler_name: str) -> str:
-    """T1.5: build resolved per-step sample-stats block for the draws persistence.
+    """Build the resolved per-step sample-stats block for draws persistence.
 
     Replaces the hasattr(_infos, _ss_field) loop with explicit field access
     per sampler family.
     """
-    if sampler_name in _VI_SAMPLER_NAMES:
-        # VI samplers have no MCMC diagnostics to persist.
+    fields = sample_stat_fields(sampler_name)
+    if not fields:
         return "    # VI sampler: no per-step MCMC stats (only elbo in info)."
-
-    fields: list[str] = []
-    if sampler_name in _SAMPLERS_WITH_IS_DIVERGENT:
-        fields.append("is_divergent")
-        fields.append("energy")
-    if sampler_name in _SAMPLERS_WITH_NIS_STAT:
-        fields.append("num_integration_steps")
-    # Unadjusted MCLMC (MCLMCInfo) has no acceptance_rate field.
-    # adjusted_mclmc / adjusted_mclmc_dynamic are MH-adjusted and DO have it.
-    if sampler_name not in _MCLMC_UNADJUSTED_NAMES:
-        fields.append("acceptance_rate")
-    if sampler_name in _SAMPLERS_WITH_IS_ACCEPTED:
-        fields.append("is_accepted")
 
     lines = []
     for field in fields:
-        lines.append(f'    _draws_dict["_ss_{field}"] = np.asarray(_infos.{field})')
+        lines.append(
+            f'    _draws_dict["{SAMPLE_STAT_PREFIX}{field}"] = '
+            f"np.asarray(_infos.{field})"
+        )
     return (
         "\n".join(lines) if lines else "    pass  # no per-step stats for this sampler"
     )
 
 
 def _strip_no_warmup_try_block(sampler_body: str) -> str:
-    """T1.3: strip the per-sampler ``try: _state_post_warmup / except NameError:``
+    """Strip the per-sampler ``try: _state_post_warmup / except NameError:``
     block from the emitted sampler body for non-no_warmup recipes.
 
     All 15 non-nuts sampler templates contain a block of the form::
@@ -223,20 +183,24 @@ def _build_inference_loop(
     *,
     num_samples: int,
     sampler_seed: int,
-    tuning_seed: int,
+    reinit_seed: int,
     num_chains: int,
     use_progress_bar: bool,
     warmup_is_perchain: bool,
     warmup_init_is_single_chain: bool,
+    warmup_init_is_prebatched: bool = False,
     needs_state_reinit: bool,
     has_per_chain_L: bool = False,
+    no_warmup_step_size_expr: str = 'float(_adapted_params.get("step_size", 1.0))',
+    no_warmup_imm_expr: str = "jnp.ones(_n_dims)",
+    no_warmup_L_expr: str = "1.0",
 ) -> str:
     """Build straight-line inference loop code with all branches resolved at emit time.
 
-    T1.1: replaces inference_loop.py.tmpl + inference_loop_singlechain.py.tmpl.
-    No try/except NameError probes — every flag is known at generation time.
+    This replaces the former inference-loop templates. No try/except NameError
+    probes remain because every flag is known at generation time.
 
-    Stage 2 (blackjax #964): topology is now unconditionally multi-chain
+    Since blackjax #964, topology is unconditionally multi-chain
     (scan + vmap) — the old single-chain sampling path existed solely to keep
     the legacy io_callback-based progress bar off jax.vmap (#927); blackjax's
     new progress_bar() context manager is vmap-safe, so that constraint no
@@ -270,7 +234,25 @@ def _build_inference_loop(
     a("")
 
     # Step-size / IMM resolution
-    if warmup_init_is_single_chain:
+    if warmup_init_is_prebatched:
+        a("# no_warmup: init strategy already supplied one position per chain.")
+        a("from jax.flatten_util import ravel_pytree as _il_ravel")
+        a("_il_flat, _ = _il_ravel(init_position)")
+        a("_n_dims = int(_il_flat.shape[-1])")
+        a(
+            f"_batched_step_size = jnp.broadcast_to({no_warmup_step_size_expr}, (num_chains,))"
+        )
+        a(f"_shared_imm = {no_warmup_imm_expr}")
+        a(
+            "_batched_imm = jax.tree.map("
+            "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
+            " _shared_imm)"
+        )
+        if has_per_chain_L:
+            a(f"_batched_L = jnp.broadcast_to({no_warmup_L_expr}, (num_chains,))")
+        a(f"_init_keys = jax.random.split(jax.random.key({reinit_seed}), num_chains)")
+        a("_state_post_warmup = jax.vmap(_state_init)(init_position, _init_keys)")
+    elif warmup_init_is_single_chain:
         # no_warmup: broadcast state, set defaults
         a("# no_warmup: broadcast init_position-derived state to (num_chains, ...).")
         a(
@@ -278,36 +260,45 @@ def _build_inference_loop(
             "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
             " _state_post_warmup)"
         )
-        a('_shared_step_size = float(_adapted_params.get("step_size", 1.0))')
+        a(f"_shared_step_size = {no_warmup_step_size_expr}")
         a("from jax.flatten_util import ravel_pytree as _il_ravel")
         a("_il_flat, _ = _il_ravel(init_position)")
         a("_n_dims = int(_il_flat.shape[0])")
-        a("_shared_imm = jnp.ones(_n_dims)")
+        a(f"_shared_imm = {no_warmup_imm_expr}")
     elif not warmup_is_perchain:
         # Single-chain warmup → scalar shared params
         a("# Single-chain warmup: adapted params are scalar / un-batched.")
         a('_shared_step_size = _adapted_params["step_size"]')
         a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
 
-    if needs_state_reinit:
+    if needs_state_reinit and not warmup_init_is_prebatched:
         a("")
         a(
             "# Re-init per-chain state (dynamic_hmc / dmhmc / ghmc: different state"
             " type than warmup)."
         )
         a(
-            f"_reinit_keys = jax.random.split(jax.random.key({tuning_seed + 999}),"
+            f"_reinit_keys = jax.random.split(jax.random.key({reinit_seed}),"
             f" num_chains)"
         )
-        if warmup_is_perchain:
+        if warmup_is_perchain and not warmup_init_is_prebatched:
             a('_batched_step_size = _adapted_params["step_size"]')
             a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-            a(
-                "_state_post_warmup = jax.vmap("
-                "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
-                ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
-                " _batched_imm)"
-            )
+            if has_per_chain_L:
+                a('_batched_L = _adapted_params["L"]')
+                a(
+                    "_state_post_warmup = jax.vmap("
+                    "lambda s, k, ss, imm, L: _state_reinit(ss, imm, s.position, k, L)"
+                    ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
+                    " _batched_imm, _batched_L)"
+                )
+            else:
+                a(
+                    "_state_post_warmup = jax.vmap("
+                    "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
+                    ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
+                    " _batched_imm)"
+                )
         else:
             a(
                 "_state_post_warmup = jax.vmap("
@@ -325,9 +316,10 @@ def _build_inference_loop(
     if warmup_is_perchain and has_per_chain_L:
         # MCLMC per-chain warmup: each chain gets its own (step_size, imm, L).
         a("# Per-chain warmup (mclmc): each chain gets its own (step_size, imm, L).")
-        a('_batched_step_size = _adapted_params["step_size"]')
-        a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-        a('_batched_L = _adapted_params["L"]')
+        if not warmup_init_is_prebatched:
+            a('_batched_step_size = _adapted_params["step_size"]')
+            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+            a('_batched_L = _adapted_params["L"]')
         a("")
         a("def _step_one_chain(state, key, step_size, imm, L):")
         a("    return kernel_builder(step_size, imm, L)(key, state)")
@@ -340,8 +332,9 @@ def _build_inference_loop(
         )
     elif warmup_is_perchain:
         a("# Per-chain warmup: each chain gets its own (step_size, imm).")
-        a('_batched_step_size = _adapted_params["step_size"]')
-        a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+        if not warmup_init_is_prebatched:
+            a('_batched_step_size = _adapted_params["step_size"]')
+            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
         a("")
         a("def _step_one_chain(state, key, step_size, imm):")
         a("    return kernel_builder(step_size, imm)(key, state)")
@@ -388,37 +381,14 @@ def _build_inference_loop(
 
 __all__ = ["emit_script"]
 
-_TEMPLATES_DIR = Path(__file__).parent / "_templates"
-
-
-def _load_template(relpath: str) -> Template:
-    """Load a .py.tmpl file as a string.Template."""
-    return Template((_TEMPLATES_DIR / relpath).read_text())
-
-
-def _recipe_hash(recipe: Recipe) -> str:
-    """SHA-1 of the canonical recipe JSON; first 12 chars."""
-    payload = json.dumps(
-        {
-            "model_name": recipe.model_name,
-            "base_method_name": recipe.base_method_name,
-            "warmup_name": recipe.warmup_name,
-            "effort": recipe.effort.value,
-            "base_method_params": recipe.base_method_params,
-            "warmup_params": recipe.warmup_params,
-            "tuning_seed": recipe.tuning_seed,
-        },
-        sort_keys=True,
-        default=str,
-    )
-    return hashlib.sha1(payload.encode()).hexdigest()[:12]
-
 
 def emit_script(
     recipe: Recipe,
     *,
+    tuning_seed: int | None = None,
     num_samples: int | None = None,
     sampler_seed: int | None = None,
+    reinit_seed: int | None = None,
     num_chains: int | None = None,
     num_warmup: int | list[int] | None = None,
     progress_bar: bool | None = None,
@@ -426,17 +396,20 @@ def emit_script(
 ) -> str:
     """Assemble a recipe-reproduction Python script.
 
-    Per locked decision D8 (STRICT inference, 2026-05-17 clarification),
-    the emitted script's **inference choreography** (warmup + sampler +
-    inference loop) has zero ``import tuningfork`` and is auditable inline.
-    The **model definition** is imported via ``from tuningfork.model import
-    MODELS`` — canonical NumPyro code lives upstream, not duplicated as
-    a per-model template.
+    The emitted warmup, sampler, and inference loop have zero ``import
+    tuningfork`` and are auditable inline. The model definition is imported
+    via ``from tuningfork.model import MODELS`` so canonical NumPyro code is
+    not duplicated.
 
     Parameters
     ----------
     recipe : Recipe
         The recipe to emit. Loaded via :func:`tuningfork.catalog.load_recipe`.
+    tuning_seed : int, optional
+        Runtime override for the recipe tuning seed. The effective seed drives
+        warmup and defaults the sampler and reinitialization seeds to
+        ``tuning_seed + 1`` and ``tuning_seed + 999`` respectively. The input
+        recipe is never mutated.
     num_samples : int, optional
         Number of post-warmup samples to draw in the emitted inference loop.
         When ``None`` (default), reads ``recipe.calibration_budget["n_samples"]``
@@ -444,12 +417,15 @@ def emit_script(
         Pass an explicit integer to override (e.g. for a longer production run).
     sampler_seed : int, optional
         RNG seed for the post-warmup sampling. Defaults to
-        ``recipe.tuning_seed + 1`` so the emitted script is deterministic
-        given the recipe.
+        ``effective_tuning_seed + 1`` so the emitted script is deterministic
+        given the recipe and any runtime tuning-seed override.
+    reinit_seed : int, optional
+        RNG seed used when a sampler requires per-chain state reinitialization
+        after warmup. Defaults to ``effective_tuning_seed + 999``.
     num_chains : int, optional
         Number of chains for the vmap-scan inference loop. When ``None``,
         derived from the recipe: ``recipe.warmup_params.get("num_chains",
-        recipe.calibration_budget.get("num_chains", 1))``. Falls back to 1
+        recipe.calibration_budget.get("num_chains", 4))``. Falls back to 1
         for legacy groundtruth recipes that pre-date the ``num_chains`` field.
     num_warmup : int or list[int] or None, optional
         Override the warmup step count(s) in the emitted script.
@@ -463,8 +439,8 @@ def emit_script(
           equal the number of warmup phases in ``recipe.warmups``; otherwise
           a ``ValueError`` is raised.  Maps onto ``$wp0_n_warmup``,
           ``$wp1_n_warmup``, … in the template.
-        - An ``int`` passed for a multi-phase warmup is treated as a 1-element
-          list; if there is more than one phase a ``ValueError`` is raised.
+        - An ``int`` passed for a multi-phase warmup is rejected because it
+          cannot identify a count for every phase.
 
         Typical use: fast dry-run without editing the recipe.::
 
@@ -484,70 +460,75 @@ def emit_script(
         Runtime override for ``recipe.warmup_num_chains``.  Affects which warmup
         template variant is selected:
 
-        - ``None`` (default): falls back to ``recipe.warmup_num_chains``, which
-          is itself ``None`` for legacy recipes (uses the multichain template).
-        - ``[1]`` or all-ones list: forces the single-chain warmup template
-          (``window_adaptation_*.py.tmpl``) — the ONE knob that selects
-          single-chain topology.  Recommended for expensive-logprob models to
-          avoid vmap-of-while_loop; unrelated to ``progress_bar``.
+        - ``None`` (default): falls back to ``recipe.warmup_num_chains``. If
+          both are ``None``, every warmup phase uses the sampling chain count.
+        - ``[1]`` with more than one sampling chain selects shared single-chain
+          warmup. Recommended for expensive-logprob models to avoid
+          vmap-of-while_loop; unrelated to ``progress_bar``.
         - ``[W]`` with ``W == num_chains``: same as ``None`` — uses the multichain
           template.
-        - ``[W]`` with ``W != num_chains``: uses the multichain template (vmap
-          over W chains); the reduce+broadcast is handled by the emitted script's
-          runner, not by template selection.
-
-        Only the first entry is used for single-phase warmups; for multi-phase
-        warmups (``laplace_multiphase``), the template is already single-chain
-        by design and this argument has no effect.
+        Other single-phase window-adaptation topologies fail closed until code
+        generation implements their reduce-and-broadcast choreography.
+        Multi-phase generation currently supports only the two-phase Laplace
+        diagonal-to-dense path with one warmup chain per phase.
 
     Returns
     -------
     str
         The full Python script content. The function is pure — no side effects.
-        The caller writes the returned string to whatever path they want
-        (per locked decision D9).
+        The caller writes the returned string to whatever path they want.
 
     Raises
     ------
-    FileNotFoundError
-        If a required template is missing for the given
-        ``(model_name, warmup_name, base_method_name)`` combo.
+    NotImplementedError
+        If no generated emitter supports the requested sampler or warmup.
     KeyError
         If the recipe's ``warmup_params`` or ``base_method_params`` lack a
-        required slot for the template.
+        required generation parameter.
     ValueError
         If ``num_warmup`` is a list whose length does not match the number of
         warmup phases in ``recipe.warmups``.
     """
-    if sampler_seed is None:
-        sampler_seed = recipe.tuning_seed + 1
+    # Keep legacy baked recipes on the same canonical executable identity as
+    # the execution-plan resolver (zero-step ``no_warmup`` stage).
+    _budget = getattr(recipe, "calibration_budget", {}) or {}
+    if (
+        getattr(recipe, "warmup_name", None) == ""
+        and isinstance(_budget, dict)
+        and isinstance(_budget.get("baked_from"), dict)
+    ):
+        recipe = recipe.normalize_pinned_replay()
+    plan = resolve_execution_plan(
+        recipe,
+        ExecutionOverrides(
+            tuning_seed=tuning_seed,
+            sampler_seed=sampler_seed,
+            reinit_seed=reinit_seed,
+            num_samples=num_samples,
+            num_chains=num_chains,
+            progress_bar=progress_bar,
+            num_warmup=num_warmup,
+            warmup_num_chains=warmup_num_chains,
+        ),
+    )
+    manifest = ExecutionManifest.from_plan(plan, generator_version=__version__)
+    config = plan.config
+    config_values = config.as_dict()
+    sampler_seed = config.sampler_seed
+    reinit_seed = config.reinit_seed
+    num_samples = config.num_samples
+    num_chains = config.num_chains
+    _warmup_pb = config.progress_bar
+    _sampling_pb = config.progress_bar
+    _warmup_counts = [stage.num_warmup for stage in config.warmup_stages]
+    _warmup_chain_counts = [stage.num_chains for stage in config.warmup_stages]
 
-    # Resolve num_samples: prefer calibration_budget (validated config), then 1000.
-    if num_samples is None:
-        num_samples = int(recipe.calibration_budget.get("n_samples") or 1000)
-
-    if num_chains is None:
-        num_chains = recipe.warmup_params.get(
-            "num_chains",
-            recipe.calibration_budget.get("num_chains", 1),
-        )
-
-    # Resolve progress_bar overrides.
-    # When None: defaults to False (preserves multichain warmup for recipes that spec it).
-    # When True or False: user's choice (True forces single-chain for vmap compatibility).
-    _warmup_pb = False if progress_bar is None else bool(progress_bar)
-    _sampling_pb = False if progress_bar is None else bool(progress_bar)
-
-    # x64 requirement: look up the model in the registry and check requires_x64.
-    # This mirrors the runner logic at _recipe_runner.py:551-554.
+    # x64 requirement is part of the resolved executable configuration.
     # The x64 line must appear BEFORE any JAX computation (build_logdensity_fn,
     # jax.random.key, etc.), so it is injected into the preamble immediately
     # after ``import jax``.
-    from tuningfork.model import MODELS as _MODELS
-
-    _posterior_meta = _MODELS[recipe.model_name]
     _x64_config_line = (
-        _X64_CONFIG_LINE if _posterior_meta.requires_x64 else _X64_CONFIG_LINE_EMPTY
+        _X64_CONFIG_LINE if config.requires_x64 else _X64_CONFIG_LINE_EMPTY
     )
 
     # Normalise warmup_params key spelling: groundtruth recipes use
@@ -555,12 +536,15 @@ def emit_script(
     # newer recipe-generation code uses "target_acceptance_rate".
     target_acceptance_rate = recipe.warmup_params.get(
         "target_acceptance_rate",
-        recipe.warmup_params.get("target_acceptance", 0.8),
+        recipe.warmup_params.get(
+            "target_acceptance",
+            0.9 if recipe.warmup_name == "adjusted_mclmc_trajectory_tuning" else 0.8,
+        ),
     )
 
     # Substitution context — every $slot the templates reference must be here.
     #
-    # Prefix convention (Option A — programmatic spread, R3.5b):
+    # Programmatic context spread:
     #   bm_<key>  — from recipe.base_method_params  (e.g. $bm_step_size, $bm_num_integration_steps)
     #   wp_<key>  — from recipe.warmup_params        (e.g. $wp_n_warmup, $wp_target_acceptance_rate)
     #
@@ -570,36 +554,7 @@ def emit_script(
     # auto-expands when new hyperparameter fields are added to recipes.
     # Resolve n_warmup for single-phase warmups.
     # num_warmup override takes precedence; recipe value is the fallback.
-    _n_warmup_recipe = recipe.warmup_params.get("n_warmup", 1000)
-    if num_warmup is None:
-        _n_warmup_resolved = _n_warmup_recipe
-    elif isinstance(num_warmup, int):
-        _n_warmup_resolved = num_warmup
-    elif isinstance(num_warmup, list):
-        # list for single-phase: must be length 1 (or raise)
-        n_phases = len(recipe.warmups) if recipe.warmups else 1
-        if n_phases == 1:
-            if len(num_warmup) != 1:
-                raise ValueError(
-                    f"num_warmup list length {len(num_warmup)} does not match "
-                    f"single-phase warmup (expected 1 entry). "
-                    f"For single-phase warmups, pass an int or a 1-element list."
-                )
-            _n_warmup_resolved = num_warmup[0]
-        else:
-            # Multi-phase: validate length matches phases; $n_warmup uses first entry
-            # (for template templates that still reference it), per-phase uses $wpN_n_warmup.
-            if len(num_warmup) != n_phases:
-                raise ValueError(
-                    f"num_warmup list length {len(num_warmup)} does not match "
-                    f"number of warmup phases {n_phases} in recipe.warmups. "
-                    f"Provide exactly {n_phases} entries (one per phase)."
-                )
-            _n_warmup_resolved = num_warmup[0]  # fallback for $n_warmup slot
-    else:
-        raise TypeError(
-            f"num_warmup must be int, list[int], or None; got {type(num_warmup).__name__}"
-        )
+    _n_warmup_resolved = _warmup_counts[0]
 
     ctx = {
         "recipe_id": (
@@ -611,9 +566,10 @@ def emit_script(
         "base_method_name": recipe.base_method_name,
         "warmup_name": recipe.warmup_name,
         "effort": recipe.effort.value,
-        "recipe_hash": _recipe_hash(recipe),
+        "plan_hash": manifest.plan_hash,
+        "execution_manifest_json": manifest.to_json(),
         "verdict": recipe.gate_evidence.get("auto", {}).get("verdict", "NOT_RUN"),
-        "tuning_seed": recipe.tuning_seed,
+        "tuning_seed": config.tuning_seed,
         "sampler_seed": sampler_seed,
         "num_samples": num_samples,
         "num_chains": num_chains,
@@ -626,13 +582,88 @@ def emit_script(
         "warmup_progress_bar": _warmup_pb,
         "sampling_progress_bar": _sampling_pb,
     }
-    # T1.5: resolve postamble info-diagnostics and draws-stats blocks at emit time.
+    _init_strategy = config_values["init_strategy"]
+    _init_strategy_kind = (
+        "prior_sample" if _init_strategy is None else _init_strategy.get("type")
+    )
+    ctx["init_position_is_prebatched"] = _init_strategy_kind in {
+        "uniform_perchain",
+        "zero_perchain",
+        "reference_summary",
+    }
+    init_body = emit_init_strategy(_init_strategy, num_chains)
+    step_policy_body = (
+        emit_step_policy(config_values["step_policy"])
+        if recipe.base_method_name in {"dynamic_hmc", "dmhmc"}
+        and recipe.warmup_name != "chees"
+        else None
+    )
+    # Resolve postamble info-diagnostics and draw-stat blocks at emit time.
     ctx["info_diagnostics_block"] = _build_info_diagnostics_block(
         recipe.base_method_name
     )
     ctx["draws_ss_block"] = _build_draws_ss_block(recipe.base_method_name)
+    ctx["sample_stat_prefix"] = SAMPLE_STAT_PREFIX
+    # Fixed trajectory length is recipe geometry (not adapted) for these samplers.
+    if recipe.base_method_name in {
+        "hmc",
+        "mhmc",
+        "rmhmc",
+        "laplace_hmc",
+        "laplace_mhmc",
+    }:
+        ctx["fixed_num_integration_steps"] = recipe.base_method_params.get(
+            "num_integration_steps"
+        )
+    else:
+        ctx["fixed_num_integration_steps"] = None
+    ctx["telemetry_schema"] = TELEMETRY_SCHEMA
+    ctx["telemetry_resolved_step_policy_expr"] = (
+        "_resolved_step_policy" if step_policy_body is not None else "None"
+    )
+    _telemetry_geometry: dict[str, str] = {}
+    _telemetry_geometry_reason: str | None = None
+    _telemetry_geometry_source = "unavailable"
+    if recipe.warmup_name not in {"", "no_warmup"}:
+        _telemetry_geometry_source = "adapted"
+        _telemetry_geometry = {
+            # ``get`` is deliberate: old/upstream warmups may omit fields.  The
+            # generated postamble turns any missing field into an explicitly
+            # unavailable geometry rather than serialising JSON nulls.
+            "step_size": "_adapted_params.get('step_size')",
+            "inverse_mass_matrix": "_adapted_params.get('inverse_mass_matrix')",
+        }
+        if recipe.warmup_name in {
+            "mclmc_tuning",
+            "mclmc_lrd_tuning",
+            "adjusted_mclmc_tuning",
+            "adjusted_mclmc_trajectory_tuning",
+        }:
+            _telemetry_geometry["L"] = "_adapted_params.get('L')"
+        if recipe.warmup_name == "meads":
+            _telemetry_geometry.update(
+                {
+                    "alpha": "_adapted_params.get('alpha')",
+                    "delta": "_adapted_params.get('delta')",
+                }
+            )
+    elif recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _telemetry_geometry_source = "pinned"
+        _telemetry_geometry = {
+            "step_size": "_default_step_size",
+            "inverse_mass_matrix": "_default_imm",
+        }
+        if recipe.base_method_name == "mclmc":
+            _telemetry_geometry["L"] = "_default_L"
+    else:
+        _telemetry_geometry_reason = (
+            "sampler has no stable adapted geometry fields in generated protocol"
+        )
+    ctx["telemetry_geometry_expr"] = _telemetry_geometry
+    ctx["telemetry_geometry_source"] = _telemetry_geometry_source
+    ctx["telemetry_geometry_unavailable_reason"] = _telemetry_geometry_reason
 
-    # T1.7: VI warmup + sampler slots (unified vi_warmup.py.tmpl + vi_sampler.py.tmpl).
+    # Resolve the shared VI warmup and sampler context.
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
     _VI_SAMPLER_NAMES_TMPL = frozenset({"meanfield_vi", "fullrank_vi"})
     if (
@@ -689,21 +720,51 @@ def emit_script(
     ctx.update({f"bm_{k}": v for k, v in recipe.base_method_params.items()})
     ctx.update({f"wp_{k}": v for k, v in recipe.warmup_params.items()})
 
-    # The warmup template needs to call the right blackjax algorithm. The recipe-
-    # runner uses `resolve_warmup_algorithm` which substitutes `blackjax.nuts` for
-    # the warmup-substitute family (laplace_*, dynamic_hmc, dmhmc — methods whose
-    # interface doesn't compose with `blackjax.window_adaptation` directly:
-    # laplace_* needs `log_joint_fn` + `theta_init`; dynamic_hmc / dmhmc need
-    # `random_generator_arg` at warmup step). For all other samplers we use the
-    # sampler's own factory (= `blackjax.<base_method_name>`). Reproduce that
-    # selection here so the emitted script faithfully reproduces the runner's
-    # warmup protocol.
+    # A baked recipe has no adaptation phase: replay must use the exact pinned
+    # sampler geometry, rather than silently falling back to library defaults.
+    # Legacy ``no_warmup`` scaffolds remain allowed to use identity IMM.
+    _is_no_warmup = recipe.warmup_name in {"", "no_warmup"}
+    _is_baked_replay = recipe.warmup_name == "" or bool(
+        isinstance(recipe.calibration_budget, dict)
+        and recipe.calibration_budget.get("baked_from")
+    )
+    ctx["is_baked_replay"] = _is_baked_replay
+    if (
+        _is_baked_replay
+        and recipe.base_method_name in _UNSUPPORTED_PINNED_REPLAY_SAMPLERS
+    ):
+        raise NotImplementedError(
+            "Pinned Laplace replay requires a phi-space reference initializer "
+            "and metric representation; code generation refuses to substitute "
+            "an identity inverse mass matrix."
+        )
+    if _is_baked_replay and recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _required_replay_params = ["step_size", "inverse_mass_matrix"]
+        if recipe.base_method_name == "mclmc":
+            _required_replay_params.append("L")
+        if recipe.base_method_name in {"hmc", "mhmc", "rmhmc"}:
+            _required_replay_params.append("num_integration_steps")
+        _missing = [
+            key
+            for key in _required_replay_params
+            if recipe.base_method_params.get(key) is None
+        ]
+        if _missing:
+            raise ValueError(
+                "No-warmup replay requires pinned "
+                f"{', '.join(_missing)} for {recipe.base_method_name}; "
+                "refusing to invent sampler tuning."
+            )
+
+    # Generated warmup programs use `blackjax.nuts` for the substitute family
+    # (laplace_*, dynamic_hmc, dmhmc), whose sampling interfaces do not compose
+    # directly with `blackjax.window_adaptation`. Other samplers use their own
+    # BlackJAX factory. This makes the generated program's warmup protocol
+    # explicit and reproducible from recipe intent.
     #
     # Schema extension (warmup_inner_kernel): `recipe.warmup_inner_kernel` overrides the implicit selection when
-    # it is set AND differs from the implicit default.  This is the exact mirror of
-    # `resolve_warmup_inner_kernel` in `_warmup_to_sampler_transform.py` so that
-    # the emitted script is bit-faithful to what the runner did.
-    from tuningfork.warmup._laplace_adapter import (
+    # it is set AND differs from the implicit generated-protocol default.
+    from tuningfork.recipes._warmup_protocol import (
         LAPLACE_METHOD_NAMES,
         WARMUP_SUBSTITUTE_METHOD_NAMES,
     )
@@ -727,14 +788,12 @@ def emit_script(
     # The warmup template also needs to pass any kernel-construction kwargs
     # that the chosen blackjax algorithm requires beyond `logdensity_fn`,
     # `step_size`, and `inverse_mass_matrix` (which come from adaptation
-    # itself). The recipe-runner injects these via
-    # `default_value_for_space` on the base_method's HP space; the
-    # substitute path (uses NUTS) needs no extra kwargs. Reproduce both
-    # branches here so e.g. an mhmc warmup gets its required
+    # itself). The generated program obtains these from the base method's HP
+    # space; the substitute path (uses NUTS) needs no extra kwargs. This lets an
+    # mhmc warmup receive its required
     # `num_integration_steps` kwarg (without it, `blackjax.mhmc` raises
     # TypeError at warmup time).
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import BASE_METHODS, default_value_for_space
 
     _warmup_extra: dict[str, object]
     if (
@@ -764,7 +823,9 @@ def emit_script(
         _warmup_extra = {}
         for _space in _bm.default_hp_space:
             if _space.name not in ("step_size", "inverse_mass_matrix"):
-                _warmup_extra[_space.name] = default_value_for_space(_space)
+                _warmup_extra[_space.name] = recipe.base_method_params.get(
+                    _space.name, default_value_for_space(_space)
+                )
 
     # Render as ", k1=v1, k2=v2" so the template can inject it after the
     # base kwargs without re-thinking comma placement. Empty for nuts
@@ -775,29 +836,28 @@ def emit_script(
     # ── Laplace-* recipe handling ────────────────────────────────────────────
     # For laplace_* samplers, the emitted script needs a laplace_preamble section
     # (phi/theta split, log_joint_fn, LaplaceMarginal factories) inserted between
-    # the standard preamble and the warmup body.  This is D8 compliant: the
-    # laplace_preamble only imports from blackjax (laplace_marginal_factory),
-    # not from tuningfork.
+    # the standard preamble and the warmup body.  The generated preamble imports
+    # only the BlackJAX laplace_marginal_factory.
     _is_laplace = recipe.base_method_name in LAPLACE_METHOD_NAMES
     _is_multiphase_warmup = len(recipe.warmups) > 1
 
     if _is_laplace:
-        # Import the phi/theta split table from the recipe runner.
-        from tuningfork.recipes._recipe_runner import _LAPLACE_PHI_THETA_SPLITS
+        # Import the shared Laplace configuration used by code generation.
+        from tuningfork.recipes._laplace_config import LAPLACE_PHI_THETA_SPLITS
 
-        if recipe.model_name not in _LAPLACE_PHI_THETA_SPLITS:
+        if recipe.model_name not in LAPLACE_PHI_THETA_SPLITS:
             raise ValueError(
                 f"laplace_* recipe requested for model {recipe.model_name!r} but no "
                 "phi/theta split is registered in _LAPLACE_PHI_THETA_SPLITS. "
                 "Add an entry before calling emit_script for this model."
             )
-        phi_sites, theta_sites = _LAPLACE_PHI_THETA_SPLITS[recipe.model_name]
+        phi_sites, theta_sites = LAPLACE_PHI_THETA_SPLITS[recipe.model_name]
         ctx["phi_sites_repr"] = repr(phi_sites)
         ctx["theta_sites_repr"] = repr(theta_sites)
 
         # Build the LaplaceMarginal factory expression for each warmup phase.
         # All _LAPLACE_OPTIMIZER_KWARG_NAMES keys from phase/recipe params are included.
-        from tuningfork.recipes._recipe_runner import _extract_laplace_optimizer_kwargs
+        from tuningfork.recipes._laplace_config import extract_laplace_optimizer_kwargs
 
         def _laplace_factory_expr(opt_kwargs: dict) -> str:
             kwargs_str = ", ".join(f"{k}={v!r}" for k, v in opt_kwargs.items())
@@ -807,7 +867,7 @@ def emit_script(
         if _is_multiphase_warmup:
             _factory_exprs = []
             for _phase in recipe.warmups:
-                _phase_opt_kwargs = _extract_laplace_optimizer_kwargs(
+                _phase_opt_kwargs = extract_laplace_optimizer_kwargs(
                     _phase["params"], recipe.base_method_params
                 )
                 _factory_exprs.append(_laplace_factory_expr(_phase_opt_kwargs))
@@ -815,32 +875,26 @@ def emit_script(
             ctx["num_warmup_phases"] = len(recipe.warmups)
         else:
             # Single-phase: extract optimizer kwargs from warmup_params then bm fallback.
-            _single_opt_kwargs = _extract_laplace_optimizer_kwargs(
+            _single_opt_kwargs = extract_laplace_optimizer_kwargs(
                 recipe.warmup_params, recipe.base_method_params
             )
             ctx["laplace_factories_expr"] = _laplace_factory_expr(_single_opt_kwargs)
             ctx["num_warmup_phases"] = 1
 
-        # Build a Python dict literal of optimizer kwargs for the sampler template.
-        # Templates use $bm_optimizer_kwargs_expr to get all optimizer kwargs as a
-        # dict they can spread: **_optimizer_kwargs.
-        _bm_opt_kwargs = _extract_laplace_optimizer_kwargs(recipe.base_method_params)
+        # Build a Python dict literal of optimizer kwargs for the sampler emitter.
+        # The context value supplies all optimizer kwargs as a dict the sampler
+        # emitter can spread with **_optimizer_kwargs.
+        _bm_opt_kwargs = extract_laplace_optimizer_kwargs(recipe.base_method_params)
         ctx["bm_optimizer_kwargs_expr"] = repr(_bm_opt_kwargs)
 
     # ── Multi-phase warmup slot population ───────────────────────────────────
     # For multi-phase laplace warmup (len(recipe.warmups) > 1), populate per-phase
-    # template slots: $wp0_*, $wp1_*, etc.  These are consumed by the
-    # laplace_multiphase_warmup.py.tmpl template.
+    # context slots: $wp0_*, $wp1_*, etc. These are consumed by the
+    # laplace multi-phase warmup emitter.
     if _is_laplace and _is_multiphase_warmup:
         # Build per-phase num_warmup overrides: None → use recipe value per phase.
         _per_phase_n_warmup: list[int | None]
-        if num_warmup is None:
-            _per_phase_n_warmup = [None] * len(recipe.warmups)
-        elif isinstance(num_warmup, list):
-            _per_phase_n_warmup = list(num_warmup)
-        else:
-            # int passed for multi-phase: already caught above (single-phase only)
-            _per_phase_n_warmup = [None] * len(recipe.warmups)
+        _per_phase_n_warmup = list(_warmup_counts)
 
         for _i, _phase in enumerate(recipe.warmups):
             _phase_params = _phase["params"]
@@ -861,7 +915,7 @@ def emit_script(
                 "maxiter", recipe.base_method_params.get("maxiter", 30)
             )
             # Full optimizer kwargs for per-phase notes (informational only in comment).
-            _ph_opt = _extract_laplace_optimizer_kwargs(
+            _ph_opt = extract_laplace_optimizer_kwargs(
                 _phase_params, recipe.base_method_params
             )
             ctx[f"{_prefix}optimizer_kwargs"] = _ph_opt
@@ -887,9 +941,8 @@ def emit_script(
 
     # Warmup variants that support a multi-chain (vmap) path (always used unless
     # warmup_num_chains=[1] forces single-chain — see _is_wa_multichain below).
-    # T1.6: window_adaptation variants unified into 2 templates (singlechain +
-    # multichain), parameterised by $window_adaptation_fn and
-    # $window_adaptation_extra_kwargs.
+    # Window-adaptation variants share one generated protocol, parameterised by
+    # the selected adaptation function and kwargs.
     _MULTICHAIN_WARMUP_VARIANTS = frozenset(
         {
             "window_adaptation_diag_imm",
@@ -906,7 +959,7 @@ def emit_script(
             ctx["window_adaptation_extra_kwargs"] = "is_mass_matrix_diagonal=False,"
         else:  # window_adaptation_low_rank_imm
             ctx["window_adaptation_fn"] = "blackjax.window_adaptation_low_rank"
-            # T0.2 guard: max_rank must be present for low_rank recipes.
+            # Low-rank recipes must record max_rank explicitly.
             # Resolved to its actual value here rather than leaving as $wp_max_rank
             # (a nested slot inside a slot value is never re-substituted).
             _max_rank = recipe.warmup_params.get("max_rank")
@@ -918,26 +971,20 @@ def emit_script(
                 )
             ctx["window_adaptation_extra_kwargs"] = f"max_rank={_max_rank},"
 
-    # Resolve effective warmup_num_chains: call-time override wins over recipe-stamped.
-    # None → fall back to recipe.warmup_num_chains (may also be None for legacy recipes).
-    _wnc_emit: list[int] | None = (
-        warmup_num_chains if warmup_num_chains is not None else recipe.warmup_num_chains
-    )
+    # The execution plan has already applied override precedence and canonicalized
+    # omitted topology to the sampling chain count.
+    _wnc_emit = _warmup_chain_counts
     # For single-phase warmups, the first (and only) entry drives template selection:
-    # W == 1 → force single-chain template (independent perf knob — avoids
-    # vmap-of-while_loop for expensive-logprob models; unrelated to progress_bar).
-    # W == num_chains → use the multichain template.
-    # W != num_chains but W > 1 → use multichain template (vmap over W; reduce+broadcast
-    # is the runner's concern, not the template's).
-    _warmup_W0 = _wnc_emit[0] if _wnc_emit is not None else None
+    # W == 1 < S selects shared single-chain warmup; W == S uses the per-chain
+    # template, including the degenerate one-chain case.
+    # Other values were rejected while resolving the executable plan.
+    _warmup_W0 = _wnc_emit[0]
+    _uses_shared_window_warmup = _warmup_W0 == 1 and num_chains > 1
 
-    # Registry entry for the sampler — needed by both emit_warmup (A3) and
-    # emit_sampler (A2). Resolved once here before warmup dispatch.
+    # Resolve the sampler descriptor once for warmup and sampler emission.
     _bm_entry = BASE_METHODS[recipe.base_method_name]
 
-    # Build the warmup body: A3 Python emit-functions (descriptor-driven).
-    # All 8 warmup template families now use emit_warmup() — no .tmpl loading.
-    #
+    # Build the warmup body with descriptor-selected Python emit functions.
     # The multichain flag for WA variants is resolved here and injected into ctx
     # so emit_warmup can dispatch on it without re-deriving the same logic.
     #
@@ -948,52 +995,28 @@ def emit_script(
     # flag now only controls whether emitted calls are wrapped in
     # `with blackjax.progress_bar():` (see emit_warmup / _build_inference_loop).
     _is_wa_multichain = (
-        not _is_laplace
+        not _is_multiphase_warmup
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
-        and not (_warmup_W0 == 1)
+        and not _uses_shared_window_warmup
     )
     ctx["_warmup_is_multichain"] = _is_wa_multichain
 
-    # A3: all 8 warmup families use Python emit-functions.
-    # For warmup names NOT in the 8 known families (e.g. mclmc_tuning,
-    # adjusted_mclmc_tuning), emit_warmup raises ValueError which propagates
-    # up — same effect as the previous FileNotFoundError from _load_template.
-    #
-    # SPECIAL CASE (preserved from pre-A3 logic): laplace multi-phase recipes
+    # Laplace multi-phase recipes
     # dispatch to "laplace_multiphase_warmup" REGARDLESS of recipe.warmup_name.
-    # recipe.warmup_name for laplace HIGH recipes is the FINAL phase's warmup
-    # (e.g. "window_adaptation_dense_imm"), but the warmup body is always the
-    # multi-phase orchestration template when len(recipe.warmups) > 1.
-    _EMIT_WARMUP_NAMES = frozenset(
-        {
-            "no_warmup",
-            "window_adaptation_diag_imm",
-            "window_adaptation_dense_imm",
-            "window_adaptation_low_rank_imm",
-            "pathfinder",
-            "multipathfinder",
-            "multipathfinder_window_adaptation",
-            "meanfield_vi",
-            "fullrank_vi",
-            "laplace_multiphase_warmup",
-            "mclmc_tuning",
-            "mclmc_lrd_tuning",
-        }
-    )
+    # The compatibility ``recipe.warmup_name`` may identify the first phase;
+    # the ordered ``recipe.warmups`` list is authoritative whenever it contains
+    # multiple phases, so dispatch to the explicit orchestration emitter.
     _effective_warmup_name = (
         "laplace_multiphase_warmup"
         if (_is_laplace and _is_multiphase_warmup)
-        else recipe.warmup_name
+        else ("no_warmup" if _is_no_warmup else recipe.warmup_name)
     )
-    if _effective_warmup_name in _EMIT_WARMUP_NAMES:
+    if _effective_warmup_name in EMITTABLE_WARMUP_NAMES:
         warmup_body = emit_warmup(_effective_warmup_name, _bm_entry, ctx)
     else:
-        # Unsupported warmup (mclmc_tuning, adjusted_mclmc_tuning, etc.) —
-        # raise FileNotFoundError to match the old _load_template behaviour so
-        # _try_emit_script returns None (skip) in the golden gate tests.
         raise FileNotFoundError(
             f"No emit function for warmup {recipe.warmup_name!r}. "
-            "emit_warmup only supports the 8 standard warmup families."
+            "The warmup registry and emitter support must be updated together."
         )
 
     # Pre-compute whether laplace_hmc/laplace_mhmc need warmup-state reinit.
@@ -1008,11 +1031,7 @@ def emit_script(
         and _warmup_sampler == "nuts"
     )
 
-    # A2: descriptor-driven emit for all 15 sampler template families.
-    # For methods outside this set (mclmc, adjusted_mclmc, etc.), the
-    # FileNotFoundError from _load_template propagates up, which causes
-    # _try_emit_script to return None (skip) in the golden gate tests --
-    # same behavior as before.
+    # Descriptor-driven emit for all supported sampler families.
     _EMIT_SAMPLER_NAMES = frozenset(
         {
             "nuts",
@@ -1032,50 +1051,74 @@ def emit_script(
             "meanfield_vi",
             "fullrank_vi",
             "mclmc",
+            "adjusted_mclmc",
+            "adjusted_mclmc_dynamic",
         }
     )
     if recipe.base_method_name in _EMIT_SAMPLER_NAMES:
-        # A2: Python emit-function (descriptor-driven; no .tmpl file).
+        # Descriptor-driven Python emission; no sampler template file.
+        ctx["chees_adapted"] = recipe.warmup_name == "chees"
         sampler_body = emit_sampler(_bm_entry, ctx)
     else:
-        sampler_body = _load_template(
-            f"samplers/{recipe.base_method_name}.py.tmpl"
-        ).safe_substitute(ctx)
-
-    # T1.3: strip the try/except NameError _state_post_warmup block from
-    # sampler templates for non-no_warmup recipes (dead code for those paths).
+        raise NotImplementedError(
+            "Unsupported base method for generated emission: "
+            f"{recipe.base_method_name!r}. No sampler emitter is registered."
+        )
+    # Strip the try/except NameError _state_post_warmup block from
+    # sampler blocks for non-no_warmup recipes (dead code for those paths).
     # For no_warmup, the block is the initialization path and must be kept.
-    if recipe.warmup_name != "no_warmup":
+    if not _is_no_warmup or ctx["init_position_is_prebatched"]:
         sampler_body = _strip_no_warmup_try_block(sampler_body)
 
-    # T1.1: resolve the 3 inference-loop sentinels at emit time.
-    # All three flags are statically determined from (warmup_name, warmup_template_path,
-    # base_method_name) — no runtime try/except NameError probes needed.
+    # Resolve the three inference-loop sentinels at emit time.
+    # All three flags are statically determined from the warmup route and
+    # base_method_name; no runtime try/except NameError probes are needed.
     #
     # _warmup_init_is_single_chain: True iff warmup_name == "no_warmup"
-    _resolved_warmup_init_is_single_chain = recipe.warmup_name == "no_warmup"
+    _resolved_warmup_init_is_single_chain = (
+        _is_no_warmup and not ctx["init_position_is_prebatched"]
+    )
+    _resolved_warmup_init_is_prebatched = (
+        _is_no_warmup and ctx["init_position_is_prebatched"]
+    )
 
     # _warmup_is_perchain: True iff the selected warmup template sets it True.
     # Specifically: multichain window_adaptation templates + VI warmups +
     # mclmc_tuning / mclmc_lrd_tuning (always multi-chain per-chain warmup).
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
-    _MCLMC_WARMUP_NAMES = frozenset({"mclmc_tuning", "mclmc_lrd_tuning"})
-    # Stage 2 (blackjax #964): must stay in lockstep with _is_wa_multichain
+    _MCLMC_WARMUP_NAMES = frozenset(
+        {
+            "mclmc_tuning",
+            "mclmc_lrd_tuning",
+            "adjusted_mclmc_tuning",
+            "adjusted_mclmc_trajectory_tuning",
+        }
+    )
+    # This must stay in lockstep with _is_wa_multichain
     # above — this flag decides how the INFERENCE LOOP interprets the warmup
     # output's shape (per-chain vs shared/scalar), so it can never disagree
     # with what emit_warmup actually emitted. progress_bar no longer forces
     # single-chain, so it plays no role here either.
     _uses_multichain_warmup_tmpl = (
-        not _is_laplace
-        and not _is_multiphase_warmup
+        not _is_multiphase_warmup
         and not _resolved_warmup_init_is_single_chain
-        and not (_warmup_W0 == 1 and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS)
+        and not _uses_shared_window_warmup
         and recipe.warmup_name in _MULTICHAIN_WARMUP_VARIANTS
     )
     _resolved_warmup_is_perchain = (
         _uses_multichain_warmup_tmpl
         or recipe.warmup_name in _VI_WARMUP_NAMES
         or recipe.warmup_name in _MCLMC_WARMUP_NAMES
+        or _resolved_warmup_init_is_prebatched
+    )
+    ctx["telemetry_geometry_scope"] = (
+        None
+        if not _telemetry_geometry
+        else (
+            "shared"
+            if _is_no_warmup or not _resolved_warmup_is_perchain
+            else "per_chain"
+        )
     )
     # mclmc warmups also return per-chain L — the inference loop needs a
     # separate batched_L vmap axis alongside step_size and imm.
@@ -1087,61 +1130,58 @@ def emit_script(
         recipe.base_method_name in _STATE_REINIT_SAMPLERS
         or ctx["_laplace_needs_warmup_state_reinit"]
     )
+    if (recipe.base_method_name, recipe.warmup_name) in {
+        ("dynamic_hmc", "chees"),
+        ("ghmc", "meads"),
+    }:
+        _resolved_needs_state_reinit = False
 
-    # T1.4: emit timing block without try/except — no_warmup path omits
+    _no_warmup_step_expr = 'float(_adapted_params.get("step_size", 1.0))'
+    _no_warmup_imm_expr = "jnp.ones(_n_dims)"
+    _no_warmup_L_expr = "1.0"
+    if recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _no_warmup_step_expr = "_default_step_size"
+        _no_warmup_imm_expr = "_default_imm"
+    if recipe.base_method_name == "mclmc":
+        _no_warmup_L_expr = "_default_L"
+
+    # Emit the timing block without try/except; no_warmup omits
     # block_until_ready (state not yet set at this point in assembly).
     _timing_block = (
-        _WARMUP_TIMING_BLOCK_NO_WARMUP
-        if _resolved_warmup_init_is_single_chain
-        else _WARMUP_TIMING_BLOCK_WARMUP
+        _WARMUP_TIMING_BLOCK_NO_WARMUP if _is_no_warmup else _WARMUP_TIMING_BLOCK_WARMUP
     )
 
-    # T1.1: build straight-line inference loop (no try/except NameError probes).
+    # Build the straight-line inference loop without NameError probes.
     inference_loop = _build_inference_loop(
         num_samples=num_samples,
         sampler_seed=sampler_seed,
-        tuning_seed=recipe.tuning_seed,
+        reinit_seed=reinit_seed,
         num_chains=num_chains,
         use_progress_bar=_sampling_pb,
         warmup_is_perchain=_resolved_warmup_is_perchain,
         warmup_init_is_single_chain=_resolved_warmup_init_is_single_chain,
+        warmup_init_is_prebatched=_resolved_warmup_init_is_prebatched,
         needs_state_reinit=_resolved_needs_state_reinit,
         has_per_chain_L=_resolved_has_per_chain_L,
+        no_warmup_step_size_expr=_no_warmup_step_expr,
+        no_warmup_imm_expr=_no_warmup_imm_expr,
+        no_warmup_L_expr=_no_warmup_L_expr,
     )
 
+    diagnostics_body = emit_diagnostics(ctx)
+    ctx["diagnostics_close_body"] = emit_diagnostics_close()
     postamble = emit_postamble(ctx)
 
-    # Assembly order:
-    # - Standard:  [preamble, warmup_body, sampler_body, inference_loop, postamble]
-    # - Laplace:   [preamble, laplace_preamble, warmup_body, sampler_body, ...]
-    #
-    # The laplace_preamble is inserted after the standard preamble to:
-    # 1. Split init_position into phi_init and theta_init
-    # 2. Build log_joint_fn (wrapping the joint logdensity_fn from preamble)
-    # 3. Build LaplaceMarginal factories for each warmup phase
-    # 4. Override init_position and logdensity_fn for the warmup templates
-    # Model definition is imported from tuningfork.model in the preamble;
-    # no separate model template assembled here (post R3.5-MVP clarification).
+    # Laplace setup first narrows the full model position to phi-space. The
+    # configured initialization strategy must run after that transformation and
+    # before warmup, matching the execution plan's position-space semantics.
+    # Dynamic-HMC step policies are defined after warmup and before every
+    # constructor that consumes them.
+    sections = [preamble]
     if _is_laplace:
-        laplace_preamble = emit_laplace_preamble(ctx)
-        return "\n\n".join(
-            [
-                preamble,
-                laplace_preamble,
-                warmup_body,
-                _timing_block,
-                sampler_body,
-                inference_loop,
-                postamble,
-            ]
-        )
-    return "\n\n".join(
-        [
-            preamble,
-            warmup_body,
-            _timing_block,
-            sampler_body,
-            inference_loop,
-            postamble,
-        ]
-    )
+        sections.append(emit_laplace_preamble(ctx))
+    sections.extend([init_body, diagnostics_body, warmup_body, _timing_block])
+    if step_policy_body is not None:
+        sections.append(step_policy_body)
+    sections.extend([sampler_body, inference_loop, postamble])
+    return "\n\n".join(sections)

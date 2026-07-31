@@ -13,11 +13,10 @@
 # limitations under the License.
 """Calibration modules for tuningfork.
 
-Reference-draw certification, BO tuning, and the Statistician auto-gate.
+Reference-draw certification and the Statistician auto-gate.
 
     - ``certify_reference_analytic``: analytic-sampler certifier (Path A).
     - ``certify_reference``: long-NUTS certifier (Path B).
-    - ``tune``: Optuna BO over sampler / warmup hyperparameters.
     - ``statistician_gate``: auto-gate verdict from sample diagnostics.
     - ``_summary``: Summaries dataclass + compute_summaries helper.
 """

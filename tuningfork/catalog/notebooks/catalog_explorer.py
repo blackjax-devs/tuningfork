@@ -47,7 +47,6 @@ def _():
     )
     from tuningfork.model import MODELS
     from tuningfork.recipes._base import Effort
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     return (
         Effort,
@@ -62,7 +61,6 @@ def _():
         plot_recipe_diagnostics,
         pyinspect,
         regenerate_idata,
-        run_recipe_to_idata,
         summarize_recipe,
     )
 
@@ -353,7 +351,7 @@ def _(
             _spd = _budget.get("sampling_seconds_per_draw") or 0.0
             _ww = _budget.get("warmup_wall_seconds") or 0.0
             # Chain count: recipe.warmup_params["num_chains"] is the canonical
-            # source (per _recipe_runner.py:1317 — defaults to RECIPE_NUM_CHAINS=4
+            # source (per _certification_runner.py — defaults to 4 chains
             # when unset). Recipe has no top-level `num_chains` attribute.
             _c = int((recipe.warmup_params or {}).get("num_chains", 4))
 
@@ -397,7 +395,6 @@ def _(
     recipe,
     regenerate_idata,
     run_button,
-    run_recipe_to_idata,
     skip_warmup_toggle,
     use_cached_switch,
 ):
@@ -439,7 +436,7 @@ def _(
         _n = n_samples_slider.value if n_samples_slider is not None else 400
         if fail_regenerate_btn is not None and fail_regenerate_btn.value:
             try:
-                idata = regenerate_idata(recipe, n_samples=_n)
+                idata = regenerate_idata(recipe, n_samples=_n, replay_pinned=False)
                 _panel = mo.callout(
                     mo.md(
                         f"✅ Re-run complete — **n_samples={_n}** per chain. "
@@ -526,14 +523,15 @@ def _(
                 if _skip:
                     # Skip-warmup: bypass adaptation, use stored step_size/IMM,
                     # stationary init from GT-means. Always re-runs (no cache path).
-                    idata = run_recipe_to_idata(recipe, skip_warmup=True, n_samples=_n)
+                    idata = regenerate_idata(recipe, n_samples=_n, replay_pinned=True)
                 else:
                     # Force resample: re-run warmup + sampling with recipe tuning_seed
                     # and the requested n_samples.
-                    _seed = recipe.tuning_seed if recipe.tuning_seed != 0 else 20260517
-                    idata = run_recipe_to_idata(
+                    idata = regenerate_idata(
                         recipe,
-                        force_resample_config={"seed": _seed, "n_samples": _n},
+                        n_samples=_n,
+                        seed=recipe.tuning_seed,
+                        replay_pinned=False,
                     )
 
             if idata is not None:

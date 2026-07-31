@@ -15,7 +15,7 @@
 
 SMC algorithms have a fundamentally different execution profile from MCMC:
   - No warmup phase (particle initialisation replaces warmup).
-  - No step_size / inverse_mass_matrix adapted by a warmup runner.
+  - No generated warmup adaptation of step_size / inverse_mass_matrix.
   - Particles (not chains) are the unit of parallelism.
   - Gate metrics differ: particle-ESS, max_abs_mean_z with SE=std/√particle_ess,
     mode_coverage for gmm_25.  rhat, bulk-ESS, n_divergences are n/a.
@@ -32,6 +32,9 @@ Catalog layout:  ``catalog/<model>/recipes/smc__<method>__<inner>.json``
 """
 
 import json
+import math
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -104,7 +107,7 @@ class SMCRecipe:
         W6 registry key for the ``mcmc_parameter_update_fn`` (e.g.
         ``"step_size_and_imm_from_particles"``).  ``"none"`` for no tuning.
     parameter_update_strategy_kwargs
-        Extra kwargs forwarded to ``build_parameter_update_fn`` (e.g.
+        Declarative kwargs materialized by codegen (for example,
         ``{"target_acceptance": 0.65}``).
     headline_metric
         ``particle_ess / total_grad_evals`` (HMC) or
@@ -155,12 +158,76 @@ class SMCRecipe:
     )
     calibration_budget: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    workflow: str = ""
+    failure_diagnosis: str | None = None
+    attempted_configurations: list[Any] = field(default_factory=list)
 
     # ---- provenance ----
     tuningfork_version: str = field(default_factory=_get_tuningfork_version)
     blackjax_version: str = field(default_factory=_get_blackjax_version)
     jax_version: str = field(default_factory=_get_jax_version)
     timestamp_utc: str = field(default_factory=_now_utc_iso)
+
+    # Unknown top-level annotations are carried privately for lossless
+    # load/save, while remaining outside the ordinary persisted schema.
+    _extra_fields: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        """Reject malformed plans before they can reach generated execution."""
+        for name in ("model_name", "smc_method_name", "inner_method_name"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{name} must be a non-empty string")
+        for name in ("num_particles", "max_steps", "seed"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{name} must be an integer")
+            if name == "seed" and value < 0:
+                raise ValueError("seed must be non-negative")
+            if name != "seed" and value <= 0:
+                raise ValueError(f"{name} must be positive")
+        for name in (
+            "smc_params",
+            "parameter_update_strategy_kwargs",
+            "gate_evidence",
+            "calibration_budget",
+        ):
+            if not isinstance(getattr(self, name), dict):
+                raise TypeError(f"{name} must be a mapping")
+        for name in ("inner_params_init", "inner_params_final"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, dict):
+                raise TypeError(f"{name} must be a mapping or None")
+        for name in (
+            "parameter_update_strategy",
+            "notes",
+            "workflow",
+            "tuningfork_version",
+            "blackjax_version",
+            "jax_version",
+            "timestamp_utc",
+        ):
+            if not isinstance(getattr(self, name), str):
+                raise TypeError(f"{name} must be a string")
+        if self.headline_metric is not None:
+            if isinstance(self.headline_metric, bool) or not isinstance(
+                self.headline_metric, (int, float)
+            ):
+                raise TypeError("headline_metric must be a number or None")
+            if isinstance(self.headline_metric, float) and not math.isfinite(
+                self.headline_metric
+            ):
+                raise ValueError("headline_metric must be finite")
+        if not isinstance(self._extra_fields, dict):
+            raise TypeError("_extra_fields must be a mapping")
+        if self.failure_diagnosis is not None and not isinstance(
+            self.failure_diagnosis, str
+        ):
+            raise TypeError("failure_diagnosis must be a string or None")
+        if not isinstance(self.attempted_configurations, list):
+            raise TypeError("attempted_configurations must be a list")
 
     # ---- derived ----
     @property
@@ -196,16 +263,45 @@ class SMCRecipe:
             stem = f"{stem}__{filename_tag}"
         target = target_dir / f"{stem}.json"
 
-        d = self._to_dict()
-        target.write_text(json.dumps(d, indent=2, default=str) + "\n")
+        d = self.to_dict()
+        # Serialize completely before touching the destination.  In particular,
+        # ``allow_nan=False`` prevents Python's non-standard NaN/Infinity output.
+        payload = json.dumps(d, indent=2, allow_nan=False) + "\n"
+        fd, temporary = tempfile.mkstemp(
+            dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
         return target
 
-    def _to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Render as a JSON-safe dict."""
         import dataclasses
 
         d = dataclasses.asdict(self)
+        extras = d.pop("_extra_fields", {})
+        # Refuse to overwrite a canonical field if an extension is malformed.
+        for key, value in extras.items():
+            if key in d:
+                raise ValueError(
+                    f"Cannot serialize extension field {key!r}: "
+                    "it collides with a canonical SMCRecipe field"
+                )
+            d[key] = value
         return d
+
+    # Kept for callers that used the former private helper.
+    def _to_dict(self) -> dict[str, Any]:
+        return self.to_dict()
 
     @classmethod
     def load(cls, path: Path) -> "SMCRecipe":
@@ -216,8 +312,13 @@ class SMCRecipe:
         import dataclasses
 
         raw = json.loads(Path(path).read_text())
-        known = {f.name for f in dataclasses.fields(cls)}
-        return cls(**{k: v for k, v in raw.items() if k in known})
+        if not isinstance(raw, dict):
+            raise TypeError("SMCRecipe JSON must contain an object")
+        known = {f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")}
+        extras = {k: v for k, v in raw.items() if k not in known}
+        values = {k: v for k, v in raw.items() if k in known}
+        values["_extra_fields"] = extras
+        return cls(**values)
 
     @classmethod
     def from_default_config(
@@ -261,14 +362,14 @@ class SMCRecipe:
         parameter_update_strategy
             W6 registry key for the update function.
         parameter_update_strategy_kwargs
-            Extra kwargs for ``build_parameter_update_fn``.
+            Extra declarative kwargs for the generated update strategy.
         """
         from tuningfork.smc import SMC_METHODS  # inline to avoid circular dep
 
         smc_entry = SMC_METHODS[smc_method_name]
 
         # Default SMC-level HPs from the method's HP space.
-        from tuningfork.calibration.tune import default_value_for_space
+        from tuningfork.base_method import default_value_for_space
 
         default_smc_params: dict[str, Any] = {
             space.name: default_value_for_space(space)

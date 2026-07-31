@@ -19,27 +19,22 @@ human + machine wall time to produce a gate-passing recipe; the Statistician
 escalates LOW → MEDIUM → HIGH via the TL when the auto-gate fails.  See the
 ``Effort`` enum docstring for the per-tier semantics.
 
-CI consumes a Recipe by reading the pinned ``base_method_params`` (and the
-``inverse_mass_matrix_path`` sidecar if present) and running the BlackJAX
-kernel directly.  What differs across tiers is the production effort, not the
-consumption pattern.
+Recipe sampling and certification run through the generated recipe lifecycle.
+What differs across tiers is the production effort, not the execution route.
 
 Constructor helpers:
 
   - ``Recipe.from_default_config(posterior, base_method)`` — placeholder
     Recipe stamped with default sampler params; no MCMC run.
-  - ``Recipe.from_warmup_only(posterior, base_method, warmup, ...)`` —
-    runs the warmup, captures the adapted ``(step_size, IMM)``, returns a
-    Recipe with the adapted params.
-  - ``Recipe.from_tuning_result(tuning_result, ...)`` — wraps a BO tuning
-    outcome (best params + difficulty profile) into a Recipe.
 """
 
 from __future__ import annotations
 
 import datetime
 import json
-from dataclasses import asdict, dataclass, field, fields
+import os
+import tempfile
+from dataclasses import asdict, dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -61,18 +56,74 @@ __all__ = [
 ]
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Durably replace *path* without exposing a partial recipe document."""
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _atomic_savez_compressed(path: Path, **arrays: Any) -> None:
+    """Durably replace an NPZ sidecar without exposing a partial archive."""
+    import numpy as np
+
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+b",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            np.savez_compressed(stream, **arrays)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 class Effort(str, Enum):
     """Calibration effort tier — measures human + machine wall time to produce
     a recipe that the Statistician auto-gate approves.
 
-    LOW    — ``_generate_starter`` runs the *conventional* ``(warmup, sampler)``
-             pairing for the cell with all BlackJAX library defaults; the
-             ``NATURAL_WARMUP_FOR_SAMPLER`` map in ``_generate_starter.py``
-             defines the conventional pairing per sampler.  The Statistician
-             auto-gate (``tuningfork.calibration.statistician_gate``) evaluates
-             the resulting samples on R̂ / bulk-ESS / divergence count and
-             against the reference where available (``max_abs_mean_z``,
-             ``sample_quality``).  Recipe commits at LOW iff the gate passes
+    LOW    — The generated recipe lifecycle evaluates a conventional
+             ``(warmup, sampler)`` pairing for the cell with BlackJAX library
+             defaults. The Statistician auto-gate
+             (``tuningfork.calibration.statistician_gate``) evaluates the
+             resulting samples on R̂ / bulk-ESS / divergence count and against
+             the reference where available (``max_abs_mean_z``,
+             ``sample_quality``). Recipe commits at LOW iff the gate passes
              (or the Statistician overrides REVIEW to APPROVE).
              Wall time: machine only (warmup + sampling on the run host).
 
@@ -84,7 +135,7 @@ class Effort(str, Enum):
                  ``uniform(-1, 1)`` Stan-style, zero, or model-specific values).
              (b) **Unconventional pairing exploration**.  The cell pairs a
                  sampler with a *technically-possible-but-unconventional* warmup
-                 outside its ``NATURAL_WARMUP_FOR_SAMPLER`` mapping (e.g.,
+                 outside its conventional pairing (e.g.,
                  ``window_adaptation_diag_imm`` + ``mala``, ``window_adaptation_diag_imm`` + ``rmhmc``,
                  ``pathfinder`` + ``hmc``).  These are not in the LOW emit set;
                  the Statistician explores them deliberately to learn whether the
@@ -98,12 +149,11 @@ class Effort(str, Enum):
              doesn't pass, and Statistician workarounds + alternative pairings
              don't recover it.  The Statistician brings in a gold-standard
              reference — compares the failing run against NUTS + window_adaptation
-             output (step_size, inverse_mass_matrix), runs BO over warmup
-             hyperparameters (BO is used primarily for warmup HPs; optional on
-             sampler HPs), and injects model-specific parameters into either the
+             output (step_size, inverse_mass_matrix), resolves the declared
+             warmup and sampler parameters, and injects model-specific parameters into either the
              warmup or the sampler.  The Statistician writes up the full Bayesian-
              workflow journey in ``Recipe.workflow``.
-             Wall time: MEDIUM + extra Statistician work + BO compute.
+             Wall time: MEDIUM + extra Statistician work + generated-plan evaluation.
              When the HIGH cell consumes groundtruth samples for reference comparison,
              ``wall_seconds_estimate`` MUST = ``groundtruth_wall + extra_engineering_wall``
              (i.e., include the upstream groundtruth generation cost). The convention
@@ -138,11 +188,11 @@ class Effort(str, Enum):
       - Extra effort yields meaningfully better ESS/grad → both LOW and HIGH are
         kept so the user can choose by ESS-per-grad budget.
 
-    **CI consumption.**  CI reads the pinned ``base_method_params`` (and
-    ``inverse_mass_matrix_path`` sidecar if present) directly from the recipe and
-    runs the BlackJAX kernel without re-running warmup.  This "sampler-only at
-    runtime" consumption pattern applies to recipes at *any* tier — what makes
-    HIGH special is the production effort, not the consumption.
+    **CI consumption.**  CI executes the generated program from the recipe's
+    declared intent, including pinned ``base_method_params`` and any
+    ``inverse_mass_matrix_path`` sidecar. Whether warmup runs is determined by
+    that intent. This generated-program path applies at every tier — what makes
+    HIGH special is the production effort, not the execution mechanism.
     """
 
     LOW = "low"
@@ -155,9 +205,8 @@ class Effort(str, Enum):
 class SplitSource(str, Enum):
     """How the ``warmup_wall_seconds`` / ``sampling_wall_seconds`` split was obtained.
 
-    MEASURED   — both phases were timed at Python orchestration level by the
-                 recipe runner (``emit_low_recipe_for_cell`` or
-                 ``run_recipe_to_idata``).  The most trustworthy source.
+    MEASURED   — both phases were timed by recipe certification or generated
+                 execution. The most trustworthy source.
     MANUAL     — a human set the values by hand (e.g., timing from an external
                  run log, or a retrospective estimate).
     ANALYTIC_NA — analytic-path model: no warmup or sampling phase exists
@@ -213,9 +262,13 @@ class RecipeFailedError(RuntimeError):
     """
 
     def __init__(self, recipe: Recipe):
+        diagnosis = recipe.failure_diagnosis
+        diagnosis_text = (
+            diagnosis.value if isinstance(diagnosis, FailureDiagnosis) else diagnosis
+        )
         super().__init__(
             f"Recipe {recipe.model_name}/{recipe.base_method_name}/"
-            f"{recipe.warmup_name} is FAILED ({recipe.failure_diagnosis.value if recipe.failure_diagnosis else 'no_diagnosis'}). "
+            f"{recipe.warmup_name} is FAILED ({diagnosis_text or 'no_diagnosis'}). "
             f"See workflow + attempted_configurations for the forking-path log."
         )
         self.recipe = recipe
@@ -224,7 +277,14 @@ class RecipeFailedError(RuntimeError):
 # ── init_strategy validation ──────────────────────────────────────────────────
 
 _VALID_INIT_STRATEGY_TYPES: frozenset[str] = frozenset(
-    {"prior_sample", "zero", "uniform", "zero_perchain", "uniform_perchain"}
+    {
+        "prior_sample",
+        "zero",
+        "uniform",
+        "zero_perchain",
+        "uniform_perchain",
+        "reference_summary",
+    }
 )
 
 
@@ -276,6 +336,92 @@ def validate_init_strategy(v: dict[str, Any] | None) -> None:
                     f"init_strategy type='zero_perchain' jitter must be >= 0; "
                     f"got jitter={v['jitter']!r}"
                 )
+    if type_ == "reference_summary":
+        import math
+        import re
+
+        def _numeric_tree(value: Any, label: str) -> tuple[int, ...]:
+            if isinstance(value, bool):
+                raise ValueError(f"reference_summary {label} contains boolean")
+            if isinstance(value, (int, float)):
+                number = float(value)
+                if not math.isfinite(number):
+                    raise ValueError(
+                        f"reference_summary {label} contains non-finite value"
+                    )
+                return ()
+            if isinstance(value, list):
+                shapes = [_numeric_tree(item, label) for item in value]
+                if shapes and any(shape != shapes[0] for shape in shapes[1:]):
+                    raise ValueError(f"reference_summary {label} has ragged shape")
+                return (len(value),) + (shapes[0] if shapes else ())
+            raise ValueError(
+                f"reference_summary {label} must contain only numeric lists"
+            )
+
+        required = {"mean", "std", "offsets", "source_path", "source_sha256"}
+        missing = required.difference(v)
+        if missing:
+            raise ValueError(
+                "init_strategy type='reference_summary' missing keys: "
+                f"{sorted(missing)!r}"
+            )
+        if not isinstance(v["mean"], dict) or not isinstance(v["std"], dict):
+            raise ValueError(
+                "reference_summary mean and std must be JSON object mappings"
+            )
+        if set(v["mean"]) != set(v["std"]):
+            raise ValueError("reference_summary mean/std keys must match")
+        offsets = v["offsets"]
+        if not isinstance(offsets, list) or not offsets:
+            raise ValueError("reference_summary offsets must be a non-empty list")
+        if any(isinstance(x, bool) for x in offsets):
+            raise ValueError("reference_summary offsets must not contain booleans")
+        try:
+            values = [float(x) for x in offsets]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reference_summary offsets must be numeric") from exc
+
+        if not all(math.isfinite(x) for x in values):
+            raise ValueError("reference_summary offsets must be finite")
+        if not isinstance(v["source_path"], str) or not v["source_path"]:
+            raise ValueError("reference_summary source_path must be a non-empty string")
+        if not isinstance(v["source_sha256"], str) or len(v["source_sha256"]) != 64:
+            raise ValueError(
+                "reference_summary source_sha256 must be a SHA-256 hex digest"
+            )
+        try:
+            int(v["source_sha256"], 16)
+        except ValueError as exc:
+            raise ValueError(
+                "reference_summary source_sha256 must be hexadecimal"
+            ) from exc
+        mean_shapes: dict[str, tuple[int, ...]] = {}
+        for name in ("mean", "std"):
+            for key, values in v[name].items():
+                mean_shape = _numeric_tree(values, f"{name}[{key!r}]")
+                if name == "std":
+
+                    def _check_nonnegative(item: Any) -> None:
+                        if isinstance(item, list):
+                            for child in item:
+                                _check_nonnegative(child)
+                        elif float(item) < 0:
+                            raise ValueError(
+                                f"reference_summary std[{key!r}] must be non-negative"
+                            )
+
+                    _check_nonnegative(values)
+                if name == "mean":
+                    mean_shapes[key] = mean_shape
+                elif mean_shapes.get(key) != mean_shape:
+                    raise ValueError(
+                        f"reference_summary mean/std[{key!r}] shapes must match"
+                    )
+        if not re.fullmatch(r"[0-9a-f]{64}", v["source_sha256"]):
+            raise ValueError(
+                "reference_summary source_sha256 must be lowercase hexadecimal"
+            )
 
 
 def validate_warmup_num_chains(v: list[int] | None, n_phases: int) -> None:
@@ -338,8 +484,7 @@ class Recipe:
         effort tier.  Conventional cells pair a sampler with its natural
         warmup (window_adaptation_diag_imm for nuts/hmc/mala/barker; mclmc_tuning for mclmc;
         meads for ghmc; chees for dynamic_hmc; no_warmup for gradient-free /
-        specialised samplers) — see ``NATURAL_WARMUP_FOR_SAMPLER`` in
-        ``_generate_starter.py``.
+        specialised samplers).
     effort
         Calibration effort level (``Effort.LOW``, ``Effort.MEDIUM``,
         or ``Effort.HIGH``); see the ``Effort`` enum docstring for the
@@ -367,16 +512,17 @@ class Recipe:
         is wired.
     calibration_budget
         Cost summary: ``{"trials": int, "wall_seconds_estimate": float, ...}``.
-        ``trials > 0`` only for HIGH (where BO ran); ``wall_seconds_estimate``
+        ``trials`` records evaluated configurations when available; ``wall_seconds_estimate``
         is filled at every tier (LOW captures warmup + sampler wall time).
 
         Optional timing-breakdown fields (all ``None`` for legacy recipes):
 
         ``warmup_wall_seconds`` : float | None
             Wall seconds for the warmup phase (between compiled calls, at Python
-            orchestration level).  Set by the runner when ``split_source="measured"``.
+            orchestration level). Set by generated execution when
+            ``split_source="measured"``.
         ``sampling_wall_seconds`` : float | None
-            Wall seconds for the sampling phase.  Set by the runner when
+            Wall seconds for the sampling phase. Set by generated execution when
             ``split_source="measured"``.
         ``sampling_seconds_per_draw`` : float | None
             ``sampling_wall_seconds / (n_samples * num_chains)``.  Normalised
@@ -389,8 +535,8 @@ class Recipe:
             count, OS, JAX/BlackJAX versions, x64 flag, GPU if visible).
             Written by ``get_machine_info()`` from ``tuningfork._machine_info``.
     difficulty
-        Serialised ``TuningDifficulty.asdict()`` or ``None``.  Only meaningful
-        for HIGH recipes (the only tier with a BO study).
+        Retained legacy difficulty metadata or ``None``. It preserves the
+        recorded effort evidence without requiring a live search implementation.
     instructions
         Auto-templated user-facing prose (rendered by ``_instructions.py``).
     notes
@@ -449,8 +595,8 @@ class Recipe:
     # For HIGH recipes that consume GROUNDTRUTH samples upstream, include the
     # upstream groundtruth wall time in `wall_seconds_estimate`.
 
-    # ---- Difficulty profile (only meaningful for HIGH; None for LOW/MEDIUM) ----
-    difficulty: dict[str, Any] | None  # serialized TuningDifficulty.asdict() or None
+    # ---- Difficulty profile (legacy evidence; None for many recipes) ----
+    difficulty: dict[str, Any] | None
 
     # ---- User-facing prose ----
     instructions: str
@@ -511,8 +657,8 @@ class Recipe:
     warmups: list[dict[str, Any]] = field(default_factory=list)
 
     # ---- Warmup inner kernel (schema extension for warmup_inner_kernel; §3) ----
-    # When ``None`` (default), the runner resolves the warmup kernel via
-    # ``resolve_warmup_algorithm(base_method)`` — the current implicit
+    # When ``None`` (default), generated execution resolves the warmup kernel via
+    # the current implicit
     # substitute-family logic (NUTS for laplace_*/dynamic_hmc/dmhmc; the
     # sampler itself for all other methods).
     #
@@ -522,8 +668,7 @@ class Recipe:
     # ``hmc + inner_nuts`` where NUTS's tree-based trajectory adapts (step_size,
     # IMM) more robustly on some geometries).
     #
-    # See RECIPE_SCHEMA.md §3 and ``_warmup_to_sampler_transform.py`` for the
-    # resolution-table semantics.
+    # See RECIPE_SCHEMA.md §3 for the generated warmup protocol semantics.
     warmup_inner_kernel: str | None = None
 
     # ---- Per-phase warmup chain count (schema extension) ----
@@ -551,7 +696,8 @@ class Recipe:
     # ---- Init strategy (schema extension) ----
     # Tagged-union dict specifying how the initial position for warmup + sampling
     # is drawn.  ``None`` (default) preserves backward-compatible behavior — the
-    # runner calls ``build_logdensity_fn`` which samples from the prior.
+    # generated execution calls ``build_logdensity_fn``, which samples from the
+    # prior.
     #
     # Valid specs::
     #
@@ -562,7 +708,7 @@ class Recipe:
     #
     # Validated at :py:meth:`Recipe.load` time via :py:func:`validate_init_strategy`
     # so unknown types / malformed specs raise immediately.
-    # Applied at execution time by ``_apply_init_strategy`` in ``_recipe_runner.py``.
+    # Applied at execution time by the shared initialization transformation.
     # ``low`` / ``high`` are site-agnostic (all parameters share the same bounds);
     # per-site bounds are deferred to a future schema extension.
     init_strategy: dict[str, Any] | None = None
@@ -601,7 +747,7 @@ class Recipe:
 
     workflow: str = ""
     # Long-form Bayesian-workflow narrative (markdown). HIGH recipes populate this
-    # with the journey: gold-standard comparison findings, BO trial summary,
+    # with the journey: gold-standard comparison findings, evaluated-configuration summary,
     # model-specific param choices. LOW/MEDIUM typically leave empty (use `notes`
     # instead for the shorter MEDIUM workaround text).
 
@@ -637,10 +783,71 @@ class Recipe:
     timestamp_utc: str = ""
 
     # ---- FAILED recipe fields ----
-    failure_diagnosis: FailureDiagnosis | None = None
-    attempted_configurations: list[AttemptedConfig] = field(default_factory=list)
+    failure_diagnosis: FailureDiagnosis | str | None = None
+    attempted_configurations: list[Any] = field(default_factory=list)
+
+    # Top-level annotations from newer or locally-extended recipe schemas.
+    # This is intentionally private: it is not part of the ordinary Python or
+    # persisted schema, but is carried through load/save for lossless I/O.
+    _extra_fields: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     # ── persistence ──────────────────────────────────────────────────────────
+
+    def to_dict(self, *, include_legacy_warmup_fields: bool = False) -> dict[str, Any]:
+        """Return a canonical, independent mapping for recipe serialization.
+
+        By default the consolidated ``warmups`` schema is emitted. Legacy
+        export and migration callers can request the flat warmup keys explicitly.
+        """
+        # ``asdict`` recursively copies nested dataclasses (including typed
+        # AttemptedConfig entries), so this method never mutates the recipe.
+        raw = asdict(self)
+
+        def _serialize(value: Any) -> Any:
+            if isinstance(value, Enum):
+                return value.value
+            if isinstance(value, dict):
+                return {key: _serialize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [_serialize(item) for item in value]
+            if isinstance(value, tuple) and hasattr(value, "_fields"):
+                # Preserve namedtuple-backed structured values such as
+                # LowRankInverseMassMatrix for save()'s sidecar detection.
+                return type(value)(*(_serialize(item) for item in value))
+            if isinstance(value, tuple):
+                return [_serialize(item) for item in value]
+            return value
+
+        d = _serialize(raw)
+        extras = d.pop("_extra_fields", {})
+        if not include_legacy_warmup_fields:
+            d.pop("warmup_name", None)
+            d.pop("warmup_params", None)
+        # Merge extensions only after canonical fields are established, so a
+        # future schema promotion cannot be silently overwritten.
+        for key, value in extras.items():
+            if key in d:
+                raise ValueError(
+                    f"Cannot serialize extension field {key!r}: "
+                    "it collides with a canonical Recipe field"
+                )
+            d[key] = value
+        return d
+
+    def catalog_stem(self, *, filename_tag: str | None = None) -> str:
+        """Return the canonical filename stem for this recipe and its artifacts."""
+        if self.effort == Effort.GROUNDTRUTH:
+            return "groundtruth"
+        name = self.variant_label or self.base_method_name
+        baked_from = (self.calibration_budget or {}).get("baked_from", {})
+        baked_warmup = (
+            baked_from.get("warmup_name", "") if isinstance(baked_from, dict) else ""
+        )
+        warmup = self.warmup_name or baked_warmup
+        stem = f"{self.effort.value}__{name}__{warmup}"
+        return f"{stem}__{filename_tag}" if filename_tag else stem
 
     def save(
         self,
@@ -651,7 +858,7 @@ class Recipe:
     ) -> Path:
         """Write the recipe to its canonical location under ``root``.
 
-        Per the catalog layout (post-R2, 2026-05-17):
+        Under the current catalog layout:
 
         - GROUNDTRUTH recipes go to ``<root>/<model_name>/groundtruth.json``
           (no filename suffix — there's exactly one groundtruth path per model).
@@ -680,50 +887,12 @@ class Recipe:
         model_dir = Path(root) / self.model_name
         if self.effort == Effort.GROUNDTRUTH:
             target_dir = model_dir
-            filename = "groundtruth.json"
         else:
             target_dir = model_dir / "recipes"
-            _name_slot = (
-                self.variant_label
-                if self.variant_label is not None
-                else self.base_method_name
-            )
-            # When warmup_name is blank (baked recipes), fall back to the
-            # original warmup name stored in calibration_budget["baked_from"]
-            # so the filename reads <effort>__<method>__<warmup> rather than
-            # <effort>__<method>__ (dangling double-underscore).
-            _warmup_segment = self.warmup_name or (
-                (self.calibration_budget or {})
-                .get("baked_from", {})
-                .get("warmup_name", "")
-                if isinstance(self.calibration_budget, dict)
-                else ""
-            )
-            stem = f"{self.effort.value}__{_name_slot}__{_warmup_segment}"
-            if filename_tag:
-                stem = f"{stem}__{filename_tag}"
-            filename = f"{stem}.json"
+        filename = f"{self.catalog_stem(filename_tag=filename_tag)}.json"
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / filename
-        d = asdict(self)
-        # asdict recurses; enum values become their raw value via the Enum's __repr__
-        # but we need the string value, not "Effort.LOW" — override explicitly.
-        d["effort"] = self.effort.value
-        # asdict already recursively converts AttemptedConfig instances to dicts
-        # and enums via the default=str handler. We just need to handle enums that
-        # might have been converted to "FailureDiagnosis.value" format.
-        if d["failure_diagnosis"] is not None:
-            # If it's still an enum object, get its value
-            if hasattr(d["failure_diagnosis"], "value"):
-                d["failure_diagnosis"] = d["failure_diagnosis"].value
-            # else it's already a string from default=str
-        # Schema extension (§2.4): drop legacy flat fields from save output; emit only
-        # the ``warmups`` list so new recipes use the consolidated schema.
-        # ``warmup_name`` / ``warmup_params`` are retained as instance fields
-        # for backward-compat within the Python process (read from ``warmups``
-        # in Recipe.load) but must NOT be written to new JSON files.
-        d.pop("warmup_name", None)
-        d.pop("warmup_params", None)
+        d = self.to_dict()
         # Auto-write LRD IMM sidecar when imm_sidecar="auto" and inverse_mass_matrix
         # is a LowRankInverseMassMatrix namedtuple (not JSON-serialisable inline).
         if imm_sidecar == "auto" or imm_sidecar is True:
@@ -757,7 +926,7 @@ class Recipe:
                         if k != "inverse_mass_matrix"
                     },
                 )
-        target.write_text(json.dumps(d, indent=2, default=str) + "\n")
+        _atomic_write_text(target, json.dumps(d, indent=2, default=str) + "\n")
         return target
 
     @classmethod
@@ -786,25 +955,24 @@ class Recipe:
             )
         d["effort"] = Effort(d["effort"])
         # Deserialize failure_diagnosis if present (backward compat: missing key defaults to None).
-        # Coerce free-text strings (from older triage notes) to HARD_DIRECTION.
+        # Recognized values remain typed; free-text historical diagnoses remain
+        # strings so their original annotation survives a round-trip.
         if "failure_diagnosis" in d and d["failure_diagnosis"] is not None:
             try:
                 d["failure_diagnosis"] = FailureDiagnosis(d["failure_diagnosis"])
             except ValueError:
-                d["failure_diagnosis"] = FailureDiagnosis.HARD_DIRECTION
+                pass
         # Deserialize attempted_configurations if present (backward compat: missing key defaults to []).
-        # Strip unknown keys from each entry for forward-compat (triage may add extra fields).
+        # Only the exact canonical shape is typed.  Historical/noncanonical
+        # entries remain raw JSON values so load/save is lossless.
         _ac_known = {f.name for f in fields(AttemptedConfig)}
         if "attempted_configurations" in d and d["attempted_configurations"]:
             _parsed_acs = []
             for ac in d["attempted_configurations"]:
-                _ac_filtered = {k: v for k, v in ac.items() if k in _ac_known}
-                # Skip entries missing required AttemptedConfig fields (e.g. old
-                # triage-format entries that use 'config' key instead of the schema).
-                try:
-                    _parsed_acs.append(AttemptedConfig(**_ac_filtered))
-                except TypeError:
-                    pass  # non-standard format; omit rather than crash
+                if isinstance(ac, dict) and set(ac) == _ac_known:
+                    _parsed_acs.append(AttemptedConfig(**ac))
+                else:
+                    _parsed_acs.append(ac)
             d["attempted_configurations"] = _parsed_acs
         else:
             # Ensure default if key missing
@@ -875,10 +1043,14 @@ class Recipe:
         # None = legacy single-chain GT or non-GT recipe (backward-compat).
         d.setdefault("gt_schema_version", None)
         d.setdefault("summary_v2_path", None)
-        # Strip unknown keys (e.g. triage-only annotations like 'revisit_as') so
-        # cls(**d) doesn't raise on non-standard fields from manual recipe edits.
-        _known_fields = {f.name for f in fields(cls)}
+        # Keep unknown top-level keys privately for lossless load/save.  They are
+        # deliberately excluded from the regular dataclass schema on disk.
+        # Private implementation fields are not part of the on-disk schema;
+        # a JSON key with such a name is therefore still an unknown annotation.
+        _known_fields = {f.name for f in fields(cls) if not f.name.startswith("_")}
+        extras = {k: v for k, v in d.items() if k not in _known_fields}
         d = {k: v for k, v in d.items() if k in _known_fields}
+        d["_extra_fields"] = extras
         return cls(**d)
 
     # ── constructors ─────────────────────────────────────────────────────────
@@ -917,7 +1089,7 @@ class Recipe:
             ``headline_metric=None``, and ``base_method_params`` from
             ``default_params_for(base_method)``.
         """
-        from tuningfork.calibration.tune import default_params_for
+        from tuningfork.base_method import default_params_for
         from tuningfork.recipes._instructions import render_instructions
 
         params = default_params_for(base_method)
@@ -960,275 +1132,6 @@ class Recipe:
         # Build provisional recipe to render instructions, then rebuild with prose.
         # Two-step construction avoids threading `recipe` into render_instructions
         # before the object exists.
-        provisional = cls(**recipe_kwargs)
-        recipe_kwargs["instructions"] = render_instructions(provisional)
-        return cls(**recipe_kwargs)
-
-    @classmethod
-    def from_warmup_only(
-        cls,
-        posterior: Posterior,
-        base_method: BaseMethod,
-        warmup: Any,  # Warmup; imported inline to avoid circular dep
-        *,
-        n_warmup: int = 1000,
-        rng_key: Any,  # jax.Array
-        tuningfork_version: str = "0.0.0.dev0",
-        effort: Effort = Effort.MEDIUM,
-        headline_metric: float | None = None,
-        bake_warmup: bool = False,
-        attempted_configurations: list | None = None,
-        notes: str = "",
-        variant_label: str | None = None,
-        init_strategy: dict | None = None,
-        **warmup_kwargs: Any,
-    ) -> Recipe:
-        """Build a Recipe by running ONLY the warmup (no post-warmup sampler chain).
-
-        Captures the warmup-adapted ``(step_size, inverse_mass_matrix, ...)``
-        values into a Recipe with ``effort=Effort.MEDIUM``.  Calibration cost is
-        the warmup wall-clock time; ``calibration_budget`` records both
-        ``n_warmup`` and ``wall_seconds_estimate``.
-
-        Calling ``from_warmup_only(..., WARMUPS["no_warmup"])`` returns a Recipe
-        with ``effort=Effort.MEDIUM`` and ``warmup_name="no_warmup"`` —
-        semantically distinct from a LOW placeholder produced by
-        ``from_default_config``, which never goes through this warmup path.
-
-        Parameters
-        ----------
-        posterior
-            The target posterior describing the benchmark model.
-        base_method
-            The sampling algorithm whose HP space seeds the recipe.
-        warmup
-            A ``Warmup`` instance from ``tuningfork.warmup.WARMUPS``.
-        n_warmup
-            Number of warmup adaptation steps.
-        rng_key
-            JAX random key for both model initialization and warmup.
-        tuningfork_version
-            Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
-        **warmup_kwargs
-            Extra keyword arguments forwarded verbatim to ``warmup.runner``
-            (e.g. ``k_rank=40`` for ``mclmc_lrd_tuning``).
-
-        Returns
-        -------
-        Recipe
-            A frozen ``Recipe`` with ``effort=Effort.MEDIUM``, populated
-            ``base_method_params`` (defaults merged with warmup-adapted values),
-            and ``calibration_budget`` recording the wall-clock time.
-
-        Raises
-        ------
-        ValueError
-            If the warmup is not compatible with the base_method.
-        """
-        import time
-
-        import jax
-
-        from tuningfork.calibration.tune import default_params_for
-        from tuningfork.model._numpyro import build_logdensity_fn
-        from tuningfork.recipes._instructions import render_instructions
-
-        if not warmup.is_compatible(base_method.name):
-            raise ValueError(
-                f"warmup {warmup.name!r} is not compatible with base_method "
-                f"{base_method.name!r}; "
-                f"compatible_methods = {warmup.compatible_methods}"
-            )
-
-        # Validate init_strategy before doing any work.
-        validate_init_strategy(init_strategy)
-
-        init_key, warmup_key = jax.random.split(rng_key, 2)
-        init_position, logdensity_fn, _ = build_logdensity_fn(init_key, posterior)
-
-        # Apply init_strategy override (e.g. zero-init, uniform jitter).
-        if init_strategy is not None:
-            from tuningfork.recipes._recipe_runner import _apply_init_strategy
-
-            init_position = _apply_init_strategy(init_strategy, init_position, init_key)
-
-        # MEDIUM recipes are single-chain by design: they capture one chain's
-        # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
-        # execution happens at recipe-run time, not at recipe-build time.
-        # Pass num_chains=1 + squeeze the leading dim out of the result, mirroring
-        # the BO tuning-trial pattern.
-        from tuningfork.warmup._base import squeeze_single_chain
-
-        t0 = time.perf_counter()
-        _base_warmup_result = warmup.runner(
-            warmup_key,
-            init_position,
-            n_warmup,
-            base_method,
-            logdensity_fn=logdensity_fn,
-            num_chains=1,
-            **warmup_kwargs,
-        )
-        batched_state, batched_params = _base_warmup_result[0], _base_warmup_result[1]
-        # SYNC: block until warmup compute completes before stamping wall time.
-        # Without this, elapsed measures dispatch latency only, not actual compute.
-        jax.block_until_ready((batched_state, batched_params))
-        _state, adapted_params = squeeze_single_chain(batched_state, batched_params)
-        elapsed = time.perf_counter() - t0
-
-        # Thread underscore-prefixed metadata (e.g. "_total_tuning_steps" from
-        # mclmc_tuning) into calibration_budget; strip them from recipe params.
-        metadata_keys = {k: v for k, v in adapted_params.items() if k.startswith("_")}
-        clean_adapted = {
-            k: v for k, v in adapted_params.items() if not k.startswith("_")
-        }
-
-        # Merge defaults with adapted (adapted wins) for a complete config.
-        base_params = {**default_params_for(base_method), **clean_adapted}
-        base_params = _to_jsonable(base_params)
-
-        # Coerce metadata values to JSON-safe types before storing.
-        metadata_jsonable = {
-            k: (int(v) if isinstance(v, (int, float)) else v)
-            for k, v in metadata_keys.items()
-        }
-
-        calibration_budget: dict[str, Any] = {
-            "trials": 0,
-            "wall_seconds_estimate": elapsed,
-            "n_warmup": n_warmup,
-            **metadata_jsonable,
-        }
-        if attempted_configurations is not None:
-            calibration_budget["seed_evidence"] = attempted_configurations
-
-        # Extract a stable int seed from the rng_key.  In JAX 0.10.0 the key is
-        # a typed-key Array; jax.random.bits() is the portable extraction path.
-        tuning_seed = int(jax.random.bits(rng_key, dtype="uint32"))
-
-        _warmup_params_dict = {"n_warmup": n_warmup}
-
-        # bake_warmup: blank out warmup fields (runner-skip hint); provenance
-        # preserved under calibration_budget["baked_from"].
-        if bake_warmup:
-            _effective_warmup_name = ""
-            _effective_warmups: list[dict[str, Any]] = []
-            calibration_budget["baked_from"] = {
-                "warmup_name": warmup.name,
-                "n_warmup": n_warmup,
-                "tuning_seed": tuning_seed,
-            }
-        else:
-            _effective_warmup_name = warmup.name
-            _effective_warmups = [{"name": warmup.name, "params": _warmup_params_dict}]
-
-        recipe_kwargs: dict[str, Any] = dict(
-            model_name=posterior.name,
-            base_method_name=base_method.name,
-            warmup_name=_effective_warmup_name,
-            effort=effort,
-            base_method_params=base_params,
-            warmup_params=_warmup_params_dict,
-            warmups=_effective_warmups,
-            headline_metric=headline_metric,
-            sample_quality=None,
-            calibration_budget=calibration_budget,
-            difficulty=None,
-            instructions="",  # rendered below after provisional construction
-            notes=notes,
-            variant_label=variant_label,
-            init_strategy=init_strategy,
-            tuning_seed=tuning_seed,
-            tuningfork_version=tuningfork_version,
-            blackjax_version=_get_blackjax_version(),
-            jax_version=_get_jax_version(),
-            timestamp_utc=_now_utc_iso(),
-        )
-        provisional = cls(**recipe_kwargs)
-        recipe_kwargs["instructions"] = render_instructions(provisional)
-        return cls(**recipe_kwargs)
-
-    @classmethod
-    def from_tuning_result(
-        cls,
-        tuning_result: Any,  # TuningResult; imported inline to avoid circular dep
-        *,
-        posterior: Posterior,
-        base_method: BaseMethod,
-        warmup: Any,  # Warmup; imported inline
-        tuningfork_version: str = "0.0.0.dev0",
-    ) -> Recipe:
-        """Build a HIGH Recipe by wrapping a BO tuning outcome.
-
-        The ``TuningResult`` already carries ``best_params``, ``best_score``,
-        and ``difficulty``; this constructor stamps provenance, serialises the
-        difficulty profile, and renders the instructions prose.
-
-        Parameters
-        ----------
-        tuning_result
-            A ``TuningResult`` from ``tuningfork.calibration.tune.tune_algorithm``.
-        posterior
-            The target posterior (used for model_name provenance).
-        base_method
-            The sampling algorithm (used for base_method_name provenance).
-        warmup
-            A ``Warmup`` instance recording which warmup ran during the BO study.
-        tuningfork_version
-            Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
-
-        Returns
-        -------
-        Recipe
-            A frozen ``Recipe`` with ``effort=Effort.HIGH``, ``headline_metric``
-            set to ``tuning_result.best_score``, and ``difficulty`` populated from
-            ``tuning_result.difficulty``.
-        """
-        from dataclasses import asdict as _asdict
-
-        from tuningfork.recipes._instructions import render_instructions
-
-        # difficulty is a TuningDifficulty frozen dataclass; serialize to dict
-        # for JSON persistence.  dataclasses.asdict produces Python primitives
-        # (float, bool, int) — verified to round-trip cleanly through json.dumps.
-        difficulty_dict = (
-            _asdict(tuning_result.difficulty)
-            if tuning_result.difficulty is not None
-            else None
-        )
-
-        base_params = _to_jsonable(tuning_result.best_params)
-
-        calibration_budget: dict[str, Any] = {
-            "trials": tuning_result.n_trials_completed,
-            "wall_seconds_estimate": (
-                tuning_result.difficulty.wall_seconds_to_best
-                if tuning_result.difficulty is not None
-                else 0.0
-            ),
-            "n_seeds": tuning_result.n_seeds,
-        }
-
-        recipe_kwargs: dict[str, Any] = dict(
-            model_name=tuning_result.posterior_name,
-            base_method_name=tuning_result.base_method_name,
-            warmup_name=warmup.name,
-            effort=Effort.HIGH,
-            base_method_params=base_params,
-            warmup_params={},
-            warmups=[{"name": warmup.name, "params": {}}],
-            headline_metric=float(tuning_result.best_score),
-            sample_quality=None,
-            calibration_budget=calibration_budget,
-            difficulty=difficulty_dict,
-            instructions="",  # rendered below after provisional construction
-            notes="",
-            tuning_seed=0,
-            tuningfork_version=tuningfork_version,
-            blackjax_version=_get_blackjax_version(),
-            jax_version=_get_jax_version(),
-            timestamp_utc=_now_utc_iso(),
-        )
         provisional = cls(**recipe_kwargs)
         recipe_kwargs["instructions"] = render_instructions(provisional)
         return cls(**recipe_kwargs)
@@ -1433,7 +1336,7 @@ class Recipe:
             # Then dataclasses.replace(recipe, inverse_mass_matrix_path=sidecar_path)
             # since Recipe is frozen.
 
-        Per the catalog layout (post-R2):
+        Under the current catalog layout:
 
         - For GROUNDTRUTH recipes: ``<root>/<model>/groundtruth.imm.npz``
         - For other efforts: ``<root>/<model>/recipes/<effort>__<sampler>__<warmup>.imm.npz``
@@ -1472,29 +1375,11 @@ class Recipe:
         import numpy as np
 
         model_dir = root / self.model_name
-        _name_slot = (
-            self.variant_label
-            if self.variant_label is not None
-            else self.base_method_name
-        )
         if self.effort == Effort.GROUNDTRUTH:
             sidecar_dir = model_dir
-            filename = "groundtruth.imm.npz"
         else:
             sidecar_dir = model_dir / "recipes"
-            # Mirror the save() fallback: baked recipes have warmup_name=""
-            # so read the original name from calibration_budget["baked_from"].
-            _warmup_segment = self.warmup_name or (
-                (self.calibration_budget or {})
-                .get("baked_from", {})
-                .get("warmup_name", "")
-                if isinstance(self.calibration_budget, dict)
-                else ""
-            )
-            stem = f"{self.effort.value}__{_name_slot}__{_warmup_segment}"
-            if filename_tag:
-                stem = f"{stem}__{filename_tag}"
-            filename = f"{stem}.imm.npz"
+        filename = f"{self.catalog_stem(filename_tag=filename_tag)}.imm.npz"
         sidecar_dir.mkdir(parents=True, exist_ok=True)
         sidecar_path = sidecar_dir / filename
 
@@ -1513,9 +1398,9 @@ class Recipe:
                 _save_kwargs["seed"] = int(seed)
             if note:
                 _save_kwargs["note"] = str(note)
-            np.savez_compressed(sidecar_path, **_save_kwargs)
+            _atomic_savez_compressed(sidecar_path, **_save_kwargs)
         else:
-            np.savez_compressed(sidecar_path, imm=np.asarray(imm))
+            _atomic_savez_compressed(sidecar_path, imm=np.asarray(imm))
 
         return str(sidecar_path.relative_to(root))
 
@@ -1552,6 +1437,38 @@ class Recipe:
             else:
                 # Legacy flat format.
                 return jnp.asarray(data["imm"])
+
+    def normalize_pinned_replay(self) -> Recipe:
+        """Return the canonical no-warmup form of a baked replay recipe.
+
+        Baked recipes historically blanked their warmup fields.  Keep that
+        legacy identity in ``calibration_budget["baked_from"]`` while exposing
+        a real zero-step stage to execution-plan consumers.  Existing
+        provenance keys are never overwritten, making this transformation
+        idempotent and lossless for evidence and unknown schema fields.
+        """
+        import copy
+
+        budget = copy.deepcopy(self.calibration_budget or {})
+        provenance = budget.setdefault("baked_from", {})
+        if not isinstance(provenance, dict):
+            provenance = {"legacy": provenance}
+            budget["baked_from"] = provenance
+        provenance.setdefault("warmup_name", self.warmup_name)
+        provenance.setdefault("warmup_params", copy.deepcopy(self.warmup_params))
+        provenance.setdefault("warmups", copy.deepcopy(self.warmups))
+        provenance.setdefault(
+            "warmup_num_chains", copy.deepcopy(self.warmup_num_chains)
+        )
+        provenance.setdefault("init_strategy", copy.deepcopy(self.init_strategy))
+        return replace(
+            self,
+            warmup_name="no_warmup",
+            warmup_params={},
+            warmups=[{"name": "no_warmup", "params": {}}],
+            warmup_num_chains=None,
+            calibration_budget=budget,
+        )
 
     def is_failed(self) -> bool:
         """Return True iff this recipe is FAILED (no gate-passing config found).

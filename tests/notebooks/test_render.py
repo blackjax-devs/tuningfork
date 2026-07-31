@@ -70,16 +70,22 @@ def test_samples_to_idata_n_chunks_reshapes_single_to_multichain() -> None:
     assert posterior["sigma"].shape[1] == 1000
 
 
-def test_samples_to_idata_n_chunks_truncates_remainder() -> None:
-    """When n_draws is not divisible by n_chunks, the remainder is dropped."""
+def test_samples_to_idata_n_chunks_rejects_remainder() -> None:
+    """Chunking must reject a remainder rather than silently dropping draws."""
     from tuningfork.catalog.render import samples_to_idata
 
     rng = np.random.default_rng(0)
-    # 4003 % 4 = 3 → expect drop the trailing 3 draws, reshape to (4, 1000)
     samples = {"mu": rng.standard_normal(4003)}
-    idata = samples_to_idata(samples, is_multichain=False, n_chunks=4)
-    posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
-    assert posterior["mu"].shape == (4, 1000)
+    with pytest.raises(ValueError, match="divisible"):
+        samples_to_idata(samples, is_multichain=False, n_chunks=4)
+
+
+@pytest.mark.parametrize("n_chunks", [0, -1, 401, 1.5, True])
+def test_samples_to_idata_rejects_invalid_n_chunks(n_chunks) -> None:
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="n_chunks"):
+        samples_to_idata({"mu": np.zeros(400)}, is_multichain=False, n_chunks=n_chunks)
 
 
 def test_samples_to_idata_n_chunks_reshapes_chain_stats_consistently() -> None:
@@ -123,6 +129,47 @@ def test_samples_to_idata_multichain() -> None:
     posterior = idata["posterior"] if hasattr(idata, "__getitem__") else idata.posterior
     assert posterior["mu"].shape == (4, 50, 2)
     assert posterior["tau"].shape == (4, 50)
+
+
+def test_samples_to_idata_rejects_multichain_posterior_draw_mismatch() -> None:
+    """All multichain posterior variables must share both leading dimensions."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="chain, draw.*topology"):
+        samples_to_idata(
+            {
+                "theta": np.zeros((2, 10)),
+                "phi": np.zeros((2, 11)),
+            },
+            is_multichain=True,
+        )
+
+
+def test_samples_to_idata_rejects_empty_posterior() -> None:
+    """An empty posterior must fail explicitly rather than reaching ArviZ."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="at least one posterior variable"):
+        samples_to_idata({}, is_multichain=True)
+
+
+def test_samples_to_idata_rejects_empty_multichain_axis() -> None:
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="must both be non-empty"):
+        samples_to_idata({"theta": np.zeros((2, 0))}, is_multichain=True)
+
+
+def test_samples_to_idata_rejects_multichain_stat_topology_mismatch() -> None:
+    """Multichain sample stats must exactly match posterior chain/draw shape."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="chain, draw.*topology"):
+        samples_to_idata(
+            {"theta": np.zeros((2, 10))},
+            is_multichain=True,
+            chain_stats={"energy": np.zeros((2, 11))},
+        )
 
 
 def test_samples_to_idata_dimension_labels() -> None:
@@ -233,7 +280,7 @@ def test_samples_to_idata_with_chain_stats_populates_sample_stats() -> None:
         "acceptance_rate": rng.uniform(0.5, 1.0, n_draws),
         "num_integration_steps": rng.integers(1, 64, n_draws),
         "num_trajectory_expansions": rng.integers(1, 10, n_draws),
-        # Vectors / unknown fields should be silently dropped:
+        # Unknown scalar-per-step and vector-per-step fields are retained.
         "momentum": rng.standard_normal((n_draws, 3)),
         "some_unknown_field": rng.standard_normal(n_draws),
     }
@@ -254,9 +301,73 @@ def test_samples_to_idata_with_chain_stats_populates_sample_stats() -> None:
     assert "is_divergent" not in sample_stats
     assert "num_integration_steps" not in sample_stats
     assert "num_trajectory_expansions" not in sample_stats
-    # Vector/unknown fields dropped
-    assert "momentum" not in sample_stats
-    assert "some_unknown_field" not in sample_stats
+    assert "momentum" in sample_stats
+    assert "some_unknown_field" in sample_stats
+
+
+def test_samples_to_idata_preserves_unknown_values() -> None:
+    """Unknown scalar-per-step and vector-per-step arrays survive unchanged."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    samples = {"x": np.zeros(4)}
+    vector = np.array([[-1.0, 2.0], [3.0, -4.0], [5.0, 6.0], [-7.0, 8.0]])
+    idata = samples_to_idata(
+        samples,
+        chain_stats={
+            "future_scalar_stat": np.array([-1.0, -2.0, 3.0, 4.0]),
+            "vector_stat": vector,
+        },
+        is_multichain=False,
+    )
+    stats = (
+        idata["sample_stats"] if hasattr(idata, "__getitem__") else idata.sample_stats
+    )
+    assert np.array_equal(
+        np.asarray(stats["future_scalar_stat"]), [[-1.0, -2.0, 3.0, 4.0]]
+    )
+    assert np.array_equal(np.asarray(stats["vector_stat"]), vector[None, ...])
+
+
+def test_samples_to_idata_rejects_stat_without_draw_dimension() -> None:
+    """Scalar metadata cannot be silently discarded from sample statistics."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="must have a draw dimension"):
+        samples_to_idata(
+            {"x": np.zeros(4)},
+            chain_stats={"scalar_metadata": np.array(-123.0)},
+            is_multichain=False,
+        )
+
+
+def test_samples_to_idata_rejects_canonical_name_collision() -> None:
+    """A raw and canonical key must not silently overwrite one another."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="diverging"):
+        samples_to_idata(
+            {"x": np.zeros(4)},
+            chain_stats={
+                "is_divergent": np.zeros(4, dtype=bool),
+                "diverging": np.ones(4, dtype=bool),
+            },
+            is_multichain=False,
+        )
+
+
+def test_samples_to_idata_rejects_collision_when_one_value_is_scalar() -> None:
+    """Collision checks include scalar metadata that would otherwise be skipped."""
+    from tuningfork.catalog.render import samples_to_idata
+
+    with pytest.raises(ValueError, match="diverging"):
+        samples_to_idata(
+            {"x": np.zeros(4)},
+            chain_stats={
+                "is_divergent": np.array(False),
+                "diverging": np.ones(4, dtype=bool),
+            },
+            is_multichain=False,
+        )
 
 
 def test_load_idata_groundtruth_enrichment(monkeypatch) -> None:

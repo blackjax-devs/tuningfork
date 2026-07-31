@@ -298,12 +298,12 @@ def harvest_step_policy_from_nis(
 ) -> dict:
     """Extract a step_policy empirical spec from a raw NIS integer array.
 
-    Core implementation used by both ``harvest_step_policy_from_chain_stats`` (file-based)
-    and by the recipe runner (live warmup_info harvest).
+    Core implementation used by both ``harvest_step_policy_from_chain_stats``
+    (file-based) and generated execution (live warmup telemetry).
 
-    The recipe runner extracts ``warmup_info["num_integration_steps"]`` from
-    the NUTS warmup call and passes it here directly — no separate file I/O
-    required.  This is **Path B** in the NUTS-harvested step_policy design:
+    Generated execution extracts ``warmup_info["num_integration_steps"]`` from
+    NUTS adaptation and passes it here directly — no separate file I/O required.
+    This is **Path B** in the NUTS-harvested step_policy design:
 
     - Path A (``harvest_step_policy_from_chain_stats``): harvest from a pre-existing
       ``chain_stats.npz`` file.
@@ -418,8 +418,3 @@ def harvest_step_policy_from_chain_stats(
             f"available keys: {list(data.files)}"
         )
     return harvest_step_policy_from_nis(nis, max_values=max_values)
-
-
-# Backward-compatibility aliases (deprecated; use new names)
-harvest_oracle_spec_from_array = harvest_step_policy_from_nis
-harvest_oracle_spec = harvest_step_policy_from_chain_stats

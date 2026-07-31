@@ -46,7 +46,6 @@ def _make_smc_entry(**overrides: object) -> SMCMethod:
     defaults: dict[str, object] = dict(
         name="test_smc_algo",
         family="smc",
-        factory=lambda logprior_fn, loglikelihood_fn, **kw: None,
         compatible_inner_methods=_MINIMAL_INNER,
         default_inner_method="rwm",
         default_hp_space=_MINIMAL_HP,
@@ -91,14 +90,13 @@ class TestSMCMethodConstruction:
         assert entry.step_kwargs_schema == ("data_mask",)
         assert entry.notes == "Test notes."
 
-    def test_factory_is_callable(self) -> None:
-        entry = _make_smc_entry()
-        assert callable(entry.factory)
-
     def test_frozen(self) -> None:
         entry = _make_smc_entry()
         with pytest.raises(Exception):  # FrozenInstanceError
             entry.name = "other"  # type: ignore[misc]
+
+    def test_descriptor_has_no_runtime_factory(self) -> None:
+        assert not hasattr(_make_smc_entry(), "factory")
 
 
 # ===========================================================================

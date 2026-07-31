@@ -101,12 +101,14 @@ the first pass at this measured it under the wrong configuration.** The
 `base_method_params.max_num_doublings=15` and ran at the registry default (10)
 instead. The recorded PASS (rhat=1.0089, ess=831.2) therefore verified an
 easier configuration than the one the recipe claimed to reproduce — root-caused
-and disclosed in `tuningfork` PR fixing tf-recert-fixforward (verify_emitted_configs
-config-fidelity gate; the corpus-wide config-fidelity check this PR fixes forward).
+and disclosed in `tuningfork` PR fixing tf-recert-fixforward (the historical
+`verify_emitted_configs` config-fidelity gate at `d702b7e`; the corpus-wide
+config-fidelity check that PR fixed forward).
 
-Re-measured under enforced fidelity via `tools/reemit_sweep.py`'s new
-`recertify()` (reads `base_method_params` — including `max_num_doublings` —
-from the b09c2476 baseline artifact rather than a hand-typed call): the SAME
+Re-measured under enforced fidelity via the historical
+`tools/reemit_sweep.py` at `d702b7e` (its `recertify()` reads
+`base_method_params` — including `max_num_doublings` — from the b09c2476
+baseline artifact rather than a hand-typed call): the SAME
 seed=11111 still clears the gate cleanly with `max_num_doublings=15` correctly
 applied — rhat=1.0045, ess=1092.3, 0 divergences, max_abs_mean_z=3.145 (better
 on every axis than the defective run, and this run's `sample_quality` was

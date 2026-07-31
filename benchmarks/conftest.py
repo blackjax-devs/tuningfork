@@ -1,16 +1,9 @@
-"""Benchmark session fixtures.
-
-JIT warmup pass: runs one throwaway cell at session start to warm the XLA
-JIT cache, eliminating the cold-start ESS drift (up to 63% per mock).
-Runs once for the entire session — all 3 date-derived seeds run warm.
-"""
+"""Benchmark session fixtures."""
 
 from __future__ import annotations
 
 import jax
 import pytest
-
-from benchmarks._benchmark_helpers import run_jit_warmup
 
 # ---------------------------------------------------------------------------
 # JAX persistent-cache gate: allow all CPU compilations to be cached
@@ -65,12 +58,6 @@ def pytest_collection_modifyitems(items: list, config: pytest.Config) -> None:
                 break
 
 
-@pytest.fixture(scope="session", autouse=True)
-def jit_warmup_pass():
-    """Warm the XLA JIT cache once per session before any benchmark cell runs."""
-    run_jit_warmup()  # uses today's date-seed implicitly
-
-
 @pytest.fixture(autouse=True)
 def clear_xla_caches_between_cells():
     """Free XLA compiled executables + Python objects after each benchmark cell.
@@ -81,15 +68,12 @@ def clear_xla_caches_between_cells():
     By ~cell 18 the runner exhausts memory, the next XLA compile fails with
     ``JaxRuntimeError: INTERNAL: Failed to materialize symbols / Cannot allocate
     memory``, and *every subsequent cell* fails fast (cascade).  The
-    ``laplace_hmc`` SIGABRT (#137) is the same root cause — the process crosses
+    ``laplace_hmc`` SIGABRT (#137) was the same root cause — the process crossed
     the OOM threshold with a harder abort rather than a clean exception.
 
-    ``jax.clear_caches()`` frees the XLA compilation cache between cells.
-    ``gc.collect()`` releases Python objects holding JAX array references.
-
-    This keeps per-cell memory bounded.  Each cell's own compile-warmup step
-    (1st of 7 runs) recompiles the XLA executable from scratch before the 6
-    timed seed-runs, so all timed runs remain warm.
+    Generated benchmark programs execute in child processes, but the parent
+    still performs metric and gate work with JAX. ``jax.clear_caches()`` plus
+    ``gc.collect()`` keeps that parent-side memory bounded between cells.
     """
     yield  # run the benchmark cell
     import gc  # noqa: PLC0415

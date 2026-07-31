@@ -11,9 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Orbital HMC algorithm entry for the tuningfork algorithm registry.
+"""Descriptor for Orbital HMC recipe emission.
 
-Wraps ``blackjax.orbital_hmc`` (``blackjax.mcmc.periodic_orbital.as_top_level_api``).
+The upstream method is ``blackjax.orbital_hmc``
+(``blackjax.mcmc.periodic_orbital.as_top_level_api``).
 
 Each iteration of the Periodic Orbital MCMC outputs ``period`` weighted
 samples from a single Hamiltonian orbit.  The orbit is built by applying
@@ -30,6 +31,9 @@ Hyperparameters:
 Grad cost per step: ``period`` gradient evaluations (one per orbit position).
 Target acceptance rate: None (no MH step — orbital weights replace rejection).
 
+Generated emission does not currently support this method. Enabling it requires
+typed recipe inputs and a corresponding sampler emitter.
+
 Note: ``PeriodicOrbitalState._fields = ('positions', 'weights', 'directions',
 'logdensities', 'logdensities_grad')`` — the state carries the full orbit.
 
@@ -38,7 +42,6 @@ References
 - Neklyudov, K., & Welling, M. (2022). Orbital MCMC. *arXiv:2010.08047*.
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -46,60 +49,15 @@ from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 __all__ = ["ENTRY"]
 
 
-def _factory(
-    logdensity_fn,
-    *,
-    step_size: float,
-    period: int,
-    inverse_mass_matrix=None,
-    **kwargs,
-):
-    """Build a ``blackjax.orbital_hmc`` kernel.
-
-    Parameters
-    ----------
-    logdensity_fn
-        Unnormalised log-density (log-posterior) callable ``x -> float``.
-    step_size
-        Symplectic integrator step size.
-    period
-        Number of orbit steps (= number of weighted samples per state).
-    inverse_mass_matrix
-        Diagonal inverse mass matrix array (shape ``(d,)``).  Injected
-        by the runner when ``needs_mass_matrix=True``; defaults to ones
-        if not provided (useful for quick tests).
-    **kwargs
-        Accepted for interface uniformity; ignored.
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A BlackJAX kernel object with ``.init`` and ``.step`` methods.
-        The init method requires ``(position, period)`` — wired internally
-        by ``blackjax.orbital_hmc.as_top_level_api``.
-    """
-    if inverse_mass_matrix is None:
-        # Fallback for test paths; runner always injects this.
-        inverse_mass_matrix = jnp.ones(1)  # will be overridden at init time
-
-    return blackjax.orbital_hmc(
-        logdensity_fn,
-        step_size=step_size,
-        inverse_mass_matrix=inverse_mass_matrix,
-        period=int(period),
-    )
-
-
 ENTRY = BaseMethod(
     name="orbital_hmc",
     family="mcmc",
-    factory=_factory,
     # period grad evals per step: the kernel builds a full orbit of `period`
     # positions, each requiring one gradient evaluation.
     # PeriodicOrbitalInfo does not carry a per-step grad count; we use `period`
     # as a constant.  The default period (from HP space) is used as a proxy
     # when the actual period is not accessible from info.
-    # For a more accurate accounting, the runner should read the period from
+    # For a more accurate accounting, the emitter should read the period from
     # the state.directions.max() + 1 or from the recipe params.
     grad_count_per_step=lambda info: jnp.asarray(1),  # lower-bound: 1 grad/step
     grad_count_convention="1 (lower bound; OHO samples a full orbit, NIS ≥ 1)",
@@ -109,10 +67,6 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=None,  # no MH step; orbital weights replace rejection
-    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # PeriodicOrbitalState from warmup is directly usable.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Periodic Orbital MCMC (Neklyudov & Welling 2022). Each iteration builds "
         "a Hamiltonian orbit of `period` positions and returns all as weighted samples. "
@@ -123,6 +77,8 @@ ENTRY = BaseMethod(
         "Grad cost per step = `period` (one grad eval per orbit position). "
         "inverse_mass_matrix from warmup adaptation (needs_mass_matrix=True). "
         "HP-space: step_size loguniform [1e-3, 1.0], period int [2, 20]. "
-        "bjection defaults to velocity_verlet; can be overridden at factory time. "
+        "The integrator defaults to velocity_verlet. Generated emission currently "
+        "reports this method as unsupported; enabling it requires typed recipe "
+        "inputs and a corresponding sampler emitter. "
     ),
 )

@@ -11,22 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""IRMH (Independent Random-Walk Metropolis-Hastings) algorithm entry.
+"""Descriptor for IRMH recipe emission.
 
-Wraps ``blackjax.irmh`` (``blackjax.mcmc.random_walk.irmh_as_top_level_api``)
-for the tuningfork algorithm registry.
+The upstream method is ``blackjax.irmh``
+(``blackjax.mcmc.random_walk.irmh_as_top_level_api``).
 
-The proposal is a full ``Callable`` supplied at factory time — typically
+The proposal is a full ``Callable`` supplied by generated emission — typically
 fitted from a VI / Pathfinder / Laplace approximation.  Unlike RWM, the
 proposal ``q(y)`` does not depend on the current state ``x``.
 
-``extra_required_kwargs=("proposal_distribution",)``: the factory requires
-``proposal_distribution`` (and optionally ``proposal_logdensity_fn``) as
-keyword arguments.  The standard ``no_warmup`` path raises
-``NotImplementedError``; a specialised wiring path is required.
+``extra_required_kwargs=("proposal_distribution",)``: generated emission does
+not currently support this method. Enabling it requires typed recipe inputs
+for the proposal (and optionally its log-density) plus a corresponding sampler
+emitter.
 
-Hyperparameter-free: no BO-tunable scalar HPs (``default_hp_space=()``).
-The proposal is a full callable; it cannot be reduced to a tunable scalar.
+Hyperparameter-free: no declared scalar HPs (``default_hp_space=()``).
+The proposal is a full callable; it cannot be reduced to a declared scalar.
 Gradient-free: ``grad_count_per_step=0``.
 ``target_acceptance_rate=None``: depends entirely on proposal-vs-target
 overlap; no universal optimal rate.
@@ -40,76 +40,32 @@ References
   (2nd ed.). Springer. §7.3 Independent Metropolis-Hastings.
 """
 
-import blackjax
 import jax.numpy as jnp
 
-from tuningfork.base_method._base import BaseMethod, HyperparamSpace  # noqa: F401
+from tuningfork.base_method._base import BaseMethod
 
-__all__ = ["ENTRY", "_factory"]
-
-
-def _factory(
-    logdensity_fn,
-    *,
-    proposal_distribution,
-    proposal_logdensity_fn=None,
-    **kwargs,
-):
-    """Build a ``blackjax.irmh`` kernel.
-
-    Parameters
-    ----------
-    logdensity_fn
-        Unnormalised log-density (log-posterior) callable ``x -> float``.
-    proposal_distribution
-        Callable ``(rng_key) -> position`` that draws a proposal independent
-        of the current state.  Must return a position pytree in the same
-        domain as the target.
-    proposal_logdensity_fn
-        Optional callable ``(proposal) -> float`` giving the log-density of
-        the proposal distribution at ``proposal``.  Required when the
-        proposal is NOT symmetric (i.e. when the MH ratio must include a
-        proposal-density correction).  If ``None``, the proposal is assumed
-        symmetric and no correction is applied.
-    **kwargs
-        Accepted for interface uniformity; ignored.
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A BlackJAX kernel object with ``.init`` and ``.step`` methods.
-    """
-    return blackjax.irmh(
-        logdensity_fn,
-        proposal_distribution=proposal_distribution,
-        proposal_logdensity_fn=proposal_logdensity_fn,
-    )
+__all__ = ["ENTRY"]
 
 
 ENTRY = BaseMethod(
     name="irmh",
     family="mcmc",
-    factory=_factory,
     grad_count_per_step=lambda info: jnp.asarray(0),  # gradient-free MH
     grad_count_convention="0 (gradient-free)",
     default_hp_space=(),  # truly HP-free; proposal is a full callable
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # depends entirely on proposal-vs-target overlap
     extra_required_kwargs=("proposal_distribution",),
-    # T2.3 descriptors: gradient-free, no adapted step_size/imm from warmup.
-    per_chain_param_keys=(),  # no_warmup returns empty batched_params.
-    reinit_state=False,  # RWState from .init() is directly usable.
-    extra_kwarg_builder=None,  # proposal_distribution is injected by the caller
-    # (model-specific, not a portable descriptor builder).
     notes=(
         "Independent Metropolis-Hastings (Wang et al. 2022 reference; standard textbook "
         "MH variant where the proposal q(y) is independent of current state x). The proposal "
-        "is a Callable (rng_key -> position) supplied at factory time, typically fitted from "
+        "is a Callable (rng_key -> position) supplied as a typed recipe input, typically fitted from "
         "a VI / Pathfinder / Laplace approximation. For non-symmetric proposals, also supply "
         "proposal_logdensity_fn. Gradient-free (grad_count_per_step=0). RWInfo carries "
         "acceptance_rate, is_accepted, proposal. extra_required_kwargs=('proposal_distribution',); "
-        "no_warmup raises NotImplementedError; the proposal-construction "
-        "path. Also used as an SMC inner kernel — the standalone wrapper here is the "
+        "generated emission currently reports this method as unsupported. Enabling it "
+        "requires typed recipe inputs for the proposal and a corresponding sampler emitter. "
+        "Also used as an SMC inner kernel — the standalone "
         "non-SMC entry point; the SMC integration lives in the smc module."
     ),
 )

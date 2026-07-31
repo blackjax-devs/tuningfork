@@ -47,10 +47,10 @@ threshold update propagates automatically.
 
 Path codes
 ----------
-A   Per-recipe draws cache exists        → load + W1 gate (seconds)
-B   No cache, standard MCMC              → ``run_recipe_to_idata(skip_warmup=True)``
-C   No cache, MCLMC / CHEES / sidecar-IMM → ``run_recipe_to_idata(skip_warmup=False)``
-SK  SMC / VI / no GT / large-nc chees   → skip (W1 N/A or infeasible on CPU)
+A   Per-recipe draws cache exists       → load + W1 gate (seconds)
+B   No cache, complete pinned geometry  → generated no-warmup recipe
+C   No cache, incomplete/CHEES/MEADS    → generated recipe with full warmup
+SK  SMC / VI / no GT / large-nc        → skip (W1 N/A or infeasible on CPU)
 
 CLI usage
 ---------
@@ -150,6 +150,7 @@ _SKIP_WARMUP_METHODS: frozenset[str] = frozenset(
 _MCLMC_METHODS: frozenset[str] = frozenset(
     {"mclmc", "adjusted_mclmc", "adjusted_mclmc_dynamic"}
 )
+_FIXED_STEP_METHODS: frozenset[str] = frozenset({"hmc", "mhmc", "rmhmc"})
 _LAPLACE_METHODS: frozenset[str] = frozenset(
     {"laplace_hmc", "laplace_dhmc", "laplace_mhmc", "laplace_dmhmc"}
 )
@@ -428,43 +429,52 @@ def _resample_with_divcount(
     n_samples
         Number of post-warmup samples to draw.
     skip_warmup
-        When ``True`` (path B), use stored ``step_size``/IMM.  When ``False``
-        (path C), re-run the full warmup from scratch.
+        Internal path selector. When ``True`` (path B), execute the generated
+        canonical pinned no-warmup replay using stored ``step_size``/IMM. When
+        ``False`` (path C), execute the generated recipe with its full warmup.
     seed
-        RNG seed; passed as ``force_resample_config={"seed": seed}`` for
-        reproducibility.
+        Optional runtime tuning-seed override recorded in the generated plan.
 
     Returns
     -------
     tuple of (draws, n_divergences)
         ``draws``: ``{site: np.ndarray(n_chains, n_draws[, *event])}``.
-        ``n_divergences``: from ``idata.sample_stats``, or ``None`` when not
-        available (MCLMC / info-less paths).
+        ``n_divergences``: from the generated artifact's ``_ss_is_divergent``
+        array, or ``None`` when not available (MCLMC / info-less paths).
     """
+    from tuningfork.catalog.emit import execute_recipe
     from tuningfork.catalog.inspect import load_recipe
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     recipe = load_recipe(recipe_path.absolute())
-    kwargs: dict = {
-        "n_samples": n_samples,
-        "skip_warmup": skip_warmup,
-        "_suppress_print": True,
-    }
-    if seed is not None:
-        kwargs["force_resample_config"] = {"seed": seed}
 
-    idata = run_recipe_to_idata(recipe, **kwargs)
+    # Path B replays the committed tuning through the generated canonical
+    # pinned-replay choreography. The sampler's pinned step size/IMM remain in
+    # ``base_method_params``; only the warmup descriptor is replaced.  Path C
+    # passes the loaded recipe unchanged so its full warmup is regenerated.
+    generated_recipe = recipe
+    if skip_warmup:
+        from tuningfork.catalog import prepare_pinned_replay
 
-    post = idata.posterior
-    draws: dict[str, np.ndarray] = {
-        str(v): np.asarray(post[v], dtype=np.float64) for v in post.data_vars
-    }
+        generated_recipe = prepare_pinned_replay(
+            generated_recipe,
+            catalog_root=recipe_path.parent.parent.parent,
+        )
 
-    n_div: int | None = None
-    if hasattr(idata, "sample_stats"):
-        ss = idata.sample_stats
-        if hasattr(ss, "diverging"):
-            n_div = int(np.sum(np.asarray(ss.diverging)))
+    run_root = recipe_path.parent.parent / "_cache" / "generated_runs"
+    execute_kwargs: dict = {"num_samples": n_samples, "tuning_seed": seed}
+    result = execute_recipe(generated_recipe, run_root, **execute_kwargs)
+    if result.artifact_path is None:
+        raise RuntimeError("generated recipe execution produced no draws artifact")
+
+    with np.load(result.artifact_path, allow_pickle=False) as raw:
+        draws = {
+            site: raw[site].astype(np.float64)
+            for site in raw.files
+            if not site.startswith("_ss_")
+        }
+        n_div: int | None = None
+        if "_ss_is_divergent" in raw.files:
+            n_div = int(np.sum(np.asarray(raw["_ss_is_divergent"])))
 
     return draws, n_div
 
@@ -576,11 +586,12 @@ def classify_recipe_path(recipe_path: pathlib.Path) -> str:
         ``"A"``
             Cached draws exist — load and run W1.
         ``"B"``
-            No cache; can skip warmup (standard MCMC methods).  Re-gen
-            with ``skip_warmup=True``.  Requires ``enable_regen=True``.
+            No cache; execute the generated canonical pinned replay from a
+            complete stored sampler geometry. Requires ``enable_regen=True``.
         ``"C"``
-            No cache; requires full warmup re-run (MCLMC / CHEES / sidecar-IMM
-            or small-nc CHEES/MEADS recipes).  Requires ``enable_regen=True``.
+            No cache; requires full warmup because pinned geometry is incomplete
+            or the recipe uses small-nc CHEES/MEADS. Requires
+            ``enable_regen=True``.
         ``"SK"``
             Skip — SMC, VI, no GT, large-nc CHEES/MEADS (GPU-scale), or
             Laplace method without cached draws.
@@ -619,10 +630,10 @@ def classify_recipe_path(recipe_path: pathlib.Path) -> str:
     # Stale-cache guard (issue #244): a cache whose params sidecar is missing or
     # mismatched cannot be trusted, so we do NOT short-circuit to path-A.  We fall
     # through to the regen classification below, which routes the cell to the
-    # correct fresh-draws path for its method (path-B for skip-warmup MCMC,
-    # path-C for MCLMC/CHEES/sidecar-IMM, SK for Laplace/large-nc).  This is
+    # correct fresh-draws path for its method (path-B for complete pinned
+    # geometry, path-C for incomplete/CHEES/MEADS, SK for Laplace/large-nc). This is
     # stricter — and safer — than a blanket "B": a stale Laplace cache correctly
-    # degrades to SK (MAP-init sensitive) rather than being re-run skip-warmup.
+    # degrades to SK (MAP-init sensitive) rather than using the pinned replay.
 
     # Laplace methods without cached draws: MAP-init sensitive → skip
     if bm in _LAPLACE_METHODS:
@@ -643,14 +654,29 @@ def classify_recipe_path(recipe_path: pathlib.Path) -> str:
         return "SK"
 
     bmp = d.get("base_method_params", {})
-    imm = bmp.get("inverse_mass_matrix") or d.get("inverse_mass_matrix")
-    if imm == "sidecar":
-        return "C"
+    imm = bmp.get("inverse_mass_matrix", d.get("inverse_mass_matrix"))
+    sidecar_rel = d.get("inverse_mass_matrix_path")
+    inline_imm = imm is not None and not (isinstance(imm, str) and imm == "sidecar")
+    hydrated_sidecar = False
+    if isinstance(sidecar_rel, str) and sidecar_rel:
+        root = catalog_dir.resolve()
+        candidate = (root / sidecar_rel).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            pass
+        else:
+            hydrated_sidecar = candidate.is_file()
+    has_common_geometry = bmp.get("step_size") is not None and (
+        inline_imm or hydrated_sidecar
+    )
 
     if bm in _SKIP_WARMUP_METHODS:
-        return "B"
+        if bm in _FIXED_STEP_METHODS and bmp.get("num_integration_steps") is None:
+            return "C"
+        return "B" if has_common_geometry else "C"
     if bm in _MCLMC_METHODS:
-        return "C"
+        return "B" if has_common_geometry and bmp.get("L") is not None else "C"
     return "SK"
 
 

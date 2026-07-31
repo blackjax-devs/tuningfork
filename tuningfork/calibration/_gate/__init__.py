@@ -45,7 +45,7 @@ from .marginal_z import (
     bonferroni_z_crit,
     bonferroni_z_crit_normal,
 )
-from .mixing import _compute_mixing_stats
+from .mixing import MixingStats, _compute_mixing_stats
 from .verdict import AutoGateVerdict, _assemble_verdict
 from .w1_realm import (
     W1RealmResult,
@@ -73,6 +73,7 @@ __all__ = [
     "_classify_metric",
     "_compute_gt_compare",
     "_compute_mixing_stats",
+    "MixingStats",
     "_compute_tau_frac",
     "_khat_max",
     "_loo_conservatism_check",

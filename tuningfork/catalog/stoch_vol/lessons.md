@@ -205,13 +205,10 @@ warmup scheme that handles funnel-class geometry. Candidate directions:
 - A pilot-free or online-adaptation warmup that does not assume a single global mass matrix
 
 Full path-divergence analysis and phase (c) Track 2 failure analysis at
-`lrd_track2_failure_analysis_2026-06-09.md`. Standard-model generator command
-(once model registration and warmup geometry are resolved):
-```bash
-uv run python -m tuningfork.recipes._generate_starter \
-    --warmup mclmc_lrd_tuning --only stoch_vol \
-    --calibrate --cert-seeds <seeds> --n-warmup 3000 --n-samples 2000 --k-rank 30
-```
+`lrd_track2_failure_analysis_2026-06-09.md`. The historical proposed inputs
+were `mclmc_lrd_tuning`, `n_warmup=3000`, `n_samples=2000`, and `k_rank=30`.
+The direct generator that recorded them is retired; any future attempt must use
+the [codegen-first recipe lifecycle](../../../docs/design/codegen-first-recipes.md).
 
 ## History
 

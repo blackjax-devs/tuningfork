@@ -14,7 +14,7 @@
 """Multinomial HMC (mhmc) algorithm entry for the tuningfork algorithm registry.
 
 Fixed-L Hamiltonian Monte Carlo with **multinomial trajectory proposal**.  Both
-``step_size`` and ``num_integration_steps`` are BO-tunable;
+``step_size`` and ``num_integration_steps`` are recipe-resolved;
 ``inverse_mass_matrix`` comes from window adaptation warmup.
 
 The multinomial proposal replaces the standard slice-sampling trajectory
@@ -31,7 +31,6 @@ standard HMC because the trajectory budget is identical).
 in the registry and document the alias here.
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -41,7 +40,6 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="mhmc",
     family="mcmc",
-    factory=blackjax.mhmc,  # called as factory(logdensity_fn, **trial_params)
     grad_count_per_step=lambda info: jnp.asarray(info.num_integration_steps),
     grad_count_convention="info.num_integration_steps",
     default_hp_space=(
@@ -50,16 +48,12 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.65,
-    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # HMCState from warmup is directly usable.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Multinomial HMC (Betancourt 2017 §A.2). Replaces HMC's slice-sampling "
         "trajectory selector with multinomial sampling; HP surface is identical to HMC. "
         "Beskos et al. optimal accept ≈ 0.65 for fixed-L HMC; both step_size "
-        "and num_integration_steps are BO-tunable. inverse_mass_matrix comes "
-        "from warmup adaptation, not BO. "
+        "and num_integration_steps are recipe-resolved. inverse_mass_matrix comes "
+        "from warmup adaptation. "
         "Alias: blackjax.multinomial_hmc is blackjax.mhmc (confirmed 2026-05-10). "
         "multinomial_hmc_proposal is at blackjax.mcmc.hmc.multinomial_hmc_proposal "
         "(NOT blackjax.multinomial_hmc_proposal — that's the SamplingAPI alias)."

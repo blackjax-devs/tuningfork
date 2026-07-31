@@ -11,10 +11,8 @@
   },
   "inner_params_init": {},
   "inner_params_final": null,
-  "parameter_update_strategy": "step_size_and_imm_from_particles",
-  "parameter_update_strategy_kwargs": {
-    "target_acceptance": 0.65
-  },
+  "parameter_update_strategy": "none",
+  "parameter_update_strategy_kwargs": {},
   "headline_metric": 0.039999999999999994,
   "gate_evidence": {
     "auto": {
@@ -39,11 +37,335 @@
     "num_mcmc_steps": 25,
     "lambda_final": 1.0,
     "wall_seconds_total": 1.0,
-    "wall_seconds_run": 0.966
+    "wall_seconds_run": 0.966,
+    "selected_attempt_id": "migration-adaptive-tempered-rwm"
   },
   "notes": "",
   "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
   "blackjax_version": "1.6.dev84+g0ef2f578a",
   "jax_version": "0.10.0",
-  "timestamp_utc": "2026-06-03T19:30:02Z"
+  "timestamp_utc": "2026-06-03T19:30:02Z",
+  "attempted_configurations": [
+    {
+      "schema": "tuningfork.recipe-attempt.v1",
+      "attempt_id": "legacy-current-view",
+      "rationale": "Snapshot of the pre-refactor current SMC recipe view",
+      "lifecycle_stage": "CURATED",
+      "automatic_verdict": "PASS",
+      "intent_snapshot": {
+        "model_name": "gmm_25",
+        "smc_method_name": "adaptive_tempered_smc",
+        "inner_method_name": "rwm",
+        "num_particles": 1000,
+        "max_steps": 500,
+        "seed": 20260519,
+        "smc_params": {
+          "target_ess": 0.8,
+          "num_mcmc_steps": 25
+        },
+        "inner_params_init": {},
+        "parameter_update_strategy": "step_size_and_imm_from_particles",
+        "parameter_update_strategy_kwargs": {
+          "target_acceptance": 0.65
+        }
+      },
+      "intent_snapshot_sha256": "9896a50946704fa1b03fbb6ced3b8ae0fd839656c33a858720d8b2677cefbbac",
+      "execution": null,
+      "ground_truth": {
+        "schema": "tuningfork.ground-truth-reference.v1",
+        "model_name": "gmm_25",
+        "summary_path": "gmm_25/groundtruth_samples/blackjax/summary_v2.json",
+        "draws_path": "gmm_25/groundtruth_samples/blackjax/draws.npz",
+        "summary_sha256": "efd442bcbdc2e2da09dda3875223869bd266c87b68a80d3e2dd1110cd6faab7c",
+        "draws_sha256": "804158ab0a57cb202631bdb56d77db2099c990665377507e87117a9ab123798f",
+        "lfs_oid": "sha256:804158ab0a57cb202631bdb56d77db2099c990665377507e87117a9ab123798f",
+        "protocol": {
+          "model_name": "gmm_25",
+          "schema_version": "gt_v2_multichain",
+          "generator": "analytic_iid",
+          "space": "unconstrained",
+          "n_chains": 10,
+          "n_draws_per_chain": 10000,
+          "n_total": 100000,
+          "sampler_config": {
+            "sampler": "analytic",
+            "warmup": null,
+            "n_warmup_per_chain": null,
+            "target_acceptance": null,
+            "max_num_doublings": null,
+            "init_strategy": "analytic_sampler_iid"
+          },
+          "seeds": {
+            "master_seed": 20260713,
+            "derivation": "key=jax.random.key(seed); split->(init,warmup,sample); per-chain=split(k,n_chains)"
+          },
+          "az_method": {
+            "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+            "tail_ess": "az.ess(idata, method='tail')",
+            "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+            "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)"
+          },
+          "quality_gate": {
+            "rhat_threshold": 1.01,
+            "max_rhat": 1.000010563462188,
+            "min_bulk_ess": 98598.58926578115,
+            "total_divergences": 0,
+            "divergence_rate": 0.0,
+            "min_e_bfmi": null,
+            "passed": true
+          },
+          "diagnostics_per_chain": {
+            "generator": "analytic_iid",
+            "total_divergences": 0
+          },
+          "timing_seconds": {
+            "warmup": 0.0,
+            "sampling": 0.7070663910126314,
+            "total": 1.000239845001488
+          },
+          "provenance": {
+            "tuningfork_version": "0.0.0.dev0",
+            "code_sha": "c60ffb9",
+            "jax_version": "0.10.1",
+            "blackjax_version": "1.6.dev114+g2ad3a801d",
+            "arviz_version": "1.1.0",
+            "x64_enabled": false,
+            "device": "gpu",
+            "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+            "timestamp_utc": "2026-07-13T05:02:23Z"
+          }
+        }
+      },
+      "measurement_conditions": {},
+      "metrics": {
+        "headline_metric": 0.039999999999999994,
+        "calibration_budget": {
+          "n_particles": 1000,
+          "n_smc_steps": 1,
+          "num_mcmc_steps": 25,
+          "lambda_final": 1.0,
+          "wall_seconds_total": 1.0,
+          "wall_seconds_run": 0.966
+        },
+        "legacy_current_view": {
+          "model_name": "gmm_25",
+          "smc_method_name": "adaptive_tempered_smc",
+          "inner_method_name": "rwm",
+          "num_particles": 1000,
+          "max_steps": 500,
+          "seed": 20260519,
+          "smc_params": {
+            "target_ess": 0.8,
+            "num_mcmc_steps": 25
+          },
+          "inner_params_init": {},
+          "inner_params_final": null,
+          "parameter_update_strategy": "step_size_and_imm_from_particles",
+          "parameter_update_strategy_kwargs": {
+            "target_acceptance": 0.65
+          },
+          "headline_metric": 0.039999999999999994,
+          "gate_evidence": {
+            "auto": {
+              "verdict": "PASS",
+              "max_abs_mean_z": 0.9126377092193928,
+              "particle_ess": 999.9999999999998,
+              "particle_ess_fraction": 0.9999999999999998,
+              "mode_coverage_fraction": 1.0,
+              "lambda_final": 1.0,
+              "rhat_max": null,
+              "n_divergences": null
+            },
+            "override": {
+              "reason": "",
+              "statistician_id": "",
+              "decision": ""
+            }
+          },
+          "calibration_budget": {
+            "n_particles": 1000,
+            "n_smc_steps": 1,
+            "num_mcmc_steps": 25,
+            "lambda_final": 1.0,
+            "wall_seconds_total": 1.0,
+            "wall_seconds_run": 0.966
+          },
+          "notes": "",
+          "tuningfork_version": "0.0.2.dev1+gc0de74dd2",
+          "blackjax_version": "1.6.dev84+g0ef2f578a",
+          "jax_version": "0.10.0",
+          "timestamp_utc": "2026-06-03T19:30:02Z"
+        }
+      },
+      "gate_evidence": {
+        "auto": {
+          "verdict": "PASS",
+          "max_abs_mean_z": 0.9126377092193928,
+          "particle_ess": 999.9999999999998,
+          "particle_ess_fraction": 0.9999999999999998,
+          "mode_coverage_fraction": 1.0,
+          "lambda_final": 1.0,
+          "rhat_max": null,
+          "n_divergences": null
+        },
+        "override": {
+          "reason": "",
+          "statistician_id": "",
+          "decision": ""
+        }
+      },
+      "failure_evidence": {
+        "failure_diagnosis": null,
+        "workflow": "",
+        "notes": ""
+      },
+      "recorded_at": "2026-07-31T00:00:00Z"
+    },
+    {
+      "schema": "tuningfork.recipe-attempt.v1",
+      "attempt_id": "migration-adaptive-tempered-rwm",
+      "rationale": "Normalize inert adaptive_tempered_smc+rwm parameter-update fields for codegen while retaining legacy evidence.",
+      "lifecycle_stage": "CURATED",
+      "automatic_verdict": "PASS",
+      "intent_snapshot": {
+        "model_name": "gmm_25",
+        "smc_method_name": "adaptive_tempered_smc",
+        "inner_method_name": "rwm",
+        "num_particles": 1000,
+        "max_steps": 500,
+        "seed": 20260519,
+        "smc_params": {
+          "target_ess": 0.8,
+          "num_mcmc_steps": 25
+        },
+        "inner_params_init": {},
+        "parameter_update_strategy": "none",
+        "parameter_update_strategy_kwargs": {}
+      },
+      "intent_snapshot_sha256": "a53382d35cd5b2f6ca22ddb3437ed8848ce964e2e4e7bce8a368c4710fb72edf",
+      "execution": null,
+      "ground_truth": {
+        "schema": "tuningfork.ground-truth-reference.v1",
+        "model_name": "gmm_25",
+        "summary_path": "gmm_25/groundtruth_samples/blackjax/summary_v2.json",
+        "draws_path": "gmm_25/groundtruth_samples/blackjax/draws.npz",
+        "summary_sha256": "efd442bcbdc2e2da09dda3875223869bd266c87b68a80d3e2dd1110cd6faab7c",
+        "draws_sha256": "804158ab0a57cb202631bdb56d77db2099c990665377507e87117a9ab123798f",
+        "lfs_oid": "sha256:804158ab0a57cb202631bdb56d77db2099c990665377507e87117a9ab123798f",
+        "protocol": {
+          "model_name": "gmm_25",
+          "schema_version": "gt_v2_multichain",
+          "generator": "analytic_iid",
+          "space": "unconstrained",
+          "n_chains": 10,
+          "n_draws_per_chain": 10000,
+          "n_total": 100000,
+          "sampler_config": {
+            "sampler": "analytic",
+            "warmup": null,
+            "n_warmup_per_chain": null,
+            "target_acceptance": null,
+            "max_num_doublings": null,
+            "init_strategy": "analytic_sampler_iid"
+          },
+          "seeds": {
+            "master_seed": 20260713,
+            "derivation": "key=jax.random.key(seed); split->(init,warmup,sample); per-chain=split(k,n_chains)"
+          },
+          "az_method": {
+            "bulk_ess": "az.ess(idata, method='bulk') on raw (chain,draw) real chains",
+            "tail_ess": "az.ess(idata, method='tail')",
+            "rhat": "az.rhat(idata, method='rank')  # Vehtari 2021 rank-norm split-Rhat",
+            "between_chain_se": "std(chain_means, ddof=1)/sqrt(n_chains)"
+          },
+          "quality_gate": {
+            "rhat_threshold": 1.01,
+            "max_rhat": 1.000010563462188,
+            "min_bulk_ess": 98598.58926578115,
+            "total_divergences": 0,
+            "divergence_rate": 0.0,
+            "min_e_bfmi": null,
+            "passed": true
+          },
+          "diagnostics_per_chain": {
+            "generator": "analytic_iid",
+            "total_divergences": 0
+          },
+          "timing_seconds": {
+            "warmup": 0.0,
+            "sampling": 0.7070663910126314,
+            "total": 1.000239845001488
+          },
+          "provenance": {
+            "tuningfork_version": "0.0.0.dev0",
+            "code_sha": "c60ffb9",
+            "jax_version": "0.10.1",
+            "blackjax_version": "1.6.dev114+g2ad3a801d",
+            "arviz_version": "1.1.0",
+            "x64_enabled": false,
+            "device": "gpu",
+            "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+            "timestamp_utc": "2026-07-13T05:02:23Z"
+          }
+        }
+      },
+      "measurement_conditions": {},
+      "metrics": {
+        "gate": {
+          "verdict": "PASS",
+          "max_abs_mean_z": 0.9126377092193928,
+          "particle_ess": 999.9999999999998,
+          "particle_ess_fraction": 0.9999999999999998,
+          "mode_coverage_fraction": 1.0,
+          "lambda_final": 1.0,
+          "rhat_max": null,
+          "n_divergences": null
+        },
+        "headline_metric": 0.039999999999999994,
+        "calibration_budget": {
+          "n_particles": 1000,
+          "n_smc_steps": 1,
+          "num_mcmc_steps": 25,
+          "lambda_final": 1.0,
+          "wall_seconds_total": 1.0,
+          "wall_seconds_run": 0.966,
+          "selected_attempt_id": "migration-adaptive-tempered-rwm"
+        },
+        "parameter_update_strategy_mapping": {
+          "/parameter_update_strategy": {
+            "old": "step_size_and_imm_from_particles",
+            "new": "none",
+            "reason": "parameter_update_strategy was constructed but passed only to inner_kernel_tuning; adaptive_tempered_smc+rwm executed with no parameter update"
+          },
+          "/parameter_update_strategy_kwargs": {
+            "old": {
+              "target_acceptance": 0.65
+            },
+            "new": {},
+            "reason": "parameter_update_strategy was constructed but passed only to inner_kernel_tuning; adaptive_tempered_smc+rwm executed with no parameter update"
+          }
+        },
+        "dropped_json_pointers": []
+      },
+      "gate_evidence": {
+        "auto": {
+          "verdict": "PASS",
+          "max_abs_mean_z": 0.9126377092193928,
+          "particle_ess": 999.9999999999998,
+          "particle_ess_fraction": 0.9999999999999998,
+          "mode_coverage_fraction": 1.0,
+          "lambda_final": 1.0,
+          "rhat_max": null,
+          "n_divergences": null
+        },
+        "override": {
+          "reason": "",
+          "statistician_id": "",
+          "decision": ""
+        }
+      },
+      "failure_evidence": null,
+      "recorded_at": "2026-07-31T00:00:00Z"
+    }
+  ]
 }

@@ -7,7 +7,7 @@ This is the **authoritative design** for the schema. The Python `dataclass` at `
 Three audiences:
 
 - **Consumer** (loading recipes, inspecting diagnostics, reproducing inference): reads sections §1–§5 for the field list.
-- **Implementer** (extending the runner, emit_script, registry): reads §3–§7 for the load-bearing semantics + backward-compat rules.
+- **Implementer** (extending generated execution, emit_script, registry): reads §3–§7 for the load-bearing semantics + backward-compat rules.
 - **Future schema evolutions** (slow/fast warmup separation, new step_policy kinds, ...): reads §2 + §8 for the open questions and migration patterns.
 
 ## §1 — Recipe dataclass fields (overview)
@@ -36,7 +36,7 @@ class Recipe:
     headline_basis: dict | None        # accounting behind headline_metric — see §4.5
     sample_quality: dict | None        # vs-reference comparisons (optional)
     calibration_budget: dict           # trials, wall_seconds_estimate, n_warmup, n_samples, num_chains
-    difficulty: dict | None            # HIGH-only; BO study output
+    difficulty: dict | None            # legacy HIGH-effort evidence
     instructions: str                  # auto-templated user-facing prose
     notes: str = ""                    # statistician-authored note (MEDIUM-workaround rationale)
 
@@ -74,7 +74,9 @@ class Recipe:
 }
 ```
 
-Runner: `warmup = WARMUPS[warmup_name]; state, params = warmup.runner(key, init, **warmup_params)`.
+Generated program protocol: the emitter resolves `WARMUPS[warmup_name]` and emits
+the typed warmup call with `warmup_params`; catalog consumers do not invoke a
+warmup protocol directly.
 
 ### §2.2 — Repeated-warmup proposal
 
@@ -89,13 +91,13 @@ Schema:
 }
 ```
 
-`warmups` is an ordered list. Runner semantics:
+`warmups` is an ordered list. Generated-program semantics:
 
 1. The **first** warmup is called with `init_position` from the model's prior sample.
 2. Each **subsequent** warmup is called with the previous warmup's output state's `position` as its `init_position`. The previous warmup's `adapted_params` may be passed as additional kwargs (e.g., pathfinder produces a dense IMM that window_adaptation can use as `initial_inverse_mass_matrix`).
-3. The **final** warmup's `(state, adapted_params, warmup_info)` is what flows into the sampler stage (via `transform_warmup_state` per §3.3).
+3. The **final** warmup's `(state, adapted_params, warmup_info)` flows into the generated sampler stage, which applies the selected inner-kernel and trajectory policy.
 
-Backward-compat: at the `warmups` schema-add point (Phase X) the legacy `warmup_name`/`warmup_params` are dropped from `Recipe.save` output (per §2.4 — Q1 resolved 2026-05-21 in favour of immediate deprecation since there's no downstream consumer of recipe JSON beyond this project). `Recipe.load` continues to accept legacy recipes by constructing `warmups = [{"name": warmup_name, "params": warmup_params}]` for one transition cycle so on-disk recipes (the LOW/MEDIUM/FAILED inventory) keep loading.
+Backward-compat: when `warmups` was added, the legacy `warmup_name`/`warmup_params` were dropped from `Recipe.save` output (per §2.4 — Q1 resolved 2026-05-21 in favour of immediate deprecation since there's no downstream consumer of recipe JSON beyond this project). `Recipe.load` continues to accept legacy recipes by constructing `warmups = [{"name": warmup_name, "params": warmup_params}]` for one transition cycle so on-disk recipes (the LOW/MEDIUM/FAILED inventory) keep loading.
 
 Filename for multi-step chains: rather than concatenating warmup names with separators (which scales poorly past 2–3 steps), each canonical chain composition gets a **single named entry in the mix-warmup glossary** (§2.5) of the form `mix_warmup_v{N}`. The filename stays short:
 
@@ -163,7 +165,7 @@ Originally introduced in the d-hmc step_policy plan thread §12; promoted here a
 
 ### §3.1 — Why explicit
 
-The recipe-runner has an implicit substitute-family logic in `tuningfork/warmup/_laplace_adapter.py:WARMUP_SUBSTITUTE_METHOD_NAMES`: methods whose `.init` signature requires extra kwargs that `blackjax.window_adaptation` doesn't supply (laplace_\*, dynamic_hmc, dmhmc) get NUTS substituted as the warmup kernel.
+The generated warmup protocol uses `tuningfork/recipes/_warmup_protocol.py:WARMUP_SUBSTITUTE_METHOD_NAMES`: methods whose `.init` signature requires extra kwargs that `blackjax.window_adaptation` doesn't supply (laplace_\*, dynamic_hmc, dmhmc) get NUTS substituted as the warmup kernel.
 
 This is **implicit**: the recipe records `base_method_name = "dynamic_hmc"` and `warmup_name = "window_adaptation_diag_imm"`, but the actual warmup kernel (NUTS) is computed at run time from the substitute set. Future schema evolution requires making this explicit.
 
@@ -173,27 +175,18 @@ This is **implicit**: the recipe records `base_method_name = "dynamic_hmc"` and 
 warmup_inner_kernel: str | None = None
 ```
 
-- `None`: defer to `resolve_warmup_algorithm(base_method)` — current behaviour. For substitute-family methods this resolves to `"nuts"`; for standard methods it resolves to `base_method_name`.
+- `None`: defer to the generated warmup protocol's implicit resolution. For substitute-family methods this resolves to `"nuts"`; for standard methods it resolves to `base_method_name`.
 - `"nuts"`: warmup uses `blackjax.nuts` regardless of `base_method_name`. Forced for substitute family; opt-in for standard family.
 - `"hmc"` / `"mhmc"` / `"mala"` / ...: warmup uses that kernel. Default for the matching `base_method_name` on the standard path.
 
 Backward-compat: recipes without `warmup_inner_kernel` (before schema extension for warmups list / warmup_inner_kernel) load with `None` → resolved at run time. No regen needed.
 
-### §3.3 — Transform-callable abstraction
+### §3.3 — Generated warmup-to-sampler boundary
 
-The warmup output (`adapted_params + warmup_info`) must be transformed into the sampler's required init kwargs. The transform is a function of `(warmup_inner_kernel, base_method_name)`.
-
-```python
-def transform_warmup_state(
-    warmup_inner_kernel: str,
-    base_method_name: str,
-    adapted_params: dict,
-    warmup_info: Any,
-) -> dict:
-    """Returns sampler init kwargs: {step_size, IMM, [num_integration_steps], [step_policy], ...}."""
-```
-
-Lives at `tuningfork/base_method/_warmup_to_sampler_transform.py` (new module for schema extension for warmups list / warmup_inner_kernel, PR #54).
+The generated recipe program carries the final warmup's adapted parameters into
+the sampler and applies the resolution rules below. Trajectory lengths and
+empirical step policies are emitted as recipe fields when the selected inner
+kernel requires them, so replay uses the same generated configuration boundary.
 
 ### §3.4 — Resolution table
 
@@ -327,10 +320,10 @@ The field exists because a `headline_basis` that merely reproduces `headline_met
 
 | Path | Source of `min_bulk_ess` |
 |---|---|
-| `_recipe_runner.emit_low_recipe_for_cell` (gradient) | `metrics.headline.build_headline_basis` over the run's draws |
-| `_recipe_runner.emit_low_recipe_for_cell` (gradient-free) | same function, same draws; denominator is the total draw count |
-| `recipes/emit_mclmc_lrd.py` | `metrics.headline.min_bulk_ess` over the cert-seed draws |
-| `_recipe_runner.stamp_headline_from_chain_stats` | the gate's `ess_bulk` value, recovered without re-sampling |
+| generated certification (gradient) | `metrics.headline.build_headline_basis` over the generated run's validated draws |
+| generated certification (gradient-free) | same evaluator and draws; denominator is the total draw count |
+| generated certification | `metrics.headline.min_bulk_ess` over the generated run's draws |
+| generated execution's `stamp_headline_from_chain_stats` | the gate's `ess_bulk` value, recovered without re-sampling |
 
 `min_bulk_ess_classic_legacy` carries `blackjax.diagnostics.effective_sample_size` — no chain splitting, no rank normalisation — computed on the **same draws**, and `estimator_ratio` is `min_bulk_ess / min_bulk_ess_classic_legacy`. They exist so a change in a committed headline can be attributed: a re-emit produces fresh draws, so diffing new against committed confounds the estimator with run-to-run noise, while the ratio isolates the estimator on one fixed sample. Neither field feeds any gate or ranking. Both are `null` where no draws were available (the `stamp_headline_from_chain_stats` path).
 
@@ -385,9 +378,9 @@ Examples:
 Schema additions (`warmup_inner_kernel`, `step_policy`, `warmups`) are additive. Existing recipes without these fields load cleanly:
 
 - `Recipe.load` defaults missing fields to `None`.
-- The runner resolves `warmup_inner_kernel=None` via the current substitute-family logic.
-- The runner treats `step_policy=None` as V0 (library default).
-- The runner treats missing `warmups` by constructing `warmups = [{"name": warmup_name, "params": warmup_params}]`.
+- Generated execution resolves `warmup_inner_kernel=None` via the current substitute-family logic.
+- Generated execution treats `step_policy=None` as V0 (library default).
+- Generated execution treats missing `warmups` by constructing `warmups = [{"name": warmup_name, "params": warmup_params}]`.
 
 No regen needed on schema-add. Regen IS needed when the **runtime behaviour** changes (e.g., PR #42's NUTS-substitute change → 23 recipes regened in PR #43 for refreshed `gate_evidence`).
 
@@ -396,12 +389,11 @@ No regen needed on schema-add. Regen IS needed when the **runtime behaviour** ch
 | Concern | File |
 |---|---|
 | Recipe dataclass | `tuningfork/recipes/_base.py` |
-| Runner (emit recipes, apply transforms) | `tuningfork/recipes/_recipe_runner.py` |
-| emit_script (reproduction-script codegen) | `tuningfork/recipes/_emit_script.py` |
-| Templates (warmup / sampler / inference loop) | `tuningfork/recipes/_templates/{warmups,samplers,...}/*.py.tmpl` |
+| Generated execution orchestration | `tuningfork/recipes/_emit_script.py` |
+| Warmup, sampler, and inference-loop emitters | `tuningfork/recipes/_emit/` |
 | step_policy registry | `tuningfork/base_method/_step_policy_registry.py` |
-| Transform callable (§3.3) | `tuningfork/base_method/_warmup_to_sampler_transform.py` (new for schema extension for warmups list / warmup_inner_kernel) |
-| Substitute-family resolution | `tuningfork/warmup/_laplace_adapter.py:WARMUP_SUBSTITUTE_METHOD_NAMES + resolve_warmup_algorithm` |
+| Warmup-to-sampler boundary (§3.3) | Generated recipe warmup and sampler emitters |
+| Substitute-family resolution | `tuningfork/recipes/_warmup_protocol.py:WARMUP_SUBSTITUTE_METHOD_NAMES` |
 | Catalog inspection (consumer) | `tuningfork/catalog/inspect.py:load_recipe + summarize_recipe` |
 
 ## §8 — Open questions (ALL RESOLVED 2026-05-21)
@@ -411,7 +403,7 @@ No regen needed on schema-add. Regen IS needed when the **runtime behaviour** ch
 | 1 | When `warmups` (list) lands, deprecate `warmup_name`/`warmup_params` immediately, or keep both? | **RESOLVED — (a) deprecate immediately**. No downstream consumer of recipe JSON outside this project; clean break. `Recipe.save` emits only `warmups`. `Recipe.load` accepts legacy fields for backward-load of on-disk recipes (no mass regen needed). See §2.4. |
 | 2 | Filename length for multi-step warmup chains: separator-concatenation vs. some other notation? | **RESOLVED — glossary + `mix_warmup_v{N}` slug**. Each canonical chain composition gets a named glossary entry (§2.5); filename uses the short slug. Avoids separator-concatenation entirely; scales gracefully past 2–3 steps. |
 | 3 | Does `warmup_inner_kernel` need a corresponding `warmup_inner_kwargs` field? | **RESOLVED — (a) defer**. Implicit kwargs via `default_value_for_space` works; revisit when a concrete cell needs explicit pinning. |
-| 4 | Multi-chain `warmup_info` shape for `transform_warmup_state`: ravel across chains, or per-chain transforms? | **RESOLVED — (a) ravel**. Pool across chains for one canonical L distribution / median; ensures all chains run the same sampling protocol (necessary for cross-chain rhat). |
+| 4 | Multi-chain warmup trajectory shape: pool across chains, or per-chain policies? | **RESOLVED — (a) pool**. Use one canonical L distribution / median so all chains run the same sampling protocol (necessary for cross-chain rhat). |
 | 5 | When `kind="empirical"` storage exceeds 8 KB, sidecar to `.npz`? | **RESOLVED — compress always, cap at 24-bit equivalent**. Empirical spec is always a compressed histogram with ≤24 distinct entries (§4.1 Path B). Storage stays ≈ 600 bytes per spec; no sidecar needed. Interpretation note on "24 bits" filed in §4.1 (current implementation: 24 bin-centres; tighter binary packing possible as a follow-up if user prefers). |
 
 ## §9 — Versioning
@@ -426,7 +418,7 @@ If the schema diverges in incompatible ways (renames, removed fields), introduce
 - **Effort taxonomy** decision: effort-taxonomy-canonical-c (2026-05-10)
 - **Catalog README**: [`catalog/README.md`](README.md) — user-facing consumption guide
 - **Inspection API**: [`catalog/notebooks/inspect_README.md`](notebooks/inspect_README.md)
-- **Recipe runner source**: [`recipes/_recipe_runner.py`](../recipes/_recipe_runner.py) — runtime implementation
+- **Generated execution source**: [`recipes/_emit_script.py`](../recipes/_emit_script.py) — runtime implementation
 
 ## §11 — Change log
 

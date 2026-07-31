@@ -78,12 +78,13 @@ Across all 8 sub-tables (24 base methods × 12 warmups × 14 models, plus 6 SMC 
 
 The full 8-table matrix, supersession map (e.g., `adaptive_tempered_smc` strictly dominates `tempered_smc`), and hard-exclusion category definitions live in [`RECIPE_GENERATION.md`](RECIPE_GENERATION.md).
 
-## Calibration pipeline
+## Recipe lifecycle
 
-Recipe construction draws on three building blocks under `tuningfork/calibration/`:
+Recipe construction records evidence through three stages:
 
 - **`certify_reference.py` — Gold reference draws**: 1 chain × 40 000 samples (NUTS + Stan window adaptation), reshaped into 4 chunks for rank-normalized split-R̂ (Vehtari et al. 2021). Multimodal exception for `gmm_25` (parallel-tempered SMC + multi-restart with mode-coverage check).
-- **`tune.py` — Hyperparameter optimization**: Optuna BO maximizing `min-bulk-ESS / total_grad_evals`, with per-algorithm acceptance targets.
+- **Generated recipe lifecycle**: resolves declared sampler and warmup parameters,
+  executes generated code, and records receipts and gate evidence.
 - **`statistician_gate.py` — Auto-gate**: pre-committed thresholds (R̂ < 1.01, min bulk-ESS ≥ 400, divergences = 0, `max_abs_mean_z` < 2) that every recipe must clear before emission. Thresholds are fixed before sampling — see "The garden of forking paths" above.
 
 The `Recipe.effort` field (`tuningfork/recipes/_base.py`) records the resulting cost class: LOW (defaults pass at first emit), MEDIUM (single statistician-led workaround), HIGH (full Bayesian-workflow investigation).
@@ -172,18 +173,18 @@ tuningfork/
 │   │   └── _data/             # raw input datasets (CSV/NPZ); fetch via tools/
 │   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
 │   ├── warmup/                # 12 warmup wrappers (window_adaptation_diag_imm, pathfinder, ...)
-│   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
+│   ├── smc/                   # declarative SMC method descriptors
 │   ├── recipes/               # Recipe schema + generators + emit_script
 │   │   ├── _base.py, _instructions.py
-│   │   ├── _generate_starter.py, _generate_groundtruth.py
+│   │   ├── _generate_groundtruth.py
 │   │   ├── _emit_script.py    # recipe → reproduction Python script — orchestrator
+│   │   ├── _emit_smc_script.py # SMC recipe → generated sampling program
 │   │   └── _emit/             # Python emit-functions (preamble/postamble/inference_loop/sampler/warmup)
-│   ├── calibration/           # certify_reference, tune (Optuna BO), statistician_gate
+│   ├── calibration/           # certify_reference, statistician_gate
 │   ├── metrics/               # headline metric, grad-counter, reference_compare
-│   ├── runner/                # SMC init + run helpers
 │   ├── _cache_io.py           # internal cache I/O for reference artifacts
 │   ├── _posteriordb_xcheck.py # posteriordb cross-check logic
-│   ├── cli.py                 # tuningfork {reference, warmup, tune} subcommands
+│   ├── cli.py                 # tuningfork {reference, leaderboard} subcommands
 │   │
 │   │   # ─── catalog layer (user-facing, consumes recipes) ───
 │   └── catalog/               # USER-FACING subpackage
@@ -218,7 +219,10 @@ tuningfork/
 └── CONTRIBUTING.md            # test markers, folder layout, contribution rules
 ```
 
-The package splits into two layers (post-R3 restructure, 2026-05-17): the **generator** layer (`model/`, `base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`, `runner/`, `_cache_io.py`) produces recipes; the **catalog** layer (`tuningfork.catalog`) is what a regular user imports to consume recipes + read per-model artifacts.
+The package splits into two layers: the **generator** layer (`model/`,
+`base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`,
+`_cache_io.py`) produces recipes through generated programs; the **catalog**
+layer (`tuningfork.catalog`) loads recipes, artifacts, and generated source.
 
 ## License
 

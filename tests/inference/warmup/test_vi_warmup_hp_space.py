@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Fast tests for VI warmup default_hp_space plumbing (Phase 8B.2).
+"""Fast tests for warmup default hyperparameter plumbing.
 
 Validates that:
 - meanfield_vi and fullrank_vi ENTRY.default_hp_space declare
   num_optimization_steps with the expected range.
 - Warmup._base.Warmup dataclass accepts default_hp_space.
 - default_value_for_space returns the midpoint (25_500) for the HP range.
-- The recipe runner correctly records num_optimization_steps in warmup_params.
+- Certification intent records declared warmup defaults in warmup_params.
 """
 
 import pytest
@@ -58,9 +58,11 @@ def test_other_warmups_have_empty_hp_space() -> None:
     """window_adaptation, no_warmup, pathfinder, etc. have empty default_hp_space.
 
     Exceptions (intentional non-empty hp_space for non-VI warmups):
-    - window_adaptation_low_rank_imm: declares max_rank so the recipe runner
+    - window_adaptation_low_rank_imm: declares max_rank so the generated recipe protocol
       persists it into warmup_params (and emit_script can read it back). Added
       in PR recert-irt2pl-hmc-inner-nuts (2026-06-05).
+    - adjusted_mclmc_trajectory_tuning: declares its pilot budget and trajectory
+      grid so experiments modify recipe configuration rather than generated code.
 
     All other non-VI warmups fall back to the Warmup dataclass default (empty tuple).
     """
@@ -71,6 +73,7 @@ def test_other_warmups_have_empty_hp_space() -> None:
         "meanfield_vi",
         "fullrank_vi",
         "window_adaptation_low_rank_imm",
+        "adjusted_mclmc_trajectory_tuning",
     }
     for name, entry in WARMUPS.items():
         if name in _known_non_empty_hp_space:
@@ -97,7 +100,7 @@ def test_low_rank_warmup_has_max_rank_hp_space() -> None:
 
 def test_default_value_for_space_midpoint() -> None:
     """default_value_for_space returns integer midpoint for int HP space."""
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
     from tuningfork.warmup import WARMUPS
 
     space = WARMUPS["meanfield_vi"].default_hp_space[0]
@@ -106,17 +109,17 @@ def test_default_value_for_space_midpoint() -> None:
 
 
 def test_warmup_hp_space_roundtrip_in_warmup_params_dict() -> None:
-    """Warmup HP defaults are included in _warmup_params_dict built by runner.
+    """Warmup HP defaults are included in the generated warmup parameter mapping.
 
-    Verifies the recipe runner includes num_optimization_steps in the
+    Verifies the generated protocol includes num_optimization_steps in the
     warmup_params when emitting a VI warmup recipe (uses a synthetic recipe
     to avoid running actual VI optimization).
     """
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
     from tuningfork.warmup import WARMUPS
 
     mfwu = WARMUPS["meanfield_vi"]
-    # Simulate what the recipe runner does to build warmup_params
+    # Simulate generated protocol construction of warmup_params.
     warmup_hp_defaults = {
         space.name: default_value_for_space(space)
         for space in getattr(mfwu, "default_hp_space", ())
@@ -127,11 +130,11 @@ def test_warmup_hp_space_roundtrip_in_warmup_params_dict() -> None:
 
 def test_warmup_hp_space_override_roundtrip() -> None:
     """warmup_kwargs_override correctly overrides the HP default in warmup_params."""
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
     from tuningfork.warmup import WARMUPS
 
     mfwu = WARMUPS["meanfield_vi"]
-    # Simulate recipe runner building warmup params with override
+    # Simulate generated protocol building warmup params with override.
     warmup_hp_defaults = {
         space.name: default_value_for_space(space)
         for space in getattr(mfwu, "default_hp_space", ())

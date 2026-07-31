@@ -13,6 +13,12 @@
     "trials": 0,
     "wall_seconds_estimate": 3.41687588498462,
     "n_warmup": 1000,
+    "n_samples": 1000,
+    "n_samples_provenance": {
+      "kind": "recovered-historical-default",
+      "source": "tuningfork/recipes/emit_mclmc_lrd.py:_emit_lrd_cert_sweep(n_samples=1000) at b09c24766562d141a129aa1298490a4d575bf6e2",
+      "corroboration": "artifact-producing code computes total_grad_evals=2*n_samples*num_chains; headline_basis.total_grad_evals=8000 and warmup num_chains=4 uniquely give n_samples=1000"
+    },
     "seed_evidence": [
       {
         "seed": 11111,

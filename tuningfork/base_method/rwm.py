@@ -11,80 +11,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""RWM (Random-Walk Metropolis) algorithm entry for the tuningfork algorithm registry.
+"""Descriptor for random-walk Metropolis (RWM).
 
-Wraps ``blackjax.rmh`` with an isotropic Gaussian proposal parameterized by
-``sigma`` (the proposal standard deviation).  Since ``blackjax.rmh`` expects a
-``proposal_generator`` callable rather than a step-size scalar, this module
-provides a thin factory wrapper that constructs the callable internally via
-``jax.flatten_util.ravel_pytree`` so the position can be any JAX pytree.
-
-Grad cost per step: 0.  RWM evaluates the log-density (no gradient) for the
-MH accept/reject ratio.  Optimal target acceptance rate ≈ 0.234 (Gelman,
-Roberts & Gilks 1996 / Roberts & Rosenthal 2001).
+Recipes resolve isotropic Gaussian proposal scale ``sigma``; code generation
+emits the upstream ``blackjax.rmh`` proposal generator for arbitrary pytrees.
+RWM evaluates only log density (zero gradient cost), with optimal acceptance
+near 0.234 (Gelman, Roberts & Gilks 1996).
 """
 
-import blackjax
-import jax
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 
-__all__ = ["ENTRY", "_make_rwm"]
-
-
-def _make_rwm(logdensity_fn: object, sigma: float) -> object:
-    """Build a ``blackjax.rmh`` kernel with an isotropic Gaussian proposal.
-
-    Parameters
-    ----------
-    logdensity_fn
-        Unnormalised log-density callable, same as for every other algorithm.
-    sigma
-        Proposal standard deviation.  The proposal is
-        ``position + sigma * N(0, I)`` in the flattened parameter space,
-        un-ravelled back to the original pytree structure.
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A BlackJAX kernel object with ``.init`` and ``.step`` methods.
-
-    Notes
-    -----
-    ``ravel_pytree`` is called once per ``proposal_generator`` invocation.
-    The un-ravel function (``unravel``) is captured in the closure per call,
-    which is safe because the pytree structure is fixed for a given model.
-    """
-
-    def proposal_generator(rng_key: jax.Array, position: object) -> object:
-        flat, unravel = ravel_pytree(position)
-        noise = jax.random.normal(rng_key, flat.shape) * sigma
-        return unravel(flat + noise)
-
-    return blackjax.rmh(logdensity_fn, proposal_generator)
-
+__all__ = ["ENTRY"]
 
 ENTRY = BaseMethod(
     name="rwm",
     family="mcmc",
-    factory=_make_rwm,  # called as factory(logdensity_fn, sigma=...)
     grad_count_per_step=lambda info: jnp.asarray(0),
     grad_count_convention="0 (gradient-free)",
     default_hp_space=(HyperparamSpace("sigma", "loguniform", low=1e-3, high=10.0),),
     needs_mass_matrix=False,
     target_acceptance_rate=0.234,
-    # T2.3 descriptors: gradient-free; RWM uses sigma (not step_size/imm) as HP.
-    # When run with no_warmup, batched_params is empty → is_no_adapted_params=True.
-    per_chain_param_keys=(),
-    reinit_state=False,  # RMHState from warmup is directly usable.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Isotropic Gaussian proposal; sigma is the proposal scale. "
-        "proposal_generator built internally via ravel_pytree so any JAX "
-        "pytree position is supported (dict, flat array, NamedTuple, etc.). "
-        "grad_count=0: RWM evaluates logdensity only, no gradient. "
+        "Codegen builds proposal_generator via ravel_pytree for arbitrary JAX pytrees. "
+        "grad_count=0: RWM evaluates logdensity only. "
         "Optimal accept ≈ 0.234 (Gelman, Roberts & Gilks 1996)."
     ),
 )

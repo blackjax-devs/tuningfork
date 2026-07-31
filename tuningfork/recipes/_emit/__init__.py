@@ -19,26 +19,41 @@ choreography (D8 compliant).
 
 Public API
 ----------
+emit_init_strategy(strategy, num_chains) -> str
+    Emits the configured initial-position transformation.
 emit_preamble(ctx) -> str
     Replaces ``_templates/preamble.py.tmpl``.
 emit_laplace_preamble(ctx) -> str
     Replaces ``_templates/laplace_preamble.py.tmpl``.
 emit_postamble(ctx) -> str
     Replaces ``_templates/postamble.py.tmpl``.
+emit_step_policy(spec) -> str
+    Emits the dynamic-HMC integration-step callable.
 """
 
 from __future__ import annotations
 
+from tuningfork.recipes._emit._diagnostics import (
+    emit_diagnostics,
+    emit_diagnostics_close,
+)
+from tuningfork.recipes._emit._init_strategy import emit_init_strategy
 from tuningfork.recipes._emit._laplace_preamble import emit_laplace_preamble
 from tuningfork.recipes._emit._postamble import emit_postamble
 from tuningfork.recipes._emit._preamble import emit_preamble
 from tuningfork.recipes._emit._sampler import emit_sampler
-from tuningfork.recipes._emit._warmup import emit_warmup
+from tuningfork.recipes._emit._step_policy import emit_step_policy
+from tuningfork.recipes._emit._warmup import EMITTABLE_WARMUP_NAMES, emit_warmup
 
 __all__ = [
+    "EMITTABLE_WARMUP_NAMES",
+    "emit_diagnostics",
+    "emit_diagnostics_close",
+    "emit_init_strategy",
     "emit_preamble",
     "emit_laplace_preamble",
     "emit_postamble",
     "emit_sampler",
+    "emit_step_policy",
     "emit_warmup",
 ]

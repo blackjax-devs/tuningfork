@@ -63,6 +63,7 @@ Dimension-aware (Šidák) PASS band
         max_abs_mean_z >= 4.0 at any d → FAIL (the fixed FAIL boundary is untouched).
 """
 
+import json
 import math
 import types
 
@@ -70,6 +71,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from tuningfork.calibration._gate.bands import _build_margin
 from tuningfork.calibration.statistician_gate import (
     DEFAULT_THRESHOLDS,
     Z_VERDICT_ESS_CEILING,
@@ -186,6 +188,55 @@ def test_few_divergences_still_pass():
     assert verdict.verdict == "PASS"
     assert verdict.n_divergences == 5
     assert verdict.margins["n_divergences"]["band"] == "PASS"
+
+
+def test_nonfinite_proposals_zero_is_pass_and_serialized():
+    """False entries in ``nonans`` are counted with an exact denominator."""
+    rng = np.random.RandomState(22)
+    samples = _make_clean_samples(rng, 4, 100, 1)
+    info = types.SimpleNamespace(nonans=jnp.ones((4, 100), dtype=bool))
+    verdict = auto_gate(samples, info)
+    assert verdict.n_nonfinite_proposals == 0
+    assert verdict.n_proposals_evaluated == 400
+    assert verdict.nonfinite_proposal_rate == 0.0
+    assert verdict.n_divergences is None
+    assert verdict.verdict == "PASS"
+    margin = verdict.margins["n_nonfinite_proposals"]
+    assert margin["policy_id"] == "tuningfork.nonfinite-proposal-review.v1"
+    assert margin["policy_status"] == "provisional"
+    assert margin["calibrated"] is False
+    assert margin["nonfinite_proposal_rate"] == 0.0
+    assert verdict.to_dict()["n_proposals_evaluated"] == 400
+
+
+def test_nonfinite_proposals_positive_requests_review():
+    """Any positive non-finite count prevents an overall PASS (provisional)."""
+    rng = np.random.RandomState(23)
+    samples = _make_clean_samples(rng, 4, 100, 1)
+    nonans = np.ones((4, 100), dtype=bool)
+    nonans[0, 0] = False
+    info = types.SimpleNamespace(nonans=jnp.asarray(nonans))
+    verdict = auto_gate(samples, info)
+    assert verdict.n_nonfinite_proposals == 1
+    assert verdict.n_proposals_evaluated == 400
+    assert verdict.nonfinite_proposal_rate == 1 / 400
+    assert verdict.n_divergences is None
+    assert verdict.verdict == "REVIEW"
+    assert verdict.margins["n_nonfinite_proposals"]["band"] == "REVIEW"
+
+
+def test_empty_nonans_evidence_requests_review():
+    """An empty sampler-info array cannot provide PASS evidence."""
+    rng = np.random.RandomState(24)
+    samples = _make_clean_samples(rng, 4, 100, 1)
+    info = types.SimpleNamespace(nonans=jnp.ones((0,), dtype=bool))
+    verdict = auto_gate(samples, info)
+    assert verdict.n_nonfinite_proposals == 0
+    assert verdict.n_proposals_evaluated == 0
+    assert verdict.nonfinite_proposal_rate is None
+    assert verdict.n_divergences is None
+    assert verdict.verdict == "REVIEW"
+    assert verdict.margins["n_nonfinite_proposals"]["band"] == "REVIEW"
 
 
 def test_moderate_divergences_review():
@@ -336,6 +387,31 @@ def test_resolve_thresholds_funnel_tag():
     assert resolved["rhat_max"] == DEFAULT_THRESHOLDS["rhat_max"]
 
 
+def test_unbounded_gate_margin_is_strict_json_and_finite_bounds_stay_numeric():
+    """Unbounded threshold edges are explicit JSON objects, not Infinity."""
+    posterior = types.SimpleNamespace(tags=("funnel",))
+    rng = np.random.RandomState(123)
+    samples = _make_clean_samples(rng, n_chains=4, n_samples=500, dim=1)
+    verdict = auto_gate(samples, _make_info(4, 500), posterior=posterior)
+    margin = verdict.margins["min_bulk_ess"]
+
+    assert margin["pass_lo"] == 50.0
+    assert margin["review_lo"] == 10.0
+    assert margin["review_hi"] == 50.0
+    assert margin["pass_hi"] == {
+        "schema": "tuningfork.gate-threshold-bound.v1",
+        "kind": "unbounded",
+        "sign": "positive",
+    }
+    json.dumps(verdict.to_dict(), allow_nan=False)
+
+
+def test_gate_margin_rejects_nonfinite_observed_metric():
+    """Only semantic threshold infinities are encodable; observations are finite."""
+    with pytest.raises(ValueError, match="non-finite observed metric"):
+        _build_margin(float("inf"), {"pass": (0.0, 1.0)}, "PASS")
+
+
 # ---------------------------------------------------------------------------
 # Test 11 — multimodal tag → max_abs_mean_z dropped
 # ---------------------------------------------------------------------------
@@ -376,6 +452,28 @@ def test_to_dict_keys_match_gate_evidence_auto_schema():
         margins={},
     )
     assert set(verdict.to_dict().keys()) == expected_keys
+
+
+def test_auto_gate_verdict_preserves_optional_positional_order():
+    """New evidence fields do not displace older optional positional fields."""
+    calibrated = {"pass": True}
+    verdict = AutoGateVerdict(
+        1.005,
+        500.0,
+        0,
+        None,
+        "PASS",
+        {},
+        True,
+        None,
+        calibrated,
+    )
+    assert verdict.resonance_warning is True
+    assert verdict.w1_realm_result is None
+    assert verdict.gt_calibrated is calibrated
+    assert verdict.n_nonfinite_proposals is None
+    assert verdict.n_proposals_evaluated is None
+    assert verdict.nonfinite_proposal_rate is None
 
 
 # ---------------------------------------------------------------------------

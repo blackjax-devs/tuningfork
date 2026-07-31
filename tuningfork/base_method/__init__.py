@@ -14,17 +14,20 @@
 """tuningfork algorithm registry.
 
 ``BASE_METHODS`` maps algorithm name strings to ``BaseMethod`` instances.
-The runner, Optuna BO loop, and CLI all iterate over this dict to discover
-available algorithms without hard-coding names.
+Generated recipe planning and the CLI use this registry to discover available
+algorithms without hard-coding names.
 
 Adding a new algorithm
 ----------------------
-1. Create ``tuningfork/algorithms/<name>.py`` with an ``ENTRY`` module-level
+1. Create ``tuningfork/base_method/<name>.py`` with an ``ENTRY`` module-level
    variable of type ``BaseMethod``.
 2. Import it here and add it to ``BASE_METHODS``.
+3. Add a typed generated-emission route before using it in a recipe. Registry
+   membership alone does not make an algorithm executable.
 """
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
+from tuningfork.base_method._defaults import default_params_for, default_value_for_space
 from tuningfork.base_method.additive_step_random_walk import (
     ENTRY as _additive_step_random_walk_entry,
 )
@@ -81,4 +84,10 @@ BASE_METHODS: dict[str, BaseMethod] = {
     _additive_step_random_walk_entry.name: _additive_step_random_walk_entry,
 }
 
-__all__ = ["BaseMethod", "HyperparamSpace", "BASE_METHODS"]
+__all__ = [
+    "BaseMethod",
+    "HyperparamSpace",
+    "BASE_METHODS",
+    "default_params_for",
+    "default_value_for_space",
+]

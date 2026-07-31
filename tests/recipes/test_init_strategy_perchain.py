@@ -15,7 +15,7 @@
 
 Tests cover:
 - Validation of new per-chain types
-- Unit tests for _apply_init_strategy with per-chain semantics
+- Unit tests for apply_init_strategy with per-chain semantics
 - Legacy bit-for-bit tests to ensure old behavior is unchanged
 - Integration tests with warmup replication logic
 
@@ -27,7 +27,10 @@ import jax.numpy as jnp
 import pytest
 
 from tuningfork.recipes._base import validate_init_strategy
-from tuningfork.recipes._recipe_runner import _apply_init_strategy
+from tuningfork.recipes._init_strategy import (
+    apply_init_strategy,
+    validate_init_strategy_warmup_compatibility,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -82,7 +85,7 @@ def test_validate_uniform_perchain_inverted_bounds_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: _apply_init_strategy with per-chain types
+# Unit tests: apply_init_strategy with per-chain types
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +96,7 @@ def test_uniform_perchain_basic_shape() -> None:
     key = jax.random.key(0)
     num_chains = 8
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     assert result.shape == (num_chains, 3)
 
@@ -105,7 +108,7 @@ def test_uniform_perchain_multivariate_shape() -> None:
     key = jax.random.key(0)
     num_chains = 5
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     assert isinstance(result, dict)
     assert result["x"].shape == (num_chains, 2)
@@ -119,7 +122,7 @@ def test_uniform_perchain_values_in_range() -> None:
     key = jax.random.key(42)
     num_chains = 10
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     # All values should be in the specified range
     assert jnp.all(result >= -5.0)
@@ -133,7 +136,7 @@ def test_uniform_perchain_rows_distinct() -> None:
     key = jax.random.key(123)
     num_chains = 8
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     # Each row should be different (probability of coincidence is vanishingly small)
     for i in range(num_chains):
@@ -148,7 +151,7 @@ def test_zero_perchain_basic_shape() -> None:
     key = jax.random.key(0)
     num_chains = 8
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     assert result.shape == (num_chains, 3)
 
@@ -160,7 +163,7 @@ def test_zero_perchain_default_jitter() -> None:
     key = jax.random.key(0)
     num_chains = 100
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     # Flatten for statistics: shape is (100, 1000), flatten to check N(0, 0.5²)
     flat = result.flatten()
@@ -179,7 +182,7 @@ def test_zero_perchain_custom_jitter() -> None:
     key = jax.random.key(1)
     num_chains = 50
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     flat = result.flatten()
     mean = jnp.mean(flat)
@@ -196,7 +199,7 @@ def test_zero_perchain_rows_distinct() -> None:
     key = jax.random.key(456)
     num_chains = 8
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     # Each row should be different (probability of coincidence is vanishingly small)
     for i in range(num_chains):
@@ -211,7 +214,7 @@ def test_zero_perchain_zero_jitter_still_distinct() -> None:
     key = jax.random.key(789)
     num_chains = 8
 
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
+    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
 
     # All rows should be exactly zero (no randomness)
     assert jnp.allclose(result, 0.0)
@@ -229,9 +232,9 @@ def test_legacy_uniform_unchanged_with_num_chains_default() -> None:
     key = jax.random.key(42)
 
     # Old call site (num_chains not passed, defaults to 1)
-    result_old = _apply_init_strategy(strategy, init_pos, key)
+    result_old = apply_init_strategy(strategy, init_pos, key)
     # New call site (num_chains=1 explicit)
-    result_new = _apply_init_strategy(strategy, init_pos, key, num_chains=1)
+    result_new = apply_init_strategy(strategy, init_pos, key, num_chains=1)
 
     # Should be identical
     assert jnp.allclose(result_old, result_new)
@@ -245,8 +248,8 @@ def test_legacy_uniform_same_key_same_output() -> None:
     strategy = {"type": "uniform", "low": -2.5, "high": 3.5}
     key = jax.random.key(100)
 
-    result1 = _apply_init_strategy(strategy, init_pos, key)
-    result2 = _apply_init_strategy(strategy, init_pos, key)
+    result1 = apply_init_strategy(strategy, init_pos, key)
+    result2 = apply_init_strategy(strategy, init_pos, key)
 
     assert jnp.allclose(result1, result2)
 
@@ -257,7 +260,7 @@ def test_legacy_zero_unchanged() -> None:
     strategy = {"type": "zero"}
     key = jax.random.key(0)
 
-    result = _apply_init_strategy(strategy, init_pos, key)
+    result = apply_init_strategy(strategy, init_pos, key)
 
     assert jnp.allclose(result, 0.0)
     assert result.shape == (3,)
@@ -269,73 +272,10 @@ def test_legacy_prior_sample_unchanged() -> None:
     strategy = {"type": "prior_sample"}
     key = jax.random.key(0)
 
-    result = _apply_init_strategy(strategy, init_pos, key)
+    result = apply_init_strategy(strategy, init_pos, key)
 
     assert jnp.allclose(result, init_pos)
     assert result.shape == init_pos.shape
-
-
-# ---------------------------------------------------------------------------
-# Pre-batching detection (integration with warmup's _maybe_replicate)
-# ---------------------------------------------------------------------------
-
-
-def test_uniform_perchain_pre_batched_passthrough() -> None:
-    """uniform_perchain produces shape that _maybe_replicate will recognize."""
-    from tuningfork.warmup._base import _maybe_replicate
-
-    init_pos = jnp.array([1.0, 2.0, 3.0])
-    strategy = {"type": "uniform_perchain", "low": -1.0, "high": 1.0}
-    key = jax.random.key(0)
-    num_chains = 4
-
-    # Apply per-chain init
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
-
-    # Now replicate it (as the warmup would do)
-    replicated = _maybe_replicate(result, num_chains)
-
-    # Should be identical (recognized as pre-batched)
-    assert jnp.allclose(replicated, result)
-    assert replicated.shape == (num_chains, 3)
-
-
-def test_zero_perchain_pre_batched_passthrough() -> None:
-    """zero_perchain produces shape that _maybe_replicate will recognize."""
-    from tuningfork.warmup._base import _maybe_replicate
-
-    init_pos = jnp.array([1.0, 2.0])
-    strategy = {"type": "zero_perchain", "jitter": 0.1}
-    key = jax.random.key(1)
-    num_chains = 8
-
-    result = _apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
-    replicated = _maybe_replicate(result, num_chains)
-
-    # Should be identical (recognized as pre-batched)
-    assert jnp.allclose(replicated, result)
-    assert replicated.shape == (num_chains, 2)
-
-
-def test_legacy_uniform_not_pre_batched() -> None:
-    """legacy 'uniform' is not pre-batched; _maybe_replicate will replicate it."""
-    from tuningfork.warmup._base import _maybe_replicate
-
-    init_pos = jnp.array([1.0, 2.0, 3.0])
-    strategy = {"type": "uniform", "low": -1.0, "high": 1.0}
-    key = jax.random.key(0)
-    num_chains = 4
-
-    result = _apply_init_strategy(strategy, init_pos, key)  # default num_chains=1
-
-    # Replicate it (as the warmup would do)
-    replicated = _maybe_replicate(result, num_chains)
-
-    # Should be (num_chains, 3) now, with broadcast
-    assert replicated.shape == (num_chains, 3)
-    # All rows should be identical (broadcast from single center)
-    for i in range(num_chains):
-        assert jnp.allclose(replicated[i], result)
 
 
 # ---------------------------------------------------------------------------
@@ -345,14 +285,10 @@ def test_legacy_uniform_not_pre_batched() -> None:
 
 def test_perchain_uniform_pathfinder_raises() -> None:
     """uniform_perchain × pathfinder raises ValueError with clear message."""
-    from tuningfork.recipes._recipe_runner import (
-        _validate_init_strategy_warmup_compatibility,
-    )
-
     strategy = {"type": "uniform_perchain", "low": -1.0, "high": 1.0}
 
     with pytest.raises(ValueError, match="ensemble warmups") as exc_info:
-        _validate_init_strategy_warmup_compatibility(strategy, "pathfinder")
+        validate_init_strategy_warmup_compatibility(strategy, "pathfinder")
 
     msg = str(exc_info.value)
     assert "uniform_perchain" in msg
@@ -363,14 +299,10 @@ def test_perchain_uniform_pathfinder_raises() -> None:
 
 def test_perchain_zero_multipathfinder_raises() -> None:
     """zero_perchain × multipathfinder raises ValueError with clear message."""
-    from tuningfork.recipes._recipe_runner import (
-        _validate_init_strategy_warmup_compatibility,
-    )
-
     strategy = {"type": "zero_perchain", "jitter": 0.5}
 
     with pytest.raises(ValueError, match="ensemble warmups") as exc_info:
-        _validate_init_strategy_warmup_compatibility(strategy, "multipathfinder")
+        validate_init_strategy_warmup_compatibility(strategy, "multipathfinder")
 
     msg = str(exc_info.value)
     assert "zero_perchain" in msg
@@ -379,47 +311,31 @@ def test_perchain_zero_multipathfinder_raises() -> None:
 
 def test_perchain_uniform_chees_passes() -> None:
     """uniform_perchain × chees does NOT raise (compatible)."""
-    from tuningfork.recipes._recipe_runner import (
-        _validate_init_strategy_warmup_compatibility,
-    )
-
     strategy = {"type": "uniform_perchain", "low": -1.0, "high": 1.0}
 
     # Must not raise
-    _validate_init_strategy_warmup_compatibility(strategy, "chees")
+    validate_init_strategy_warmup_compatibility(strategy, "chees")
 
 
 def test_perchain_zero_meads_passes() -> None:
     """zero_perchain × meads does NOT raise (compatible)."""
-    from tuningfork.recipes._recipe_runner import (
-        _validate_init_strategy_warmup_compatibility,
-    )
-
     strategy = {"type": "zero_perchain", "jitter": 0.2}
 
     # Must not raise
-    _validate_init_strategy_warmup_compatibility(strategy, "meads")
+    validate_init_strategy_warmup_compatibility(strategy, "meads")
 
 
 def test_legacy_uniform_pathfinder_passes() -> None:
     """legacy uniform × pathfinder does NOT raise (no incompatibility)."""
-    from tuningfork.recipes._recipe_runner import (
-        _validate_init_strategy_warmup_compatibility,
-    )
-
     strategy = {"type": "uniform", "low": -1.0, "high": 1.0}
 
     # Must not raise (legacy types are compatible with all warmups)
-    _validate_init_strategy_warmup_compatibility(strategy, "pathfinder")
+    validate_init_strategy_warmup_compatibility(strategy, "pathfinder")
 
 
 def test_legacy_zero_multipathfinder_passes() -> None:
     """legacy zero × multipathfinder does NOT raise (no incompatibility)."""
-    from tuningfork.recipes._recipe_runner import (
-        _validate_init_strategy_warmup_compatibility,
-    )
-
     strategy = {"type": "zero"}
 
     # Must not raise (legacy types are compatible with all warmups)
-    _validate_init_strategy_warmup_compatibility(strategy, "multipathfinder")
+    validate_init_strategy_warmup_compatibility(strategy, "multipathfinder")

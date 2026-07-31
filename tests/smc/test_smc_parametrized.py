@@ -95,13 +95,6 @@ def test_smc_method_num_particles_default_positive(smc_name: str) -> None:
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
-def test_smc_method_factory_is_callable(smc_name: str) -> None:
-    """ENTRY.factory is callable."""
-    entry = SMC_METHODS[smc_name]
-    assert callable(entry.factory), f"{smc_name}.factory must be callable"
-
-
-@pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_hp_space_non_empty(smc_name: str) -> None:
     """ENTRY.default_hp_space is non-empty."""
     entry = SMC_METHODS[smc_name]

@@ -37,7 +37,7 @@ viz = [
 
 # The `bench` group is the canonical install for running benchmarks.
 # Mirrors sampling-book's `book` group so model implementations port cleanly,
-# plus optuna (hyperparameter optimization) and posteriordb (reference cross-validation for shared models).
+# plus posteriordb (reference cross-validation for shared models).
 [dependency-groups]
 # Interactive marimo notebook deps. Includes the full `bench` group because
 # the catalog explorer imports numpyro (via tuningfork.model._numpyro),
@@ -75,7 +75,6 @@ bench = [
     "seaborn",
     "tfp-nightly[jax]",
     # tuningfork-specific additions
-    "optuna",                   # Bayesian optimization over hyperparameters
     "posteriordb",              # Reference cross-validation for Eight Schools, Radon, and IRT models
     "pytest",
     "pytest-cov",

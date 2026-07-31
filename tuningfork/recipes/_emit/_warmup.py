@@ -19,8 +19,8 @@ pathfinder,multipathfinder,multipathfinder_window_adaptation,
 vi_warmup,laplace_multiphase_warmup}.py.tmpl``
 (~376 LOC total) with a single Python entry point.
 
-All routing is resolved at generation time (P1 straight-line principle).
-D8 compliant: emitted strings contain no ``import tuningfork``.
+All routing is resolved at generation time, and emitted inference strings
+contain no ``import tuningfork``.
 
 Warmup groupings
 ----------------
@@ -38,12 +38,34 @@ Warmup groupings
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tuningfork.base_method._base import BaseMethod
 
-__all__ = ["emit_warmup"]
+EMITTABLE_WARMUP_NAMES = frozenset(
+    {
+        "no_warmup",
+        "window_adaptation_diag_imm",
+        "window_adaptation_dense_imm",
+        "window_adaptation_low_rank_imm",
+        "pathfinder",
+        "multipathfinder",
+        "multipathfinder_window_adaptation",
+        "meanfield_vi",
+        "fullrank_vi",
+        "laplace_multiphase_warmup",
+        "mclmc_tuning",
+        "adjusted_mclmc_tuning",
+        "adjusted_mclmc_trajectory_tuning",
+        "mclmc_lrd_tuning",
+        "chees",
+        "meads",
+    }
+)
+
+__all__ = ["EMITTABLE_WARMUP_NAMES", "emit_warmup"]
 
 
 def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) -> str:
@@ -68,8 +90,7 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
     Returns
     -------
     str
-        Python source for the warmup block (D8 compliant — no tuningfork
-        inference imports).
+        Python source for the warmup block, with no tuningfork inference imports.
     """
     if warmup_name == "no_warmup":
         body = _emit_no_warmup()
@@ -93,8 +114,16 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
         body = _emit_laplace_multiphase_warmup(ctx)
     elif warmup_name == "mclmc_tuning":
         body = _emit_mclmc_tuning(ctx)
+    elif warmup_name == "adjusted_mclmc_tuning":
+        body = _emit_adjusted_mclmc_tuning(ctx)
+    elif warmup_name == "adjusted_mclmc_trajectory_tuning":
+        body = _emit_adjusted_mclmc_trajectory_tuning(ctx)
     elif warmup_name == "mclmc_lrd_tuning":
         body = _emit_mclmc_lrd_tuning(ctx)
+    elif warmup_name == "chees":
+        body = _emit_chees(ctx)
+    elif warmup_name == "meads":
+        body = _emit_meads(ctx)
     else:
         raise ValueError(
             f"emit_warmup: unsupported warmup_name {warmup_name!r}. "
@@ -108,6 +137,91 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
 # ---------------------------------------------------------------------------
 # no_warmup
 # ---------------------------------------------------------------------------
+
+
+def _emit_chees(ctx: dict[str, Any]) -> str:
+    """Emit CHEES's joint multi-chain adaptation contract."""
+    n = ctx["n_warmup"]
+    target = ctx.get("wp_target_acceptance_rate")
+    if target is None:
+        target = ctx.get("target_acceptance_rate")
+    if target is None:
+        target = 0.651
+    max_lf = ctx.get("wp_max_leapfrog_steps", 1000)
+    lr = ctx.get("wp_optim_learning_rate", 0.05)
+    step = ctx.get("bm_step_size", 0.5)
+    jitter = ctx.get("wp_init_jitter_scale", 0.5)
+    lines = [
+        f"# === WARMUP: chees (joint multi-chain, n_warmup={n}) ===",
+        "if num_chains < 1:",
+        "    raise ValueError('CHEES requires num_chains >= 1')",
+        "_chees = blackjax.chees_adaptation(logdensity_fn, num_chains, "
+        f"target_acceptance_rate={target}, max_leapfrog_steps={max_lf})",
+        "_chees_init_key = jax.random.fold_in(jax.random.key("
+        + str(ctx["tuning_seed"])
+        + "), 0xC4EE5717)",
+        "_chees_leaves, _chees_treedef = jax.tree.flatten(init_position)",
+        "_chees_keys = jax.random.split(_chees_init_key, len(_chees_leaves))",
+        "_chees_positions = jax.tree.map(lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position)",
+        f"_chees_positions = jax.tree.map(lambda x, k: x + {jitter!r} * jax.random.normal(k, x.shape, dtype=x.dtype), _chees_positions, jax.tree.unflatten(_chees_treedef, _chees_keys))",
+        "import optax",
+        f"_chees_optim = optax.adam({lr!r}, b1=0.0, b2=0.95)",
+        f"_chees_results, _ = _chees.run(jax.random.key({ctx['tuning_seed']}), _chees_positions, {step!r}, _chees_optim, num_steps={n})",
+        "_state_post_warmup = _chees_results.state",
+        "_chees_raw = _chees_results.parameters",
+        "_adapted_params = {",
+        '    "step_size": jnp.asarray(_chees_raw["step_size"]),',
+        '    "inverse_mass_matrix": jnp.asarray(_chees_raw["inverse_mass_matrix"]),',
+        '    "integration_steps_fn": _chees_raw["integration_steps_fn"],',
+        '    "next_random_arg_fn": _chees_raw["next_random_arg_fn"],',
+        '    "integration_steps_params": _chees_raw["integration_steps_params"],',
+        "}",
+        "_integration_steps_fn = _adapted_params['integration_steps_fn']",
+        "_next_random_arg_fn = _adapted_params['next_random_arg_fn']",
+        "_integration_steps_params = _adapted_params['integration_steps_params']",
+        "_warmup_is_perchain = False",
+        "_warmup_grad_evals = None",
+        "_warmup_grad_evals_reason = 'CHEES: adaptation does not expose exact gradient accounting'",
+    ]
+    return "\n".join(lines)
+
+
+def _emit_meads(ctx: dict[str, Any]) -> str:
+    """Emit MEADS's joint multi-chain GHMC adaptation contract."""
+    if ctx.get("wp_low_rank_rank") is not None:
+        raise NotImplementedError(
+            "MEADS low-rank adaptation is not yet represented losslessly by "
+            "code generation"
+        )
+    n = ctx["n_warmup"]
+    folds = ctx.get("wp_num_folds", 4)
+    mult = ctx.get("wp_step_size_multiplier", 0.5)
+    damp = ctx.get("wp_damping_slowdown", 1.0)
+    jitter = ctx.get("wp_init_jitter_scale", 0.5)
+    lines = [
+        f"# === WARMUP: meads (joint multi-chain, n_warmup={n}, num_folds={folds}) ===",
+        f"if num_chains < {folds!r}: raise ValueError('MEADS requires num_chains >= num_folds')",
+        "_meads = blackjax.meads_adaptation(logdensity_fn, num_chains, "
+        f"num_folds={folds}, step_size_multiplier={mult!r}, damping_slowdown={damp!r})",
+        f"_meads_init_key = jax.random.fold_in(jax.random.key({ctx['tuning_seed']}), 0x4EADD117)",
+        "_meads_positions = jax.tree.map(lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position)",
+        "_meads_leaves, _meads_treedef = jax.tree.flatten(_meads_positions)",
+        "_meads_leaf_keys = jax.random.split(_meads_init_key, len(_meads_leaves))",
+        f"_meads_positions = jax.tree.unflatten(_meads_treedef, [x + {jitter!r} * jax.random.normal(k, x.shape, dtype=x.dtype) for x, k in zip(_meads_leaves, _meads_leaf_keys)])",
+        f"_meads_results, _ = _meads.run(jax.random.key({ctx['tuning_seed']}), _meads_positions, num_steps={n})",
+        "_state_post_warmup = _meads_results.state",
+        "_meads_raw = _meads_results.parameters",
+        "_adapted_params = {",
+        '    "step_size": jnp.asarray(_meads_raw["step_size"]),',
+        '    "inverse_mass_matrix": jnp.concatenate([x.reshape(-1) for x in jax.tree.leaves(_meads_raw["momentum_inverse_scale"])]),',
+        '    "alpha": jnp.asarray(_meads_raw["alpha"]),',
+        '    "delta": jnp.asarray(_meads_raw["delta"]),',
+        "}",
+        "_warmup_is_perchain = False",
+        "_warmup_grad_evals = None",
+        "_warmup_grad_evals_reason = 'MEADS: adaptation does not expose exact gradient accounting'",
+    ]
+    return "\n".join(lines)
 
 
 def _emit_no_warmup() -> str:
@@ -135,6 +249,8 @@ def _emit_no_warmup() -> str:
     )
     a("# to (num_chains, ...) before the vmap-scan loop.")
     a("_warmup_init_is_single_chain = True")
+    a("_warmup_grad_evals = 0")
+    a("_warmup_grad_evals_reason = 'no_warmup: no gradient evaluations executed'")
     return "\n".join(lines)
 
 
@@ -196,7 +312,7 @@ def _emit_window_adaptation(
             "# Multi-chain warmup: jax.vmap over window_adaptation.run so each chain gets its"
         )
         a("# own adapted (step_size, inverse_mass_matrix).")
-        a("# This matches the runner's per-chain warmup behavior.")
+        a("# This follows the generated per-chain warmup protocol.")
         a(f"_warmup = {wa_fn}(")
         a(f"    {warmup_algorithm},")
         a("    logdensity_fn,")
@@ -205,30 +321,43 @@ def _emit_window_adaptation(
         a(f"    target_acceptance_rate={target_acceptance_rate}{warmup_extra_kwargs},")
         a(")")
         a(f"_warmup_keys = jax.random.split(jax.random.key({tuning_seed}), num_chains)")
-        a("# Replicate init_position to (num_chains, ...) for vmap.")
-        a("_init_positions = jax.tree.map(")
-        a(
-            "    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position"
-        )
-        a(")")
+        if ctx.get("init_position_is_prebatched", False):
+            a("# Initial positions are already batched at generation time.")
+            a("_init_positions = init_position")
+        else:
+            a("# Replicate init_position to (num_chains, ...) for vmap.")
+            a("_init_positions = jax.tree.map(")
+            a(
+                "    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position"
+            )
+            a(")")
         a("")
         a("")
         a("@jax.vmap")
         a("def _run_one_warmup(k, x0):")
-        a(f"    (state, params), _ = _warmup.run(k, x0, {n_warmup})")
-        a("    return state, params")
+        a(f"    (state, params), info = _warmup.run(k, x0, {n_warmup})")
+        a("    return state, params, info")
         a("")
         a("")
         if warmup_progress_bar:
             a('with blackjax.progress_bar(label="warmup"):')
             a(
-                "    _batched_states, _adapted_params = _run_one_warmup("
+                "    _batched_states, _adapted_params, _warmup_info = _run_one_warmup("
                 "_warmup_keys, _init_positions)"
             )
         else:
             a(
-                "_batched_states, _adapted_params = _run_one_warmup(_warmup_keys, _init_positions)"
+                "_batched_states, _adapted_params, _warmup_info = _run_one_warmup(_warmup_keys, _init_positions)"
             )
+        a("_warmup_nis = jnp.asarray(_warmup_info.info.num_integration_steps)")
+        a(f"if _warmup_nis.shape[-1] != {n_warmup}:")
+        a(
+            "    raise ValueError('window_adaptation gradient accounting no longer has one integration-step count per warmup draw')"
+        )
+        a("_warmup_grad_evals = int(jnp.sum(_warmup_nis))")
+        a(
+            "_warmup_grad_evals_reason = 'window_adaptation: summed per-step num_integration_steps across chains'"
+        )
         a("# _warmup_is_perchain=True: adapted params have a leading num_chains axis.")
         a("_warmup_is_perchain = True")
         a("_state_post_warmup = _batched_states")
@@ -252,12 +381,21 @@ def _emit_window_adaptation(
         if warmup_progress_bar:
             a('with blackjax.progress_bar(label="warmup"):')
             a(
-                f"    (state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
+                f"    (state, _adapted_params), _warmup_info = _warmup.run(_warmup_key, init_position, {n_warmup})"
             )
         else:
             a(
-                f"(state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
+                f"(state, _adapted_params), _warmup_info = _warmup.run(_warmup_key, init_position, {n_warmup})"
             )
+        a("_warmup_nis = jnp.asarray(_warmup_info.info.num_integration_steps)")
+        a(f"if _warmup_nis.shape[-1] != {n_warmup}:")
+        a(
+            "    raise ValueError('window_adaptation gradient accounting no longer has one integration-step count per warmup draw')"
+        )
+        a("_warmup_grad_evals = int(jnp.sum(_warmup_nis))")
+        a(
+            "_warmup_grad_evals_reason = 'window_adaptation: summed per-step num_integration_steps for one chain'"
+        )
         a("# Broadcast state to (num_chains,) for scan(vmap(kernel)).")
         a("_state_post_warmup = jax.tree.map(")
         a("    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),")
@@ -290,7 +428,9 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
     lines: list[str] = []
     a = lines.append
 
-    target_acceptance_rate = ctx["target_acceptance_rate"]
+    target_acceptance_rate = ctx.get("target_acceptance_rate")
+    if target_acceptance_rate is None:
+        target_acceptance_rate = 0.8
     tuning_seed = ctx["tuning_seed"]
     n_warmup = ctx["n_warmup"]
 
@@ -339,6 +479,10 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
         a('        "_pathfinder_psis_pareto_k"')
         a("    ),")
         a("}")
+        a("_warmup_grad_evals = None")
+        a(
+            "_warmup_grad_evals_reason = 'multipathfinder: gradient evaluations are not exposed by the adaptation result'"
+        )
     else:
         a(
             f"# === WARMUP: pathfinder (single-path, target_acceptance_rate={target_acceptance_rate}, n_warmup={n_warmup}) ==="
@@ -374,6 +518,10 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
             '    "inverse_mass_matrix": _pf_results.parameters["inverse_mass_matrix"],  # (d, d)'
         )
         a("}")
+        a("_warmup_grad_evals = None")
+        a(
+            "_warmup_grad_evals_reason = 'pathfinder: gradient evaluations are not exposed by the adaptation result'"
+        )
 
     return "\n".join(lines)
 
@@ -518,6 +666,10 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     a('# _adapted_params["step_size"]: scalar (shared across chains)')
     a('# _adapted_params["inverse_mass_matrix"]: (d, d)')
     a("# _pareto_k: scalar PSIS Pareto-k diagnostic")
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'multipathfinder_window_adaptation: composite warmup does not expose exact gradient accounting'"
+    )
 
     return "\n".join(lines)
 
@@ -548,7 +700,9 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     warmup_name = ctx["warmup_name"]
     num_opt_steps = ctx["wp_num_optimization_steps"]
     tuning_seed = ctx["tuning_seed"]
-    target_acceptance_rate = ctx["target_acceptance_rate"]
+    target_acceptance_rate = ctx.get("target_acceptance_rate")
+    if target_acceptance_rate is None:
+        target_acceptance_rate = 0.8
     n_warmup = ctx["n_warmup"]
     warmup_algorithm = ctx["warmup_algorithm"]
     warmup_extra_kwargs = ctx.get("warmup_extra_kwargs", "")
@@ -574,9 +728,10 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a("# Compatible: nuts, hmc, mala, rwm, barker.  NOT compatible with mclmc.")
     a(f"import optax as {vp}_optax")
     a(f"import {vi_module} as {vp}_vi")
-    a(
-        f"from blackjax.adaptation.step_size import dual_averaging_adaptation as {vp}_da_adapt"
-    )
+    if n_warmup > 0:
+        a(
+            f"from blackjax.adaptation.step_size import dual_averaging_adaptation as {vp}_da_adapt"
+        )
     a(f"from jax.flatten_util import ravel_pytree as {vp}_ravel")
     a("")
     a(f"{vp}_optimizer = {vp}_optax.adam(1e-2)")
@@ -600,7 +755,7 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a("")
     a("")
     a(f"{vp}_vi_keys = jax.random.split({vp}_vi_key, {vp}_num_opt_steps)")
-    a(f"{vp}_final_vi_state, _ = jax.lax.scan(")
+    a(f"{vp}_final_vi_state, {vp}_final_vi_info = jax.lax.scan(")
     a(f"    {vp}_vi_one_step, {vp}_vi_init, {vp}_vi_keys")
     a(")")
     a("")
@@ -623,48 +778,51 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a(f"{vp}_flat_positions = {vp}_draw_one({vp}_chain_keys)  # (num_chains, d)")
     a(f"{vp}_init_positions = jax.vmap({vp}_unravel)({vp}_flat_positions)")
     a("")
-    a(
-        "# ── Phase 2: incremental step_size dual-averaging (VI IMM frozen) ─────────────"
-    )
-    a(f"{vp}_da_init_fn, {vp}_da_update_fn, {vp}_da_final_fn = {vp}_da_adapt(")
-    a(f"    target={target_acceptance_rate}")
-    a(")")
-    a(f"{vp}_da_s0 = {vp}_da_init_fn(1.0)")
-    a("")
-    a(f"{vp}_sa_init_state = {warmup_algorithm}(")
-    a("    logdensity_fn,")
-    a("    step_size=1.0,")
-    a(f"    inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
-    a(f").init(jax.tree.map(lambda x: x[0], {vp}_init_positions))")
-    a("")
-    a("")
-    a(f"def {vp}_sa_one_step(carry, step_key):")
-    a('    """One step of frozen-IMM incremental step_size dual-averaging."""')
-    a("    mcmc_state, da_state = carry")
-    a("    current_ss = jnp.exp(da_state.log_step_size)")
-    a(f"    new_mcmc_state, mcmc_info = {warmup_algorithm}(")
-    a("        logdensity_fn,")
-    a("        step_size=current_ss,")
-    a(f"        inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
-    a("    ).step(step_key, mcmc_state)")
-    a("    _accept = jnp.asarray(")
-    a("        getattr(")
-    a("            mcmc_info,")
-    a('            "acceptance_rate",')
-    a('            getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),')
-    a("        )")
-    a("    )")
-    a(f"    new_da_state = {vp}_da_update_fn(da_state, jnp.mean(_accept))")
-    a("    return (new_mcmc_state, new_da_state), None")
-    a("")
-    a("")
-    a(f"{vp}_sa_keys = jax.random.split({vp}_sa_key, {n_warmup})")
-    a(f"({vp}_sa_final_mcmc, {vp}_sa_final_da), _ = jax.lax.scan(")
-    a(f"    {vp}_sa_one_step,")
-    a(f"    ({vp}_sa_init_state, {vp}_da_s0),")
-    a(f"    {vp}_sa_keys,")
-    a(")")
-    a(f"{vp}_adapted_step_size = {vp}_da_final_fn({vp}_sa_final_da)")
+    if n_warmup > 0:
+        a(
+            "# ── Phase 2: incremental step_size dual-averaging (VI IMM frozen) ─────────────"
+        )
+        a(f"{vp}_da_init_fn, {vp}_da_update_fn, {vp}_da_final_fn = {vp}_da_adapt(")
+        a(f"    target={target_acceptance_rate}")
+        a(")")
+        a(f"{vp}_da_s0 = {vp}_da_init_fn(1.0)")
+        a("")
+        a(f"{vp}_sa_init_state = {warmup_algorithm}(")
+        a("    logdensity_fn,")
+        a("    step_size=1.0,")
+        a(f"    inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
+        a(f").init(jax.tree.map(lambda x: x[0], {vp}_init_positions))")
+        a("")
+        a("")
+        a(f"def {vp}_sa_one_step(carry, step_key):")
+        a('    """One step of frozen-IMM incremental step_size dual-averaging."""')
+        a("    mcmc_state, da_state = carry")
+        a("    current_ss = jnp.exp(da_state.log_step_size)")
+        a(f"    new_mcmc_state, mcmc_info = {warmup_algorithm}(")
+        a("        logdensity_fn,")
+        a("        step_size=current_ss,")
+        a(f"        inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
+        a("    ).step(step_key, mcmc_state)")
+        a("    _accept = jnp.asarray(")
+        a("        getattr(")
+        a("            mcmc_info,")
+        a('            "acceptance_rate",')
+        a('            getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),')
+        a("        )")
+        a("    )")
+        a(f"    new_da_state = {vp}_da_update_fn(da_state, jnp.mean(_accept))")
+        a("    return (new_mcmc_state, new_da_state), None")
+        a("")
+        a("")
+        a(f"{vp}_sa_keys = jax.random.split({vp}_sa_key, {n_warmup})")
+        a(f"({vp}_sa_final_mcmc, {vp}_sa_final_da), _ = jax.lax.scan(")
+        a(f"    {vp}_sa_one_step,")
+        a(f"    ({vp}_sa_init_state, {vp}_da_s0),")
+        a(f"    {vp}_sa_keys,")
+        a(")")
+        a(f"{vp}_adapted_step_size = {vp}_da_final_fn({vp}_sa_final_da)")
+    else:
+        a(f"{vp}_adapted_step_size = {ctx.get('wp_step_size_default', 1.0)!r}")
     a("")
     a(
         "# ── Build downstream kernel states (VI positions + adapted step_size + VI IMM) ─"
@@ -685,8 +843,14 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a("_adapted_params = {")
     a(f'    "step_size": jnp.full((num_chains,), {vp}_adapted_step_size),')
     a(f'    "inverse_mass_matrix": {vi_adapted_imm_expr},')
+    elbo_key = "_mfvi_elbo" if "meanfield" in warmup_name else "_frvi_elbo"
+    a(f'    "{elbo_key}": jnp.asarray({vp}_final_vi_info.elbo[-1]),')
     a("}")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'VI warmup: optimization gradient cost is not represented by MCMC integration-step telemetry'"
+    )
 
     return "\n".join(lines)
 
@@ -841,6 +1005,10 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("#                         broadcast to (num_chains,) leading axis")
     a('#   _adapted_params["step_size"]             scalar (shared across chains)')
     a('#   _adapted_params["inverse_mass_matrix"]   shape (phi_dim, phi_dim) [dense]')
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'laplace_multiphase_warmup: multiphase adaptation does not expose exact gradient accounting'"
+    )
 
     return "\n".join(lines)
 
@@ -903,11 +1071,11 @@ def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("        logdensity_fn=logdensity_fn,")
     a("        diagonal_preconditioning=True,")
     a("    )")
-    a("    return s, adap")
+    a("    return s, adap, total")
     a("")
     a("")
     a(
-        "_mclmc_states, _mclmc_adap = _mclmc_tune_one(_mclmc_tune_keys, _mclmc_init_states)"
+        "_mclmc_states, _mclmc_adap, _mclmc_total_steps = _mclmc_tune_one(_mclmc_tune_keys, _mclmc_init_states)"
     )
     a("_adapted_params = {")
     a('    "L": _mclmc_adap.L,')
@@ -916,7 +1084,261 @@ def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("}")
     a("_state_post_warmup = _mclmc_states")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = int(jnp.sum(jnp.asarray(_mclmc_total_steps))) * 2")
+    a(
+        "_warmup_grad_evals_reason = 'mclmc_tuning: summed total_steps across chains, two gradients per integrator step'"
+    )
 
+    return "\n".join(lines)
+
+
+def _emit_adjusted_mclmc_tuning(ctx: dict[str, Any]) -> str:
+    """Emit adjusted-MCLMC adaptation with per-chain L/step/IMM outputs."""
+    lines: list[str] = []
+    a = lines.append
+    n_warmup = ctx["n_warmup"]
+    tuning_seed = ctx["tuning_seed"]
+    num_chains = ctx["num_chains"]
+    a("# === WARMUP: adjusted_mclmc_tuning (diagonal adaptation) ===")
+    a(f"_adjusted_keys = jax.random.split(jax.random.key({tuning_seed}), {num_chains})")
+    a("_adjusted_positions = jax.tree.map(")
+    a(
+        f"    lambda x: jnp.broadcast_to(x[None], ({num_chains},) + x.shape), init_position"
+    )
+    a(")")
+    a("@jax.vmap")
+    a("def _adjusted_init_one(x0):")
+    a("    return blackjax.mcmc.adjusted_mclmc.init(x0, logdensity_fn)")
+    a("_adjusted_states = _adjusted_init_one(_adjusted_positions)")
+    a("_adjusted_kernel = blackjax.mcmc.adjusted_mclmc.build_kernel()")
+    a("@jax.vmap")
+    a("def _adjusted_tune_one(k, state):")
+    a("    return blackjax.adjusted_mclmc_find_L_and_step_size(")
+    a("        _adjusted_kernel, logdensity_fn=logdensity_fn,")
+    a(f"        num_steps={n_warmup}, state=state, rng_key=k, target=0.9,")
+    a("        diagonal_preconditioning=True,")
+    a("    )")
+    a(
+        "_adjusted_states, _adjusted_adap, _adjusted_total_steps = _adjusted_tune_one(_adjusted_keys, _adjusted_states)"
+    )
+    a("_adapted_params = {")
+    a('    "L": _adjusted_adap.L,')
+    a('    "step_size": _adjusted_adap.step_size,')
+    a('    "inverse_mass_matrix": _adjusted_adap.inverse_mass_matrix,')
+    a("}")
+    a("_state_post_warmup = _adjusted_states")
+    a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = int(jnp.sum(jnp.asarray(_adjusted_total_steps))) * 2")
+    a(
+        "_warmup_grad_evals_reason = 'adjusted_mclmc_tuning: summed total_steps across chains, two gradients per integrator step'"
+    )
+    return "\n".join(lines)
+
+
+def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
+    """Emit adjusted-MCLMC warmup with an ESS-per-gradient avg grid search."""
+    n_warmup = ctx["n_warmup"]
+    tuning_seed = ctx["tuning_seed"]
+    target = ctx["target_acceptance_rate"]
+    n_pilot = ctx.get("wp_n_pilot", 500)
+    avg_grid = ctx.get("wp_avg_grid", [1.0, 2.0, 4.0])
+    if isinstance(n_pilot, bool) or not isinstance(n_pilot, int) or n_pilot <= 0:
+        raise ValueError(
+            "adjusted_mclmc_trajectory_tuning n_pilot must be a positive int"
+        )
+    if (
+        not isinstance(target, (int, float))
+        or isinstance(target, bool)
+        or not 0 < float(target) < 1
+        or not math.isfinite(float(target))
+    ):
+        raise ValueError(
+            "adjusted_mclmc_trajectory_tuning target must be finite in (0, 1)"
+        )
+    if not isinstance(avg_grid, (list, tuple)) or not avg_grid:
+        raise ValueError("adjusted_mclmc_trajectory_tuning avg_grid must be non-empty")
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+        for value in avg_grid
+    ):
+        raise ValueError(
+            "adjusted_mclmc_trajectory_tuning avg_grid values must be finite "
+            "positive numbers"
+        )
+    avg_grid = [float(value) for value in avg_grid]
+    if len(set(avg_grid)) != len(avg_grid):
+        raise ValueError(
+            "adjusted_mclmc_trajectory_tuning avg_grid values must be unique"
+        )
+    lines: list[str] = []
+    a = lines.append
+    a("import blackjax.diagnostics")
+    a(
+        "from blackjax.mcmc.adjusted_mclmc_dynamic import "
+        "make_random_trajectory_length_fn as _traj_make_steps_fn"
+    )
+    a("")
+    a("# === WARMUP: adjusted_mclmc_trajectory_tuning ===")
+    a(f"_traj_n_warmup = {n_warmup}")
+    a(f"_traj_n_pilot = {n_pilot}")
+    a(f"_traj_avg_grid = {avg_grid!r}")
+    a(
+        "_traj_warmup_key, _traj_pilot_key = jax.random.split("
+        f"jax.random.key({tuning_seed}), 2)"
+    )
+    a("_traj_warmup_keys = jax.random.split(_traj_warmup_key, num_chains)")
+    a("_traj_init_positions = jax.tree.map(")
+    a(
+        "    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), "
+        "init_position"
+    )
+    a(")")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _traj_init_one(position):")
+    a("    return blackjax.mcmc.adjusted_mclmc.init(position, logdensity_fn)")
+    a("")
+    a("")
+    a("_traj_init_states = _traj_init_one(_traj_init_positions)")
+    a("_traj_static_kernel = blackjax.mcmc.adjusted_mclmc.build_kernel()")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _traj_tune_one(key, state):")
+    a("    return blackjax.adjusted_mclmc_find_L_and_step_size(")
+    a("        _traj_static_kernel,")
+    a("        logdensity_fn=logdensity_fn,")
+    a("        num_steps=_traj_n_warmup,")
+    a("        state=state,")
+    a("        rng_key=key,")
+    a(f"        target={float(target)!r},")
+    a("        diagonal_preconditioning=True,")
+    a("    )")
+    a("")
+    a("")
+    a("_traj_warm_states, _traj_adaptation, _traj_warm_total = _traj_tune_one(")
+    a("    _traj_warmup_keys, _traj_init_states")
+    a(")")
+    a(
+        "jax.block_until_ready("
+        "(_traj_warm_states, _traj_adaptation, _traj_warm_total))"
+    )
+    a("_traj_step_sizes = _traj_adaptation.step_size")
+    a("_traj_inverse_mass_matrices = _traj_adaptation.inverse_mass_matrix")
+    a("")
+    a("# Re-initialize at the warmed positions with the dynamic sampler state.")
+    a("_traj_dynamic_keys = jax.random.split(_traj_pilot_key, num_chains + 1)")
+    a("_traj_candidate_root = _traj_dynamic_keys[0]")
+    a("")
+    a("")
+    a("@jax.vmap")
+    a("def _traj_dynamic_init_one(position, key):")
+    a("    return blackjax.mcmc.adjusted_mclmc_dynamic.init(")
+    a("        position, logdensity_fn, key")
+    a("    )")
+    a("")
+    a("")
+    a("_traj_dynamic_states = _traj_dynamic_init_one(")
+    a("    _traj_warm_states.position, _traj_dynamic_keys[1:]")
+    a(")")
+    a("_traj_dynamic_kernel = blackjax.mcmc.adjusted_mclmc_dynamic.build_kernel(")
+    a("    integration_steps_fn=_traj_make_steps_fn(True)")
+    a(")")
+    a("")
+    a("")
+    a("def _traj_pilot_ess_per_grad(root_key, avg):")
+    a("    chain_keys = jax.random.split(root_key, num_chains)")
+    a("")
+    a("    def run_chain(chain_key, state, step_size, inverse_mass_matrix):")
+    a("        scan_keys = jax.random.split(chain_key, _traj_n_pilot)")
+    a("")
+    a("        def step(state, key):")
+    a("            new_state, info = _traj_dynamic_kernel(")
+    a("                key,")
+    a("                state,")
+    a("                logdensity_fn=logdensity_fn,")
+    a("                step_size=step_size,")
+    a("                L_proposal_factor=jnp.inf,")
+    a("                inverse_mass_matrix=inverse_mass_matrix,")
+    a("                integration_steps_params=(avg,),")
+    a("            )")
+    a(
+        "            return new_state, "
+        "(new_state.position, info.num_integration_steps)"
+    )
+    a("")
+    a("        _, (positions, integration_steps) = jax.lax.scan(")
+    a("            step, state, scan_keys")
+    a("        )")
+    a("        return positions, integration_steps")
+    a("")
+    a("    positions, integration_steps = jax.vmap(run_chain)(")
+    a("        chain_keys,")
+    a("        _traj_dynamic_states,")
+    a("        _traj_step_sizes,")
+    a("        _traj_inverse_mass_matrices,")
+    a("    )")
+    a("    jax.block_until_ready((positions, integration_steps))")
+    a("    leaves = jax.tree.leaves(positions)")
+    a("    if len(leaves) == 1 and len(leaves[0].shape) == 3:")
+    a("        flat_positions = leaves[0]")
+    a("    else:")
+    a("        flat_positions = jnp.concatenate(")
+    a(
+        "            [leaf.reshape(leaf.shape[0], leaf.shape[1], -1) "
+        "for leaf in leaves],"
+    )
+    a("            axis=-1,")
+    a("        )")
+    a("    ess = blackjax.diagnostics.effective_sample_size(")
+    a("        flat_positions, chain_axis=0, sample_axis=1")
+    a("    )")
+    a("    min_ess = float(jnp.min(ess))")
+    a("    mean_integration_steps = float(jnp.mean(integration_steps))")
+    a("    pilot_grad_evals = (")
+    a("        2.0 * mean_integration_steps * _traj_n_pilot * num_chains")
+    a("    )")
+    a("    return 0.0 if pilot_grad_evals <= 0 else min_ess / pilot_grad_evals")
+    a("")
+    a("")
+    a("_traj_candidate_keys = jax.random.split(")
+    a("    _traj_candidate_root, len(_traj_avg_grid)")
+    a(")")
+    a("_traj_scores = {}")
+    a("for _traj_avg, _traj_key in zip(_traj_avg_grid, _traj_candidate_keys):")
+    a("    _traj_scores[float(_traj_avg)] = float(")
+    a("        _traj_pilot_ess_per_grad(_traj_key, _traj_avg)")
+    a("    )")
+    a("_traj_avg_star = float(max(_traj_scores, key=lambda avg: _traj_scores[avg]))")
+    a("# Preserve the historical upper-bound estimate based on candidate averages.")
+    a("_traj_pilot_grad_estimate = sum(")
+    a("    int(2 * avg * _traj_n_pilot * num_chains) " "for avg in _traj_avg_grid")
+    a(")")
+    a("_adapted_params = {")
+    a('    "L": _traj_avg_star * _traj_step_sizes,')
+    a('    "step_size": _traj_step_sizes,')
+    a('    "inverse_mass_matrix": _traj_inverse_mass_matrices,')
+    a('    "_avg_star": _traj_avg_star,')
+    a('    "_avg_search_ess_per_grad": _traj_scores,')
+    a('    "_total_tuning_steps": (')
+    a("        int(jnp.asarray(_traj_warm_total)[0]) " "+ _traj_pilot_grad_estimate")
+    a("    ),")
+    a("}")
+    a("_state_post_warmup = _traj_dynamic_states")
+    a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = (")
+    a("    2 * int(jnp.sum(jnp.asarray(_traj_warm_total)))")
+    a("    + _traj_pilot_grad_estimate")
+    a(")")
+    a(
+        "_warmup_grad_evals_reason = "
+        "'adjusted_mclmc_trajectory_tuning: summed warmup totals plus "
+        "deterministic pilot grid estimate'"
+    )
     return "\n".join(lines)
 
 
@@ -928,13 +1350,15 @@ def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
 def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     """Emit mclmc_lrd_tuning (LRD MCLMC adaptation) warmup section.
 
-    Pipeline (all inlined — D8 compliant, zero tuningfork imports):
+    Pipeline (fully emitted, with zero tuningfork inference imports):
     1. Single-chain NUTS pilot (pilot_n_warmup + pilot_n_samples steps).
-    2. Rank-k_rank SVD extraction (inline extract_lrd_from_samples logic).
-    3. Inline make_lrd_kernel closure + vmapped mclmc_find_L_and_step_size.
+    2. Rank-k_rank SVD extraction.
+    3. Statically bound LRD kernel + vmapped mclmc_find_L_and_step_size.
 
-    D8 note: run_pilot_nuts, extract_lrd_from_samples, and make_lrd_kernel
-    are inlined directly (only jax / blackjax imports, no tuningfork).
+    This is intentionally not ``blackjax.mclmc_lrd_warmup``.  That API uses a
+    diagonal-MCLMC pilot, ESS-based rank selection, and scalar averaged tuning
+    parameters, whereas certified recipes record NUTS-pilot geometry and
+    per-chain parameters.  Changing algorithms requires recipe recertification.
 
     Parameters
     ----------
@@ -959,8 +1383,8 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     )
     a("# The upstream isokinetic_mclachlan integrator dispatches natively on")
     a("# LowRankInverseMassMatrix (blackjax PR #936) — no logdensity_fn wrapping.")
-    a("# D8: run_pilot_nuts / extract_lrd_from_samples / make_lrd_kernel inlined")
-    a("# (only jax + blackjax imports — zero tuningfork inference imports).")
+    a("# This NUTS-pilot protocol is distinct from blackjax.mclmc_lrd_warmup;")
+    a("# changing it requires recipe recertification.")
     a("import blackjax.mcmc.mclmc")
     a("from blackjax.mcmc.metrics import LowRankInverseMassMatrix as _LRD")
     a("from jax.flatten_util import ravel_pytree as _lrd_ravel")
@@ -977,7 +1401,7 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
         "jax.random.key(_lrd_tuning_seed), 2)"
     )
     a("")
-    a("# ── Phase 1: NUTS pilot (inline run_pilot_nuts) ──────────────────────────")
+    a("# ── Phase 1: NUTS pilot ──────────────────────────────────────────────────")
     a("# Single-chain window_adaptation(nuts) warmup → collect pilot positions.")
     a("_lrd_warmup_key, _lrd_sampling_key = jax.random.split(_lrd_pilot_key)")
     a("_lrd_nuts_warmup = blackjax.window_adaptation(blackjax.nuts, logdensity_fn)")
@@ -1010,7 +1434,7 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("    jax.random.split(_lrd_sampling_key, _lrd_pilot_n_samples),")
     a(")")
     a("")
-    a("# ── Phase 2: LRD extraction (inline extract_lrd_from_samples) ────────────")
+    a("# ── Phase 2: LRD extraction ──────────────────────────────────────────────")
     a("# SVD of standardised pilot samples → (sigma, U, lam) LRD components.")
     a(
         "_lrd_flat_positions = jax.vmap(lambda p: _lrd_ravel(p)[0])(_lrd_pilot_positions)"
@@ -1035,7 +1459,7 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("_lrd_U = _lrd_V[:, _lrd_top_idx]")
     a("_lrd_imm = _LRD(sigma=_lrd_sigma, U=_lrd_U, lam=_lrd_lam)")
     a("")
-    a("# ── Phase 2b: build LRD kernel (inline make_lrd_kernel) ──────────────────")
+    a("# ── Phase 2b: build statically bound LRD kernel ──────────────────────────")
     a("# Closure over _lrd_imm — always routes through LRD geometry regardless")
     a("# of the diagonal placeholder that mclmc_find_L_and_step_size passes.")
     a("_lrd_base_kernel = blackjax.mclmc.build_kernel()")
@@ -1101,5 +1525,9 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("}")
     a("_state_post_warmup = _lrd_states")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'MCLMC-LRD: pilot and low-rank adaptation do not expose exact total gradient accounting'"
+    )
 
     return "\n".join(lines)

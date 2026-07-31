@@ -43,6 +43,9 @@ class AutoGateVerdict:
     n_divergences
         Total number of divergent transitions from ``info.is_divergent``.
         ``None`` if ``info`` is ``None``.
+    n_nonfinite_proposals, n_proposals_evaluated, nonfinite_proposal_rate
+        Conditional evidence fields from ``info.nonans``; included in
+        serialized output only when that evidence exists.
     max_abs_mean_z
         Maximum |sample_mean - gt_mean| / max(SE_sample, SE_gt) over all
         params and dimensions.  ``None`` when ``ground_truth_summaries`` is
@@ -69,6 +72,9 @@ class AutoGateVerdict:
     # Calibrated GT verdict (PR #245 pooled-SE + Bonferroni + materiality gate).
     # Keys: pass, n_fail, n_review, z_crit, D_total, nu.  None when no GT provided.
     gt_calibrated: dict | None = None
+    n_nonfinite_proposals: int | None = None
+    n_proposals_evaluated: int | None = None
+    nonfinite_proposal_rate: float | None = None
 
     def to_dict(self) -> dict:
         """Render in the exact shape ``Recipe.gate_evidence['auto']`` expects.
@@ -91,6 +97,10 @@ class AutoGateVerdict:
         }
         if self.resonance_warning is not None:
             d["resonance_warning"] = self.resonance_warning
+        if self.n_proposals_evaluated is not None:
+            d["n_nonfinite_proposals"] = self.n_nonfinite_proposals
+            d["n_proposals_evaluated"] = self.n_proposals_evaluated
+            d["nonfinite_proposal_rate"] = self.nonfinite_proposal_rate
         return d
 
 
@@ -107,6 +117,9 @@ def _assemble_verdict(
     total_grad_evals: int | None,
     wall_seconds: float | None,
     w1_realm_result: W1RealmResult | None = None,
+    n_nonfinite_proposals: int | None = None,
+    n_proposals_evaluated: int | None = None,
+    nonfinite_proposal_rate: float | None = None,
 ) -> AutoGateVerdict:
     """Classify each metric, assemble margins, and build AutoGateVerdict.
 
@@ -171,6 +184,25 @@ def _assemble_verdict(
         margins["n_divergences"] = _build_margin(
             float(n_divergences), thresholds["n_divergences"], band
         )
+        overall_verdict = _worst(overall_verdict, band)
+
+    # Non-finite proposal evidence is deliberately separate from divergence
+    # thresholds. This provisional policy is fail-closed: zero passes, any
+    # positive count requests review, and no cutoff is claimed calibrated.
+    if n_proposals_evaluated is not None:
+        if n_nonfinite_proposals is None:
+            raise ValueError("non-finite proposal evidence requires a count")
+        n_nonfinite = int(n_nonfinite_proposals)
+        band = "PASS" if n_proposals_evaluated > 0 and n_nonfinite == 0 else "REVIEW"
+        margins["n_nonfinite_proposals"] = {
+            "value": n_nonfinite,
+            "band": band,
+            "n_proposals_evaluated": n_proposals_evaluated,
+            "nonfinite_proposal_rate": nonfinite_proposal_rate,
+            "policy_id": "tuningfork.nonfinite-proposal-review.v1",
+            "policy_status": "provisional",
+            "calibrated": False,
+        }
         overall_verdict = _worst(overall_verdict, band)
 
     # max_abs_mean_z with z-advisory demotion in ensemble realm
@@ -289,6 +321,9 @@ def _assemble_verdict(
         rhat_max=rhat_max,
         min_bulk_ess=min_bulk_ess,
         n_divergences=n_divergences,
+        n_nonfinite_proposals=n_nonfinite_proposals,
+        n_proposals_evaluated=n_proposals_evaluated,
+        nonfinite_proposal_rate=nonfinite_proposal_rate,
         max_abs_mean_z=max_abs_mean_z,
         verdict=overall_verdict,
         margins=margins,

@@ -17,7 +17,7 @@ Each entry is a 4-tuple: (tier, model_name, recipe_filename, mode)
   tier  : "tier1" (standard candle) or "tier2" (interesting geometry)
   model : model name key in MODELS registry
   recipe: JSON filename under catalog/<model>/recipes/
-  mode  : "e2e" (full warmup+sample) or "calibrated" (skip_warmup=True)
+  mode  : "e2e" (full warmup+sample) or "calibrated" (canonical pinned replay)
 
 Wall-time routing (from round-4 CI run 26707364194, one timed run per cell):
   FAST cells (≤60s, in test_fast_recipes.py):  31 cells, ~8 min total nightly
@@ -95,7 +95,7 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "low__dmhmc__window_adaptation_diag_imm.json",
         "calibrated",
     ),
-    # mclmc — e2e only (skip_warmup raises: momentum init not handled)
+    # mclmc — retain e2e here to benchmark tuning; pinned replay is covered separately
     ("tier1", "logistic_synthetic", "low__mclmc__mclmc_tuning.json", "e2e"),
     # adjusted_mclmc
     ("tier1", "mvn_10", "low__adjusted_mclmc__adjusted_mclmc_tuning.json", "e2e"),
@@ -109,7 +109,7 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
     # Both recipes demoted to honest-null (diagonal IMM cannot
     # capture logistic posterior's correlated geometry; anharmonic curvature).
     # ESS 9-13%, failing 3/3 nightly seeds. See recipe notes for full diagnosis.
-    # laplace family — e2e only (phi-space GT-means mismatch for skip_warmup)
+    # laplace family — e2e only (reference-summary replay is not valid in phi-space)
     # CI timings: 37.5s, 16.5s, 16.5s, 16.2s — all well under 60s
     (
         "tier1",
@@ -179,12 +179,12 @@ FAST_CELLS: list[tuple[str, str, str, str]] = [
         "low__dmhmc__window_adaptation_diag_imm.json",
         "calibrated",
     ),
-    # ── Phase 8B.3: rmhmc MEDIUM recipes (R1–R4) ─────────────────────────
+    # ── RMHMC medium-effort recipes ───────────────────────────────────────
     # rmhmc uses implicit_midpoint integrator (vs velocity_verlet for HMC).
-    # logistic_synthetic: R1 PASS (rhat=1.001, ess=2334, z=1.95, ~8s e2e)
-    # eight_schools_ncp:  R3 APPROVE@REVIEW (rhat=1.010, ess=365, z=1.83,
+    # logistic_synthetic: PASS (rhat=1.001, ess=2334, z=1.95, ~8s e2e)
+    # eight_schools_ncp: APPROVE@REVIEW (rhat=1.010, ess=365, z=1.83,
     #   statistician override — best-achievable for fixed-L rmhmc on NCP funnel)
-    # Calibrated (skip_warmup=True) cells: R2 + R4.
+    # Both recipes also exercise canonical pinned replay.
     (
         "tier1",
         "logistic_synthetic",
@@ -276,7 +276,7 @@ def _bench_id(cell: tuple[str, str, str, str]) -> str:
 #                                  *** lives in SLOW_CELLS — filter uses ALL_CELLS ***
 #   stoch_vol-dmhmc-e2e          : high-d AR(1), diag IMM (expK: ~16s, free seed)
 #   stoch_vol-nuts-e2e           : high-d AR(1), diag IMM (expK: ~18s, PIN 20260601)
-#   lotka_volterra-hmc-calibrated: stiff ODE, skip_warmup (expK: ~14s, free seed)
+#   lotka_volterra-hmc-calibrated: stiff ODE, pinned replay (expK: ~14s, free seed)
 #   ill_cond_50-nuts-e2e         : κ=1000 (expK: ~5s, PIN 20260602)
 #
 # Budget: expK single-run sum ≈ 370s; CI ceiling ≈ 370 × 6 × ~1.8 runner factor
@@ -307,7 +307,7 @@ _SPEED_LITE_BENCH_IDS: frozenset[str] = frozenset(
         # stoch_vol × nuts e2e — high-d AR(1), diag IMM (PIN 20260601)
         # expK phase_b: 20260601=17.85s, 20260602=18.72s, 20260603=16.06s (anomalous low)
         "tier2-stoch_vol-low__nuts__window_adaptation_diag_imm-e2e",
-        # lotka_volterra × hmc calibrated — stiff ODE, skip_warmup (free seed)
+        # lotka_volterra × hmc calibrated — stiff ODE, pinned replay (free seed)
         # expK phase_b: all three seeds ≈ 14.1-14.2s (seed-stable, free seed fine)
         "tier2-lotka_volterra-low__hmc__window_adaptation_dense_imm__inner_nuts-calibrated",
         # ill_cond_50 × nuts e2e — κ=1000, dense IMM (PIN 20260602)
@@ -374,7 +374,7 @@ XFAIL_CELLS: dict[str, str] = {
     # The stop-gap xfail entry is no longer needed — cell is no longer in FAST_CELLS.)
     #
     # 2026-06-16: lotka_volterra-hmc-dense_imm-inner_nuts-e2e xfail REMOVED.
-    # Root cause was _recipe_runner.py omitting is_mass_matrix_diagonal at the
+    # Root cause was the certification runner omitting is_mass_matrix_diagonal at the
     # inner-kernel call sites → NUTS step collapsed (1752× gradient mismatch).
     # Fixed in fix/imm-diagonal-inner-kernel; z=3.033 (3/3 seeds PASS).
     #

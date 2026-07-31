@@ -15,7 +15,7 @@
 
 A toolkit for systematic benchmarking of 24 base methods × 12 warmup strategies
 × 6 SMC variants against a 14-model suite, with 3-tier calibration
-(certified reference, BO tuning per-method tuning, warmup-only isolation)
+(certified references and generated recipe evidence)
 and headline metric `min-bulk-ESS / total_grad_evals`.
 """
 

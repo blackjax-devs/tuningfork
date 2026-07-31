@@ -14,13 +14,13 @@
 
 Gate: R-hat<1.01, minESS≥400, div_rate≤5%, ≥2/3 seeds PASS. All 3 attempts exhausted.
 
-## Root Cause: Library Shape Bug in _run_cert_seed (NOT sampling failure)
+## Root Cause: Historical chain-stacking bug (NOT sampling failure)
 
 **Predicted mechanism:** 0/3 PASS, expected reason = posterior geometry (AR(1) near-unit-root
 phi~0.96, d=503, weak pilot mixing). The prediction was numerically correct (0/3) but
 the actual mechanism is different — the run errored before any samples were collected.
 
-**Actual mechanism:** `_run_cert_seed` chain-stacking code assumes UNIFORM RANK across all
+**Actual mechanism:** The historical chain-stacking code assumes UNIFORM RANK across all
 parameter leaves in the pytree. stoch_vol has a mixed-rank pytree:
   - `h`: shape (T=500,) → with chain batch dim: (1, 500)  [rank 2]
   - `sigma`, `phi`, `mu`: shape () → with chain batch dim: (1,)  [rank 1]
@@ -30,8 +30,8 @@ When the code attempts `jnp.concatenate([...])` across chains, JAX rejects the m
 runs — no samples, no R-hat, no ESS.
 
 **This is a production code bug**, not a stoch_vol geometry limitation. It would affect
-ANY model with mixed-rank parameter pytrees. Needs fix in `_run_cert_seed` (or its
-chain-stacking utility): reshape each leaf to 1D before concatenating, or use
+ANY model with mixed-rank parameter pytrees. The retired implementation needed a
+per-leaf fix in its chain-stacking utility: reshape each leaf to 1D before concatenating, or use
 `jax.tree_util.tree_map` with per-leaf reshaping. Reported to the engineering team.
 
 ## Consequence for Mission
@@ -55,4 +55,4 @@ is out of scope for this mission.
 - k_rank: 40, pilot_n_warmup=1000, pilot_n_samples=1000
 - n_samples: 1000, num_chains: 4
 - seeds: 77777 / 88888 / 99999
-- path: `_run_cert_seed` (policy-binding, tuningfork/emit_mclmc_lrd.py)
+- historical path: `_run_cert_seed` in the retired direct emitter

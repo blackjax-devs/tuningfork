@@ -19,9 +19,6 @@ the committed reference cache.
 
 Cache validity note: the CLI's _get_code_sha() reads git HEAD, so within a
 single git state all cache hits are deterministic.
-
-Eight-schools note: the CLI hard-codes n_warmup=500, n_chunks=4 for NUTS
-models (v1). With n=4000 and seed=42 the run certifies in ~40s.
 """
 
 import json
@@ -122,28 +119,3 @@ class TestTierACLI:
         )
         assert proc.returncode != 0
         assert "unknown model" in proc.stderr.lower() or "no_such_model" in proc.stderr
-
-    def test_eight_schools_certifies(self, tmp_path: Path) -> None:
-        """8-Schools NCP must pass certification and exit 0.
-
-        Uses n=4000, seed=42 (matched to the unit test in test_nuts.py).
-        The CLI hard-codes n_warmup=500, n_chunks=4 for NUTS models (v1).
-        """
-        result = _run_cli(
-            ["reference", "eight_schools_ncp", "--n", "4000", "--seed", "42"],
-            tmp_path,
-            timeout=120,
-        )
-        assert (
-            "PASSED" in result.stdout
-        ), f"Expected certification PASSED in CLI output.\nstdout:\n{result.stdout}"
-        # Cache artifacts must exist (per-model layout post cleanup-and-simplify)
-        assert (tmp_path / "eight_schools_ncp" / "_cache" / "draws.npz").exists()
-        assert (
-            tmp_path / "eight_schools_ncp" / "reference" / "adaptation.json"
-        ).exists()
-        meta_path = tmp_path / "eight_schools_ncp" / "reference" / "metadata.json"
-        assert meta_path.exists()
-        with meta_path.open() as fh:
-            meta = json.load(fh)
-        assert meta["certification"]["passed"] is True

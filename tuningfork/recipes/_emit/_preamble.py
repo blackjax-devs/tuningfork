@@ -13,9 +13,9 @@
 # limitations under the License.
 """Emit-time Python function for the recipe preamble section.
 
-Replaces ``_templates/preamble.py.tmpl`` (43 LOC, string.Template).
-All slot resolution is done in Python — no $slot markers in the output.
-D8 compliant: emitted string imports only tuningfork.model (allowed).
+All slot resolution is done in Python; no slot markers remain in the output.
+Core choreography stays inline; canonical model and optional diagnostics
+policy are the only tuningfork imports.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     ctx : dict
         Substitution context from ``emit_script()``.
         Required keys: recipe_id, model_name, base_method_name, warmup_name,
-        recipe_hash, effort, verdict, x64_config_line,
+        plan_hash, execution_manifest_json, effort, verdict, x64_config_line,
         tuning_seed, num_chains.
 
     Returns
@@ -48,24 +48,27 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a(
         f"Source recipe: {ctx['recipe_id']} (model={ctx['model_name']}, sampler={ctx['base_method_name']}, warmup={ctx['warmup_name']})"
     )
-    a(f"Recipe hash:   {ctx['recipe_hash']}")
+    a(f"Execution plan hash: {ctx['plan_hash']}")
     a(f"Effort:        {ctx['effort']}")
     a(f"Verdict:       {ctx['verdict']} (expected; pinned at recipe-emission time)")
     a("")
     a("The model definition is imported from ``tuningfork.model`` (canonical NumPyro")
-    a("code, no template-drift risk). The inference choreography (warmup + sampler +")
-    a("loop) is hand-written in this script with no tuningfork imports -- so the")
-    a("emitted choreography is auditable in one file, while the model code stays")
-    a("single-sourced upstream.")
+    a("code, with one generation path). The inference choreography (warmup + sampler +")
+    a("loop) is hand-written in this script, so the emitted choreography is")
+    a("auditable in one file. Model code and opt-in tap diagnostics stay")
+    a("single-sourced in their canonical tuningfork modules.")
     a("")
     a("Run with::")
     a("")
     a("    uv run --with tuningfork --with jax --with blackjax --with numpyro \\\\")
     a("        python <this_script>.py")
     a('"""')
+    a("")
+    a(f"EXECUTION_MANIFEST_JSON = {ctx['execution_manifest_json']!r}")
 
     # Timing + imports
     a("import time as _recipe_time")
+    a("import json")
     a("_recipe_t0 = _recipe_time.perf_counter()")
     a("import jax")
 
@@ -83,13 +86,14 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a("from tuningfork.model._numpyro import build_logdensity_fn")
     a("")
     a(f'posterior = MODELS["{ctx["model_name"]}"]')
+    a(f"_init_key = jax.random.key({ctx['tuning_seed']})")
     a("init_position, logdensity_fn, _ = build_logdensity_fn(")
-    a(f"    jax.random.key({ctx['tuning_seed']}), posterior")
+    a("    _init_key, posterior")
     a(")")
     a("")
     a("# Number of parallel chains for the vmap-scan inference loop.")
     a("# Derived from recipe metadata (warmup_params.num_chains or")
-    a("# calibration_budget.num_chains); 1 for legacy groundtruth recipes.")
+    a("# calibration_budget.num_chains); 4 for legacy non-groundtruth recipes.")
     a(f"num_chains = {ctx['num_chains']}")
     a("")
     a("# Wall-clock timer for warmup phase (reset after model/init setup).")

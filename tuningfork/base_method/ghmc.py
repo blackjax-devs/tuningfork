@@ -28,7 +28,7 @@ rejection spikes.
 GHMC does exactly **1 leapfrog step per kernel call** (no trajectory length
 hyperparameter), so ``grad_count_per_step`` is the constant ``1``.  The
 inverse mass matrix (``momentum_inverse_scale``) is warmup-derived (MEADS);
-the three BO-tunable hyperparameters are ``step_size``, ``alpha``, and
+the three declared scalar hyperparameters are ``step_size``, ``alpha``, and
 ``delta``.
 
 References
@@ -39,7 +39,6 @@ References
   Carlo without detailed balance. In *ICML 2014*.
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -49,7 +48,6 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="ghmc",
     family="mcmc",
-    factory=blackjax.ghmc,  # called as factory(logdensity_fn, **trial_params)
     grad_count_per_step=lambda info: jnp.asarray(1),  # 1 leapfrog per step (constant)
     grad_count_convention="1 (one leapfrog per step, constant)",
     default_hp_space=(
@@ -57,29 +55,22 @@ ENTRY = BaseMethod(
         HyperparamSpace("alpha", "uniform", low=0.0, high=1.0),
         HyperparamSpace("delta", "uniform", low=0.0, high=1.0),
     ),
-    needs_mass_matrix=True,  # momentum_inverse_scale comes from MEADS, not BO
-    imm_kwarg_name="momentum_inverse_scale",  # blackjax.ghmc's own factory kwarg name;
-    # no inverse_mass_matrix parameter at all, no **kwargs catch-all. See
-    # BaseMethod.imm_kwarg_name docstring for the single-source-of-truth rationale.
+    needs_mass_matrix=True,  # momentum_inverse_scale comes from MEADS adaptation
+    # Generated emission performs its own momentum_inverse_scale translation.
     target_acceptance_rate=0.65,  # Beskos et al. optimal ≈ 0.65 (same as HMC)
-    # T2.3 descriptors: step_size + imm per-chain from MEADS warmup.
     # NOTE: "inverse_mass_matrix" here is the semantic category marker the
     # emit-script generator's _needs_imm() checks for (_emit/_sampler.py:71),
-    # NOT the literal batched_params key or factory kwarg name -- that
-    # translation is imm_kwarg_name above. Do not "fix" this to
-    # "momentum_inverse_scale"; it would break _needs_imm() for ghmc.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # GHMCState from MEADS is directly usable by the sampling kernel.
-    # (Note: the audit suggested reinit_state=True for ghmc, but the current runner
-    # does NOT reinit ghmc — keeping False preserves behavior-identical semantics.)
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
+    # NOT the literal batched_params key or factory kwarg name. Generated
+    # emission translates that kwarg independently. Do not change this semantic
+    # marker to "momentum_inverse_scale"; _needs_imm() would then miss GHMC.
+    # Generated emission consumes the MEADS-produced GHMCState directly.
     notes=(
         "Generalized HMC with persistent momentum (Horowitz 1991; "
         "Sohl-Dickstein et al. 2014). alpha ∈ [0,1]: alpha=0 ≡ standard HMC "
         "(full momentum refresh), alpha→1 ≡ near-persistent dynamics. "
         "delta is the slice-sampling acceptance parameter. "
         "1 leapfrog step per call; grad_count_per_step=1 (constant). "
-        "momentum_inverse_scale from MEADS warmup, not BO. "
+        "momentum_inverse_scale from MEADS warmup. "
         "Outperforms HMC on high-dim posteriors with strong correlations."
     ),
 )

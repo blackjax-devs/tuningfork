@@ -60,8 +60,8 @@ def test_lotka_dense_imm_inner_nuts_seed_20260713_passes() -> None:
         sys.path.insert(0, _bench_dir)
 
     from benchmarks._benchmark_helpers import compute_max_abs_mean_z
+    from tuningfork.catalog import regenerate_idata
     from tuningfork.catalog.inspect import load_recipe
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     catalog = _catalog_root()
     recipe_path = (
@@ -74,12 +74,11 @@ def test_lotka_dense_imm_inner_nuts_seed_20260713_passes() -> None:
         pytest.skip(f"Recipe not found: {recipe_path}")
 
     recipe = load_recipe(recipe_path)
-    idata = run_recipe_to_idata(
+    idata = regenerate_idata(
         recipe,
-        skip_warmup=False,
         n_samples=1000,
-        force_resample_config={"seed": 20260713, "n_samples": 1000},
-        _suppress_print=True,
+        seed=20260713,
+        catalog_root=catalog,
     )
     z = compute_max_abs_mean_z(idata, "lotka_volterra")
     assert (

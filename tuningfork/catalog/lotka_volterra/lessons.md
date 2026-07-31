@@ -234,9 +234,10 @@ But it fails at the two seeds that matter institutionally: `RECIPE_SEED`
 (20260517), which is what the general emit path uses by default, and 682737,
 which is what these cells actually record. The three LRD cert seeds all pass,
 so a 3-seed verdict here depends entirely on **which** triple is chosen. Note
-also that the ≥2-of-3 cert bar lives in `recipes/emit_mclmc_lrd.py` and governs
-the low-rank-diagonal MCLMC path only; `emit_low_recipe_for_cell`, which produces
-these cells, is single-seed with no multi-seed bar.
+also that the historical ≥2-of-3 cert bar governed the low-rank-diagonal MCLMC
+path only; `emit_low_recipe_for_cell`, which produces these cells, is single-seed
+with no multi-seed bar. The historical direct emitter is retired; current
+certification uses the generated recipe lifecycle.
 The `zero_perchain` row is the clearest evidence that the origin lies on the basin
 boundary: 2 of 4 chains land in the decoy at every seed tested, with R-hat pinned
 between 1.7351 and 1.7374.

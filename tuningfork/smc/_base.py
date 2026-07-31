@@ -14,16 +14,14 @@
 """SMCMethod: registry-entry schema for Sequential Monte Carlo algorithms.
 
 Sister abstraction to ``BaseMethod`` (parallel registry ``SMC_METHODS``).
-SMC algorithms have a fundamentally different factory contract from standard
-MCMC kernels: they require ``(logprior_fn, loglikelihood_fn)`` — not a unified
-``logdensity_fn`` — plus an inner MCMC kernel and a resampling function.
+SMC descriptors carry the metadata needed to validate and emit generated
+programs. Sampling itself belongs to generated source.
 
 See ``tuningfork/smc/__init__.py`` for the ``SMC_METHODS`` registry.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
 from tuningfork.base_method._base import HyperparamSpace  # REUSED
 
@@ -35,22 +33,6 @@ class SMCMethod:
     """Registry entry for an SMC algorithm.
 
     Sister abstraction to ``BaseMethod`` (parallel registry ``SMC_METHODS``).
-    SMC algorithms have a fundamentally different factory contract from
-    standard MCMC kernels: they require ``(logprior_fn, loglikelihood_fn)``
-    — not a unified ``logdensity_fn`` — plus an inner MCMC kernel and a
-    resampling function.
-
-    Factory contract::
-
-        factory(
-            logprior_fn,
-            loglikelihood_fn,
-            *,
-            inner_kernel,           # SamplingAlgorithm; recipe-runner builds via inner_method.factory
-            mcmc_parameters,        # inner-kernel HP dict, resolved by recipe-runner
-            **smc_trial_params,     # SMC-level BO HPs (target_ess, num_mcmc_steps, ...)
-        ) -> SamplingAlgorithm
-
     Why a sister abstraction (not a 3rd specialised flag on BaseMethod):
     SMC needs (a) prior/likelihood split, (b) inner kernel composition,
     (c) particles (initial_particles array) instead of a single position
@@ -67,25 +49,12 @@ class SMCMethod:
     Multi-chain contract: SMC does NOT follow the multi-chain contract of MCMC
     methods (``num_chains=1`` convention; particles ARE the parallelism).
 
-    Inner kernel contract (important for recipe-runner integration): the
-    ``factory`` receives a pre-built ``inner_kernel`` (SamplingAlgorithm) but
-    the underlying blackjax SMC layer requires raw ``mcmc_step_fn`` and
-    ``mcmc_init_fn`` callables — NOT the SamplingAlgorithm wrapper. The wrapper
-    modules are responsible for extracting ``inner_kernel.step`` and
-    ``inner_kernel.init`` (or using ``functools.partial`` to bind non-array
-    parameters). Additionally, ``mcmc_parameters`` passed to SMC must contain
-    ONLY JAX arrays; callable parameters (e.g. ``random_step`` for RWM) must be
-    bound to the step function at build time via ``functools.partial`` before
-    being passed as ``mcmc_step_fn``.
-
     Parameters
     ----------
     name
         Unique identifier, e.g. ``"adaptive_tempered_smc"``.
     family
         Always ``"smc"``.
-    factory
-        Callable matching the contract above.
     compatible_inner_methods
         Tuple of ``BASE_METHODS`` keys this SMC variant accepts as inner
         kernel.  Must be MH-based.  Non-empty.
@@ -94,7 +63,7 @@ class SMCMethod:
     num_particles_default
         Default particle count for tests / LOW recipes.  Default ``1000``.
     default_hp_space
-        Tuple of ``HyperparamSpace`` for SMC-level BO (target_ess,
+        Tuple of ``HyperparamSpace`` for declared SMC-level parameters (target_ess,
         num_mcmc_steps, etc.).  Non-empty.
     step_kwargs_schema
         Names of extra kwargs the SMC algorithm's ``step_fn`` requires
@@ -113,7 +82,6 @@ class SMCMethod:
 
     name: str
     family: Literal["smc"]
-    factory: Callable[..., Any]
     compatible_inner_methods: tuple[str, ...]
     default_inner_method: str
     default_hp_space: tuple[HyperparamSpace, ...]
