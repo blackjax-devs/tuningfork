@@ -25,7 +25,6 @@ import sys
 from typing import Any
 
 from tuningfork.recipes import _certification_runner
-from tuningfork.recipes._headline_stamp import stamp_headline_from_chain_stats
 
 CellResult = _certification_runner.CellResult
 emit_low_recipe_for_cell = _certification_runner.emit_low_recipe_for_cell
@@ -42,7 +41,6 @@ _OUTCOMES_FILE = _certification_runner.DEFAULT_OUTCOMES_FILE
 __all__ = [
     "CellResult",
     "emit_low_recipe_for_cell",
-    "stamp_headline_from_chain_stats",
 ]
 
 

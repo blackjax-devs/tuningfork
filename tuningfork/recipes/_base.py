@@ -31,8 +31,6 @@ Constructor helpers:
   - ``Recipe.from_warmup_only(posterior, base_method, warmup, ...)`` —
     runs the warmup, captures the adapted ``(step_size, IMM)``, returns a
     Recipe with the adapted params.
-  - ``Recipe.from_tuning_result(tuning_result, ...)`` — wraps a BO tuning
-    outcome (best params + difficulty profile) into a Recipe.
 """
 
 from __future__ import annotations
@@ -1320,91 +1318,6 @@ class Recipe:
             variant_label=variant_label,
             init_strategy=init_strategy,
             tuning_seed=tuning_seed,
-            tuningfork_version=tuningfork_version,
-            blackjax_version=_get_blackjax_version(),
-            jax_version=_get_jax_version(),
-            timestamp_utc=_now_utc_iso(),
-        )
-        provisional = cls(**recipe_kwargs)
-        recipe_kwargs["instructions"] = render_instructions(provisional)
-        return cls(**recipe_kwargs)
-
-    @classmethod
-    def from_tuning_result(
-        cls,
-        tuning_result: Any,  # TuningResult; imported inline to avoid circular dep
-        *,
-        posterior: Posterior,
-        base_method: BaseMethod,
-        warmup: Any,  # Warmup; imported inline
-        tuningfork_version: str = "0.0.0.dev0",
-    ) -> Recipe:
-        """Build a HIGH Recipe by wrapping a BO tuning outcome.
-
-        The ``TuningResult`` already carries ``best_params``, ``best_score``,
-        and ``difficulty``; this constructor stamps provenance, serialises the
-        difficulty profile, and renders the instructions prose.
-
-        Parameters
-        ----------
-        tuning_result
-            A ``TuningResult`` from ``tuningfork.calibration.tune.tune_algorithm``.
-        posterior
-            The target posterior (used for model_name provenance).
-        base_method
-            The sampling algorithm (used for base_method_name provenance).
-        warmup
-            A ``Warmup`` instance recording which warmup ran during the BO study.
-        tuningfork_version
-            Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
-
-        Returns
-        -------
-        Recipe
-            A frozen ``Recipe`` with ``effort=Effort.HIGH``, ``headline_metric``
-            set to ``tuning_result.best_score``, and ``difficulty`` populated from
-            ``tuning_result.difficulty``.
-        """
-        from dataclasses import asdict as _asdict
-
-        from tuningfork.recipes._instructions import render_instructions
-
-        # difficulty is a TuningDifficulty frozen dataclass; serialize to dict
-        # for JSON persistence.  dataclasses.asdict produces Python primitives
-        # (float, bool, int) — verified to round-trip cleanly through json.dumps.
-        difficulty_dict = (
-            _asdict(tuning_result.difficulty)
-            if tuning_result.difficulty is not None
-            else None
-        )
-
-        base_params = _to_jsonable(tuning_result.best_params)
-
-        calibration_budget: dict[str, Any] = {
-            "trials": tuning_result.n_trials_completed,
-            "wall_seconds_estimate": (
-                tuning_result.difficulty.wall_seconds_to_best
-                if tuning_result.difficulty is not None
-                else 0.0
-            ),
-            "n_seeds": tuning_result.n_seeds,
-        }
-
-        recipe_kwargs: dict[str, Any] = dict(
-            model_name=tuning_result.posterior_name,
-            base_method_name=tuning_result.base_method_name,
-            warmup_name=warmup.name,
-            effort=Effort.HIGH,
-            base_method_params=base_params,
-            warmup_params={},
-            warmups=[{"name": warmup.name, "params": {}}],
-            headline_metric=float(tuning_result.best_score),
-            sample_quality=None,
-            calibration_budget=calibration_budget,
-            difficulty=difficulty_dict,
-            instructions="",  # rendered below after provisional construction
-            notes="",
-            tuning_seed=0,
             tuningfork_version=tuningfork_version,
             blackjax_version=_get_blackjax_version(),
             jax_version=_get_jax_version(),

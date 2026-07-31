@@ -18,8 +18,8 @@
    As of recipe generation launch (2026-05-17), this script targets the
    *real* LOW-effort cells (gate-passes-at-first-emit), not the earlier
    placeholder recipes which were deleted on the cleanup-and-simplify branch.
-   The MEDIUM / HIGH escalation helpers (``emit_medium_recipes`` /
-   ``emit_high_recipes``) remain for Statistician-driven escalation.
+   The MEDIUM escalation helper (``emit_medium_recipes``) remains for
+   Statistician-driven escalation.
 
 This script generates candidate recipes for the conventional cells in the
 ``(model, warmup, sampler)`` space — pairs where the warmup is the natural
@@ -48,11 +48,10 @@ provenance timestamps.
 MEDIUM / HIGH escalation
 ------------------------
 
-The ``emit_medium_recipes`` and ``emit_high_recipes`` functions are helpers
-the Statistician can call during escalation; they are NOT exposed via the CLI.
+The ``emit_medium_recipes`` function is a helper the Statistician can call
+during escalation; it is NOT exposed via the CLI.
 """
 
-import time
 from pathlib import Path
 
 import jax
@@ -382,102 +381,6 @@ def emit_mclmc_lrd_recipes(
             pretty = p
         print(f"  {label} {pretty}")
     return paths
-
-
-def emit_high_recipes(
-    seed: int = 0,
-    n_trials: int = 20,
-    model_names: list[str] | None = None,
-    sampler: str | None = None,
-) -> list[Path]:
-    """Emit HIGH-effort candidate recipes using Bayesian optimization over sampler hyperparameters.
-
-    Runs BO tuning Bayesian optimization (via ``tune_algorithm``) to search for
-    improved sampler hyperparameters with window_adaptation_diag_imm warmup; the result is
-    a HIGH-effort recipe with tuned parameters and difficulty profile.
-    Candidates are evaluated by the Statistician auto-gate to assess whether
-    the extra optimization effort improved the headline metric.
-
-    Runs ``tune_algorithm`` at ``n_trials=20`` (starter default; production
-    recipes use 50).  Converts each ``TuningResult`` to a HIGH ``Recipe``
-    via ``Recipe.from_tuning_result``.
-
-    Compatibility is limited to ``nuts`` and ``hmc`` in the starter set.
-
-    Parameters
-    ----------
-    seed
-        Base random seed; ``jax.random.fold_in`` derives per-recipe keys
-        deterministically from ``(model_name, method_name, "high")``.
-    n_trials
-        Total Optuna trials per study (including the injected default trial
-        0).  Default is 20 for starter recipes; production uses 50.
-    model_names
-        If set, restrict to this list of model names.  ``None`` = all
-        ``STARTER_MODEL_NAMES``.
-    sampler
-        If set, restrict to this single base-method name (e.g., ``"nuts"``).
-        ``None`` = iterate all of ``MEDIUM_METHOD_NAMES``.
-
-    Returns
-    -------
-    List of Path objects pointing to written JSON files.
-    """
-    from tuningfork.calibration.tune import tune_algorithm
-
-    window_adaptation_diag_imm = WARMUPS["window_adaptation_diag_imm"]
-    generated: list[Path] = []
-
-    for model_name in model_names or STARTER_MODEL_NAMES:
-        posterior = MODELS[model_name]
-        for method_name in MEDIUM_METHOD_NAMES:
-            if sampler is not None and method_name != sampler:
-                continue
-            base_method = BASE_METHODS[method_name]
-
-            if not window_adaptation_diag_imm.is_compatible(method_name):
-                print(
-                    f"  SKIP  {model_name}/{method_name}: window_adaptation_diag_imm incompatible"
-                )
-                continue
-
-            # Derive a deterministic per-recipe key via fold_in.
-            # hash() can produce values outside uint32; mask to 32 bits.
-            hash_val = hash((model_name, method_name, "high")) & 0xFFFFFFFF
-            key = jax.random.fold_in(jax.random.key(seed), hash_val)
-
-            print(f"  tuning {model_name} + {method_name} " f"(n_trials={n_trials})...")
-            t0 = time.perf_counter()
-            result = tune_algorithm(
-                posterior,
-                base_method,
-                n_trials=n_trials,
-                n_seeds=2,
-                n_chains=2,
-                n_samples=400,
-                n_warmup=500,
-                rng_key=key,
-                sampler="tpe",
-                warmup_name="window_adaptation_diag_imm",
-            )
-            elapsed = time.perf_counter() - t0
-
-            recipe = Recipe.from_tuning_result(
-                result,
-                posterior=posterior,
-                base_method=base_method,
-                warmup=window_adaptation_diag_imm,
-                tuningfork_version=_tuningfork_version,
-            )
-            path = recipe.save(_CATALOG_ROOT)
-            generated.append(path)
-            print(
-                f"    done in {elapsed:.1f}s; "
-                f"best_score={result.best_score:.4f}; "
-                f"default_works={result.difficulty.default_works}"
-            )
-
-    return generated
 
 
 def main() -> None:

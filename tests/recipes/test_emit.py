@@ -16,7 +16,7 @@
 This file contains all tests that run actual MCMC chains or tuning algorithms.
 These are marked @pytest.mark.slow individually (not at module level, per PR-4 rules).
 
-Tests: from_warmup_only, from_tuning_result, render_instructions_medium_and_high_real.
+Tests: from_warmup_only and render_instructions_medium_real.
 
 History: test_medium_recipe_exists_and_has_warmup_data (parametrized over 6
 (model × {hmc, nuts}) combos) was removed 2026-05-17 as a slow-CI fix —
@@ -27,7 +27,6 @@ because we don't run slow locally. Real MEDIUM recipes are produced by
 Recipe Phase 1+ pipeline; their existence-on-disk is no longer a test gate.
 """
 
-import math
 from pathlib import Path
 
 import jax
@@ -155,132 +154,8 @@ def test_from_warmup_only_incompatible_raises() -> None:
 
 
 @pytest.mark.slow
-def test_from_tuning_result_nuts() -> None:
-    """from_tuning_result produces a HIGH recipe from tune_algorithm output.
-
-    Verifies:
-    - effort = HIGH
-    - headline_metric > 0 (best_score was finite; mvn_10 + nuts is well-behaved)
-    - difficulty dict contains expected keys
-    - n_trials_completed matches n_trials arg
-    """
-    from tuningfork.calibration.tune import tune_algorithm
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["window_adaptation_diag_imm"]
-
-    tuning_result = tune_algorithm(
-        posterior,
-        base_method,
-        n_trials=3,
-        n_seeds=1,
-        n_chains=1,
-        n_samples=200,
-        n_warmup=200,
-        rng_key=jax.random.key(0),
-    )
-
-    recipe = Recipe.from_tuning_result(
-        tuning_result,
-        posterior=posterior,
-        base_method=base_method,
-        warmup=warmup,
-    )
-
-    assert recipe.effort == Effort.HIGH
-    assert recipe.model_name == "mvn_10"
-    assert recipe.base_method_name == "nuts"
-    assert recipe.warmup_name == "window_adaptation_diag_imm"
-
-    # headline_metric should be a finite float (mvn_10 doesn't diverge)
-    assert isinstance(recipe.headline_metric, float)
-    assert math.isfinite(recipe.headline_metric)
-
-    # difficulty dict from TuningDifficulty.asdict()
-    assert recipe.difficulty is not None
-    assert isinstance(recipe.difficulty, dict)
-    for key in (
-        "default_score",
-        "best_score",
-        "threshold_score",
-        "default_works",
-        "n_trials_to_threshold",
-        "n_trials_to_best",
-    ):
-        assert key in recipe.difficulty, f"Missing difficulty key: {key}"
-
-    # calibration_budget
-    assert recipe.calibration_budget["trials"] == 3
-    assert recipe.calibration_budget["n_seeds"] == 1
-
-    # instructions non-empty
-    assert len(recipe.instructions) > 10
-
-
-@pytest.mark.slow
-def test_from_tuning_result_save_load_roundtrip(tmp_path: Path) -> None:
-    """HIGH recipe round-trips through Recipe.save / Recipe.load.
-
-    Verifies in particular that:
-    - inverse_mass_matrix (list[float]) in base_method_params round-trips.
-    - difficulty dict (nested Python primitives) round-trips without JSON errors.
-    """
-    from tuningfork.calibration.tune import tune_algorithm
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["window_adaptation_diag_imm"]
-
-    tuning_result = tune_algorithm(
-        posterior,
-        base_method,
-        n_trials=2,
-        n_seeds=1,
-        n_chains=1,
-        n_samples=100,
-        n_warmup=100,
-        rng_key=jax.random.key(42),
-    )
-
-    recipe = Recipe.from_tuning_result(
-        tuning_result,
-        posterior=posterior,
-        base_method=base_method,
-        warmup=warmup,
-    )
-
-    saved_path = recipe.save(tmp_path)
-    loaded = Recipe.load(saved_path)
-
-    # Core identity fields
-    assert loaded.effort == Effort.HIGH
-    assert loaded.model_name == recipe.model_name
-    assert loaded.base_method_name == recipe.base_method_name
-    assert loaded.warmup_name == recipe.warmup_name
-
-    # headline_metric round-trip (float precision)
-    assert loaded.headline_metric == recipe.headline_metric
-
-    # difficulty round-trip (nested dict, not a dataclass after load)
-    assert loaded.difficulty == recipe.difficulty
-    assert isinstance(loaded.difficulty, dict)
-
-    # inverse_mass_matrix round-trip: list[float] after load
-    if "inverse_mass_matrix" in recipe.base_method_params:
-        orig_imm = recipe.base_method_params["inverse_mass_matrix"]
-        loaded_imm = loaded.base_method_params["inverse_mass_matrix"]
-        assert isinstance(loaded_imm, list)
-        assert loaded_imm == orig_imm  # exact list equality (both are Python floats)
-
-    # Filename convention
-    assert saved_path.name == "high__nuts__window_adaptation_diag_imm.json"
-
-
-@pytest.mark.slow
-def test_render_instructions_medium_and_high_real() -> None:
-    """render_instructions on real MEDIUM and HIGH recipes returns meaningful prose."""
-    from tuningfork.calibration.tune import tune_algorithm
+def test_render_instructions_medium_real() -> None:
+    """render_instructions on a real MEDIUM recipe returns meaningful prose."""
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS["nuts"]
@@ -298,29 +173,6 @@ def test_render_instructions_medium_and_high_real() -> None:
     assert isinstance(prose_m, str)
     assert len(prose_m) > 20
     assert "window_adaptation_diag_imm" in prose_m
-
-    # --- HIGH ---
-    tuning_result = tune_algorithm(
-        posterior,
-        base_method,
-        n_trials=2,
-        n_seeds=1,
-        n_chains=1,
-        n_samples=100,
-        n_warmup=100,
-        rng_key=jax.random.key(8),
-    )
-    high = Recipe.from_tuning_result(
-        tuning_result,
-        posterior=posterior,
-        base_method=base_method,
-        warmup=warmup_sw,
-    )
-    prose_h = render_instructions(high)
-    assert isinstance(prose_h, str)
-    assert len(prose_h) > 20
-    # HIGH template shows the number of trials
-    assert str(tuning_result.n_trials_completed) in prose_h
 
 
 # test_medium_recipe_exists_and_has_warmup_data (parametrized over 6 combos)
