@@ -84,17 +84,15 @@ def test_unknown_assignment_alias_is_ignored(tmp_path: Path) -> None:
     assert not boundary.scan_source(tmp_path)
 
 
-def test_multiplicity_catches_extra_call_in_known_shape(tmp_path: Path) -> None:
-    path = tmp_path / "warmup" / "no_warmup.py"
-    path.parent.mkdir()
+def test_scanner_preserves_call_multiplicity(tmp_path: Path) -> None:
+    path = tmp_path / "generated.py"
     path.write_text(
-        "def _runner():\n"
+        "def generated():\n"
         "    base_method.factory(logdensity_fn)\n"
         "    base_method.factory(logdensity_fn)\n"
     )
-    result = boundary.report(tmp_path)
-    key = ("warmup/no_warmup.py", "_runner", "factory")
-    assert result["additions"][key] == 1
+    key = ("generated.py", "generated", "factory")
+    assert boundary.scan_source(tmp_path)[key] == 2
 
 
 def test_comments_strings_and_docstrings_do_not_trigger(tmp_path: Path) -> None:

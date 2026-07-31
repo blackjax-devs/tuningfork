@@ -30,7 +30,8 @@ Hyperparameter-free: no declared scalar parameters (``default_hp_space=()``).
 Gradient-free: ``grad_count_per_step=0``.
 No MH step: ``target_acceptance_rate=None`` (slice sampler always accepts).
 
-``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
+``extra_required_kwargs=("prior_cov", "prior_mean")``: the no-warmup generated
+protocol rejects this method because it cannot provide those required values.
 ``NotImplementedError`` for this method; a specialised wiring path is required.
 
 References
@@ -88,11 +89,12 @@ ENTRY = BaseMethod(
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # slice sampler; no MH step
     extra_required_kwargs=("prior_cov", "prior_mean"),
-    # T2.3 descriptors: gradient-free, no adapted step_size/imm from warmup.
+    # Gradient-free: no adapted step_size or mass matrix from warmup.
     per_chain_param_keys=(),  # no_warmup returns empty batched_params.
     reinit_state=False,  # EllipticalSliceState from .init() is directly usable.
     extra_kwarg_builder=None,  # prior_cov/prior_mean are injected via shared_kwargs
-    # from the posterior entry in the runner (model-specific, not a portable builder).
+    # from the posterior entry in generated execution (model-specific, not a
+    # portable builder).
     notes=(
         "Murray, Adams & MacKay 2010 elliptical slice sampler for latent-Gaussian "
         "models p(f|y) ∝ N(f; mean, cov) * likelihood(y|f). The 'logdensity_fn' "

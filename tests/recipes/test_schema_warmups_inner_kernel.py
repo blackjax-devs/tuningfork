@@ -11,15 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Schema extension unit tests: Recipe.save/load round-trips + transform_warmup_state.
+"""Schema extension unit tests: Recipe.save/load round-trips.
 
 Fast unit tests — no JAX traces, no MCMC, no chain runs.
 
 Test coverage:
   (a) Recipe.save round-trips through new schema (warmups list written, not flat fields).
   (b) Recipe.load accepts legacy warmup_name/warmup_params shape.
-  (c) transform_warmup_state resolution table for nuts → {hmc, dynamic_hmc, mala}.
-  (d) Backward-compat: loading an existing on-disk LOW recipe still works.
+  (c) Backward-compat: loading an existing on-disk LOW recipe still works.
 """
 
 from __future__ import annotations
@@ -27,9 +26,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from tuningfork.recipes._base import Effort, Recipe
@@ -236,234 +233,7 @@ def test_load_existing_on_disk_recipe() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) transform_warmup_state resolution table
-# ---------------------------------------------------------------------------
-
-
-def _mock_warmup_info(nis_values: list[int]) -> MagicMock:
-    """Build a mock warmup_info with num_integration_steps."""
-    info = MagicMock()
-    info.num_integration_steps = np.array(nis_values)
-    return info
-
-
-def _adapted_params(step_size: float = 0.1, imm: list[float] | None = None) -> dict:
-    return {
-        "step_size": np.array(step_size),
-        "inverse_mass_matrix": np.array(imm or [1.0, 1.0]),
-    }
-
-
-class TestTransformWarmupState:
-    """Unit tests for transform_warmup_state resolution table."""
-
-    def test_nuts_to_nuts_identity(self) -> None:
-        """nuts → nuts: identity transform (no NIS injection)."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        info = _mock_warmup_info([5, 7, 10, 15])
-        result = transform_warmup_state("nuts", "nuts", _adapted_params(), info)
-
-        assert "step_size" in result
-        assert "inverse_mass_matrix" in result
-        assert "num_integration_steps" not in result
-        assert "step_policy" not in result
-
-    def test_nuts_to_hmc_nis_median(self) -> None:
-        """nuts → hmc: injects num_integration_steps = median(NIS)."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        nis = [10, 20, 30, 40]  # median = 25
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state("nuts", "hmc", _adapted_params(), info)
-
-        assert "num_integration_steps" in result
-        assert result["num_integration_steps"] == int(np.median(nis))
-
-    def test_nuts_to_mhmc_nis_median(self) -> None:
-        """nuts → mhmc: injects num_integration_steps = median(NIS)."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        nis = [8, 16, 32]  # median = 16
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state("nuts", "mhmc", _adapted_params(), info)
-
-        assert result["num_integration_steps"] == 16
-
-    def test_nuts_to_dynamic_hmc_empirical(self) -> None:
-        """nuts → dynamic_hmc: injects empirical step_policy from NIS."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        nis = [5, 5, 10, 10, 10, 15]
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state("nuts", "dynamic_hmc", _adapted_params(), info)
-
-        assert "step_policy" in result
-        sp = result["step_policy"]
-        assert sp["kind"] == "empirical"
-        assert "values" in sp and "weights" in sp
-        assert len(sp["values"]) == len(sp["weights"])
-        # Sum of weights ≈ 1
-        assert abs(sum(sp["weights"]) - 1.0) < 1e-6
-
-    def test_nuts_to_dmhmc_empirical(self) -> None:
-        """nuts → dmhmc: injects empirical step_policy from NIS."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        nis = [20, 20, 30, 40, 40]
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state("nuts", "dmhmc", _adapted_params(), info)
-
-        assert "step_policy" in result
-        sp = result["step_policy"]
-        assert sp["kind"] == "empirical"
-
-    def test_nuts_to_dynamic_hmc_with_policy_override(self) -> None:
-        """When step_policy_override provided, use it instead of computing fresh."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        pinned_spec = {"kind": "uniform_int", "low": 50, "high": 200}
-        nis = [5, 6, 7, 8]  # would produce different empirical spec
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state(
-            "nuts",
-            "dynamic_hmc",
-            _adapted_params(),
-            info,
-            step_policy_override=pinned_spec,
-        )
-
-        assert result["step_policy"] == pinned_spec
-
-    def test_hmc_to_hmc_identity(self) -> None:
-        """hmc → hmc (self-warmup): identity transform."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        info = _mock_warmup_info([5])  # should be ignored
-        result = transform_warmup_state("hmc", "hmc", _adapted_params(), info)
-
-        assert "step_size" in result
-        assert "inverse_mass_matrix" in result
-        assert "num_integration_steps" not in result
-
-    def test_mala_to_mala_identity(self) -> None:
-        """mala → mala (self-warmup): identity transform."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        info = MagicMock()
-        del info.num_integration_steps  # MALA has no NIS
-        result = transform_warmup_state("mala", "mala", _adapted_params(), info)
-
-        assert "step_size" in result
-        assert "num_integration_steps" not in result
-
-    def test_barker_to_barker_identity(self) -> None:
-        """barker → barker (self-warmup): identity transform."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        info = MagicMock()
-        result = transform_warmup_state("barker", "barker", _adapted_params(), info)
-
-        assert "step_size" in result
-        assert "num_integration_steps" not in result
-
-    def test_implicit_kernel_none_for_substitute_family(self) -> None:
-        """warmup_inner_kernel=None + dynamic_hmc → resolves to nuts → empirical."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        nis = [10, 20, 30]
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state(None, "dynamic_hmc", _adapted_params(), info)
-
-        # Implicit resolution: dynamic_hmc → nuts substitute → empirical
-        assert "step_policy" in result
-        assert result["step_policy"]["kind"] == "empirical"
-
-    def test_implicit_kernel_none_for_standard_method(self) -> None:
-        """warmup_inner_kernel=None + nuts → resolves to nuts → identity."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        nis = [10, 20, 30]
-        info = _mock_warmup_info(nis)
-        result = transform_warmup_state(None, "nuts", _adapted_params(), info)
-
-        assert "num_integration_steps" not in result
-        assert "step_policy" not in result
-
-    def test_multichain_nis_ravelled(self) -> None:
-        """Multi-chain NIS shape is ravelled before median — one canonical median."""
-        from tuningfork.base_method._warmup_to_sampler_transform import (
-            transform_warmup_state,
-        )
-
-        # Simulate (4 chains, 100 warmup steps) NIS tensor
-        nis_multichain = np.full((4, 100), fill_value=20)
-        nis_multichain[2, :] = 40  # chain 2 has higher NIS
-
-        info = MagicMock()
-        info.num_integration_steps = nis_multichain
-
-        result = transform_warmup_state("nuts", "hmc", _adapted_params(), info)
-
-        # Ravelled median: 300*20 + 100*40 = 6000+4000=10000 values
-        # 75% are 20, 25% are 40 → median = 20
-        rav = nis_multichain.ravel()
-        expected_median = int(np.median(rav))
-        assert result["num_integration_steps"] == expected_median
-
-    def test_adaptation_info_nested_nis_path(self) -> None:
-        """_extract_nis extracts NIS from AdaptationInfo.info.num_integration_steps.
-
-        blackjax.window_adaptation returns AdaptationInfo with NIS nested at
-        .info.num_integration_steps (the inner kernel's NUTSInfo).  This tests
-        the Priority-3 path in _extract_nis — when the outer object has no
-        direct num_integration_steps attribute but its .info does.
-
-        Uses SimpleNamespace as the outer object so hasattr(outer, "num_integration_steps")
-        correctly returns False (unlike MagicMock which auto-creates any attribute).
-        """
-        from types import SimpleNamespace
-
-        from tuningfork.base_method._warmup_to_sampler_transform import _extract_nis
-
-        # inner_info: has num_integration_steps directly (like real NUTSInfo)
-        inner_info = MagicMock()
-        nis_values = np.array([7, 14, 21, 28])
-        inner_info.num_integration_steps = nis_values
-
-        # outer_info: no num_integration_steps directly, but has .info
-        # (mirrors the real blackjax AdaptationInfo namedtuple structure)
-        outer_info = SimpleNamespace(info=inner_info)
-
-        result = _extract_nis(outer_info)
-        assert result is not None, "_extract_nis must find NIS via .info path"
-        np.testing.assert_array_equal(result, nis_values.ravel())
-
-
-# ---------------------------------------------------------------------------
-# (d) Backward-compat: loading a legacy on-disk recipe produces correct step_size
+# (c) Backward-compat: loading a legacy on-disk recipe produces correct step_size
 # ---------------------------------------------------------------------------
 
 

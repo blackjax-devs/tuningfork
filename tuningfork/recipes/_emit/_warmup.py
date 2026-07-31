@@ -19,8 +19,8 @@ pathfinder,multipathfinder,multipathfinder_window_adaptation,
 vi_warmup,laplace_multiphase_warmup}.py.tmpl``
 (~376 LOC total) with a single Python entry point.
 
-All routing is resolved at generation time (P1 straight-line principle).
-D8 compliant: emitted strings contain no ``import tuningfork``.
+All routing is resolved at generation time, and emitted inference strings
+contain no ``import tuningfork``.
 
 Warmup groupings
 ----------------
@@ -90,8 +90,7 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
     Returns
     -------
     str
-        Python source for the warmup block (D8 compliant — no tuningfork
-        inference imports).
+        Python source for the warmup block, with no tuningfork inference imports.
     """
     if warmup_name == "no_warmup":
         body = _emit_no_warmup()
@@ -143,9 +142,11 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
 def _emit_chees(ctx: dict[str, Any]) -> str:
     """Emit CHEES's joint multi-chain adaptation contract."""
     n = ctx["n_warmup"]
-    target = ctx.get(
-        "wp_target_acceptance_rate", ctx.get("target_acceptance_rate", 0.651)
-    )
+    target = ctx.get("wp_target_acceptance_rate")
+    if target is None:
+        target = ctx.get("target_acceptance_rate")
+    if target is None:
+        target = 0.651
     max_lf = ctx.get("wp_max_leapfrog_steps", 1000)
     lr = ctx.get("wp_optim_learning_rate", 0.05)
     step = ctx.get("bm_step_size", 0.5)
@@ -311,7 +312,7 @@ def _emit_window_adaptation(
             "# Multi-chain warmup: jax.vmap over window_adaptation.run so each chain gets its"
         )
         a("# own adapted (step_size, inverse_mass_matrix).")
-        a("# This matches the runner's per-chain warmup behavior.")
+        a("# This follows the generated per-chain warmup protocol.")
         a(f"_warmup = {wa_fn}(")
         a(f"    {warmup_algorithm},")
         a("    logdensity_fn,")
@@ -427,7 +428,9 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
     lines: list[str] = []
     a = lines.append
 
-    target_acceptance_rate = ctx["target_acceptance_rate"]
+    target_acceptance_rate = ctx.get("target_acceptance_rate")
+    if target_acceptance_rate is None:
+        target_acceptance_rate = 0.8
     tuning_seed = ctx["tuning_seed"]
     n_warmup = ctx["n_warmup"]
 
@@ -697,7 +700,9 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     warmup_name = ctx["warmup_name"]
     num_opt_steps = ctx["wp_num_optimization_steps"]
     tuning_seed = ctx["tuning_seed"]
-    target_acceptance_rate = ctx["target_acceptance_rate"]
+    target_acceptance_rate = ctx.get("target_acceptance_rate")
+    if target_acceptance_rate is None:
+        target_acceptance_rate = 0.8
     n_warmup = ctx["n_warmup"]
     warmup_algorithm = ctx["warmup_algorithm"]
     warmup_extra_kwargs = ctx.get("warmup_extra_kwargs", "")
@@ -723,9 +728,10 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a("# Compatible: nuts, hmc, mala, rwm, barker.  NOT compatible with mclmc.")
     a(f"import optax as {vp}_optax")
     a(f"import {vi_module} as {vp}_vi")
-    a(
-        f"from blackjax.adaptation.step_size import dual_averaging_adaptation as {vp}_da_adapt"
-    )
+    if n_warmup > 0:
+        a(
+            f"from blackjax.adaptation.step_size import dual_averaging_adaptation as {vp}_da_adapt"
+        )
     a(f"from jax.flatten_util import ravel_pytree as {vp}_ravel")
     a("")
     a(f"{vp}_optimizer = {vp}_optax.adam(1e-2)")
@@ -749,7 +755,7 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a("")
     a("")
     a(f"{vp}_vi_keys = jax.random.split({vp}_vi_key, {vp}_num_opt_steps)")
-    a(f"{vp}_final_vi_state, _ = jax.lax.scan(")
+    a(f"{vp}_final_vi_state, {vp}_final_vi_info = jax.lax.scan(")
     a(f"    {vp}_vi_one_step, {vp}_vi_init, {vp}_vi_keys")
     a(")")
     a("")
@@ -772,48 +778,51 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a(f"{vp}_flat_positions = {vp}_draw_one({vp}_chain_keys)  # (num_chains, d)")
     a(f"{vp}_init_positions = jax.vmap({vp}_unravel)({vp}_flat_positions)")
     a("")
-    a(
-        "# ── Phase 2: incremental step_size dual-averaging (VI IMM frozen) ─────────────"
-    )
-    a(f"{vp}_da_init_fn, {vp}_da_update_fn, {vp}_da_final_fn = {vp}_da_adapt(")
-    a(f"    target={target_acceptance_rate}")
-    a(")")
-    a(f"{vp}_da_s0 = {vp}_da_init_fn(1.0)")
-    a("")
-    a(f"{vp}_sa_init_state = {warmup_algorithm}(")
-    a("    logdensity_fn,")
-    a("    step_size=1.0,")
-    a(f"    inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
-    a(f").init(jax.tree.map(lambda x: x[0], {vp}_init_positions))")
-    a("")
-    a("")
-    a(f"def {vp}_sa_one_step(carry, step_key):")
-    a('    """One step of frozen-IMM incremental step_size dual-averaging."""')
-    a("    mcmc_state, da_state = carry")
-    a("    current_ss = jnp.exp(da_state.log_step_size)")
-    a(f"    new_mcmc_state, mcmc_info = {warmup_algorithm}(")
-    a("        logdensity_fn,")
-    a("        step_size=current_ss,")
-    a(f"        inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
-    a("    ).step(step_key, mcmc_state)")
-    a("    _accept = jnp.asarray(")
-    a("        getattr(")
-    a("            mcmc_info,")
-    a('            "acceptance_rate",')
-    a('            getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),')
-    a("        )")
-    a("    )")
-    a(f"    new_da_state = {vp}_da_update_fn(da_state, jnp.mean(_accept))")
-    a("    return (new_mcmc_state, new_da_state), None")
-    a("")
-    a("")
-    a(f"{vp}_sa_keys = jax.random.split({vp}_sa_key, {n_warmup})")
-    a(f"({vp}_sa_final_mcmc, {vp}_sa_final_da), _ = jax.lax.scan(")
-    a(f"    {vp}_sa_one_step,")
-    a(f"    ({vp}_sa_init_state, {vp}_da_s0),")
-    a(f"    {vp}_sa_keys,")
-    a(")")
-    a(f"{vp}_adapted_step_size = {vp}_da_final_fn({vp}_sa_final_da)")
+    if n_warmup > 0:
+        a(
+            "# ── Phase 2: incremental step_size dual-averaging (VI IMM frozen) ─────────────"
+        )
+        a(f"{vp}_da_init_fn, {vp}_da_update_fn, {vp}_da_final_fn = {vp}_da_adapt(")
+        a(f"    target={target_acceptance_rate}")
+        a(")")
+        a(f"{vp}_da_s0 = {vp}_da_init_fn(1.0)")
+        a("")
+        a(f"{vp}_sa_init_state = {warmup_algorithm}(")
+        a("    logdensity_fn,")
+        a("    step_size=1.0,")
+        a(f"    inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
+        a(f").init(jax.tree.map(lambda x: x[0], {vp}_init_positions))")
+        a("")
+        a("")
+        a(f"def {vp}_sa_one_step(carry, step_key):")
+        a('    """One step of frozen-IMM incremental step_size dual-averaging."""')
+        a("    mcmc_state, da_state = carry")
+        a("    current_ss = jnp.exp(da_state.log_step_size)")
+        a(f"    new_mcmc_state, mcmc_info = {warmup_algorithm}(")
+        a("        logdensity_fn,")
+        a("        step_size=current_ss,")
+        a(f"        inverse_mass_matrix={vp}_imm{warmup_extra_kwargs},")
+        a("    ).step(step_key, mcmc_state)")
+        a("    _accept = jnp.asarray(")
+        a("        getattr(")
+        a("            mcmc_info,")
+        a('            "acceptance_rate",')
+        a('            getattr(mcmc_info, "is_accepted", jnp.asarray(0.5)),')
+        a("        )")
+        a("    )")
+        a(f"    new_da_state = {vp}_da_update_fn(da_state, jnp.mean(_accept))")
+        a("    return (new_mcmc_state, new_da_state), None")
+        a("")
+        a("")
+        a(f"{vp}_sa_keys = jax.random.split({vp}_sa_key, {n_warmup})")
+        a(f"({vp}_sa_final_mcmc, {vp}_sa_final_da), _ = jax.lax.scan(")
+        a(f"    {vp}_sa_one_step,")
+        a(f"    ({vp}_sa_init_state, {vp}_da_s0),")
+        a(f"    {vp}_sa_keys,")
+        a(")")
+        a(f"{vp}_adapted_step_size = {vp}_da_final_fn({vp}_sa_final_da)")
+    else:
+        a(f"{vp}_adapted_step_size = {ctx.get('wp_step_size_default', 1.0)!r}")
     a("")
     a(
         "# ── Build downstream kernel states (VI positions + adapted step_size + VI IMM) ─"
@@ -834,6 +843,8 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a("_adapted_params = {")
     a(f'    "step_size": jnp.full((num_chains,), {vp}_adapted_step_size),')
     a(f'    "inverse_mass_matrix": {vi_adapted_imm_expr},')
+    elbo_key = "_mfvi_elbo" if "meanfield" in warmup_name else "_frvi_elbo"
+    a(f'    "{elbo_key}": jnp.asarray({vp}_final_vi_info.elbo[-1]),')
     a("}")
     a("_warmup_is_perchain = True")
     a("_warmup_grad_evals = None")
@@ -1339,13 +1350,15 @@ def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
 def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     """Emit mclmc_lrd_tuning (LRD MCLMC adaptation) warmup section.
 
-    Pipeline (all inlined — D8 compliant, zero tuningfork imports):
+    Pipeline (fully emitted, with zero tuningfork inference imports):
     1. Single-chain NUTS pilot (pilot_n_warmup + pilot_n_samples steps).
     2. Rank-k_rank SVD extraction.
     3. Statically bound LRD kernel + vmapped mclmc_find_L_and_step_size.
 
-    D8 note: every phase is emitted directly (only jax / blackjax imports,
-    no tuningfork inference helpers).
+    This is intentionally not ``blackjax.mclmc_lrd_warmup``.  That API uses a
+    diagonal-MCLMC pilot, ESS-based rank selection, and scalar averaged tuning
+    parameters, whereas certified recipes record NUTS-pilot geometry and
+    per-chain parameters.  Changing algorithms requires recipe recertification.
 
     Parameters
     ----------
@@ -1370,8 +1383,8 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     )
     a("# The upstream isokinetic_mclachlan integrator dispatches natively on")
     a("# LowRankInverseMassMatrix (blackjax PR #936) — no logdensity_fn wrapping.")
-    a("# D8: every LRD phase is emitted inline (only jax + blackjax imports;")
-    a("# zero tuningfork inference imports).")
+    a("# This NUTS-pilot protocol is distinct from blackjax.mclmc_lrd_warmup;")
+    a("# changing it requires recipe recertification.")
     a("import blackjax.mcmc.mclmc")
     a("from blackjax.mcmc.metrics import LowRankInverseMassMatrix as _LRD")
     a("from jax.flatten_util import ravel_pytree as _lrd_ravel")

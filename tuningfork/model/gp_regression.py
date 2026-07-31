@@ -246,7 +246,8 @@ ENTRY = Posterior(
     #   log_kernel_scale ~ N(0, 1) → mean=0, var=1
     #   log_noise_scale  ~ N(-2,1) → mean=-2, var=1
     #   f_raw ~ N(0, I_200)        → mean=zeros(200), var=ones(200)
-    # The no_warmup runner reads these and passes them to blackjax.elliptical_slice
+    # The generated no_warmup protocol reads these and passes them to
+    # blackjax.elliptical_slice
     # as flat (d=203) arrays. ravel_pytree flattens the dict alphabetically:
     # f_raw(200) | log_kernel_scale(1) | log_lengthscale(1) | log_noise_scale(1).
     prior_mean={

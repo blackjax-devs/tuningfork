@@ -182,9 +182,9 @@ def build_headline_basis(
 ) -> tuple[float, dict[str, Any]]:
     """Compute the headline metric and its accounting basis from one set of draws.
 
-    Single source of truth for every emit path that stamps a headline, so the
+    Single source of truth for every generated path that stamps a headline, so
     estimator provenance and the legacy side-by-side value cannot drift between
-    the recipe runner, the low-rank-diagonal emit path, and any future path.
+    sampler families.
 
     Parameters
     ----------

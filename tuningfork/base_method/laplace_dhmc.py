@@ -36,8 +36,8 @@ is used as the per-step count.  The inner L-BFGS cost multiplier is ~5
 
     grad_count_per_step = _laplace_grad_count
 
-``extra_required_kwargs=("log_joint_fn", "theta_init")``: the standard
-``no_warmup`` runner raises ``NotImplementedError`` for this method.
+``extra_required_kwargs=("log_joint_fn", "theta_init")``: the generated
+no-warmup protocol raises ``NotImplementedError`` for this method.
 
 Use case
 --------
@@ -124,12 +124,13 @@ ENTRY = BaseMethod(
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
     extra_required_kwargs=("log_joint_fn", "theta_init"),
-    # T2.3 descriptors: standard HMC family per-chain params.
+    # Standard HMC-family per-chain parameters.
     per_chain_param_keys=("step_size", "inverse_mass_matrix"),
     reinit_state=True,  # laplace_dhmc needs LaplaceDynamicHMCState (theta_star + rng_arg);
     # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
     extra_kwarg_builder=None,  # Laplace component construction is model-specific;
-    # handled via _build_laplace_components runner helper, not a portable descriptor.
+    # handled via the _build_laplace_components generated-execution helper, not
+    # a portable descriptor.
     notes=(
         "Dynamic HMC on the Laplace-approximated marginal log-density. Combines "
         "Laplace marginalisation (latent theta integrated out via L-BFGS at each "

@@ -35,17 +35,17 @@ pytestmark = pytest.mark.fast
 def test_blackjax_pathfinder_callable():
     """Tripwire: if upstream pathfinder API changes its callable signature, fail fast.
 
-    Pinned tripwire: tuningfork/warmup/pathfinder.py calls
+    Pinned tripwire: the generated warmup emitter calls
     blackjax.pathfinder.approximate(rng_key, logdensity_fn, position, num_samples)
     and expects a 2-tuple (PathfinderState, PathfinderInfo) back.
     """
     assert callable(blackjax.pathfinder.approximate), (
         "blackjax.pathfinder.approximate must be callable; "
-        "update tuningfork/warmup/pathfinder.py if API changed."
+        "update the generated warmup emitter/protocol if API changed."
     )
     assert callable(blackjax.pathfinder.sample), (
         "blackjax.pathfinder.sample must be callable; "
-        "update tuningfork/warmup/pathfinder.py if API changed."
+        "update the generated warmup emitter/protocol if API changed."
     )
 
     def logdensity_fn(x):
@@ -57,21 +57,20 @@ def test_blackjax_pathfinder_callable():
     )
     assert len(result) == 2, (
         f"blackjax.pathfinder.approximate should return a 2-tuple (state, info), "
-        f"got {len(result)}-tuple. Update tuningfork/warmup/pathfinder.py."
+        f"got {len(result)}-tuple. Update the generated warmup emitter/protocol."
     )
     pf_state, _pf_info = result
     for field in ("elbo", "position", "grad_position", "alpha", "beta", "gamma"):
         assert hasattr(pf_state, field), (
             f"PathfinderState lost field {field!r}. "
-            f"Update tuningfork/warmup/pathfinder.py."
+            f"Update the generated warmup emitter/protocol."
         )
 
 
 def test_blackjax_pathfinder_adaptation_signature():
     """Tripwire: blackjax.pathfinder_adaptation must accept num_chains + n_paths kwargs.
 
-    Pinned tripwire: tuningfork/warmup/pathfinder.py and
-    tuningfork/warmup/multipathfinder.py call
+    Pinned tripwire: the generated warmup emitter calls
     blackjax.pathfinder_adaptation(algorithm, logdensity_fn, num_chains=..., n_paths=...).
     If upstream renames or removes these kwargs, fail fast here.
     """
@@ -82,7 +81,7 @@ def test_blackjax_pathfinder_adaptation_signature():
         assert kwarg in sig.parameters, (
             f"blackjax.pathfinder_adaptation is missing parameter {kwarg!r}. "
             f"Current params: {list(sig.parameters)}. "
-            f"Update tuningfork/warmup/pathfinder.py and multipathfinder.py."
+            f"Update the generated warmup emitter/protocol."
         )
 
     # Verify AdaptationResults contract: .state + .parameters with step_size + IMM
@@ -90,26 +89,26 @@ def test_blackjax_pathfinder_adaptation_signature():
 
     assert hasattr(AdaptationResults, "_fields"), (
         "AdaptationResults must be a NamedTuple with _fields. "
-        "Update tuningfork/warmup/pathfinder.py and multipathfinder.py."
+        "Update the generated warmup emitter/protocol."
     )
     for field in ("state", "parameters"):
         assert field in AdaptationResults._fields, (
             f"AdaptationResults lost field {field!r}. "
-            f"Update tuningfork/warmup/pathfinder.py and multipathfinder.py."
+            f"Update the generated warmup emitter/protocol."
         )
 
 
 def test_blackjax_multipathfinder_callable():
     """Tripwire: if upstream multipathfinder API changes, fail fast.
 
-    Pinned tripwire: tuningfork/warmup/multipathfinder_window_adaptation.py calls
+    Pinned tripwire: the generated warmup emitter calls
     blackjax.multipathfinder(logdensity_fn).init(key, positions, num_samples)
     and expects a 2-tuple (MultipathfinderState, PathfinderInfo) back.
     psis_weights(state) must return a 2-tuple (log_weights, pareto_k).
     """
     assert callable(blackjax.multipathfinder), (
         "blackjax.multipathfinder must be callable; "
-        "update tuningfork/warmup/multipathfinder.py if API changed."
+        "update the generated warmup emitter/protocol if API changed."
     )
 
     from blackjax.vi.multipathfinder import psis_weights
@@ -122,20 +121,20 @@ def test_blackjax_multipathfinder_callable():
     result = mpf.init(key, jnp.zeros((2, 3)), num_samples=5)
     assert len(result) == 2, (
         f"multipathfinder.init should return a 2-tuple (state, info), "
-        f"got {len(result)}-tuple. Update tuningfork/warmup/multipathfinder.py."
+        f"got {len(result)}-tuple. Update the generated warmup emitter/protocol."
     )
     mpf_state, _info = result
     for field in ("path_states", "samples", "logp", "logq"):
         assert hasattr(mpf_state, field), (
             f"MultipathfinderState lost field {field!r}. "
-            f"Update tuningfork/warmup/multipathfinder.py."
+            f"Update the generated warmup emitter/protocol."
         )
 
     # psis_weights must return 2-tuple (log_weights, pareto_k)
     pw_result = psis_weights(mpf_state)
     assert len(pw_result) == 2, (
         f"psis_weights should return a 2-tuple (log_weights, pareto_k), "
-        f"got {len(pw_result)}-tuple. Update tuningfork/warmup/multipathfinder.py."
+        f"got {len(pw_result)}-tuple. Update the generated warmup emitter/protocol."
     )
 
 
@@ -143,7 +142,7 @@ def test_blackjax_meads_adaptation_signature():
     """Tripwire: blackjax.meads_adaptation must accept (logdensity_fn,
     num_chains, num_folds) as parameters.
 
-    Pinned tripwire: tuningfork/warmup/meads.py calls
+    Pinned tripwire: the generated warmup emitter calls
     blackjax.meads_adaptation(logdensity_fn, num_chains, num_folds=num_folds, ...).
     If upstream renames or removes any of these, the MEADS warmup fails.
     """
@@ -155,7 +154,7 @@ def test_blackjax_meads_adaptation_signature():
     assert not missing, (
         f"blackjax.meads_adaptation is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/warmup/meads.py if upstream API changed."
+        f"Update the generated warmup emitter/protocol if upstream API changed."
     )
 
 
@@ -163,7 +162,7 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
     """Tripwire: meads_adaptation.run() must return a 2-tuple
     (AdaptationResults, AdaptationInfo).
 
-    Pinned tripwire: tuningfork/warmup/meads.py unpacks the result as
+    Pinned tripwire: the generated warmup emitter unpacks the result as
     (adaptation_results, _adaptation_info) = meads.run(...).
     If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
     """
@@ -176,21 +175,21 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
     result = meads.run(key, jnp.zeros((4, 3)), num_steps=5)
     assert len(result) == 2, (
         f"meads_adaptation.run() should return a 2-tuple (AdaptationResults, AdaptationInfo), "
-        f"got {len(result)}-tuple. Update tuningfork/warmup/meads.py."
+        f"got {len(result)}-tuple. Update the generated warmup emitter/protocol."
     )
     adaptation_results, _adaptation_info = result
     assert hasattr(adaptation_results, "state"), (
         "AdaptationResults must have 'state' field; "
-        "update tuningfork/warmup/meads.py."
+        "update the generated warmup emitter/protocol."
     )
     assert hasattr(adaptation_results, "parameters"), (
         "AdaptationResults must have 'parameters' field; "
-        "update tuningfork/warmup/meads.py."
+        "update the generated warmup emitter/protocol."
     )
     for param_key in ("step_size", "momentum_inverse_scale", "alpha", "delta"):
         assert param_key in adaptation_results.parameters, (
             f"meads_adaptation AdaptationResults.parameters lost key {param_key!r}. "
-            f"Update tuningfork/warmup/meads.py."
+            f"Update the generated warmup emitter/protocol."
         )
 
 
@@ -221,10 +220,10 @@ def test_window_adaptation_constructs_for_supported_kernels():
 
 
 def test_blackjax_lbfgs_inverse_hessian_importable():
-    """Tripwire: multipathfinder_window_adaptation uses lbfgs_inverse_hessian_formula_1
+    """Tripwire: the generated warmup emitter uses lbfgs_inverse_hessian_formula_1
     from blackjax.optimizers.lbfgs for computing the PSIS-weighted mixture covariance.
     If upstream renames or removes it, fail fast here pointing at
-    tuningfork/warmup/multipathfinder_window_adaptation.py.
+    generated warmup protocol.
 
     Note: we use our own local mixture covariance implementation (not the upstream
     _psis_weighted_mixture_covariance) because the upstream function assumes flat
@@ -234,15 +233,15 @@ def test_blackjax_lbfgs_inverse_hessian_importable():
 
     assert callable(lbfgs_inverse_hessian_formula_1), (
         "blackjax.optimizers.lbfgs.lbfgs_inverse_hessian_formula_1 must be callable; "
-        "update tuningfork/warmup/multipathfinder_window_adaptation.py "
-        "if the upstream function was renamed or removed."
+        "update the generated warmup emitter/protocol if the upstream function "
+        "was renamed or removed."
     )
 
 
 def test_window_adaptation_accepts_initial_imm_kwarg():
     """Tripwire: window_adaptation must accept initial_inverse_mass_matrix kwarg.
 
-    Pinned by tuningfork/warmup/multipathfinder_window_adaptation.py which passes
+    Pinned by the generated warmup emitter, which passes
     initial_inverse_mass_matrix=<dense array> to seed the mass matrix.
     """
     import inspect
@@ -250,7 +249,7 @@ def test_window_adaptation_accepts_initial_imm_kwarg():
     sig = inspect.signature(blackjax.window_adaptation)
     assert "initial_inverse_mass_matrix" in sig.parameters, (
         "blackjax.window_adaptation is missing parameter 'initial_inverse_mass_matrix'. "
-        "Update tuningfork/warmup/multipathfinder_window_adaptation.py."
+        "Update the generated warmup emitter/protocol."
     )
 
 
@@ -267,8 +266,8 @@ def test_window_adaptation_accepts_imm_shrinkage_kwarg():
 def test_mfvi_state_fields():
     """Tripwire: pin MFVIState._fields.
 
-    tuningfork/base_method/meanfield_vi.py and
-    tuningfork/warmup/meanfield_vi.py depend on MFVIState having
+    tuningfork/base_method/meanfield_vi.py and the generated warmup emitter
+    depend on MFVIState having
     fields ('mu', 'rho', 'opt_state').  If upstream renames or reorders
     these, the wrappers break silently.
     """
@@ -277,7 +276,7 @@ def test_mfvi_state_fields():
     assert MFVIState._fields == ("mu", "rho", "opt_state"), (
         f"MFVIState._fields changed: {MFVIState._fields}. "
         f"Update tuningfork/base_method/meanfield_vi.py and "
-        f"tuningfork/warmup/meanfield_vi.py."
+        "the generated warmup emitter/protocol."
     )
 
 
@@ -297,8 +296,8 @@ def test_mfvi_info_fields():
 def test_frvi_state_fields():
     """Tripwire: pin FRVIState._fields.
 
-    tuningfork/base_method/fullrank_vi.py and
-    tuningfork/warmup/fullrank_vi.py depend on FRVIState having
+    tuningfork/base_method/fullrank_vi.py and the generated warmup emitter
+    depend on FRVIState having
     fields ('mu', 'chol_params', 'opt_state').  If upstream renames or
     reorders these, the wrappers break silently.
     """
@@ -307,7 +306,7 @@ def test_frvi_state_fields():
     assert FRVIState._fields == ("mu", "chol_params", "opt_state"), (
         f"FRVIState._fields changed: {FRVIState._fields}. "
         f"Update tuningfork/base_method/fullrank_vi.py and "
-        f"tuningfork/warmup/fullrank_vi.py."
+        "the generated warmup emitter/protocol."
     )
 
 

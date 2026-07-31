@@ -79,7 +79,7 @@ Alert classes monitored
    The alert predicate guards against the sentinel, so non-NUTS kernels never
    fire treedepth alerts.
 
-   **Vmapped-chain shape**: when the recipe runner vmaps over ``num_chains``
+   **Vmapped-chain shape**: when generated sampling vmaps over ``num_chains``
    chains, each scan step returns ``infos.num_trajectory_expansions`` with
    shape ``(num_chains,)`` rather than ``()``.  The selector therefore checks
    ``leaf.ndim <= 1`` (scalar or 1-D) rather than ``leaf.shape == ()``, and

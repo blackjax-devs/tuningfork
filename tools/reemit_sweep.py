@@ -252,7 +252,7 @@ def _combined_filename_tag(
     then any policy segment.  Composed here rather than parsed off the filename
     so the round-trip check compares against what an emit would actually write.
     """
-    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
+    from tuningfork.recipes._warmup_protocol import WARMUP_SUBSTITUTE_METHOD_NAMES
 
     implicit = (
         "nuts" if sampler_name in WARMUP_SUBSTITUTE_METHOD_NAMES else sampler_name
@@ -357,8 +357,8 @@ def _reconstruct_sampler_kwargs(
         pinned.pop("num_integration_steps", None)
 
     if warmup_inner_kernel is not None and "num_integration_steps" in pinned:
-        # transform_warmup_state derives this from the warmup's own trajectory
-        # lengths.  Replaying it would pin a measured quantity as a setting.
+        # Generated warmup execution derives this from the warmup trajectory.
+        # Replaying it would pin a measured quantity as a setting.
         notes.append("num_integration_steps is warmup-derived; re-derived on emit")
         pinned.pop("num_integration_steps")
 
@@ -467,8 +467,8 @@ def config_fidelity_violations(cfg: CellConfig, committed: dict) -> list[str]:
     for key in adapted | lrd_keys:
         committed_kernel.pop(key, None)
     if cfg.warmup_inner_kernel is not None:
-        # transform_warmup_state derives this from the warmup's own trajectory
-        # lengths; it re-derives on replay rather than being passed in.
+        # Generated warmup execution derives this from the warmup trajectory;
+        # replay re-derives it rather than passing it in.
         committed_kernel.pop("num_integration_steps", None)
 
     for key, want in committed_kernel.items():
@@ -604,7 +604,7 @@ def reconstruct(
     num_chains = warmup_params.get("num_chains", budget.get("num_chains"))
 
     # Warmup hyperparameters beyond the three explicit emit arguments live in the
-    # warmup's own declared space and reach the runner through
+    # warmup protocol's declared space and reach generated execution through
     # warmup_kwargs_override.  Not replaying them silently substitutes the
     # registry default: window_adaptation_low_rank_imm.max_rank and the VI
     # warmups' num_optimization_steps both change what the warmup actually does.

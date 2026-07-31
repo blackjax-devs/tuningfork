@@ -279,69 +279,6 @@ def test_legacy_prior_sample_unchanged() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Pre-batching detection (integration with warmup's _maybe_replicate)
-# ---------------------------------------------------------------------------
-
-
-def test_uniform_perchain_pre_batched_passthrough() -> None:
-    """uniform_perchain produces shape that _maybe_replicate will recognize."""
-    from tuningfork.warmup._base import _maybe_replicate
-
-    init_pos = jnp.array([1.0, 2.0, 3.0])
-    strategy = {"type": "uniform_perchain", "low": -1.0, "high": 1.0}
-    key = jax.random.key(0)
-    num_chains = 4
-
-    # Apply per-chain init
-    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
-
-    # Now replicate it (as the warmup would do)
-    replicated = _maybe_replicate(result, num_chains)
-
-    # Should be identical (recognized as pre-batched)
-    assert jnp.allclose(replicated, result)
-    assert replicated.shape == (num_chains, 3)
-
-
-def test_zero_perchain_pre_batched_passthrough() -> None:
-    """zero_perchain produces shape that _maybe_replicate will recognize."""
-    from tuningfork.warmup._base import _maybe_replicate
-
-    init_pos = jnp.array([1.0, 2.0])
-    strategy = {"type": "zero_perchain", "jitter": 0.1}
-    key = jax.random.key(1)
-    num_chains = 8
-
-    result = apply_init_strategy(strategy, init_pos, key, num_chains=num_chains)
-    replicated = _maybe_replicate(result, num_chains)
-
-    # Should be identical (recognized as pre-batched)
-    assert jnp.allclose(replicated, result)
-    assert replicated.shape == (num_chains, 2)
-
-
-def test_legacy_uniform_not_pre_batched() -> None:
-    """legacy 'uniform' is not pre-batched; _maybe_replicate will replicate it."""
-    from tuningfork.warmup._base import _maybe_replicate
-
-    init_pos = jnp.array([1.0, 2.0, 3.0])
-    strategy = {"type": "uniform", "low": -1.0, "high": 1.0}
-    key = jax.random.key(0)
-    num_chains = 4
-
-    result = apply_init_strategy(strategy, init_pos, key)  # default num_chains=1
-
-    # Replicate it (as the warmup would do)
-    replicated = _maybe_replicate(result, num_chains)
-
-    # Should be (num_chains, 3) now, with broadcast
-    assert replicated.shape == (num_chains, 3)
-    # All rows should be identical (broadcast from single center)
-    for i in range(num_chains):
-        assert jnp.allclose(replicated[i], result)
-
-
-# ---------------------------------------------------------------------------
 # Warmup compatibility guard (fail-loud for non-ensemble warmups)
 # ---------------------------------------------------------------------------
 

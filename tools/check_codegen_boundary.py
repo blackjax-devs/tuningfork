@@ -1,10 +1,4 @@
-"""Static guard for direct sampling calls in production code.
-
-The two baseline sets below are deliberately explicit. The lower-level set is
-the small capability layer generated programs may build on; the ground-truth
-exception set contains the two canonical reference-generation paths.
-Both sets are exact, multiplicity-preserving counters (not line-number lists).
-"""
+"""Static guard for direct sampling calls in production code."""
 
 from __future__ import annotations
 
@@ -115,18 +109,9 @@ def scan_source(root: Path) -> Counter[Hit]:
     return hits
 
 
-# Filled from the checked-in production tree. Keep these literals exact so a
-# changed call is visible and must be deliberately accounted for.
-LOWER_LEVEL_BASELINE: Counter[Hit] = Counter(
-    {
-        ("warmup/_vi_warmup_runner.py", "_vi_warmup_runner", "factory"): 2,
-        ("warmup/_vi_warmup_runner.py", "_vi_warmup_runner._sa_one_step", "factory"): 1,
-        ("warmup/mclmc_tuning.py", "_runner", "factory"): 1,
-        ("warmup/no_warmup.py", "_runner", "factory"): 1,
-    }
-)
-
-GROUND_TRUTH_EXCEPTION_BASELINE: Counter[Hit] = Counter(
+# Generated recipe programs are the sole ordinary sampling route.  The canonical
+# ground-truth reference paths are the only direct-call exceptions.
+ALLOWED_DIRECT_CALLS: Counter[Hit] = Counter(
     {
         (
             "calibration/certify_reference.py",
@@ -143,7 +128,7 @@ GROUND_TRUTH_EXCEPTION_BASELINE: Counter[Hit] = Counter(
 
 
 def baseline() -> Counter[Hit]:
-    return LOWER_LEVEL_BASELINE + GROUND_TRUTH_EXCEPTION_BASELINE
+    return ALLOWED_DIRECT_CALLS
 
 
 def report(root: Path) -> dict[str, Counter[Hit]]:

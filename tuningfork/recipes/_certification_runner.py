@@ -43,7 +43,7 @@ from tuningfork.recipes._ground_truth_reference import (
 )
 from tuningfork.recipes._laplace_config import LAPLACE_PHI_THETA_SPLITS
 from tuningfork.recipes._launcher import GeneratedProgramError, LaunchResult
-from tuningfork.warmup._laplace_adapter import LAPLACE_METHOD_NAMES
+from tuningfork.recipes._warmup_protocol import LAPLACE_METHOD_NAMES
 
 RECIPE_N_WARMUP = 1000
 RECIPE_N_SAMPLES = 1000

@@ -519,9 +519,10 @@ class Recipe:
 
         ``warmup_wall_seconds`` : float | None
             Wall seconds for the warmup phase (between compiled calls, at Python
-            orchestration level).  Set by the runner when ``split_source="measured"``.
+            orchestration level). Set by generated execution when
+            ``split_source="measured"``.
         ``sampling_wall_seconds`` : float | None
-            Wall seconds for the sampling phase.  Set by the runner when
+            Wall seconds for the sampling phase. Set by generated execution when
             ``split_source="measured"``.
         ``sampling_seconds_per_draw`` : float | None
             ``sampling_wall_seconds / (n_samples * num_chains)``.  Normalised
@@ -656,8 +657,8 @@ class Recipe:
     warmups: list[dict[str, Any]] = field(default_factory=list)
 
     # ---- Warmup inner kernel (schema extension for warmup_inner_kernel; §3) ----
-    # When ``None`` (default), the runner resolves the warmup kernel via
-    # ``resolve_warmup_algorithm(base_method)`` — the current implicit
+    # When ``None`` (default), generated execution resolves the warmup kernel via
+    # the current implicit
     # substitute-family logic (NUTS for laplace_*/dynamic_hmc/dmhmc; the
     # sampler itself for all other methods).
     #
@@ -667,8 +668,7 @@ class Recipe:
     # ``hmc + inner_nuts`` where NUTS's tree-based trajectory adapts (step_size,
     # IMM) more robustly on some geometries).
     #
-    # See RECIPE_SCHEMA.md §3 and ``_warmup_to_sampler_transform.py`` for the
-    # resolution-table semantics.
+    # See RECIPE_SCHEMA.md §3 for the generated warmup protocol semantics.
     warmup_inner_kernel: str | None = None
 
     # ---- Per-phase warmup chain count (schema extension) ----
@@ -696,7 +696,8 @@ class Recipe:
     # ---- Init strategy (schema extension) ----
     # Tagged-union dict specifying how the initial position for warmup + sampling
     # is drawn.  ``None`` (default) preserves backward-compatible behavior — the
-    # runner calls ``build_logdensity_fn`` which samples from the prior.
+    # generated execution calls ``build_logdensity_fn``, which samples from the
+    # prior.
     #
     # Valid specs::
     #
@@ -857,7 +858,7 @@ class Recipe:
     ) -> Path:
         """Write the recipe to its canonical location under ``root``.
 
-        Per the catalog layout (post-R2, 2026-05-17):
+        Under the current catalog layout:
 
         - GROUNDTRUTH recipes go to ``<root>/<model_name>/groundtruth.json``
           (no filename suffix — there's exactly one groundtruth path per model).
@@ -1335,7 +1336,7 @@ class Recipe:
             # Then dataclasses.replace(recipe, inverse_mass_matrix_path=sidecar_path)
             # since Recipe is frozen.
 
-        Per the catalog layout (post-R2):
+        Under the current catalog layout:
 
         - For GROUNDTRUTH recipes: ``<root>/<model>/groundtruth.imm.npz``
         - For other efforts: ``<root>/<model>/recipes/<effort>__<sampler>__<warmup>.imm.npz``

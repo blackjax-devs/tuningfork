@@ -142,7 +142,7 @@ def test_blackjax_chees_adaptation_signature():
     """Tripwire: blackjax.chees_adaptation must accept (logdensity_fn,
     num_chains, target_acceptance_rate) as parameters.
 
-    Pinned tripwire: tuningfork/warmup/chees.py calls
+    Pinned tripwire: the generated warmup emitter calls
     blackjax.chees_adaptation(logdensity_fn, num_chains,
     target_acceptance_rate=..., max_leapfrog_steps=...).
     If upstream renames or removes any of these, the CHEES warmup fails.
@@ -155,7 +155,7 @@ def test_blackjax_chees_adaptation_signature():
     assert not missing, (
         f"blackjax.chees_adaptation is missing parameters: {missing}. "
         f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/warmup/chees.py if upstream API changed."
+        f"Update the generated warmup emitter/protocol if upstream API changed."
     )
 
 
@@ -163,7 +163,7 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
     """Tripwire: chees_adaptation.run() must return a 2-tuple
     (AdaptationResults, AdaptationInfo).
 
-    Pinned tripwire: tuningfork/warmup/chees.py unpacks the result as
+    Pinned tripwire: the generated warmup emitter unpacks the result as
     (adaptation_results, _adaptation_info) = chees.run(...).
     If upstream changes to a 3-tuple or NamedTuple, the unpack fails.
 
@@ -181,27 +181,27 @@ def test_blackjax_chees_adaptation_run_returns_2tuple():
     result = chees.run(key, jnp.zeros((4, 3)), 0.1, optim, num_steps=5)
     assert len(result) == 2, (
         f"chees_adaptation.run() should return a 2-tuple (AdaptationResults, AdaptationInfo), "
-        f"got {len(result)}-tuple. Update tuningfork/warmup/chees.py."
+        f"got {len(result)}-tuple. Update the generated warmup emitter/protocol."
     )
     adaptation_results, _adaptation_info = result
     assert hasattr(adaptation_results, "state"), (
         "AdaptationResults must have 'state' field; "
-        "update tuningfork/warmup/chees.py."
+        "update the generated warmup emitter/protocol."
     )
     assert hasattr(adaptation_results, "parameters"), (
         "AdaptationResults must have 'parameters' field; "
-        "update tuningfork/warmup/chees.py."
+        "update the generated warmup emitter/protocol."
     )
     for param_key in ("step_size", "inverse_mass_matrix"):
         assert param_key in adaptation_results.parameters, (
             f"chees_adaptation AdaptationResults.parameters lost key {param_key!r}. "
-            f"Update tuningfork/warmup/chees.py."
+            f"Update the generated warmup emitter/protocol."
         )
     # Callable params must also be present
     for callable_key in ("next_random_arg_fn", "integration_steps_fn"):
         assert callable_key in adaptation_results.parameters, (
             f"chees_adaptation AdaptationResults.parameters lost callable key {callable_key!r}. "
-            f"Update tuningfork/warmup/chees.py."
+            f"Update the generated warmup emitter/protocol."
         )
 
 
@@ -273,7 +273,7 @@ def test_blackjax_adjusted_mclmc_find_L_and_step_size_returns_3_tuple():
     """Tripwire: blackjax.adjusted_mclmc_find_L_and_step_size must return a 3-tuple
     (state, MCLMCAdaptationState, total_num_tuning_integrator_steps).
 
-    Pinned tripwire: tuningfork/warmup/adjusted_mclmc_tuning.py unpacks
+    Pinned tripwire: the generated warmup emitter unpacks
     (s, adaptation_state, total_steps). If upstream changes to a 2-tuple (matching
     the vanilla mclmc docstring drift), the unpack fails opaquely.
 
@@ -299,12 +299,12 @@ def test_blackjax_adjusted_mclmc_find_L_and_step_size_returns_3_tuple():
     assert len(result) == 3, (
         f"BlackJAX changed adjusted_mclmc_find_L_and_step_size return arity "
         f"from 3 to {len(result)}. "
-        f"Update tuningfork/warmup/adjusted_mclmc_tuning.py unpack accordingly."
+        f"Update the generated warmup emitter/protocol unpack accordingly."
     )
     assert result[1]._fields == ("L", "step_size", "inverse_mass_matrix"), (
         f"MCLMCAdaptationState._fields changed from "
         f"('L', 'step_size', 'inverse_mass_matrix') to {result[1]._fields}. "
-        f"Update tuningfork/warmup/adjusted_mclmc_tuning.py adapted_params dict."
+        f"Update the generated warmup emitter/protocol adapted_params dict."
     )
 
 

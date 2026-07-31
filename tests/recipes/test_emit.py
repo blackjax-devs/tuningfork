@@ -14,7 +14,8 @@
 """Tests for catalog recipe emission invariants.
 
 This file contains all tests that run actual MCMC chains or tuning algorithms.
-These are marked @pytest.mark.slow individually (not at module level, per PR-4 rules).
+These are marked @pytest.mark.slow individually because the file also contains
+fast catalog checks.
 
 History: test_medium_recipe_exists_and_has_warmup_data (parametrized over 6
 (model × {hmc, nuts}) combos) was removed 2026-05-17 as a slow-CI fix —
@@ -22,7 +23,8 @@ the MEDIUM placeholder recipes it asserted-existence-of had been deleted in
 PR #6 commit 3 (715a82c, "recipes: delete stale low/medium/high starter
 recipes"), but the test surgery in that commit missed this slow-only test
 because we don't run slow locally. Real MEDIUM recipes are produced by
-Recipe Phase 1+ pipeline; their existence-on-disk is no longer a test gate.
+the generated certification pipeline; their existence on disk is no longer a
+test gate.
 """
 
 from pathlib import Path
@@ -72,9 +74,8 @@ _KNOWN_ROUNDING_DEFECTS: frozenset[str] = frozenset(
 def test_catalog_headline_basis_reproduces_headline_metric() -> None:
     """Every committed recipe: headline_metric == basis.min_bulk_ess / basis.total_grad_evals.
 
-    Both emit paths construct the basis so this holds EXACTLY (the main runner
-    back-derives min_bulk_ess = headline × grad_evals; the LRD path divides the
-    same headline ESS it used for the metric).  A relative tolerance of 1e-9 is
+    Certification constructs the basis from the same headline ESS used for the
+    metric, so this relation holds EXACTLY. A relative tolerance of 1e-9 is
     therefore correct — a 5% tolerance silently admits a recipe whose basis was
     written from the *gate* estimator whenever the two estimators happen to agree
     numerically, which is exactly how the ill_cond_50 LRD recipe escaped review.
@@ -84,11 +85,10 @@ def test_catalog_headline_basis_reproduces_headline_metric() -> None:
     reliable: where the two estimators nearly coincide (e.g. ill_cond_50 LRD at
     gate/basis=1.0004, lgcp mclmc at 1.0012) a direction test cannot discriminate.
     The exact form (abs(hm - derived) < 1e-9 * scale) is necessary and sufficient
-    because both emit paths construct basis.min_bulk_ess from the SAME value they
-    used to compute headline_metric, so any mismatch is a genuine provenance error.
+    because certification constructs basis.min_bulk_ess from the SAME value used
+    to compute headline_metric, so any mismatch is a genuine provenance error.
 
-    BLIND SPOT — gradient-free samplers on the main runner path: the main runner's
-    gradient-free branch (_recipe_runner.py around line 1985-2000) sets BOTH
+    BLIND SPOT — the generated gradient-free certification branch sets BOTH
     headline_metric and basis.min_bulk_ess from gate_verdict.min_bulk_ess (the gate
     estimator), making the recipe internally self-consistent.  A future
     elliptical_slice / rwm / irmh recipe would therefore PASS this test while using

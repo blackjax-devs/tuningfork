@@ -13,8 +13,6 @@
 # limitations under the License.
 """Tests for emit_script -- recipe to reproduction Python script.
 
-Phase R3.5 round-trip CI gate (locked decision D10).
-
 The core **inference choreography** (warmup + sampler + inference loop) is
 emitted inline. The **model definition** is imported via
 ``from tuningfork.model import MODELS``: the canonical NumPyro code lives
@@ -427,13 +425,13 @@ def test_emit_script_multichain_draws_npz(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "warmup_name,base_method_name",
     [
-        # Conventional gradient samplers with compatible warmups (R3.5b Commit 2).
+        # Conventional gradient samplers with compatible warmups.
         ("window_adaptation_diag_imm", "hmc"),
         ("no_warmup", "dynamic_hmc"),
         ("no_warmup", "mhmc"),
         ("no_warmup", "dmhmc"),
         ("no_warmup", "ghmc"),
-        # Random-walk / Langevin samplers (R3.5b Commit 3).
+        # Random-walk / Langevin samplers.
         ("no_warmup", "mala"),
         ("no_warmup", "barker"),
         ("no_warmup", "rwm"),
@@ -495,10 +493,9 @@ def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
     - The recipe's pinned warmup + sampler params produce a runnable kernel
       against the imported NumPyro model.
 
-    Acts as the round-trip CI gate (per D10): any drift in the warmup or
-    sampler template that produces a runtime error or non-zero exit code is
-    caught here.  Model definition drift is impossible by construction
-    (model imported from tuningfork.model — single source).
+    Any drift in the generated warmup or sampler that produces a runtime error
+    or non-zero exit code is caught here. Model definition drift is impossible
+    by construction because the model is imported from one canonical source.
 
     Lightweight config: num_samples=10, num_warmup=10 for e2e speed.
     """
@@ -743,19 +740,20 @@ def _extract_warmup_section(script: str) -> str:
         "window_adaptation_low_rank_imm",
     ],
 )
-def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) -> None:
-    """The emitted script's warmup section references the SAME blackjax
-    algorithm that `resolve_warmup_algorithm` picks.
+def test_emit_script_warmup_protocol_selects_expected_algorithm(
+    sampler: str, warmup: str
+) -> None:
+    """The generated warmup protocol selects the expected BlackJAX algorithm.
 
     Catches the class of bug where templates hardcode an algorithm name
     (e.g., `blackjax.nuts`) regardless of the recipe's actual sampler.
     Discovered 2026-05-20 on `medium__mhmc__window_adaptation_dense_imm`.
 
-    Note: laplace_* samplers are deferred to R3.5b-2 (no templates yet).
+    Laplace samplers use their dedicated generated protocol.
     """
     from tuningfork.recipes._base import Effort, Recipe
+    from tuningfork.recipes._warmup_protocol import WARMUP_SUBSTITUTE_METHOD_NAMES
     from tuningfork.warmup import WARMUPS
-    from tuningfork.warmup._laplace_adapter import WARMUP_SUBSTITUTE_METHOD_NAMES
 
     # Skip incompatible pairs (e.g., low_rank_window_adaptation may not support
     # all sampler families).
@@ -766,7 +764,7 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
     # The emit_script function only uses: model_name, base_method_name, warmup_name,
     # effort, base_method_params, warmup_params, tuning_seed, calibration_budget,
     # and gate_evidence. Most of these can be stubbed for the syntax check.
-    # window_adaptation_low_rank_imm requires max_rank in warmup_params (T0.2).
+    # window_adaptation_low_rank_imm requires max_rank in warmup_params.
     _wp = {"n_warmup": 100, "target_acceptance_rate": 0.8}
     if warmup == "window_adaptation_low_rank_imm":
         _wp["max_rank"] = 3
@@ -788,7 +786,7 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
 
     script = emit_script(recipe, num_samples=50)
 
-    # Determine the expected warmup algorithm following resolve_warmup_algorithm logic.
+    # Substitute-family methods use the protocol's NUTS warmup kernel.
     expected_algo = "nuts" if sampler in WARMUP_SUBSTITUTE_METHOD_NAMES else sampler
     warmup_section = _extract_warmup_section(script)
 
@@ -834,7 +832,7 @@ def test_emit_script_warmup_inner_kernel_override_emits_correct_algo() -> None:
     the emitted script's warmup section must reference blackjax.nuts, not
     blackjax.hmc.
 
-    This mirrors the runner logic in _warmup_to_sampler_transform.resolve_warmup_inner_kernel.
+    This mirrors the generated warmup protocol's inner-kernel selection.
     """
     from tuningfork.recipes._base import Effort, Recipe
 
@@ -1267,19 +1265,16 @@ def test_generated_pinned_reference_summary_replay_executes(tmp_path: Path) -> N
 
 
 @pytest.mark.e2e
-def test_emit_script_warmup_imm_matches_runner_mhmc_dense(tmp_path: Path) -> None:
-    """L2 fidelity test: emit_script's warmup produces valid adapted params.
+def test_emit_script_warmup_execution_contract_mhmc_dense(tmp_path: Path) -> None:
+    """Generated warmup execution produces valid adapted parameters.
 
     Target recipe: eight_schools_ncp × mhmc × window_adaptation_dense_imm.
     User-reported bug case (2026-05-20). MHMC is in the standard
     (non-HMC-substitute) warmup path; the fix puts blackjax.mhmc in
     the emitted warmup call.
 
-    Note: since the scan(vmap) refactor, the emitted script runs SINGLE-CHAIN
-    warmup while the runner runs PER-CHAIN warmup (vmap).  The seeds differ
-    (fold_in vs split), so numerical equality is no longer expected.  This
-    test verifies that the emitted warmup completes without error and produces
-    finite adapted params of the correct structure.
+    This test verifies that generated warmup completes without error and
+    produces finite adapted parameters of the correct structure.
 
     Lightweight config: num_samples=10 minimal warmup (recipe default overridden).
     """
@@ -1351,7 +1346,7 @@ print("L2 EMITTED OK")
 
 
 # ---------------------------------------------------------------------------
-# Laplace-* recipe emit tests (R3.5b-2 laplace templates)
+# Laplace recipe emission tests
 # ---------------------------------------------------------------------------
 
 _LAPLACE_HIGH_RECIPE_PATH = (
@@ -1379,8 +1374,8 @@ def test_emit_script_laplace_high_recipe_is_valid_python() -> None:
 
 
 @pytest.mark.fast
-def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
-    """D8: emitted laplace HIGH recipe has zero forbidden tuningfork imports.
+def test_emit_script_laplace_high_recipe_keeps_inference_inline() -> None:
+    """An emitted Laplace HIGH recipe has zero forbidden tuningfork imports.
 
     Only the canonical model and optional diagnostics modules are allowed.
     The inference choreography (laplace preamble + multiphase warmup + sampler
@@ -1388,7 +1383,7 @@ def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
 
     Also checks that blackjax is imported (required for the laplace kernels),
     and that ``from blackjax.mcmc.laplace_marginal import laplace_marginal_factory``
-    appears (the D8-compliant inline factory from the laplace_preamble template).
+    appears as an inline generated dependency.
     """
     if not _LAPLACE_HIGH_RECIPE_PATH.exists():
         pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
@@ -1413,10 +1408,10 @@ def test_emit_script_laplace_high_recipe_d8_compliant() -> None:
     assert not disallowed, (
         "Emitted laplace HIGH script imports tuningfork modules outside the allowlist "
         f"{_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
-        "The inference choreography must remain inline (D8 STRICT)."
+        "The inference choreography must remain inline."
     )
 
-    # Positive checks: laplace_marginal_factory must be inlined (D8-compliant path).
+    # The generated program must inline the Laplace marginal factory.
     assert "laplace_marginal_factory" in script, (
         "Expected `laplace_marginal_factory` in the emitted script "
         "(imported from blackjax.mcmc.laplace_marginal in laplace_preamble)."
@@ -1542,9 +1537,8 @@ def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
     - The two-phase warmup loop (Phase 1 diag → Phase 2 dense) executes.
     - The sampler produces draws and the postamble prints DONE + n_divergences.
 
-    This is the D10 round-trip CI gate for laplace templates: any template
-    slot miss, assembly-order bug, or LaplaceMarginal contract violation would
-    surface here as a Python error or non-zero exit code.
+    Any generation-slot miss, assembly-order bug, or LaplaceMarginal contract
+    violation surfaces here as a Python error or non-zero exit code.
 
     Lightweight config: num_samples=10, num_warmup=[2, 2] (Phase1=2, Phase2=2).
     """
@@ -1947,11 +1941,7 @@ def _make_vi_sampler_recipe(base_method_name: str):  # type: ignore[return]
 @pytest.mark.fast
 @pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
 def test_emit_script_vi_sampler_is_valid_python(base_method_name: str) -> None:
-    """VI sampler (Track A) emit_script produces syntactically valid Python.
-
-    Phase 8B.2 fast gate: verifies meanfield_vi.py.tmpl and fullrank_vi.py.tmpl
-    sampler templates produce valid Python and are D8-compliant.
-    """
+    """VI sampler emission produces syntactically valid Python."""
     recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
     ast.parse(script)
@@ -1959,8 +1949,10 @@ def test_emit_script_vi_sampler_is_valid_python(base_method_name: str) -> None:
 
 @pytest.mark.fast
 @pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_sampler_d8_compliant(base_method_name: str) -> None:
-    """VI sampler (Track A) emitted script has no forbidden tuningfork imports (D8)."""
+def test_emit_script_vi_sampler_has_no_forbidden_imports(
+    base_method_name: str,
+) -> None:
+    """VI sampler emission has no forbidden tuningfork imports."""
     recipe = _make_vi_sampler_recipe(base_method_name)
     script = emit_script(recipe, num_samples=10)
     tree = ast.parse(script)

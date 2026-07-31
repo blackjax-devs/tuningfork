@@ -19,16 +19,15 @@ and ``sampler_name="hmc"`` produces a LOW recipe with:
 - Correct filename including ``__inner_nuts`` tag
 - ``recipe.warmup_inner_kernel == "nuts"``
 - ``recipe.warmups`` list populated
-- ``recipe.base_method_params`` includes ``num_integration_steps`` (injected
-  from NUTS warmup NIS median via ``transform_warmup_state``)
+- ``recipe.base_method_params`` includes the generated HMC trajectory length
 - Auto-gate PASS on mvn_10 (well-behaved 10-D Gaussian)
 
 Cell: mvn_10 × window_adaptation_diag_imm × hmc + inner_nuts
 Budget: canonical 4 chains × 1000 warmup × 1000 samples (~30-60 s on CPU).
 
 This is the "inner-kernel substitution rescue path" — NUTS warmup
-adapts (step_size, IMM) for an HMC sampler, with the median NUTS NIS injected
-as ``num_integration_steps`` for HMC. The emission should create the file:
+adapts (step_size, IMM) for an HMC sampler and the generated recipe records
+the resulting trajectory length. The emission should create the file:
   ``low__hmc__window_adaptation_diag_imm__inner_nuts.json``
 """
 
@@ -62,8 +61,8 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     Verifies the schema-extension pipeline:
     1. emit_low_recipe_for_cell(warmup_inner_kernel="nuts", sampler_name="hmc")
     2. NUTS drives window_adaptation; NIS captured in warmup_info
-    3. transform_warmup_state injects median(NIS) as num_integration_steps
-    4. HMC sampler runs with NUTS-adapted (step_size, IMM, NIS-median L)
+    3. Generated execution records a positive num_integration_steps value
+    4. HMC sampler runs with NUTS-adapted (step_size, IMM, trajectory length)
     5. Auto-gate PASS on mvn_10
     6. Recipe saved at low__hmc__window_adaptation_diag_imm__inner_nuts.json
     7. Recipe.load round-trips correctly with warmups list + warmup_inner_kernel
@@ -149,11 +148,11 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         f"got {recipe.warmups[0]['name']!r}"
     )
 
-    # Schema extension: transform_warmup_state must have injected num_integration_steps
-    # (nuts → hmc row in the resolution table: NIS median injection).
+    # Generated recipe boundary: the HMC trajectory length is persisted as a
+    # positive sampler parameter for replay.
     assert "num_integration_steps" in recipe.base_method_params, (
-        "Schema-extension nuts→hmc transform must inject num_integration_steps into "
-        "base_method_params from NUTS warmup NIS median; field is missing. "
+        "Generated nuts→hmc recipe must record num_integration_steps in "
+        "base_method_params; field is missing. "
         f"Actual base_method_params keys: {list(recipe.base_method_params.keys())}"
     )
     nis_value = recipe.base_method_params["num_integration_steps"]

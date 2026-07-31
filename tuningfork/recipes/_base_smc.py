@@ -15,7 +15,7 @@
 
 SMC algorithms have a fundamentally different execution profile from MCMC:
   - No warmup phase (particle initialisation replaces warmup).
-  - No step_size / inverse_mass_matrix adapted by a warmup runner.
+  - No generated warmup adaptation of step_size / inverse_mass_matrix.
   - Particles (not chains) are the unit of parallelism.
   - Gate metrics differ: particle-ESS, max_abs_mean_z with SE=std/√particle_ess,
     mode_coverage for gmm_25.  rhat, bulk-ESS, n_divergences are n/a.

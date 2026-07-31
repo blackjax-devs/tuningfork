@@ -29,7 +29,8 @@ Upstream guidance: calibrate ``step_size`` so that acceptance rate ≈ 50%.
 
 Grad cost per step: 1 (``jax.value_and_grad(logdensity_fn)`` once per step).
 
-``extra_required_kwargs=("prior_cov", "prior_mean")``: the ``no_warmup`` runner raises
+``extra_required_kwargs=("prior_cov", "prior_mean")``: the no-warmup generated
+protocol rejects this method because it cannot provide those required values.
 ``NotImplementedError`` for this method.  a specialised path is required.
 
 References
@@ -91,13 +92,15 @@ ENTRY = BaseMethod(
     needs_mass_matrix=False,
     target_acceptance_rate=0.5,  # upstream docstring guidance
     extra_required_kwargs=("prior_cov", "prior_mean"),
-    # T2.3 descriptors: gradient-based but no adapted step_size/imm from HMC warmup.
+    # Gradient-based, but no adapted step size or mass matrix from HMC warmup.
     # step_size is recipe-resolved but not per-chain (no mass matrix warmup).
-    # Uses the default/gradient-free path (is_no_adapted_params check in runner).
+    # Uses the default/gradient-free path (is_no_adapted_params check in the
+    # generated protocol).
     per_chain_param_keys=(),
     reinit_state=False,  # MarginalState from .init() is directly usable.
     extra_kwarg_builder=None,  # prior_cov/prior_mean are injected via shared_kwargs
-    # from the posterior entry in the runner (model-specific, not a portable builder).
+    # from the posterior entry in generated execution (model-specific, not a
+    # portable builder).
     notes=(
         "Titsias 2018 marginal sampler for latent-Gaussian models q(x) ∝ exp(f(x)) * "
         "N(x; mean, cov). Uses a first-order approximation to the log-likelihood; sole "

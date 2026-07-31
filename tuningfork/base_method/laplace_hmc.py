@@ -48,11 +48,11 @@ convergence tolerance.  The factory default is::
 
     grad_count_per_step = lambda info: jnp.asarray(info.num_integration_steps * 5)
 
-``extra_required_kwargs=("log_joint_fn", "theta_init")``: the standard
-``no_warmup`` runner raises ``NotImplementedError`` for this method because
-the factory cannot be called with just ``logdensity_fn``; the caller must
-supply a joint log-density ``log_joint_fn(theta, phi)`` and an initial
-latent position ``theta_init``.
+``extra_required_kwargs=("log_joint_fn", "theta_init")``: the generated
+no-warmup protocol raises ``NotImplementedError`` for this method because the
+factory cannot be called with just ``logdensity_fn``; the caller must supply a
+joint log-density ``log_joint_fn(theta, phi)`` and an initial latent position
+``theta_init``.
 
 Use case
 --------
@@ -150,12 +150,13 @@ ENTRY = BaseMethod(
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
     extra_required_kwargs=("log_joint_fn", "theta_init"),
-    # T2.3 descriptors: standard HMC family per-chain params.
+    # Standard HMC-family per-chain parameters.
     per_chain_param_keys=("step_size", "inverse_mass_matrix"),
     reinit_state=True,  # laplace_hmc needs LaplaceHMCState (theta_star warm-start);
     # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
     # extra_kwarg_builder=None: laplace component construction is model-specific and
-    # handled via the _build_laplace_components runner helper (not portable as a descriptor).
+    # handled via the _build_laplace_components generated-execution helper (not
+    # portable as a descriptor).
     extra_kwarg_builder=None,
     notes=(
         "HMC on the Laplace-approximated marginal log-density of hierarchical models. "

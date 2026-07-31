@@ -40,7 +40,7 @@ from tuningfork.recipes._ground_truth_reference import (
     GroundTruthReference,
     align_ground_truth,
 )
-from tuningfork.warmup._laplace_adapter import LAPLACE_METHOD_NAMES
+from tuningfork.recipes._warmup_protocol import LAPLACE_METHOD_NAMES
 
 
 @dataclass(frozen=True)
