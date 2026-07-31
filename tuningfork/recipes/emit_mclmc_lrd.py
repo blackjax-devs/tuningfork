@@ -48,12 +48,12 @@ from tuningfork.metrics.headline import HEADLINE_ESS_ESTIMATOR, estimator_ratio
 from tuningfork.model import MODELS
 from tuningfork.model._numpyro import build_logdensity_fn
 from tuningfork.recipes._base import Effort, Recipe
-from tuningfork.recipes._sweep_runner import (
-    GATE_DIV_RATE_PASS,
-    GATE_ESS_PASS,
-    GATE_RHAT_PASS,
-)
 from tuningfork.warmup import WARMUPS
+
+# MCLMC-LRD certification gate thresholds.
+GATE_RHAT_PASS = 1.01
+GATE_ESS_PASS = 400.0
+GATE_DIV_RATE_PASS = 0.05
 
 # Default catalog root: tuningfork/tuningfork/catalog/ relative to this file.
 # parents[0] = recipes/, parents[1] = tuningfork/ (package), then /catalog.
@@ -201,8 +201,7 @@ def _emit_lrd_cert_sweep(
     instead of invoking this directly.
 
     For each model: run warmup + 4-chain sampling for each seed in
-    ``cert_seeds``; gate on R̂/ESS/div (GATE_RHAT_PASS/GATE_ESS_PASS/
-    GATE_DIV_RATE_PASS from ``_sweep_runner``); if ≥ 2/3 PASS, bake the
+    ``cert_seeds``; gate on R̂/ESS/div; if ≥ 2/3 PASS, bake the
     best PASS seed into a LOW recipe with ``bake_warmup=True`` and save the
     LRD IMM sidecar.
 

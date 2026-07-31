@@ -25,6 +25,7 @@ import pytest
 
 from tuningfork.catalog import emit_script, execute_recipe, prepare_pinned_replay
 from tuningfork.recipes import Effort, Recipe
+from tuningfork.recipes._execution_telemetry import ExecutionTelemetry
 
 
 def _recipe(**changes: Any) -> Recipe:
@@ -190,3 +191,45 @@ def test_x64_requirement_is_emitted_before_generated_execution() -> None:
     source = emit_script(recipe, num_warmup=1, num_samples=1, num_chains=1)
     assert 'jax.config.update("jax_enable_x64", True)' in source
     assert source.index("jax.config.update") < source.index("jax.random.key")
+
+
+@pytest.mark.e2e
+def test_mclmc_lrd_generated_execution_smoke(tmp_path: Path) -> None:
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="mclmc",
+        warmup_name="mclmc_lrd_tuning",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "L": 1.0},
+        warmup_params={
+            "n_warmup": 20,
+            "num_chains": 1,
+            "k_rank": 1,
+            "pilot_n_warmup": 20,
+            "pilot_n_samples": 20,
+        },
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"num_chains": 1},
+        difficulty=None,
+        instructions="generated contract test",
+        tuning_seed=7,
+    )
+    result = execute_recipe(
+        recipe,
+        tmp_path / "runs",
+        num_warmup=20,
+        num_samples=1,
+        num_chains=1,
+        progress_bar=False,
+        timeout=180,
+        env={"JAX_PLATFORM_NAME": "cpu"},
+    )
+
+    assert result.artifact_path is not None and result.artifact_path.is_file()
+    assert result.manifest.executable_config["warmup_name"] == "mclmc_lrd_tuning"
+    assert isinstance(result.telemetry, ExecutionTelemetry)
+    geometry = result.telemetry.geometry["inverse_mass_matrix"]
+    assert geometry["type"] == "low_rank_inverse_mass_matrix"
+    with np.load(result.artifact_path, allow_pickle=False) as draws:
+        assert draws["x"].shape == (1, 1, 10)
