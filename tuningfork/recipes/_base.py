@@ -19,10 +19,8 @@ human + machine wall time to produce a gate-passing recipe; the Statistician
 escalates LOW → MEDIUM → HIGH via the TL when the auto-gate fails.  See the
 ``Effort`` enum docstring for the per-tier semantics.
 
-CI consumes a Recipe by reading the pinned ``base_method_params`` (and the
-``inverse_mass_matrix_path`` sidecar if present) and running the BlackJAX
-kernel directly.  What differs across tiers is the production effort, not the
-consumption pattern.
+Recipe sampling and certification run through the generated recipe lifecycle.
+What differs across tiers is the production effort, not the execution route.
 
 Constructor helpers:
 
@@ -122,14 +120,13 @@ class Effort(str, Enum):
     """Calibration effort tier — measures human + machine wall time to produce
     a recipe that the Statistician auto-gate approves.
 
-    LOW    — ``_generate_starter`` runs the *conventional* ``(warmup, sampler)``
-             pairing for the cell with all BlackJAX library defaults; the
-             ``NATURAL_WARMUP_FOR_SAMPLER`` map in ``_generate_starter.py``
-             defines the conventional pairing per sampler.  The Statistician
-             auto-gate (``tuningfork.calibration.statistician_gate``) evaluates
-             the resulting samples on R̂ / bulk-ESS / divergence count and
-             against the reference where available (``max_abs_mean_z``,
-             ``sample_quality``).  Recipe commits at LOW iff the gate passes
+    LOW    — The generated recipe lifecycle evaluates a conventional
+             ``(warmup, sampler)`` pairing for the cell with BlackJAX library
+             defaults. The Statistician auto-gate
+             (``tuningfork.calibration.statistician_gate``) evaluates the
+             resulting samples on R̂ / bulk-ESS / divergence count and against
+             the reference where available (``max_abs_mean_z``,
+             ``sample_quality``). Recipe commits at LOW iff the gate passes
              (or the Statistician overrides REVIEW to APPROVE).
              Wall time: machine only (warmup + sampling on the run host).
 
@@ -141,7 +138,7 @@ class Effort(str, Enum):
                  ``uniform(-1, 1)`` Stan-style, zero, or model-specific values).
              (b) **Unconventional pairing exploration**.  The cell pairs a
                  sampler with a *technically-possible-but-unconventional* warmup
-                 outside its ``NATURAL_WARMUP_FOR_SAMPLER`` mapping (e.g.,
+                 outside its conventional pairing (e.g.,
                  ``window_adaptation_diag_imm`` + ``mala``, ``window_adaptation_diag_imm`` + ``rmhmc``,
                  ``pathfinder`` + ``hmc``).  These are not in the LOW emit set;
                  the Statistician explores them deliberately to learn whether the
@@ -491,8 +488,7 @@ class Recipe:
         effort tier.  Conventional cells pair a sampler with its natural
         warmup (window_adaptation_diag_imm for nuts/hmc/mala/barker; mclmc_tuning for mclmc;
         meads for ghmc; chees for dynamic_hmc; no_warmup for gradient-free /
-        specialised samplers) — see ``NATURAL_WARMUP_FOR_SAMPLER`` in
-        ``_generate_starter.py``.
+        specialised samplers).
     effort
         Calibration effort level (``Effort.LOW``, ``Effort.MEDIUM``,
         or ``Effort.HIGH``); see the ``Effort`` enum docstring for the
@@ -1162,7 +1158,10 @@ class Recipe:
         init_strategy: dict | None = None,
         **warmup_kwargs: Any,
     ) -> Recipe:
-        """Build a Recipe by running ONLY the warmup (no post-warmup sampler chain).
+        """Build a Recipe from a warmup result (no post-warmup sampler chain).
+
+        This legacy construction helper cannot produce certification evidence.
+        Forward sampling and certification must use the generated recipe lifecycle.
 
         Captures the warmup-adapted ``(step_size, inverse_mass_matrix, ...)``
         values into a Recipe with ``effort=Effort.MEDIUM``.  Calibration cost is

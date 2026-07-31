@@ -175,7 +175,7 @@ tuningfork/
 │   ├── smc/                   # declarative SMC method descriptors
 │   ├── recipes/               # Recipe schema + generators + emit_script
 │   │   ├── _base.py, _instructions.py
-│   │   ├── _generate_starter.py, _generate_groundtruth.py
+│   │   ├── _generate_groundtruth.py
 │   │   ├── _emit_script.py    # recipe → reproduction Python script — orchestrator
 │   │   ├── _emit_smc_script.py # SMC recipe → generated sampling program
 │   │   └── _emit/             # Python emit-functions (preamble/postamble/inference_loop/sampler/warmup)

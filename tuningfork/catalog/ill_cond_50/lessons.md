@@ -94,21 +94,18 @@ set. A NUTS pilot run is the minimum viable geometry-discovery step. See
 
 Recorded FAILs not discussed above: failed__dmhmc__window_adaptation_dense_imm.json (old Phase 3c/4 attempt; a later n_warmup=1000 attempt PASSes as low__dmhmc__window_adaptation_dense_imm.json), failed__dynamic_hmc__window_adaptation_dense_imm.json (old attempt; later PASS exists as low__dynamic_hmc__window_adaptation_dense_imm.json).
 
-## Recipe regen (ill_cond_50 LRD, pilot-path calibration)
+## Recorded LRD certification inputs (ill_cond_50, pilot-path calibration)
 
 The committed artifacts are:
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (k=40, best seed=77777)
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz` — rank-40 LRD IMM sidecar (NUTS-pilot path)
 
-**Standard regen command** (re-runs NUTS pilot + 3-seed cert sweep, deterministic):
-
-```bash
-uv run python -m tuningfork.recipes._generate_starter \
-    --warmup mclmc_lrd_tuning --only ill_cond_50 \
-    --calibrate --cert-seeds 77777 88888 99999 \
-    --n-warmup 1000 --n-samples 1000 --k-rank 40 \
-    --pilot-n-warmup 10000 --pilot-n-samples 10000
-```
+The historical direct emitter that ran this sweep is retired. Do not repeat it;
+new sampling or certification work must use the
+[codegen-first recipe lifecycle](../../../docs/design/codegen-first-recipes.md).
+The recorded inputs were `mclmc_lrd_tuning`, seeds 77777/88888/99999,
+`n_warmup=1000`, `n_samples=1000`, `k_rank=40`,
+`pilot_n_warmup=10000`, and `pilot_n_samples=10000`.
 
 Certified 2026-07-29 (PR #253): 3/3 PASS, seeds 77777/88888/99999, gate minESS 1917/1726/1782,
 headline_metric (best seed) = 0.23958, R-hat max ~1.003. k=40, n_warmup=1000, pilot 10k.

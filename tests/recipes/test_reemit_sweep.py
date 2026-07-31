@@ -192,57 +192,31 @@ class TestWarmupParameterSchemas:
         assert config.num_chains == 4
 
 
-class TestLowRankPilotBudget:
-    """The pilot budget is a setting, and a silent default collapses the rank."""
-
-    def test_low_rank_cells_carry_rank_and_pilot_budget(self) -> None:
-        """k_rank and the pilot budget must be reconstructed, not defaulted.
-
-        The pilot's effective sample size gates how much rank the rank-safety
-        check permits.  Running a 10x-too-small pilot on a 50-dimensional target
-        drops n_eff to about 4, clamps the usable rank from 40 to 1-2, and the
-        preconditioner collapses to near-diagonal — so the cell fails
-        certification for a reason that has nothing to do with the cell.  The
-        harness defaults are 1000/1000; several cells record 10000/10000.
-        """
-        catalog = Path(__file__).parent.parent.parent / "tuningfork" / "catalog"
-        recipe = (
-            catalog
-            / "ill_cond_50"
-            / "recipes"
-            / "low__mclmc_lrd__mclmc_lrd_tuning.json"
-        )
-        if not recipe.exists():
-            pytest.skip("low-rank-diagonal recipe not in the catalog")
-
-        config = driver.reconstruct(recipe)
-        assert isinstance(config, driver.CellConfig)
-        assert config.harness == "mclmc_lrd"
-        assert config.k_rank == 40
-        assert config.pilot_n_warmup == 10000
-        assert config.pilot_n_samples == 10000
-
-    def test_low_rank_cell_without_a_recorded_pilot_is_refused(
-        self, tmp_path: Path
-    ) -> None:
-        """Better to skip than to silently substitute the harness default."""
-        model_dir = tmp_path / "some_model" / "recipes"
-        model_dir.mkdir(parents=True)
-        p = model_dir / "low__mclmc_lrd__mclmc_lrd_tuning.json"
-        p.write_text(
-            json.dumps(
-                {
-                    "effort": "low",
-                    "base_method_name": "mclmc_lrd",
-                    "warmup_name": "mclmc_lrd_tuning",
-                    "base_method_params": {},
-                    "warmup_params": {"n_warmup": 1000, "num_chains": 4},
-                    "calibration_budget": {"n_samples": 1000},
-                }
-            )
-        )
-        result = driver.reconstruct(p)
-        assert isinstance(result, driver.Skip)
+@pytest.mark.parametrize(
+    ("model", "filename"),
+    [
+        ("german_credit", "low__mclmc_lrd__mclmc_lrd_tuning.json"),
+        ("ill_cond_50", "low__mclmc_lrd__mclmc_lrd_tuning.json"),
+    ],
+)
+def test_historical_lrd_artifacts_are_explicitly_non_reemittable(
+    model: str, filename: str
+) -> None:
+    """Missing n_samples intent is an honest out-of-scope decision."""
+    recipe = (
+        Path(__file__).parent.parent.parent
+        / "tuningfork"
+        / "catalog"
+        / model
+        / "recipes"
+        / filename
+    )
+    result = driver.reconstruct(recipe)
+    assert isinstance(result, driver.Skip)
+    assert (
+        result.reason == driver.HISTORICAL_NON_REEMITTABLE_CELLS[f"{model}/{filename}"]
+    )
+    assert not driver._is_reconstruction_failure(result)
 
 
 class TestConfigFidelityIsAStandingGate:
@@ -286,7 +260,6 @@ def _minimal_cfg(**overrides):
         "warmup_name": "window_adaptation_diag_imm",
         "sampler_name": "nuts",
         "effort": "low",
-        "harness": "recipe_runner",
         "n_warmup": 1000,
         "n_samples": 1000,
         "num_chains": 4,

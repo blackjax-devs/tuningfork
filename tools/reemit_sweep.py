@@ -56,11 +56,6 @@ _VI_METHODS = frozenset({"meanfield_vi", "fullrank_vi"})
 # includes a hyperparameter search that the artifact does not record.
 _EMITTABLE_EFFORTS = frozenset({"low", "medium"})
 
-# The low-rank-diagonal certification sweep's own defaults, used when a recipe
-# of that family records its budget as per-seed evidence rather than flat fields.
-_LRD_DEFAULT_N_SAMPLES = 1000
-_LRD_DEFAULT_NUM_CHAINS = 4
-
 # The documented standard protocol, applied ONLY to the cells below.
 _STANDARD_PROTOCOL = {"n_warmup": 1000, "n_samples": 1000, "num_chains": 4}
 
@@ -84,6 +79,22 @@ CONFIG_CORRECTION_CELLS: dict[str, str] = {
     "lotka_volterra/low__nuts__window_adaptation_low_rank_imm.json": (
         "headline was stamped from cached chain statistics, so the artifact "
         "records no sample budget at all; emitted under the standard protocol"
+    ),
+}
+
+#: Historical MCLMC-LRD artifacts whose bake record does not contain a
+#: reconstructable sampling budget.  Their seed evidence records the measured
+#: gradient budget, but not the n_samples intent needed to replay the generated
+#: recipe call.  They remain committed evidence and are intentionally excluded
+#: from verify-only rather than assigned an invented default.
+HISTORICAL_NON_REEMITTABLE_CELLS: dict[str, str] = {
+    "german_credit/low__mclmc_lrd__mclmc_lrd_tuning.json": (
+        "historical MCLMC-LRD artifact has no recorded n_samples intent; "
+        "generated call cannot be reconstructed without inventing a sample budget"
+    ),
+    "ill_cond_50/low__mclmc_lrd__mclmc_lrd_tuning.json": (
+        "historical MCLMC-LRD artifact has no recorded n_samples intent; "
+        "generated call cannot be reconstructed without inventing a sample budget"
     ),
 }
 
@@ -185,7 +196,6 @@ class CellConfig:
     warmup_name: str
     sampler_name: str
     effort: str
-    harness: str
     n_warmup: int
     n_samples: int
     num_chains: int
@@ -198,13 +208,6 @@ class CellConfig:
     warmup_inner_kernel: str | None = None
     init_strategy: dict[str, Any] | None = None
     variant_label: str | None = None
-    # Low-rank-diagonal harness inputs.  These are genuine SETTINGS, not
-    # outputs: the pilot's effective sample size gates how much rank the
-    # rank-safety check will allow, so a smaller pilot silently collapses the
-    # preconditioner and the cell fails for a reason that is not the cell's.
-    k_rank: int | None = None
-    pilot_n_warmup: int | None = None
-    pilot_n_samples: int | None = None
     config_correction: bool = False
     #: ``jax_x64_enabled`` as recorded by the artifact this config was read FROM.
     #: Not a settable input — x64 follows the model's ``requires_x64`` and the
@@ -290,7 +293,7 @@ def _seed_candidates() -> list[int]:
     - the value that default DERIVES, because the rerun path feeds a recipe's own
       ``tuning_seed`` back in as the master seed, so a re-emitted cell sits one
       generation down the chain and the artifact records only the terminal value;
-    - the certification-sweep constants.
+    - historical recorded certification seeds present in committed evidence.
 
     A brute-force search over master seeds up to 4e7 confirmed these account for
     every ``tuning_seed`` in the committed corpus; anything else is skipped rather
@@ -372,6 +375,11 @@ def _reconstruct_sampler_kwargs(
 #: Warmup arguments the emit call takes explicitly; everything else in a
 #: recipe's warmup_params came from the warmup's declared hyperparameter space.
 _EXPLICIT_WARMUP_ARGS = frozenset({"n_warmup", "num_chains", "target_acceptance"})
+_DECLARED_REPLAY_WARMUP_ARGS = {
+    "mclmc_lrd_tuning": frozenset(
+        {"k_rank", "pilot_n_warmup", "pilot_n_samples", "inner_kernel"}
+    )
+}
 
 
 def _reconstruct_warmup_kwargs(warmup: Any, warmup_params: dict) -> dict | None:
@@ -381,6 +389,7 @@ def _reconstruct_warmup_kwargs(warmup: Any, warmup_params: dict) -> dict | None:
     an old artifact cannot be passed through to the runner as a kwarg.
     """
     declared = {s.name for s in getattr(warmup, "default_hp_space", ())}
+    declared.update(_DECLARED_REPLAY_WARMUP_ARGS.get(warmup.name, ()))
     override = {
         k: v
         for k, v in warmup_params.items()
@@ -422,17 +431,9 @@ def config_fidelity_violations(cfg: CellConfig, committed: dict) -> list[str]:
     if cfg.target_acceptance is not None:
         replayed_warmup["target_acceptance"] = cfg.target_acceptance
 
-    # The low-rank-diagonal harness records its rank and pilot budget in
-    # warmup_params but takes them as its own arguments, not as warmup kwargs.
+    # These values are supplied to the typed LRD warmup rather than the MCLMC
+    # kernel. Historical artifacts duplicate ``k_rank`` in both dictionaries.
     lrd_keys = {"k_rank", "pilot_n_warmup", "pilot_n_samples"}
-    if cfg.harness == "mclmc_lrd":
-        replayed_warmup.update(
-            {
-                "k_rank": cfg.k_rank,
-                "pilot_n_warmup": cfg.pilot_n_warmup,
-                "pilot_n_samples": cfg.pilot_n_samples,
-            }
-        )
 
     committed_warmup = dict(
         (committed.get("warmups") or [{}])[0].get("params")
@@ -599,9 +600,6 @@ def reconstruct(
     n_samples = budget.get("n_samples", warmup_params.get("n_samples"))
     num_chains = warmup_params.get("num_chains", budget.get("num_chains"))
 
-    # The low-rank-diagonal family is produced by its own certification sweep,
-    # not by emit_low_recipe_for_cell, and records its budget as per-seed
-    # evidence rather than flat fields.  Route it, do not fail it.
     # Warmup hyperparameters beyond the three explicit emit arguments live in the
     # warmup's own declared space and reach the runner through
     # warmup_kwargs_override.  Not replaying them silently substitutes the
@@ -616,24 +614,9 @@ def reconstruct(
     if blocker is not None:
         return skip(blocker)
 
-    harness = "recipe_runner"
-    k_rank = pilot_n_warmup = pilot_n_samples = None
-    if sampler_name == "mclmc_lrd" or warmup_name == "mclmc_lrd_tuning":
-        harness = "mclmc_lrd"
-        n_samples = n_samples if n_samples is not None else _LRD_DEFAULT_N_SAMPLES
-        num_chains = num_chains if num_chains is not None else _LRD_DEFAULT_NUM_CHAINS
-        # k_rank is pinned in the kernel params; the pilot budget in the warmup
-        # params.  Both must be replayed or the harness silently uses its own
-        # defaults, which are 10x smaller than what several cells recorded.
-        k_rank = (recipe.get("base_method_params") or {}).get("k_rank")
-        pilot_n_warmup = warmup_params.get("pilot_n_warmup")
-        pilot_n_samples = warmup_params.get("pilot_n_samples")
-        if k_rank is None or pilot_n_warmup is None or pilot_n_samples is None:
-            return skip(
-                "low-rank-diagonal cell does not record k_rank / pilot budget, so "
-                "the rank the run actually deployed cannot be reproduced"
-            )
     cell_key = f"{model_name}/{recipe_path.name}"
+    if cell_key in HISTORICAL_NON_REEMITTABLE_CELLS:
+        return skip(HISTORICAL_NON_REEMITTABLE_CELLS[cell_key])
     config_correction = cell_key in CONFIG_CORRECTION_CELLS
     missing = [
         label
@@ -680,12 +663,6 @@ def reconstruct(
     if config_correction:
         notes.append(CONFIG_CORRECTION_CELLS[cell_key])
         committed_seed = None
-    if harness == "mclmc_lrd":
-        # This family stamps a literal certification seed rather than deriving one,
-        # so the derived-seed check does not apply; the sweep reruns its own
-        # certification and the recorded seed identifies which one won.
-        notes.append(f"certification sweep; recorded cert seed {committed_seed}")
-        committed_seed = None
     if committed_seed:
         match = next(
             (
@@ -711,7 +688,6 @@ def reconstruct(
         warmup_name=warmup_name,
         sampler_name=sampler_name,
         effort=effort,
-        harness=harness,
         n_warmup=int(n_warmup),
         n_samples=int(n_samples),
         num_chains=int(num_chains),
@@ -724,9 +700,6 @@ def reconstruct(
         warmup_inner_kernel=warmup_inner_kernel,
         init_strategy=recipe.get("init_strategy"),
         variant_label=recipe.get("variant_label"),
-        k_rank=k_rank,
-        pilot_n_warmup=pilot_n_warmup,
-        pilot_n_samples=pilot_n_samples,
         config_correction=config_correction,
         recorded_x64=recorded_x64(recipe),
         notes=notes,
@@ -905,6 +878,7 @@ _OUT_OF_SCOPE = (
     "SMC headline",
     "failed recipe",
     "VI base method",
+    "historical MCLMC-LRD artifact",
 )
 
 
@@ -1040,8 +1014,6 @@ def _config_flags(c: CellConfig) -> list[str]:
         flags.append(f"effort={c.effort}")
     if c.config_correction:
         flags.append("config correction (not a replay)")
-    if c.harness != "recipe_runner":
-        flags.append(f"harness={c.harness}")
     return flags
 
 
@@ -1052,7 +1024,6 @@ def _as_invocation(c: CellConfig) -> dict[str, Any]:
         "warmup_name": c.warmup_name,
         "sampler_name": c.sampler_name,
         "effort": c.effort,
-        "harness": c.harness,
         "n_warmup": c.n_warmup,
         "n_samples": c.n_samples,
         "num_chains": c.num_chains,
@@ -1065,9 +1036,6 @@ def _as_invocation(c: CellConfig) -> dict[str, Any]:
         "warmup_inner_kernel": c.warmup_inner_kernel,
         "init_strategy": c.init_strategy,
         "variant_label": c.variant_label,
-        "k_rank": c.k_rank,
-        "pilot_n_warmup": c.pilot_n_warmup,
-        "pilot_n_samples": c.pilot_n_samples,
         "config_correction": c.config_correction,
         "notes": c.notes,
     }

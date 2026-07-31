@@ -63,20 +63,17 @@ pilot is required. See `catalog/mclmc-routing-taxonomy.md` §5.
 
 Recorded FAILs not discussed above: all 6 failed recipes are covered above.
 
-## Recipe regen (german_credit LRD, NUTS-pilot path)
+## Recorded LRD certification inputs (german_credit, NUTS-pilot path)
 
 The committed artifacts are:
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning.json` — golden recipe (k=8, best seed=11111)
 - `recipes/low__mclmc_lrd__mclmc_lrd_tuning.imm.npz` — rank-8 LRD IMM sidecar, shape sigma=(26,)/U=(26,8)/lam=(8,)
 
-**Standard regen command** (re-runs NUTS pilot + 3-seed cert sweep, deterministic):
-
-```bash
-uv run python -m tuningfork.recipes._generate_starter \
-    --warmup mclmc_lrd_tuning --only german_credit \
-    --calibrate --cert-seeds 11111 22222 33333 \
-    --n-warmup 10000 --n-samples 1000 --k-rank 8
-```
+The historical direct emitter that ran this sweep is retired. Do not repeat it;
+new sampling or certification work must use the
+[codegen-first recipe lifecycle](../../../docs/design/codegen-first-recipes.md).
+The recorded inputs were `mclmc_lrd_tuning`, seeds 11111/22222/33333,
+`n_warmup=10000`, `n_samples=1000`, and `k_rank=8`.
 
 Certified 2026-07-29: 3/3 PASS, seeds 11111/22222/33333, gate minESS 1474–1608 (az.ess bulk),
 R-hat max ~1.001 (≤ 1.005). Gate uses az.ess(method="bulk") ≥ 400. k=8, n_warmup=10000, n_samples=1000.

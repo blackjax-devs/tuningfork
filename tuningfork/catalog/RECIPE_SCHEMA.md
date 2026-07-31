@@ -329,7 +329,7 @@ The field exists because a `headline_basis` that merely reproduces `headline_met
 |---|---|
 | generated certification (gradient) | `metrics.headline.build_headline_basis` over the generated run's validated draws |
 | generated certification (gradient-free) | same evaluator and draws; denominator is the total draw count |
-| `recipes/emit_mclmc_lrd.py` | `metrics.headline.min_bulk_ess` over the cert-seed draws |
+| generated certification | `metrics.headline.min_bulk_ess` over the generated run's draws |
 | `_recipe_runner.stamp_headline_from_chain_stats` | the gate's `ess_bulk` value, recovered without re-sampling |
 
 `min_bulk_ess_classic_legacy` carries `blackjax.diagnostics.effective_sample_size` — no chain splitting, no rank normalisation — computed on the **same draws**, and `estimator_ratio` is `min_bulk_ess / min_bulk_ess_classic_legacy`. They exist so a change in a committed headline can be attributed: a re-emit produces fresh draws, so diffing new against committed confounds the estimator with run-to-run noise, while the ratio isolates the estimator on one fixed sample. Neither field feeds any gate or ranking. Both are `null` where no draws were available (the `stamp_headline_from_chain_stats` path).
