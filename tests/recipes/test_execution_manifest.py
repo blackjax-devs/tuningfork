@@ -1,9 +1,34 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for versioned generated-execution manifests."""
+
 from types import SimpleNamespace
 
 import pytest
 
-from tuningfork.recipes._execution_manifest import MANIFEST_VERSION, ExecutionManifest
-from tuningfork.recipes._execution_plan import ExecutionOverrides
+from tuningfork.recipes._execution_manifest import (
+    LEGACY_GENERATOR_CONTRACT,
+    LEGACY_MANIFEST_VERSION,
+    MANIFEST_VERSION,
+    ExecutionManifest,
+)
+from tuningfork.recipes._execution_plan import (
+    ExecutionOverrides,
+    execution_config_hash,
+    legacy_execution_plan_hash,
+)
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
 pytestmark = pytest.mark.fast
@@ -105,3 +130,75 @@ def test_manifest_rejects_unknown_fields_and_ref_drift():
     data["normalized_plan"]["recipe_ref"] = "different"
     with pytest.raises(ValueError, match="recipe_ref"):
         ExecutionManifest.from_dict(data)
+
+
+def test_legacy_v1_manifest_round_trips_without_telemetry():
+    current = ExecutionManifest.from_plan(
+        _plan(), generator_version="2026.07"
+    ).as_dict()
+    legacy_normalized = {
+        "config": current["executable_config"],
+        "recipe_ref": current["recipe_ref"],
+        "artifact_filename": current["normalized_plan"]["artifact_filename"],
+    }
+    legacy = {
+        "manifest_version": LEGACY_MANIFEST_VERSION,
+        "generator_contract": LEGACY_GENERATOR_CONTRACT,
+        "generator_version": current["generator_version"],
+        "recipe_ref": current["recipe_ref"],
+        "executable_config": current["executable_config"],
+        "normalized_plan": legacy_normalized,
+        "executable_config_hash": execution_config_hash(current["executable_config"]),
+        "plan_hash": legacy_execution_plan_hash(
+            current["executable_config"], legacy_normalized["artifact_filename"]
+        ),
+    }
+    loaded = ExecutionManifest.from_dict(legacy)
+    assert loaded.manifest_version == LEGACY_MANIFEST_VERSION
+    assert "telemetry_artifact_filename" not in loaded.normalized_plan
+    assert loaded.as_dict() == legacy
+
+
+def test_v1_manifest_rejects_telemetry_field_and_v2_hash_tampering():
+    data = ExecutionManifest.from_plan(_plan(), generator_version="2026.07").as_dict()
+    data["manifest_version"] = LEGACY_MANIFEST_VERSION
+    data["generator_contract"] = LEGACY_GENERATOR_CONTRACT
+    with pytest.raises(ValueError, match="normalized_plan"):
+        ExecutionManifest.from_dict(data)
+
+    data = ExecutionManifest.from_plan(_plan(), generator_version="2026.07").as_dict()
+    data["normalized_plan"]["telemetry_artifact_filename"] = "other.telemetry.json"
+    with pytest.raises(ValueError, match="plan_hash"):
+        ExecutionManifest.from_dict(data)
+
+
+@pytest.mark.parametrize(
+    "artifact", ["", "../draws.npz", "nested/draws.npz", "C:draws.npz"]
+)
+def test_v2_manifest_rejects_non_basename_artifacts(artifact):
+    data = ExecutionManifest.from_plan(_plan(), generator_version="2026.07").as_dict()
+    data["normalized_plan"]["artifact_filename"] = artifact
+    with pytest.raises(ValueError):
+        ExecutionManifest.from_dict(data)
+
+
+def test_legacy_manifest_preserves_path_like_artifact_names():
+    current = ExecutionManifest.from_plan(
+        _plan(), generator_version="2026.07"
+    ).as_dict()
+    artifact = "../legacy.draws.npz"
+    legacy = {
+        "manifest_version": LEGACY_MANIFEST_VERSION,
+        "generator_contract": LEGACY_GENERATOR_CONTRACT,
+        "generator_version": current["generator_version"],
+        "recipe_ref": current["recipe_ref"],
+        "executable_config": current["executable_config"],
+        "normalized_plan": {
+            "config": current["executable_config"],
+            "recipe_ref": current["recipe_ref"],
+            "artifact_filename": artifact,
+        },
+        "executable_config_hash": execution_config_hash(current["executable_config"]),
+        "plan_hash": legacy_execution_plan_hash(current["executable_config"], artifact),
+    }
+    assert ExecutionManifest.from_dict(legacy).as_dict() == legacy

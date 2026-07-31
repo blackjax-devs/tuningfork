@@ -1,10 +1,30 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for normalized generated-execution plans."""
+
 import dataclasses
 import math
 from types import SimpleNamespace
 
 import pytest
 
-from tuningfork.recipes._execution_plan import ExecutionOverrides, canonical_json
+from tuningfork.recipes._execution_plan import (
+    ExecutionOverrides,
+    ExecutionPlan,
+    canonical_json,
+)
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
 pytestmark = pytest.mark.fast
@@ -154,6 +174,47 @@ def test_material_mutation_changes_hash_but_presentation_does_not():
     assert a.executable_config_hash != b.executable_config_hash
     assert a.plan_hash != b.plan_hash
     assert a.plan_hash == resolve_execution_plan(recipe(notes="presentation")).plan_hash
+
+
+def test_telemetry_artifact_filename_is_normalized_and_hash_bound():
+    plan = resolve_execution_plan(recipe())
+    assert (
+        plan.telemetry_artifact_filename
+        == "mvn_10__hmc__window_adaptation_diag_imm.telemetry.json"
+    )
+    changed = ExecutionPlan.build(
+        plan.config,
+        plan.recipe_ref,
+        plan.artifact_filename,
+        "other.telemetry.json",
+    )
+    assert changed.telemetry_artifact_filename == "other.telemetry.json"
+    assert changed.executable_config_hash == plan.executable_config_hash
+    assert changed.plan_hash != plan.plan_hash
+
+
+@pytest.mark.parametrize(
+    "artifact,telemetry",
+    [
+        ("", "x.telemetry.json"),
+        ("../draws.npz", "x.telemetry.json"),
+        ("nested/draws.npz", "x.telemetry.json"),
+        ("nested\\draws.npz", "x.telemetry.json"),
+        ("C:draws.npz", "x.telemetry.json"),
+        ("x\x00.draws.npz", "x.telemetry.json"),
+        ("x.draws.npz", "x.draws.npz"),
+    ],
+)
+def test_v2_artifact_names_are_distinct_simple_basenames(artifact, telemetry):
+    plan = resolve_execution_plan(recipe())
+    with pytest.raises(ValueError):
+        ExecutionPlan.build(plan.config, plan.recipe_ref, artifact, telemetry)
+
+
+def test_default_telemetry_derivation_requires_draws_suffix():
+    plan = resolve_execution_plan(recipe())
+    with pytest.raises(ValueError, match="ends with '.draws.npz'"):
+        ExecutionPlan.build(plan.config, plan.recipe_ref, "artifact.bin")
 
 
 def test_hashes_ignore_mapping_insertion_order():

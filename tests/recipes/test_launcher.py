@@ -1,3 +1,17 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Integration checks for fail-closed execution of generated programs."""
 
 import hashlib
@@ -17,6 +31,7 @@ from tuningfork.recipes._base import Effort, Recipe
 from tuningfork.recipes._execution_manifest import ExecutionManifest
 from tuningfork.recipes._execution_plan import ExecutionOverrides
 from tuningfork.recipes._execution_receipt import ExecutionReceipt
+from tuningfork.recipes._generated_evaluator import load_generated_artifact
 from tuningfork.recipes._launcher import (
     ExecutionTimings,
     GeneratedProgramError,
@@ -25,7 +40,7 @@ from tuningfork.recipes._launcher import (
 )
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
-pytestmark = pytest.mark.slow
+pytestmark = pytest.mark.fast
 
 
 def test_parse_timings_accepts_one_valid_sentinel() -> None:
@@ -85,10 +100,26 @@ def _manifest() -> ExecutionManifest:
 
 
 def _source(manifest: ExecutionManifest, body: str) -> str:
+    telemetry = {
+        "schema": "tuningfork.generated-run-telemetry.v1",
+        "plan_hash": manifest.plan_hash,
+        "executable_config_hash": manifest.executable_config_hash,
+        "draws_artifact": manifest.normalized_plan["artifact_filename"],
+        "geometry": {},
+        "geometry_source": "unavailable",
+        "geometry_scope": None,
+        "geometry_unavailable_reason": "test",
+        "fixed": {},
+        "timing_seconds": {"warmup": 0, "sampling": 0, "total": 0},
+        "warmup_grad_evals": None,
+        "warmup_grad_evals_reason": "test",
+    }
     return (
         f"EXECUTION_MANIFEST_JSON = {manifest.to_json()!r}\n"
         "import numpy as np\n"
         f"ARTIFACT = {manifest.normalized_plan['artifact_filename']!r}\n"
+        f"TELEMETRY = {manifest.normalized_plan['telemetry_artifact_filename']!r}\n"
+        f"open(TELEMETRY, 'w').write({json.dumps(telemetry, sort_keys=True)!r})\n"
         f"{body}\n"
     )
 
@@ -122,6 +153,10 @@ def test_success_persists_source_logs_artifact_and_verified_receipt(tmp_path):
         assert receipt.stdout_sha256 == _sha256(result.stdout_path)
         assert receipt.stderr_sha256 == _sha256(result.stderr_path)
         assert receipt.artifact_sha256 == _sha256(result.artifact_path)
+        assert result.telemetry_path is not None and result.telemetry_path.exists()
+        assert result.telemetry_sha256 == _sha256(result.telemetry_path)
+        assert result.telemetry is not None
+        assert receipt.telemetry_sha256 == result.telemetry_sha256
 
 
 @pytest.mark.parametrize(
@@ -130,6 +165,9 @@ def test_success_persists_source_logs_artifact_and_verified_receipt(tmp_path):
         "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nraise SystemExit(3)",
         "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nprint('NOT_DONE')",
         "np.savez(ARTIFACT, position=np.zeros((1, 2, 1), dtype=object))\nprint('DONE')",
+        "np.savez(ARTIFACT, position=np.full((1, 2, 1), np.nan))\nprint('DONE')",
+        "np.savez(ARTIFACT, position=np.zeros((1, 2, 1), dtype=complex))\nprint('DONE')",
+        "np.savez(ARTIFACT, position=np.full((1, 2, 1), 'bad'))\nprint('DONE')",
         "np.savez(ARTIFACT, position=np.zeros((1, 3, 1)))\nprint('DONE')",
         "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nnp.savez('extra.draws.npz', position=np.zeros((1, 2, 1)))\nprint('DONE')",
         "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nopen('extra.bin', 'wb').write(b'extra')\nprint('DONE')",
@@ -199,6 +237,74 @@ def test_archive_with_only_sampler_stats_is_rejected_with_failed_receipt(tmp_pat
     assert "no position arrays" in (receipt.error or "")
 
 
+@pytest.mark.parametrize("telemetry_body", ["{}", '{\\"plan_hash\\":\\"wrong\\"}'])
+def test_missing_or_malformed_telemetry_is_preserved(tmp_path, telemetry_body):
+    source = _source(
+        _manifest(),
+        "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nopen(TELEMETRY, 'w').write("
+        + repr(telemetry_body)
+        + ")\nprint('DONE')",
+    )
+    with pytest.raises(GeneratedProgramError) as caught:
+        launch_generated_program(source, tmp_path)
+    result = caught.value.result
+    assert result is not None and result.telemetry_path is not None
+    assert result.telemetry_path.read_text() == telemetry_body
+    assert result.telemetry_sha256 == _sha256(result.telemetry_path)
+
+
+def test_cross_bound_telemetry_rejected(tmp_path):
+    manifest = _manifest()
+    source = _source(
+        manifest,
+        "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nopen(TELEMETRY, 'w').write(open(TELEMETRY).read().replace("
+        + repr(manifest.plan_hash)
+        + ", '0'*64))\nprint('DONE')",
+    )
+    with pytest.raises(GeneratedProgramError, match="invalid execution telemetry"):
+        launch_generated_program(source, tmp_path)
+
+
+def test_telemetry_canonical_collision_preserved(tmp_path):
+    source = _source(
+        _manifest(),
+        "from pathlib import Path\nPath('../'+TELEMETRY).write_text('child collision')\nnp.savez(ARTIFACT, position=np.zeros((1, 2, 1)))\nprint('DONE')",
+    )
+    with pytest.raises(GeneratedProgramError) as caught:
+        launch_generated_program(source, tmp_path)
+    result = caught.value.result
+    assert result is not None
+    assert list(result.run_dir.glob("*.json.child-*"))
+
+
+@pytest.mark.parametrize("name", ["../escape.npz", "a/b.npz", "same.npz"])
+def test_unsafe_or_duplicate_declared_names_rejected_before_run(tmp_path, name):
+    data = _manifest().as_dict()
+    data["normalized_plan"]["artifact_filename"] = name
+    data["normalized_plan"]["telemetry_artifact_filename"] = name
+    source = f"EXECUTION_MANIFEST_JSON = {json.dumps(data)!r}\n"
+    with pytest.raises(GeneratedProgramError):
+        launch_generated_program(source, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_legacy_v1_manifest_rejected_before_run(tmp_path):
+    data = _manifest().as_dict()
+    data["manifest_version"] = "tuningfork.execution-manifest.v1"
+    data["generator_contract"] = "tuningfork.execution-plan.v1"
+    data["normalized_plan"].pop("telemetry_artifact_filename")
+    from tuningfork.recipes._execution_plan import legacy_execution_plan_hash
+
+    data["plan_hash"] = legacy_execution_plan_hash(
+        data["executable_config"], data["normalized_plan"]["artifact_filename"]
+    )
+    with pytest.raises(GeneratedProgramError, match="legacy"):
+        launch_generated_program(
+            f"EXECUTION_MANIFEST_JSON = {json.dumps(data)!r}\n", tmp_path
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "archive_expr, message",
     [
@@ -228,6 +334,21 @@ def test_malformed_artifact_shapes_are_rejected_before_done_receipt(
     receipt = _receipt(caught.value)
     assert receipt.status == "failed"
     assert message in (receipt.error or "")
+
+
+def test_sample_stat_semantics_are_deferred_to_the_evaluator(tmp_path):
+    source = _source(
+        _manifest(),
+        "np.savez(ARTIFACT, position=np.zeros((1, 2, 1)), "
+        "_ss_unknown=np.zeros((1, 2)))\nprint('DONE')",
+    )
+
+    result = launch_generated_program(source, tmp_path)
+
+    assert result.receipt.status == "success"
+    assert result.artifact_path is not None
+    with pytest.raises(ValueError, match="generated contract"):
+        load_generated_artifact(result.artifact_path, result.manifest)
 
 
 def test_environment_override_values_are_not_recorded_in_receipt(tmp_path):
@@ -421,6 +542,7 @@ def test_reference_identity_is_persisted_as_opaque_receipt_provenance(tmp_path):
         persisted.reference_identity["protocol"] = "tampered"  # type: ignore[index]
 
 
+@pytest.mark.e2e
 def test_launcher_executes_an_emitted_dynamic_hmc_program(tmp_path):
     recipe = Recipe(
         model_name="mvn_10",

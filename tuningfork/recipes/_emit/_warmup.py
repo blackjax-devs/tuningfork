@@ -155,6 +155,8 @@ def _emit_chees(ctx: dict[str, Any]) -> str:
         "_next_random_arg_fn = _adapted_params['next_random_arg_fn']",
         "_integration_steps_params = _adapted_params['integration_steps_params']",
         "_warmup_is_perchain = False",
+        "_warmup_grad_evals = None",
+        "_warmup_grad_evals_reason = 'CHEES: adaptation does not expose exact gradient accounting'",
     ]
     return "\n".join(lines)
 
@@ -191,6 +193,8 @@ def _emit_meads(ctx: dict[str, Any]) -> str:
         '    "delta": jnp.asarray(_meads_raw["delta"]),',
         "}",
         "_warmup_is_perchain = False",
+        "_warmup_grad_evals = None",
+        "_warmup_grad_evals_reason = 'MEADS: adaptation does not expose exact gradient accounting'",
     ]
     return "\n".join(lines)
 
@@ -220,6 +224,8 @@ def _emit_no_warmup() -> str:
     )
     a("# to (num_chains, ...) before the vmap-scan loop.")
     a("_warmup_init_is_single_chain = True")
+    a("_warmup_grad_evals = 0")
+    a("_warmup_grad_evals_reason = 'no_warmup: no gradient evaluations executed'")
     return "\n".join(lines)
 
 
@@ -304,20 +310,29 @@ def _emit_window_adaptation(
         a("")
         a("@jax.vmap")
         a("def _run_one_warmup(k, x0):")
-        a(f"    (state, params), _ = _warmup.run(k, x0, {n_warmup})")
-        a("    return state, params")
+        a(f"    (state, params), info = _warmup.run(k, x0, {n_warmup})")
+        a("    return state, params, info")
         a("")
         a("")
         if warmup_progress_bar:
             a('with blackjax.progress_bar(label="warmup"):')
             a(
-                "    _batched_states, _adapted_params = _run_one_warmup("
+                "    _batched_states, _adapted_params, _warmup_info = _run_one_warmup("
                 "_warmup_keys, _init_positions)"
             )
         else:
             a(
-                "_batched_states, _adapted_params = _run_one_warmup(_warmup_keys, _init_positions)"
+                "_batched_states, _adapted_params, _warmup_info = _run_one_warmup(_warmup_keys, _init_positions)"
             )
+        a("_warmup_nis = jnp.asarray(_warmup_info.info.num_integration_steps)")
+        a(f"if _warmup_nis.shape[-1] != {n_warmup}:")
+        a(
+            "    raise ValueError('window_adaptation gradient accounting no longer has one integration-step count per warmup draw')"
+        )
+        a("_warmup_grad_evals = int(jnp.sum(_warmup_nis))")
+        a(
+            "_warmup_grad_evals_reason = 'window_adaptation: summed per-step num_integration_steps across chains'"
+        )
         a("# _warmup_is_perchain=True: adapted params have a leading num_chains axis.")
         a("_warmup_is_perchain = True")
         a("_state_post_warmup = _batched_states")
@@ -341,12 +356,21 @@ def _emit_window_adaptation(
         if warmup_progress_bar:
             a('with blackjax.progress_bar(label="warmup"):')
             a(
-                f"    (state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
+                f"    (state, _adapted_params), _warmup_info = _warmup.run(_warmup_key, init_position, {n_warmup})"
             )
         else:
             a(
-                f"(state, _adapted_params), _ = _warmup.run(_warmup_key, init_position, {n_warmup})"
+                f"(state, _adapted_params), _warmup_info = _warmup.run(_warmup_key, init_position, {n_warmup})"
             )
+        a("_warmup_nis = jnp.asarray(_warmup_info.info.num_integration_steps)")
+        a(f"if _warmup_nis.shape[-1] != {n_warmup}:")
+        a(
+            "    raise ValueError('window_adaptation gradient accounting no longer has one integration-step count per warmup draw')"
+        )
+        a("_warmup_grad_evals = int(jnp.sum(_warmup_nis))")
+        a(
+            "_warmup_grad_evals_reason = 'window_adaptation: summed per-step num_integration_steps for one chain'"
+        )
         a("# Broadcast state to (num_chains,) for scan(vmap(kernel)).")
         a("_state_post_warmup = jax.tree.map(")
         a("    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),")
@@ -428,6 +452,10 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
         a('        "_pathfinder_psis_pareto_k"')
         a("    ),")
         a("}")
+        a("_warmup_grad_evals = None")
+        a(
+            "_warmup_grad_evals_reason = 'multipathfinder: gradient evaluations are not exposed by the adaptation result'"
+        )
     else:
         a(
             f"# === WARMUP: pathfinder (single-path, target_acceptance_rate={target_acceptance_rate}, n_warmup={n_warmup}) ==="
@@ -463,6 +491,10 @@ def _emit_pathfinder(ctx: dict[str, Any], *, multi: bool) -> str:
             '    "inverse_mass_matrix": _pf_results.parameters["inverse_mass_matrix"],  # (d, d)'
         )
         a("}")
+        a("_warmup_grad_evals = None")
+        a(
+            "_warmup_grad_evals_reason = 'pathfinder: gradient evaluations are not exposed by the adaptation result'"
+        )
 
     return "\n".join(lines)
 
@@ -607,6 +639,10 @@ def _emit_multipathfinder_window_adaptation(ctx: dict[str, Any]) -> str:
     a('# _adapted_params["step_size"]: scalar (shared across chains)')
     a('# _adapted_params["inverse_mass_matrix"]: (d, d)')
     a("# _pareto_k: scalar PSIS Pareto-k diagnostic")
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'multipathfinder_window_adaptation: composite warmup does not expose exact gradient accounting'"
+    )
 
     return "\n".join(lines)
 
@@ -776,6 +812,10 @@ def _emit_vi_warmup(ctx: dict[str, Any]) -> str:
     a(f'    "inverse_mass_matrix": {vi_adapted_imm_expr},')
     a("}")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'VI warmup: optimization gradient cost is not represented by MCMC integration-step telemetry'"
+    )
 
     return "\n".join(lines)
 
@@ -930,6 +970,10 @@ def _emit_laplace_multiphase_warmup(ctx: dict[str, Any]) -> str:
     a("#                         broadcast to (num_chains,) leading axis")
     a('#   _adapted_params["step_size"]             scalar (shared across chains)')
     a('#   _adapted_params["inverse_mass_matrix"]   shape (phi_dim, phi_dim) [dense]')
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'laplace_multiphase_warmup: multiphase adaptation does not expose exact gradient accounting'"
+    )
 
     return "\n".join(lines)
 
@@ -992,11 +1036,11 @@ def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("        logdensity_fn=logdensity_fn,")
     a("        diagonal_preconditioning=True,")
     a("    )")
-    a("    return s, adap")
+    a("    return s, adap, total")
     a("")
     a("")
     a(
-        "_mclmc_states, _mclmc_adap = _mclmc_tune_one(_mclmc_tune_keys, _mclmc_init_states)"
+        "_mclmc_states, _mclmc_adap, _mclmc_total_steps = _mclmc_tune_one(_mclmc_tune_keys, _mclmc_init_states)"
     )
     a("_adapted_params = {")
     a('    "L": _mclmc_adap.L,')
@@ -1005,6 +1049,10 @@ def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("}")
     a("_state_post_warmup = _mclmc_states")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = int(jnp.sum(jnp.asarray(_mclmc_total_steps))) * 2")
+    a(
+        "_warmup_grad_evals_reason = 'mclmc_tuning: summed total_steps across chains, two gradients per integrator step'"
+    )
 
     return "\n".join(lines)
 
@@ -1036,7 +1084,7 @@ def _emit_adjusted_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("        diagonal_preconditioning=True,")
     a("    )")
     a(
-        "_adjusted_states, _adjusted_adap, _ = _adjusted_tune_one(_adjusted_keys, _adjusted_states)"
+        "_adjusted_states, _adjusted_adap, _adjusted_total_steps = _adjusted_tune_one(_adjusted_keys, _adjusted_states)"
     )
     a("_adapted_params = {")
     a('    "L": _adjusted_adap.L,')
@@ -1045,6 +1093,10 @@ def _emit_adjusted_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("}")
     a("_state_post_warmup = _adjusted_states")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = int(jnp.sum(jnp.asarray(_adjusted_total_steps))) * 2")
+    a(
+        "_warmup_grad_evals_reason = 'adjusted_mclmc_tuning: summed total_steps across chains, two gradients per integrator step'"
+    )
     return "\n".join(lines)
 
 
@@ -1229,5 +1281,9 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("}")
     a("_state_post_warmup = _lrd_states")
     a("_warmup_is_perchain = True")
+    a("_warmup_grad_evals = None")
+    a(
+        "_warmup_grad_evals_reason = 'MCLMC-LRD: pilot and low-rank adaptation do not expose exact total gradient accounting'"
+    )
 
     return "\n".join(lines)

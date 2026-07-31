@@ -1,3 +1,17 @@
+# Copyright 2026- The Blackjax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Fail-closed execution of generated recipe programs."""
 
 from __future__ import annotations
@@ -24,6 +38,8 @@ import numpy as np
 from ._execution_manifest import ExecutionManifest
 from ._execution_plan import canonical_json
 from ._execution_receipt import ExecutionReceipt
+from ._execution_telemetry import ExecutionTelemetry
+from ._sample_stats import SAMPLE_STAT_PREFIX
 
 _PROGRAM_FILENAME = "program.py"
 _STDOUT_FILENAME = "stdout.log"
@@ -96,6 +112,9 @@ class LaunchResult:
     timed_out: bool
     source_sha256: str
     artifact_sha256: str | None
+    telemetry_path: Path | None
+    telemetry_sha256: str | None
+    telemetry: ExecutionTelemetry | None
     manifest: ExecutionManifest
     receipt: ExecutionReceipt
     timings: ExecutionTimings | None
@@ -251,8 +270,7 @@ def _manifest_from_source(source: str) -> ExecutionManifest:
         raise GeneratedProgramError(f"invalid execution manifest: {exc}") from exc
 
 
-def _artifact_basename(manifest: ExecutionManifest) -> str:
-    value = manifest.normalized_plan["artifact_filename"]
+def _safe_basename(value: Any, label: str) -> str:
     if (
         not isinstance(value, str)
         or not value
@@ -261,10 +279,15 @@ def _artifact_basename(manifest: ExecutionManifest) -> str:
         or "\x00" in value
         or value in {".", ".."}
     ):
-        raise GeneratedProgramError(
-            "manifest artifact_filename must be a safe basename"
-        )
+        raise GeneratedProgramError(f"manifest {label} must be a safe basename")
     return value
+
+
+def _artifact_basename(manifest: ExecutionManifest) -> str:
+    """Backward-compatible helper for validating the declared draws name."""
+    return _safe_basename(
+        manifest.normalized_plan["artifact_filename"], "artifact_filename"
+    )
 
 
 def _stop_process_group(process: subprocess.Popen[Any]) -> None:
@@ -294,7 +317,9 @@ def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
         files = list(archive.files)
         if not files:
             raise ValueError("draws archive is empty")
-        position_names = [name for name in files if not name.startswith("_ss_")]
+        position_names = [
+            name for name in files if not name.startswith(SAMPLE_STAT_PREFIX)
+        ]
         if not position_names:
             raise ValueError("draws archive has no position arrays")
         expected_shape = (
@@ -305,13 +330,27 @@ def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
             array = archive[name]
             if array.dtype.hasobject or array.size == 0:
                 raise ValueError(f"artifact array {name!r} is empty or object-typed")
+            if not (
+                np.issubdtype(array.dtype, np.bool_)
+                or (
+                    np.issubdtype(array.dtype, np.number)
+                    and not np.issubdtype(array.dtype, np.complexfloating)
+                )
+            ):
+                raise ValueError(f"artifact array {name!r} is not real numeric")
+            if not np.all(np.isfinite(array)):
+                raise ValueError(f"artifact array {name!r} contains non-finite values")
             if array.ndim < 2 or array.shape[:2] != expected_shape:
-                kind = "statistic" if name.startswith("_ss_") else "position array"
+                kind = (
+                    "statistic"
+                    if name.startswith(SAMPLE_STAT_PREFIX)
+                    else "position array"
+                )
                 raise ValueError(
                     f"{kind} {name!r} has leading shape {array.shape[:2]!r}; "
                     f"expected {expected_shape!r}"
                 )
-            if name.startswith("_ss_") and name == "_ss_":
+            if name == SAMPLE_STAT_PREFIX:
                 raise ValueError("statistic name is empty")
     return artifact_sha256
 
@@ -350,6 +389,9 @@ def _finish_attempt(
     timed_out: bool,
     source_sha256: str,
     artifact_sha256: str | None,
+    telemetry_path: Path | None,
+    telemetry_sha256: str | None,
+    telemetry: ExecutionTelemetry | None,
     manifest: ExecutionManifest,
     started_at: str,
     command: tuple[str, ...],
@@ -373,6 +415,8 @@ def _finish_attempt(
             stderr_sha256=stderr_sha256,
             artifact_path=expected_artifact_name,
             artifact_sha256=artifact_sha256,
+            telemetry_path=(None if telemetry_path is None else telemetry_path.name),
+            telemetry_sha256=telemetry_sha256,
             return_code=returncode,
             timed_out=timed_out,
             command=command,
@@ -409,6 +453,9 @@ def _finish_attempt(
         timed_out=timed_out,
         source_sha256=source_sha256,
         artifact_sha256=artifact_sha256,
+        telemetry_path=telemetry_path,
+        telemetry_sha256=telemetry_sha256,
+        telemetry=telemetry,
         manifest=manifest,
         receipt=receipt,
         timings=timings,
@@ -457,7 +504,30 @@ def launch_generated_program(
             raise GeneratedProgramError(f"invalid reference_identity: {exc}") from exc
 
     manifest = _manifest_from_source(source)
-    expected_artifact_name = _artifact_basename(manifest)
+    if manifest.manifest_version != "tuningfork.execution-manifest.v2":
+        raise GeneratedProgramError("legacy execution manifest v1 is not executable")
+    expected_artifact_name = _safe_basename(
+        manifest.normalized_plan["artifact_filename"], "artifact_filename"
+    )
+    expected_telemetry_name = _safe_basename(
+        manifest.normalized_plan["telemetry_artifact_filename"],
+        "telemetry_artifact_filename",
+    )
+    reserved = {
+        _PROGRAM_FILENAME,
+        _STDOUT_FILENAME,
+        _STDERR_FILENAME,
+        _RECEIPT_FILENAME,
+        _WORK_DIRECTORY,
+    }
+    if (
+        expected_artifact_name == expected_telemetry_name
+        or expected_artifact_name in reserved
+        or expected_telemetry_name in reserved
+    ):
+        raise GeneratedProgramError(
+            "manifest artifact names collide with reserved names"
+        )
 
     root = Path(run_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -474,6 +544,8 @@ def launch_generated_program(
     stderr_path = run_dir / _STDERR_FILENAME
     work_artifact_path = work_dir / expected_artifact_name
     expected_artifact_path = run_dir / expected_artifact_name
+    work_telemetry_path = work_dir / expected_telemetry_name
+    expected_telemetry_path = run_dir / expected_telemetry_name
     command = (python_executable, _PROGRAM_FILENAME)
     environment = _environment(
         python_executable, tuple(sorted(() if env is None else env))
@@ -490,6 +562,8 @@ def launch_generated_program(
     timed_out = False
     error: str | None = None
     timings: ExecutionTimings | None = None
+    telemetry: ExecutionTelemetry | None = None
+    telemetry_sha256: str | None = None
     with (
         tempfile.TemporaryFile() as stdout_stream,
         tempfile.TemporaryFile() as stderr_stream,
@@ -561,6 +635,7 @@ def launch_generated_program(
         (stdout_path, "stdout"),
         (stderr_path, "stderr"),
         (expected_artifact_path, "draws artifact"),
+        (expected_telemetry_path, "telemetry"),
         (run_dir / _RECEIPT_FILENAME, "receipt"),
     )
     for path, label in collision_paths:
@@ -657,6 +732,22 @@ def launch_generated_program(
             error, "manifest-declared draws artifact is not a regular file"
         )
 
+    telemetry_path: Path | None = None
+    if work_telemetry_path.is_symlink():
+        error = _append_error(error, "manifest-declared telemetry is a symbolic link")
+    elif work_telemetry_path.is_file():
+        try:
+            telemetry_sha256 = _sha256_file(work_telemetry_path)
+            os.link(work_telemetry_path, expected_telemetry_path)
+            telemetry_path = expected_telemetry_path
+            work_telemetry_path.unlink()
+        except OSError as exc:
+            error = _append_error(error, f"telemetry could not be preserved: {exc}")
+    elif os.path.lexists(work_telemetry_path):
+        error = _append_error(
+            error, "manifest-declared telemetry is not a regular file"
+        )
+
     if returncode is not None and returncode != 0:
         error = _append_error(
             error, f"generated program exited with return code {returncode}"
@@ -686,6 +777,7 @@ def launch_generated_program(
         _STDOUT_FILENAME,
         _STDERR_FILENAME,
         expected_artifact_name,
+        expected_telemetry_name,
     }
     try:
         unexpected_top_level_entries = sorted(
@@ -722,6 +814,14 @@ def launch_generated_program(
                 )
             artifact_sha256 = validated_artifact_sha256
 
+    if telemetry_path is None:
+        error = _append_error(error, "manifest-declared telemetry is missing")
+    else:
+        try:
+            telemetry = ExecutionTelemetry.read_path(telemetry_path, manifest)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            error = _append_error(error, f"invalid execution telemetry: {exc}")
+
     result = _finish_attempt(
         run_dir=run_dir,
         source_path=source_path,
@@ -742,6 +842,9 @@ def launch_generated_program(
         reference_identity=reference_identity,
         error=error,
         timings=timings,
+        telemetry_path=telemetry_path,
+        telemetry_sha256=telemetry_sha256,
+        telemetry=telemetry,
     )
     if result.receipt.status == "failed":
         raise GeneratedProgramError(

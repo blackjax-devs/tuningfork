@@ -337,6 +337,36 @@ def test_emit_script_postamble_npz_filename_contains_recipe_components() -> None
     ), "Expected '_npz_path' variable in emitted script (draws output path)."
 
 
+@pytest.mark.fast
+def test_emit_script_telemetry_is_manifest_bound_and_fails_closed_on_missing_geometry() -> (
+    None
+):
+    """Telemetry uses manifest artifact names and never publishes missing fields as null."""
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    script = emit_script(load_recipe(recipe_path))
+
+    assert "_manifest['normalized_plan']['telemetry_artifact_filename']" in script
+    assert "_manifest['normalized_plan']['artifact_filename']" in script
+    assert "_manifest['plan_hash']" in script
+    assert "_manifest['executable_config_hash']" in script
+    assert "any(value is None for value in _geometry.values())" in script
+    assert "adapted geometry fields were not returned by warmup" in script
+    assert "'geometry_source': _geometry_source" in script
+    assert "'geometry_scope': _geometry_scope" in script
+    assert "allow_nan=False" in script
+
+
+@pytest.mark.fast
+def test_emit_script_telemetry_low_rank_serializer_is_structured() -> None:
+    """The generated serializer preserves LowRank IMM fields, including batches."""
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    script = emit_script(load_recipe(recipe_path))
+
+    assert "'type': 'low_rank_inverse_mass_matrix'" in script
+    assert "value.sigma" in script and "value.U" in script and "value.lam" in script
+    assert "'warmup_grad_evals_reason': _warmup_grad_evals_reason" in script
+
+
 @pytest.mark.e2e
 def test_emit_script_multichain_draws_npz(tmp_path: Path) -> None:
     """Emitted multi-chain script runs, writes .draws.npz, and prints DONE.
@@ -771,6 +801,32 @@ def test_emit_script_warmup_algorithm_matches_runner(sampler: str, warmup: str) 
         f"should call `blackjax.{expected_algo}` but doesn't. "
         f"Section:\n{warmup_section[:500]}"
     )
+
+
+@pytest.mark.fast
+def test_hmc_warmup_uses_recipe_pinned_trajectory_length() -> None:
+    """A material HMC override must reach both generated warmup and sampling."""
+    from tuningfork.recipes._base import Effort, Recipe
+
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="hmc",
+        warmup_name="window_adaptation_diag_imm",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "num_integration_steps": 3},
+        warmup_params={"n_warmup": 10, "target_acceptance_rate": 0.8},
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={},
+        difficulty=None,
+        instructions="",
+        tuning_seed=0,
+    )
+
+    warmup_source = _extract_warmup_section(
+        emit_script(recipe, num_samples=2, num_chains=1)
+    )
+    assert "num_integration_steps=3" in warmup_source
 
 
 @pytest.mark.fast
@@ -2147,12 +2203,12 @@ def test_sample_stats_matrix_preserves_safe_sampler_fields() -> None:
     """Per-step scalar/bool info fields are explicit and nested pytrees stay out."""
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.recipes._emit_script import (
-        _SAMPLER_SAMPLE_STAT_FIELDS,
         _build_draws_ss_block,
         _build_info_diagnostics_block,
     )
+    from tuningfork.recipes._sample_stats import SAMPLE_STATS_CONTRACTS
 
-    assert set(_SAMPLER_SAMPLE_STAT_FIELDS) == set(BASE_METHODS)
+    assert set(SAMPLE_STATS_CONTRACTS) == set(BASE_METHODS)
 
     nuts = _build_draws_ss_block("nuts")
     for field in (
@@ -2191,3 +2247,12 @@ def test_sample_stats_matrix_preserves_safe_sampler_fields() -> None:
     for sampler in ("orbital_hmc", "elliptical_slice"):
         diagnostics = _build_info_diagnostics_block(sampler)
         assert "_infos.acceptance_rate" not in diagnostics
+
+
+@pytest.mark.fast
+def test_generated_artifact_fails_closed_on_reserved_position_names() -> None:
+    recipe = load_recipe(_CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json")
+    script = emit_script(recipe, num_samples=2)
+
+    assert "_reserved_positions = sorted(" in script
+    assert "position names use reserved generated-stat prefix _ss_" in script

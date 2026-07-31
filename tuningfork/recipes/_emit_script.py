@@ -61,6 +61,7 @@ from tuningfork.recipes._emit import (
 from tuningfork.recipes._execution_manifest import ExecutionManifest
 from tuningfork.recipes._execution_plan import ExecutionOverrides
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
+from tuningfork.recipes._sample_stats import SAMPLE_STAT_PREFIX, sample_stat_fields
 
 if TYPE_CHECKING:
     from tuningfork.recipes._base import Recipe
@@ -120,82 +121,6 @@ _UNSUPPORTED_PINNED_REPLAY_SAMPLERS = frozenset(
     {"laplace_hmc", "laplace_mhmc", "laplace_dhmc", "laplace_dmhmc"}
 )
 
-# The generated ``sample_stats`` payload is intentionally a fixed matrix of
-# scalar/boolean fields.  Nested pytrees (momentum, proposal, trajectory
-# states, and orbital/elliptical momentum arrays) are not serializable as
-# per-step NumPy arrays and are deliberately omitted.
-_HMC_SAMPLE_STATS = (
-    "is_divergent",
-    "energy",
-    "num_integration_steps",
-    "acceptance_rate",
-    "is_accepted",
-)
-_LAPLACE_SAMPLE_STATS = _HMC_SAMPLE_STATS + (
-    "lbfgs_iter_num",
-    "lbfgs_error",
-    "lbfgs_converged",
-    "lbfgs_hit_maxiter",
-)
-_RW_SAMPLE_STATS = ("acceptance_rate", "is_accepted")
-_SAMPLER_SAMPLE_STAT_FIELDS: dict[str, tuple[str, ...]] = {
-    "nuts": (
-        "is_divergent",
-        "energy",
-        "num_integration_steps",
-        "num_trajectory_expansions",
-        "is_turning",
-        "acceptance_rate",
-    ),
-    **{
-        name: _HMC_SAMPLE_STATS
-        for name in (
-            "hmc",
-            "mhmc",
-            "dmhmc",
-            "dynamic_hmc",
-            "ghmc",
-            "rmhmc",
-            "adjusted_mclmc",
-            "adjusted_mclmc_dynamic",
-        )
-    },
-    **{
-        name: _LAPLACE_SAMPLE_STATS
-        for name in (
-            "laplace_hmc",
-            "laplace_dhmc",
-            "laplace_mhmc",
-            "laplace_dmhmc",
-        )
-    },
-    "mclmc": ("logdensity", "kinetic_change", "energy_change", "nonans"),
-    **{
-        name: _RW_SAMPLE_STATS
-        for name in (
-            "mala",
-            "barker",
-            "rwm",
-            "irmh",
-            "additive_step_random_walk",
-            "mgrad_gaussian",
-        )
-    },
-    "orbital_hmc": ("weights_mean", "weights_variance"),
-    "elliptical_slice": ("theta", "subiter"),
-    "meanfield_vi": (),
-    "fullrank_vi": (),
-}
-
-
-def _sample_stat_fields(sampler_name: str) -> tuple[str, ...]:
-    try:
-        return _SAMPLER_SAMPLE_STAT_FIELDS[sampler_name]
-    except KeyError as exc:
-        raise ValueError(
-            f"Unsupported sampler for sample stats: {sampler_name!r}"
-        ) from exc
-
 
 def _build_info_diagnostics_block(sampler_name: str) -> str:
     """T1.5: build resolved info-diagnostics block for the postamble.
@@ -207,7 +132,7 @@ def _build_info_diagnostics_block(sampler_name: str) -> str:
         '_acceptance = float("nan")',
         "_n_div = 0",
     ]
-    fields = _sample_stat_fields(sampler_name)
+    fields = sample_stat_fields(sampler_name)
     if "is_divergent" in fields:
         lines.append("_n_div = int(jnp.sum(_infos.is_divergent))")
     if "acceptance_rate" in fields:
@@ -221,13 +146,16 @@ def _build_draws_ss_block(sampler_name: str) -> str:
     Replaces the hasattr(_infos, _ss_field) loop with explicit field access
     per sampler family.
     """
-    fields = _sample_stat_fields(sampler_name)
+    fields = sample_stat_fields(sampler_name)
     if not fields:
         return "    # VI sampler: no per-step MCMC stats (only elbo in info)."
 
     lines = []
     for field in fields:
-        lines.append(f'    _draws_dict["_ss_{field}"] = np.asarray(_infos.{field})')
+        lines.append(
+            f'    _draws_dict["{SAMPLE_STAT_PREFIX}{field}"] = '
+            f"np.asarray(_infos.{field})"
+        )
     return (
         "\n".join(lines) if lines else "    pass  # no per-step stats for this sampler"
     )
@@ -701,6 +629,61 @@ def emit_script(
         recipe.base_method_name
     )
     ctx["draws_ss_block"] = _build_draws_ss_block(recipe.base_method_name)
+    ctx["sample_stat_prefix"] = SAMPLE_STAT_PREFIX
+    # Fixed trajectory length is recipe geometry (not adapted) for these samplers.
+    if recipe.base_method_name in {
+        "hmc",
+        "mhmc",
+        "rmhmc",
+        "laplace_hmc",
+        "laplace_mhmc",
+    }:
+        ctx["fixed_num_integration_steps"] = recipe.base_method_params.get(
+            "num_integration_steps"
+        )
+    else:
+        ctx["fixed_num_integration_steps"] = None
+    ctx["telemetry_schema"] = "tuningfork.generated-run-telemetry.v1"
+    _telemetry_geometry: dict[str, str] = {}
+    _telemetry_geometry_reason: str | None = None
+    _telemetry_geometry_source = "unavailable"
+    if recipe.warmup_name not in {"", "no_warmup"}:
+        _telemetry_geometry_source = "adapted"
+        _telemetry_geometry = {
+            # ``get`` is deliberate: old/upstream warmups may omit fields.  The
+            # generated postamble turns any missing field into an explicitly
+            # unavailable geometry rather than serialising JSON nulls.
+            "step_size": "_adapted_params.get('step_size')",
+            "inverse_mass_matrix": "_adapted_params.get('inverse_mass_matrix')",
+        }
+        if recipe.warmup_name in {
+            "mclmc_tuning",
+            "mclmc_lrd_tuning",
+            "adjusted_mclmc_tuning",
+        }:
+            _telemetry_geometry["L"] = "_adapted_params.get('L')"
+        if recipe.warmup_name == "meads":
+            _telemetry_geometry.update(
+                {
+                    "alpha": "_adapted_params.get('alpha')",
+                    "delta": "_adapted_params.get('delta')",
+                }
+            )
+    elif recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _telemetry_geometry_source = "pinned"
+        _telemetry_geometry = {
+            "step_size": "_default_step_size",
+            "inverse_mass_matrix": "_default_imm",
+        }
+        if recipe.base_method_name == "mclmc":
+            _telemetry_geometry["L"] = "_default_L"
+    else:
+        _telemetry_geometry_reason = (
+            "sampler has no stable adapted geometry fields in generated protocol"
+        )
+    ctx["telemetry_geometry_expr"] = _telemetry_geometry
+    ctx["telemetry_geometry_source"] = _telemetry_geometry_source
+    ctx["telemetry_geometry_unavailable_reason"] = _telemetry_geometry_reason
 
     # T1.7: VI warmup + sampler slots (unified vi_warmup.py.tmpl + vi_sampler.py.tmpl).
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
@@ -870,7 +853,9 @@ def emit_script(
         _warmup_extra = {}
         for _space in _bm.default_hp_space:
             if _space.name not in ("step_size", "inverse_mass_matrix"):
-                _warmup_extra[_space.name] = default_value_for_space(_space)
+                _warmup_extra[_space.name] = recipe.base_method_params.get(
+                    _space.name, default_value_for_space(_space)
+                )
 
     # Render as ", k1=v1, k2=v2" so the template can inject it after the
     # base kwargs without re-thinking comma placement. Empty for nuts
@@ -1185,6 +1170,15 @@ def emit_script(
         or recipe.warmup_name in _VI_WARMUP_NAMES
         or recipe.warmup_name in _MCLMC_WARMUP_NAMES
         or _resolved_warmup_init_is_prebatched
+    )
+    ctx["telemetry_geometry_scope"] = (
+        None
+        if not _telemetry_geometry
+        else (
+            "shared"
+            if _is_no_warmup or not _resolved_warmup_is_perchain
+            else "per_chain"
+        )
     )
     # mclmc warmups also return per-chain L — the inference loop needs a
     # separate batched_L vmap axis alongside step_size and imm.

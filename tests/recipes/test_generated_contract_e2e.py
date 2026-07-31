@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -26,7 +27,7 @@ from tuningfork.catalog import emit_script, execute_recipe, prepare_pinned_repla
 from tuningfork.recipes import Effort, Recipe
 
 
-def _recipe(**changes: object) -> Recipe:
+def _recipe(**changes: Any) -> Recipe:
     recipe = Recipe(
         model_name="mvn_10",
         base_method_name="hmc",
