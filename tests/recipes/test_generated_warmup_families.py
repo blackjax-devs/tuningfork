@@ -25,6 +25,7 @@ from tuningfork.catalog import emit_script, execute_recipe
 from tuningfork.model import MODELS
 from tuningfork.recipes import Effort, Recipe
 from tuningfork.recipes._emit._warmup import emit_warmup
+from tuningfork.recipes._execution_telemetry import ExecutionTelemetry
 
 
 def _recipe(warmup: str, *, base: str = "nuts", params: dict | None = None) -> Recipe:
@@ -63,7 +64,11 @@ def test_generated_family_contracts() -> None:
     )
     assert "num_chains >= num_folds" in meads and "random.normal" in meads
     lrd = emit_script(
-        _recipe("mclmc_lrd_tuning", base="mclmc", params={"k_rank": 1, "pilot_n_warmup": 2, "pilot_n_samples": 2}),
+        _recipe(
+            "mclmc_lrd_tuning",
+            base="mclmc",
+            params={"k_rank": 1, "pilot_n_warmup": 2, "pilot_n_samples": 2},
+        ),
         num_warmup=2,
         num_samples=1,
     )
@@ -108,6 +113,7 @@ def test_generated_vi_warmups_execute(tmp_path: Path, warmup: str) -> None:
         env={"JAX_PLATFORM_NAME": "cpu"},
     )
     assert result.artifact_path and result.artifact_path.is_file()
+    assert isinstance(result.telemetry, ExecutionTelemetry)
     step = np.asarray(result.telemetry.geometry["step_size"])
     assert np.all(np.isfinite(step)) and np.all(step > 0)
     imm = np.asarray(result.telemetry.geometry["inverse_mass_matrix"])
@@ -124,7 +130,9 @@ def test_generated_vi_warmups_execute(tmp_path: Path, warmup: str) -> None:
 @pytest.mark.parametrize("warmup", ["pathfinder", "multipathfinder"])
 @pytest.mark.e2e
 def test_generated_pathfinder_warmups_execute(tmp_path: Path, warmup: str) -> None:
-    params = {"n_paths": 2, "num_samples_per_path": 2} if warmup == "multipathfinder" else {}
+    params = (
+        {"n_paths": 2, "num_samples_per_path": 2} if warmup == "multipathfinder" else {}
+    )
     result = execute_recipe(
         _recipe(warmup, params=params),
         tmp_path / warmup,
@@ -136,6 +144,7 @@ def test_generated_pathfinder_warmups_execute(tmp_path: Path, warmup: str) -> No
         env={"JAX_PLATFORM_NAME": "cpu"},
     )
     assert result.artifact_path and result.artifact_path.is_file()
+    assert isinstance(result.telemetry, ExecutionTelemetry)
     step = np.asarray(result.telemetry.geometry["step_size"])
     assert np.all(np.isfinite(step)) and np.all(step > 0)
     imm = np.asarray(result.telemetry.geometry["inverse_mass_matrix"])

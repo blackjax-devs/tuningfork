@@ -57,7 +57,7 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
     import numpy as np
 
     from tuningfork.recipes._base import Effort
-    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+    from tuningfork.recipes._certification_runner import emit_low_recipe_for_cell
 
     # Deterministic empirical spec: bimodal at L=3 and L=7 (well within mvn_10 range)
     policy_spec = {
@@ -145,7 +145,7 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
 
 def test_medium_with_policy_tag_none_preserves_low(tmp_path):
     """policy_tag=None (default) preserves LOW effort and canonical filename."""
-    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+    from tuningfork.recipes._certification_runner import emit_low_recipe_for_cell
 
     _hydrate_mvn10_reference(tmp_path)
     result = emit_low_recipe_for_cell(

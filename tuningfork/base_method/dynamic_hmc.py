@@ -37,7 +37,6 @@ References
   (ChEES-HMC / dynamic HMC paper.)
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -47,7 +46,6 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="dynamic_hmc",
     family="mcmc",
-    factory=blackjax.dynamic_hmc,  # blackjax.dhmc is blackjax.dynamic_hmc (alias)
     grad_count_per_step=lambda info: jnp.asarray(info.num_integration_steps),
     grad_count_convention="info.num_integration_steps (realized count per step)",
     default_hp_space=(
@@ -58,11 +56,7 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,  # inverse_mass_matrix from CHEES warmup
     target_acceptance_rate=0.651,  # CHEES upstream default (slightly above HMC 0.65)
-    # T2.3 descriptors: step_size + imm per-chain from CHEES warmup.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=True,  # dynamic_hmc needs DynamicHMCState (random_generator_arg);
     # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Dynamic HMC (Hoffman et al. 2022). Each step samples a random number "
         "of leapfrog steps from a length distribution adapted by CHEES. "

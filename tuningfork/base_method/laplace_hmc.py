@@ -11,13 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Laplace-marginal HMC (static trajectory) entry for the tuningfork registry.
+"""Descriptor for Laplace-marginal HMC recipe emission.
 
-Wraps ``blackjax.laplace_hmc`` (``blackjax/mcmc/laplace_hmc.py``) for the
-tuningfork algorithm registry.  This is HMC on the Laplace-approximated marginal
-log-density of a hierarchical model, integrating out latent variables ``theta``
-via L-BFGS at each leapfrog step, with gradients w.r.t. ``phi`` computed via the
-implicit function theorem.
+Generated emission targets ``blackjax.laplace_hmc``
+(``blackjax/mcmc/laplace_hmc.py``). This is HMC on the
+Laplace-approximated marginal log-density of a hierarchical model, integrating
+out latent variables ``theta`` via L-BFGS at each leapfrog step, with gradients
+w.r.t. ``phi`` computed via the implicit function theorem.
 
 Algorithm summary
 -----------------
@@ -48,11 +48,11 @@ convergence tolerance.  The factory default is::
 
     grad_count_per_step = lambda info: jnp.asarray(info.num_integration_steps * 5)
 
-``extra_required_kwargs=("log_joint_fn", "theta_init")``: the generated
-no-warmup protocol raises ``NotImplementedError`` for this method because the
-factory cannot be called with just ``logdensity_fn``; the caller must supply a
-joint log-density ``log_joint_fn(theta, phi)`` and an initial latent position
-``theta_init``.
+``extra_required_kwargs=("log_joint_fn", "theta_init")``: generated emission
+splits the configured model into hyperparameters ``phi`` and latent variables
+``theta``, then supplies a typed joint log-density and latent initializer to
+the BlackJAX factory.  Emission raises ``ValueError`` when the model has no
+registered phi/theta split; it does not guess a configuration.
 
 Use case
 --------
@@ -67,76 +67,15 @@ References
 - ``sampling-book/book/algorithms/laplace_hmc_demo.md`` — full algorithm description.
 """
 
-from typing import Any
-
-import blackjax
-
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 from tuningfork.base_method._laplace_common import _laplace_grad_count
 
-__all__ = ["ENTRY", "_factory"]
-
-
-def _factory(
-    logdensity_fn: Any,  # NOT USED — Laplace family uses log_joint_fn instead
-    *,
-    log_joint_fn: Any,
-    theta_init: Any,
-    step_size: float,
-    inverse_mass_matrix: Any,
-    num_integration_steps: int = 5,
-    **kwargs: Any,  # forwarded to **optimizer_kwargs (e.g. maxiter, gtol, ftol)
-) -> Any:
-    """Build a ``blackjax.laplace_hmc`` kernel.
-
-    Parameters
-    ----------
-    logdensity_fn
-        NOT USED.  Present for interface uniformity with the standard factory
-        signature ``(logdensity_fn, **hp_params) -> SamplingAlgorithm``.
-        The Laplace-marginal family uses ``log_joint_fn`` as the actual
-        primary callable.
-    log_joint_fn
-        Full log joint ``log p(theta, phi, y)`` as a callable
-        ``(theta, phi) -> float``.  Both arguments may be arbitrary PyTrees.
-        Must be at least C³ in ``theta`` for the Laplace approximation to be
-        valid.
-    theta_init
-        Initial guess for the latent variables ``theta``.  Fixes the PyTree
-        structure for all subsequent L-BFGS solves.
-    step_size
-        HMC leapfrog step size.
-    inverse_mass_matrix
-        Inverse mass matrix (1-D array for diagonal, scalar for isotropic).
-        Supplied by warmup adaptation; not a declared scalar parameter.
-    num_integration_steps
-        Number of leapfrog steps per HMC transition.  Default 5.
-    **kwargs
-        Forwarded to ``blackjax.mcmc.laplace_hmc.as_top_level_api`` as
-        ``**optimizer_kwargs`` (e.g. ``maxiter=100``, ``gtol=1e-6``).
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A BlackJAX kernel object with ``.init`` and ``.step`` methods.
-        ``.init(phi_init)`` runs a cold-start L-BFGS to find ``theta_star``
-        and returns a ``LaplaceHMCState``.  ``.step(rng_key, state)`` runs
-        one warm-started HMC transition.
-    """
-    return blackjax.laplace_hmc(
-        log_joint_fn,
-        theta_init,
-        step_size,
-        inverse_mass_matrix,
-        num_integration_steps,
-        **kwargs,
-    )
+__all__ = ["ENTRY"]
 
 
 ENTRY = BaseMethod(
     name="laplace_hmc",
     family="mcmc",
-    factory=_factory,
     # Grad cost: (num_integration_steps + 1) × lbfgs_iter_num — measured via the
     # post-accept L-BFGS iter count as a proxy for per-leapfrog inner iters.
     # Replaces the hardcoded ×5 heuristic with the measured value from info.
@@ -150,14 +89,8 @@ ENTRY = BaseMethod(
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
     extra_required_kwargs=("log_joint_fn", "theta_init"),
-    # Standard HMC-family per-chain parameters.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=True,  # laplace_hmc needs LaplaceHMCState (theta_star warm-start);
-    # HMCState from window_adaptation is incompatible → per-chain kernel.init() required.
-    # extra_kwarg_builder=None: laplace component construction is model-specific and
-    # handled via the _build_laplace_components generated-execution helper (not
-    # portable as a descriptor).
-    extra_kwarg_builder=None,
+    # The generated Laplace preamble supplies the phi/theta model split and
+    # initializes the sampler-specific state.
     notes=(
         "HMC on the Laplace-approximated marginal log-density of hierarchical models. "
         "Latent vars theta integrated out via L-BFGS at each leapfrog step (warm-started "
@@ -168,8 +101,9 @@ ENTRY = BaseMethod(
         "on inner L-BFGS convergence speed). "
         "Use for hierarchical models with latent Gaussian theta and hyperparameters phi "
         "where direct sampling of (theta, phi) jointly suffers from funnel geometry. "
-        "extra_required_kwargs=('log_joint_fn', 'theta_init'); no_warmup raises "
-        "NotImplementedError; a specialised wiring path is required. "
+        "extra_required_kwargs=('log_joint_fn', 'theta_init'); generated emission "
+        "requires a registered model phi/theta split and fails explicitly when "
+        "that configuration is absent. "
         "See sampling-book/book/algorithms/laplace_hmc_demo.md for full algorithm description."
     ),
 )

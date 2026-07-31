@@ -22,7 +22,6 @@ step to evaluate the candidate.  Optimal target acceptance rate ≈ 0.574
 (Roberts & Rosenthal 1998).
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -32,18 +31,13 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="mala",
     family="mcmc",
-    factory=blackjax.mala,  # called as factory(logdensity_fn, step_size=...)
     grad_count_per_step=lambda info: jnp.asarray(1),
     grad_count_convention="1",
     default_hp_space=(HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),),
     needs_mass_matrix=False,
     target_acceptance_rate=0.574,
-    # T2.3 descriptors: standard HMC family (step_size per-chain from warmup).
     # MALA does not use inverse_mass_matrix but window_adaptation adapts one and
-    # the factory accepts **kwargs, so the default pair is safe.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # MALAState from warmup is directly usable.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
+    # Generated plans may thread an adapted mass matrix for uniformity.
     notes=(
         "Roberts & Rosenthal '98 optimal accept ≈ 0.574 in high-D. "
         "Constant 1 grad/step (cached MALAState.logdensity_grad reused "

@@ -351,7 +351,7 @@ def _(
             _spd = _budget.get("sampling_seconds_per_draw") or 0.0
             _ww = _budget.get("warmup_wall_seconds") or 0.0
             # Chain count: recipe.warmup_params["num_chains"] is the canonical
-            # source (per _recipe_runner.py:1317 — defaults to RECIPE_NUM_CHAINS=4
+            # source (per _certification_runner.py — defaults to 4 chains
             # when unset). Recipe has no top-level `num_chains` attribute.
             _c = int((recipe.warmup_params or {}).get("num_chains", 4))
 

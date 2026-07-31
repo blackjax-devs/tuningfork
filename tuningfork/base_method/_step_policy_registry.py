@@ -418,8 +418,3 @@ def harvest_step_policy_from_chain_stats(
             f"available keys: {list(data.files)}"
         )
     return harvest_step_policy_from_nis(nis, max_values=max_values)
-
-
-# Backward-compatibility aliases (deprecated; use new names)
-harvest_oracle_spec_from_array = harvest_step_policy_from_nis
-harvest_oracle_spec = harvest_step_policy_from_chain_stats

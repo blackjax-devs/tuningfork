@@ -374,7 +374,7 @@ XFAIL_CELLS: dict[str, str] = {
     # The stop-gap xfail entry is no longer needed — cell is no longer in FAST_CELLS.)
     #
     # 2026-06-16: lotka_volterra-hmc-dense_imm-inner_nuts-e2e xfail REMOVED.
-    # Root cause was _recipe_runner.py omitting is_mass_matrix_diagonal at the
+    # Root cause was the certification runner omitting is_mass_matrix_diagonal at the
     # inner-kernel call sites → NUTS step collapsed (1752× gradient mismatch).
     # Fixed in fix/imm-diagonal-inner-kernel; z=3.033 (3/3 seeds PASS).
     #

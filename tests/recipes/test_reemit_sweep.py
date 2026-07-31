@@ -89,7 +89,7 @@ class TestSeedRecovery:
 
     def test_default_seed_derives_the_corpus_wide_tuning_seed(self) -> None:
         """682737 is what the documented default stamps, on every jax version tried."""
-        from tuningfork.recipes._recipe_runner import RECIPE_SEED
+        from tuningfork.recipes._certification_runner import RECIPE_SEED
 
         assert driver._predicted_tuning_seed(RECIPE_SEED) == 682737
 
@@ -100,7 +100,7 @@ class TestSeedRecovery:
         seed, so cells re-emitted that way record a tuning_seed the default never
         produces.  Dropping this candidate silently skips 19 committed cells.
         """
-        from tuningfork.recipes._recipe_runner import RECIPE_SEED
+        from tuningfork.recipes._certification_runner import RECIPE_SEED
 
         candidates = driver._seed_candidates()
         assert RECIPE_SEED in candidates

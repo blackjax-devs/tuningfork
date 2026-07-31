@@ -16,7 +16,7 @@
 The core **inference choreography** (warmup + sampler + inference loop) is
 emitted inline. The **model definition** is imported via
 ``from tuningfork.model import MODELS``: the canonical NumPyro code lives
-upstream and is not duplicated in a template. The optional tap diagnostics
+upstream and is not duplicated in the generated program. The optional tap diagnostics
 wrapper imports its canonical compatibility and artifact policy.
 
 The tests below enforce:
@@ -47,24 +47,13 @@ from tuningfork.catalog import emit_script, load_recipe
 
 _CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
 
-# Exactly the tuningfork modules an emitted script is allowed to import.
-# The core warmup/sampler/loop stays inline; model and optional instrumentation
-# policy remain single-sourced upstream.
-_ALLOWED_TUNINGFORK_IMPORTS = frozenset(
-    {
-        "tuningfork.diagnostics._tap",
-        "tuningfork.model",
-        "tuningfork.model._numpyro",
-    }
-)
-
 # Top-level packages the emitted script may import.  tuningfork imports are
-# further restricted by _ALLOWED_TUNINGFORK_IMPORTS (checked separately).
+# limited to canonical model and diagnostics modules.
 # stdlib modules used by the emitted preamble/postamble (e.g. ``time`` for
 # wall-clock timing, ``json`` for machine-readable timing, diagnostics cleanup,
 # and ``warnings`` for the progress_bar=True single-chain warmup advisory) are
 # also allowlisted here.
-# VI templates additionally import ``optax`` (VI optimizer) and ``collections``
+# VI programs additionally import ``optax`` (VI optimizer) and ``collections``
 # (stdlib; for inline NamedTuple definition without the typing module).
 _ALLOWED_TOP_LEVEL = frozenset(
     {
@@ -88,43 +77,19 @@ _ALLOWED_TOP_LEVEL = frozenset(
 
 
 @pytest.mark.fast
-def test_emit_script_returns_valid_python() -> None:
-    """emit_script output is syntactically valid Python."""
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe)
-    ast.parse(script)  # raises SyntaxError on malformed output
+def test_emit_script_rmhmc_generated_valid_python() -> None:
+    """The generated RMHMC program is valid and calls the intended API.
 
-
-@pytest.mark.fast
-def test_emit_script_tuning_seed_override_is_in_manifest_and_derived_config() -> None:
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    original_seed = recipe.tuning_seed
-    script = emit_script(recipe, tuning_seed=123)
-    assert recipe.tuning_seed == original_seed
-    assert '"tuning_seed":123' in script
-    assert '"sampler_seed":124' in script
-    assert '"reinit_seed":1122' in script
-
-
-@pytest.mark.fast
-def test_emit_script_rmhmc_template_valid_python() -> None:
-    """rmhmc sampler template produces syntactically valid Python and uses blackjax.rmhmc.
-
-    Phase 8B.3 smoke gate (2026-06-03): the rmhmc.py.tmpl was added alongside
-    the MEDIUM_METHOD_NAMES["rmhmc"] registration.  This test uses the existing
-    eight_schools_ncp LOW hmc recipe as a scaffold — substituting base_method_name
-    with "rmhmc" so emit_script loads the new template — and checks:
+    This uses an existing eight_schools_ncp HMC recipe as a scaffold,
+    substituting ``base_method_name`` with ``rmhmc`` so the generated emitter
+    produces the corresponding sampler call. It checks:
 
     1. The emitted script is syntactically valid Python.
     2. It calls ``blackjax.rmhmc`` (not ``blackjax.hmc``).
-    3. It does NOT call ``blackjax.hmc`` (template swap was complete).
-    4. It contains the ``_imm_to_mass_matrix`` helper that performs the
-       IMM→mass_matrix conversion required by the upstream rmhmc API.
+    3. It does NOT call ``blackjax.hmc``.
+    4. It contains the ``_imm_to_mass_matrix`` helper required by the upstream
+       RMHMC API.
     """
-    import dataclasses
-
     recipe_path = (
         _CATALOG_ROOT
         / "eight_schools_ncp"
@@ -135,8 +100,8 @@ def test_emit_script_rmhmc_template_valid_python() -> None:
         pytest.skip("eight_schools_ncp hmc recipe not in catalog — run emit first")
 
     hmc_recipe = load_recipe(recipe_path)
-    # Swap only the method name; params are structurally identical (step_size,
-    # num_integration_steps, inverse_mass_matrix) so the template slots fill.
+    # Swap only the method name; the recipe parameters are structurally
+    # compatible with the RMHMC emitter.
     rmhmc_recipe = dataclasses.replace(hmc_recipe, base_method_name="rmhmc")
 
     script = emit_script(rmhmc_recipe)
@@ -146,52 +111,20 @@ def test_emit_script_rmhmc_template_valid_python() -> None:
 
     # 2. Calls the right upstream API
     assert "blackjax.rmhmc(" in script, (
-        "rmhmc template must call blackjax.rmhmc(...) — got:\n"
+        "generated RMHMC program must call blackjax.rmhmc(...) — got:\n"
         + script[max(0, script.find("blackjax.")) : script.find("blackjax.") + 80]
     )
 
-    # 3. No stray blackjax.hmc calls (template swap was complete)
+    # 3. No stray blackjax.hmc calls.
     assert (
         "blackjax.hmc(" not in script
-    ), "rmhmc template must not contain blackjax.hmc() calls"
+    ), "generated RMHMC program must not contain blackjax.hmc() calls"
 
     # 4. IMM→mass_matrix helper present (required because upstream rmhmc takes
     #    mass_matrix not inverse_mass_matrix)
     assert (
         "_imm_to_mass_matrix" in script
-    ), "rmhmc template must define _imm_to_mass_matrix for IMM→mass_matrix conversion"
-
-
-@pytest.mark.fast
-def test_emit_script_imports_only_canonical_tuningfork_dependencies() -> None:
-    """Generated programs import only canonical model/diagnostics dependencies.
-
-    Warmup, sampler, and inference-loop implementation still go directly
-    through BlackJAX and remain auditable inline.
-    """
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe)
-    tree = ast.parse(script)
-
-    tuningfork_imports: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("tuningfork"):
-                    tuningfork_imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module is not None and node.module.startswith("tuningfork"):
-                tuningfork_imports.append(node.module)
-
-    disallowed = [
-        name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
-    ]
-    assert not disallowed, (
-        "Emitted script imports tuningfork modules outside the canonical "
-        f"allowlist {_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
-        "The warmup, sampler, and inference loop must remain inline."
-    )
+    ), "generated RMHMC program must define _imm_to_mass_matrix"
 
 
 @pytest.mark.fast
@@ -248,176 +181,6 @@ def test_emit_script_num_samples_defaults_to_calibration_budget() -> None:
     assert f"_NUM_SAMPLES = {n_samples}" in script, (
         "emit_script(recipe) must set _NUM_SAMPLES from calibration_budget['n_samples'] "
         f"(expected {n_samples}). Got script excerpt:\n{excerpt}"
-    )
-
-
-@pytest.mark.fast
-def test_emit_script_num_samples_fallback_when_budget_absent() -> None:
-    """emit_script falls back to 1000 when calibration_budget has no n_samples key.
-
-    Directly overrides calibration_budget on a loaded recipe to simulate the
-    legacy LOW recipe format (produced before the calibration_budget n_samples
-    stamp was added). No JAX execution — pure dataclass manipulation.
-    """
-    import dataclasses
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-
-    # Simulate a recipe whose calibration_budget has no n_samples key.
-    recipe_no_n = dataclasses.replace(
-        recipe, calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0}
-    )
-    assert recipe_no_n.calibration_budget.get("n_samples") is None
-
-    script = emit_script(recipe_no_n)
-    assert "_NUM_SAMPLES = 1000" in script, (
-        "emit_script(recipe) must fall back to _NUM_SAMPLES=1000 when "
-        "calibration_budget has no n_samples key."
-    )
-
-
-@pytest.mark.fast
-def test_emit_script_preamble_has_wall_timer() -> None:
-    """Emitted script preamble starts a wall-clock timer (_recipe_t0)."""
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe)
-    assert (
-        "_recipe_t0" in script
-    ), "Emitted script must define _recipe_t0 (wall-clock start) in its preamble."
-    assert (
-        "wall_seconds=" in script
-    ), "Emitted script postamble must print wall_seconds= for timing observability."
-
-
-@pytest.mark.fast
-def test_emit_script_postamble_has_draws_npz() -> None:
-    """Emitted script postamble persists draws as .npz via np.savez.
-
-    Checks that the generated script contains:
-    - ``np.savez`` (draws persistence — no external library needed)
-    - ``draws.npz`` suffix (filename pattern)
-    - ``[draws written to`` (confirmation print)
-    """
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe)
-    assert (
-        "np.savez" in script
-    ), "Emitted script postamble must call np.savez to persist draws."
-    assert (
-        ".draws.npz" in script
-    ), "Emitted script postamble must write a .draws.npz file."
-    assert (
-        "[draws written to" in script
-    ), "Emitted script postamble must print '[draws written to ...]' confirmation."
-
-
-@pytest.mark.fast
-def test_emit_script_postamble_npz_filename_contains_recipe_components() -> None:
-    """Emitted script's .npz filename encodes model/sampler/warmup names.
-
-    The filename pattern is ``{model_name}__{base_method_name}__{warmup_name}.draws.npz``.
-    After template substitution the postamble contains each component as a string
-    literal in the _npz_path assignment. Verifies that model_name, base_method_name,
-    warmup_name, and the .draws.npz suffix all appear in the script.
-    """
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe)
-    # After substitution, the _npz_path line contains the component names as literals.
-    assert "eight_schools_ncp" in script, "Model name not found in emitted script"
-    assert (
-        ".draws.npz" in script
-    ), "Expected '.draws.npz' suffix in emitted script for draws persistence."
-    assert (
-        "_npz_path" in script
-    ), "Expected '_npz_path' variable in emitted script (draws output path)."
-
-
-@pytest.mark.fast
-def test_emit_script_telemetry_is_manifest_bound_and_fails_closed_on_missing_geometry() -> (
-    None
-):
-    """Telemetry uses manifest artifact names and never publishes missing fields as null."""
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    script = emit_script(load_recipe(recipe_path))
-
-    assert "_manifest['normalized_plan']['telemetry_artifact_filename']" in script
-    assert "_manifest['normalized_plan']['artifact_filename']" in script
-    assert "_manifest['plan_hash']" in script
-    assert "_manifest['executable_config_hash']" in script
-    assert "any(value is None for value in _geometry.values())" in script
-    assert "adapted geometry fields were not returned by warmup" in script
-    assert "'geometry_source': _geometry_source" in script
-    assert "'geometry_scope': _geometry_scope" in script
-    assert "allow_nan=False" in script
-
-
-@pytest.mark.fast
-def test_emit_script_telemetry_low_rank_serializer_is_structured() -> None:
-    """The generated serializer preserves LowRank IMM fields, including batches."""
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    script = emit_script(load_recipe(recipe_path))
-
-    assert "'type': 'low_rank_inverse_mass_matrix'" in script
-    assert "value.sigma" in script and "value.U" in script and "value.lam" in script
-    assert "'warmup_grad_evals_reason': _warmup_grad_evals_reason" in script
-
-
-@pytest.mark.e2e
-def test_emit_script_multichain_draws_npz(tmp_path: Path) -> None:
-    """Emitted multi-chain script runs, writes .draws.npz, and prints DONE.
-
-    Uses eight_schools_ncp × nuts × window_adaptation_diag_imm with num_chains=4
-    and num_samples=10 for e2e speed.  Verifies:
-    - Script exits 0
-    - ``[draws written to`` appears in stdout
-    - A ``.draws.npz`` file is written in the script's working directory
-    - DONE is printed
-    """
-    low_recipe_path = (
-        _CATALOG_ROOT
-        / "eight_schools_ncp"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
-    )
-    recipe = load_recipe(low_recipe_path)
-    _NUM_SAMPLES = 10
-    _NUM_CHAINS = 4
-    script = emit_script(
-        recipe,
-        num_samples=_NUM_SAMPLES,
-        num_chains=_NUM_CHAINS,
-        num_warmup=10,
-        progress_bar=False,
-    )
-    script_path = tmp_path / "test_draws_multichain.py"
-    script_path.write_text(script)
-
-    result = subprocess.run(
-        [sys.executable, str(script_path)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        cwd=str(tmp_path),
-        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
-    )
-    assert result.returncode == 0, (
-        f"Emitted multi-chain draws script failed.\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    assert "DONE" in result.stdout
-    # The draws path must have been printed.
-    assert (
-        "[draws written to" in result.stdout
-    ), f"Expected '[draws written to ...]' in stdout.\nstdout:\n{result.stdout}"
-    # The .draws.npz file must exist in cwd (tmp_path).
-    npz_files = list(tmp_path.glob("*.draws.npz"))
-    assert npz_files, (
-        f"Expected a .draws.npz file in {tmp_path}. "
-        f"Files: {list(tmp_path.iterdir())}"
     )
 
 
@@ -483,43 +246,6 @@ def test_emit_script_executes_for_cell(
     assert "n_divergences=" in result.stdout
 
 
-@pytest.mark.e2e
-def test_emit_script_executes_and_completes(tmp_path: Path) -> None:
-    """Emitted script runs end-to-end via subprocess and prints DONE.
-
-    Verifies:
-    - Subprocess exit code 0 (no Python errors).
-    - Postamble prints ``n_divergences=<int>`` and ``DONE``.
-    - The recipe's pinned warmup + sampler params produce a runnable kernel
-      against the imported NumPyro model.
-
-    Any drift in the generated warmup or sampler that produces a runtime error
-    or non-zero exit code is caught here. Model definition drift is impossible
-    by construction because the model is imported from one canonical source.
-
-    Lightweight config: num_samples=10, num_warmup=10 for e2e speed.
-    """
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    # Minimal config: num_warmup=10, num_samples=10 overrides the groundtruth recipe's n_warmup=5000.
-    script = emit_script(recipe, num_samples=10, num_warmup=10)
-    script_path = tmp_path / "test_emitted.py"
-    script_path.write_text(script)
-
-    result = subprocess.run(
-        [sys.executable, str(script_path)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
-    )
-    assert (
-        result.returncode == 0
-    ), f"Emitted script failed.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    assert "DONE" in result.stdout
-    assert "n_divergences=" in result.stdout
-
-
 # ---------------------------------------------------------------------------
 # Multi-chain (num_chains) tests (emit-script-num-chains feature)
 # ---------------------------------------------------------------------------
@@ -563,77 +289,6 @@ def test_emit_script_num_chains_defaults_to_1_for_groundtruth() -> None:
         "Expected 'num_chains = 1' in the emitted script preamble for a "
         "groundtruth recipe that has no num_chains field.\n"
         f"Script start:\n{script[:800]}"
-    )
-
-
-@pytest.mark.fast
-def test_emit_script_num_chains_override() -> None:
-    """emit_script(recipe, num_chains=8) overrides recipe-derived value.
-
-    Callers can force a specific chain count regardless of what the recipe
-    metadata records.
-    """
-    gt_recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(gt_recipe_path)
-    script = emit_script(recipe, num_chains=8)
-    assert "num_chains = 8" in script, (
-        "Expected 'num_chains = 8' in emitted script when num_chains=8 override "
-        f"is passed.\nScript start:\n{script[:800]}"
-    )
-
-
-@pytest.mark.e2e
-def test_emit_script_multichain_output_shape(tmp_path: Path) -> None:
-    """Emitted 4-chain script produces _samples with shape (4, num_samples, ...).
-
-    Runs the emitted script via subprocess and checks that the printed shape
-    matches the expected (4, 10, ...) protocol. Uses the eight_schools_ncp
-    groundtruth recipe with num_chains=4 + num_warmup=10 + num_samples=10
-    overrides for e2e speed.
-
-    The shape verification relies on a print statement injected into the
-    emitted script after the inference loop.
-    """
-    gt_recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(gt_recipe_path)
-    _NUM_SAMPLES = 10
-    _NUM_CHAINS = 4
-    # Minimal warmup/samples for e2e speed.
-    # progress_bar=False for multi-chain output (True = single-chain, shape (1, ...) ).
-    script = emit_script(
-        recipe,
-        num_samples=_NUM_SAMPLES,
-        num_chains=_NUM_CHAINS,
-        num_warmup=10,
-        progress_bar=False,
-    )
-    # Append a shape-verification line that prints the first-leaf shape of _samples.
-    # Use string concat (not f-string) to avoid escaping braces inside the snippet.
-    shape_check = (
-        "\nimport jax as _jax\n"
-        "_first_leaf = _jax.tree.leaves(_samples)[0]\n"
-        'print("SHAPE=" + str(_first_leaf.shape))\n'
-    )
-    script += shape_check
-    script_path = tmp_path / "test_multichain.py"
-    script_path.write_text(script)
-
-    result = subprocess.run(
-        [sys.executable, str(script_path)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
-    )
-    assert result.returncode == 0, (
-        f"Emitted multi-chain script failed.\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    assert "DONE" in result.stdout
-    # Shape must start with (num_chains, num_samples, ...)
-    assert f"SHAPE=({_NUM_CHAINS}, {_NUM_SAMPLES}" in result.stdout, (
-        f"Expected _samples shape starting with ({_NUM_CHAINS}, {_NUM_SAMPLES}, ...) "
-        f"but got different output.\nstdout:\n{result.stdout}"
     )
 
 
@@ -877,149 +532,6 @@ def test_emit_script_warmup_inner_kernel_override_emits_correct_algo() -> None:
 
 
 @pytest.mark.fast
-def test_emit_script_warmup_inner_kernel_none_uses_implicit() -> None:
-    """Schema extension: warmup_inner_kernel=None falls back to implicit substitute-family logic.
-
-    For hmc (not in WARMUP_SUBSTITUTE_METHOD_NAMES), the implicit default is
-    blackjax.hmc. Setting warmup_inner_kernel=None must NOT change this.
-    """
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="hmc",
-        warmup_name="window_adaptation_diag_imm",
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.1, "num_integration_steps": 10},
-        warmup_params={"n_warmup": 200, "target_acceptance_rate": 0.8},
-        warmups=[
-            {
-                "name": "window_adaptation_diag_imm",
-                "params": {"n_warmup": 200, "target_acceptance_rate": 0.8},
-            }
-        ],
-        warmup_inner_kernel=None,  # explicit None — must use implicit default
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={},
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
-    )
-
-    script = emit_script(recipe, num_samples=50)
-    warmup_section = _extract_warmup_section(script)
-
-    # hmc's implicit default is "hmc": warmup section must reference blackjax.hmc.
-    assert "blackjax.hmc" in warmup_section, (
-        "Schema extension: warmup_inner_kernel=None for hmc should emit blackjax.hmc "
-        f"(the implicit default).\nSection:\n{warmup_section[:500]}"
-    )
-
-
-@pytest.mark.fast
-def test_emit_script_warmup_inner_kernel_substitute_family_unchanged() -> None:
-    """Schema extension: warmup_inner_kernel=None for dynamic_hmc still uses blackjax.nuts.
-
-    dynamic_hmc is in WARMUP_SUBSTITUTE_METHOD_NAMES; its implicit default is nuts.
-    warmup_inner_kernel=None must preserve this existing behaviour.
-    """
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="dynamic_hmc",
-        warmup_name="window_adaptation_diag_imm",
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.1},
-        warmup_params={"n_warmup": 200, "target_acceptance_rate": 0.8},
-        warmups=[
-            {
-                "name": "window_adaptation_diag_imm",
-                "params": {"n_warmup": 200, "target_acceptance_rate": 0.8},
-            }
-        ],
-        warmup_inner_kernel=None,
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={},
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
-    )
-
-    script = emit_script(recipe, num_samples=50)
-    warmup_section = _extract_warmup_section(script)
-
-    # dynamic_hmc is in the substitute family -> implicit default is nuts
-    assert "blackjax.nuts" in warmup_section, (
-        "Schema extension: warmup_inner_kernel=None for dynamic_hmc should keep "
-        f"blackjax.nuts (substitute-family implicit default).\nSection:\n{warmup_section[:500]}"
-    )
-
-
-@pytest.mark.fast
-def test_no_warmup_replay_emits_pinned_hmc_geometry() -> None:
-    """Baked no-warmup HMC replay must carry step size and diagonal IMM."""
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="hmc",
-        warmup_name="",
-        effort=Effort.LOW,
-        base_method_params={
-            "step_size": 0.03125,
-            "num_integration_steps": 7,
-            "inverse_mass_matrix": [1.0, 2.0],
-        },
-        warmup_params={},
-        calibration_budget={
-            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
-        },
-        headline_metric=None,
-        sample_quality=None,
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
-    )
-
-    script = emit_script(recipe, num_samples=2, num_chains=1)
-    assert "_default_step_size = 0.03125" in script
-    assert "_default_imm = jnp.asarray([1.0, 2.0])" in script
-    assert "_shared_step_size = _default_step_size" in script
-    assert "_shared_imm = _default_imm" in script
-
-
-@pytest.mark.fast
-def test_no_warmup_replay_rejects_missing_hmc_tuning() -> None:
-    """Baked replay fails closed instead of inventing identity tuning."""
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="nuts",
-        warmup_name="",
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.1},
-        warmup_params={},
-        calibration_budget={
-            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
-        },
-        headline_metric=None,
-        sample_quality=None,
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
-    )
-
-    with pytest.raises(
-        ValueError, match="No-warmup replay requires pinned inverse_mass_matrix"
-    ):
-        emit_script(recipe, num_samples=2)
-
-
-@pytest.mark.fast
 def test_adapted_hmc_sidecar_sentinel_is_not_emitted_inline() -> None:
     """Adapted runs leave sidecar-backed IMM resolution to warmup."""
     from tuningfork.recipes._base import Effort, Recipe
@@ -1079,35 +591,6 @@ def test_no_warmup_replay_rejects_sidecar_imm_sentinel() -> None:
 
 
 @pytest.mark.fast
-def test_pinned_laplace_replay_fails_closed() -> None:
-    """Laplace replay cannot silently replace its phi-space pinned metric."""
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="laplace_hmc",
-        warmup_name="",
-        effort=Effort.LOW,
-        base_method_params={
-            "step_size": 0.1,
-            "num_integration_steps": 7,
-            "inverse_mass_matrix": [2.0],
-        },
-        warmup_params={},
-        calibration_budget={
-            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
-        },
-        headline_metric=None,
-        sample_quality=None,
-        difficulty=None,
-        instructions="",
-    )
-
-    with pytest.raises(NotImplementedError, match="Pinned Laplace replay"):
-        emit_script(recipe, num_samples=1, num_chains=1)
-
-
-@pytest.mark.fast
 def test_meads_low_rank_configuration_fails_closed() -> None:
     """Codegen must reject MEADS metric structures it cannot preserve."""
     from dataclasses import replace
@@ -1126,62 +609,6 @@ def test_meads_low_rank_configuration_fails_closed() -> None:
 
     with pytest.raises(NotImplementedError, match="MEADS low-rank"):
         emit_script(recipe, num_samples=1, num_warmup=1, num_chains=8)
-
-
-@pytest.mark.fast
-def test_legacy_baked_manifest_and_draws_basename_match() -> None:
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="hmc",
-        warmup_name="",
-        effort=Effort.LOW,
-        base_method_params={
-            "step_size": 0.1,
-            "inverse_mass_matrix": [1.0],
-            "num_integration_steps": 3,
-        },
-        warmup_params={"n_warmup": 9},
-        warmups=[],
-        calibration_budget={
-            "baked_from": {"warmup_name": "window_adaptation_diag_imm"}
-        },
-        headline_metric=None,
-        sample_quality=None,
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
-    )
-    script = emit_script(recipe, num_samples=1, num_chains=1)
-    assert '"artifact_filename":"mvn_10__hmc__no_warmup.draws.npz"' in script
-    assert '"mvn_10" + "__" + "hmc" + "__" + "no_warmup"' in script
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize(
-    ("path", "warmup_marker", "param_marker"),
-    [
-        (
-            "tuningfork/catalog/mvn_10/recipes/low__dynamic_hmc__chees.json",
-            "blackjax.chees_adaptation",
-            "_next_random_arg_fn",
-        ),
-        (
-            "tuningfork/catalog/mvn_10/recipes/low__ghmc__meads.json",
-            "blackjax.meads_adaptation",
-            "momentum_inverse_scale",
-        ),
-    ],
-)
-def test_emit_ensemble_warmup_contract(
-    path: str, warmup_marker: str, param_marker: str
-) -> None:
-    recipe = load_recipe(path)
-    script = emit_script(recipe, num_samples=1, num_warmup=1, num_chains=4)
-    compile(script, path, "exec")
-    assert warmup_marker in script
-    assert param_marker in script
 
 
 @pytest.mark.e2e
@@ -1305,12 +732,12 @@ _emitted = {
     "step_size_finite": bool(np.isfinite(np.asarray(_adapted_params["step_size"]))),
     "imm_finite": bool(np.all(np.isfinite(np.asarray(_adapted_params["inverse_mass_matrix"])))),
 }
-with open("/tmp/test_emit_script_l2_emitted_params.json", "w") as _f:
+with open("/tmp/test_emit_script_mhmc_dense_params.json", "w") as _f:
     json.dump(_emitted, _f)
-print("L2 EMITTED OK")
+print("GENERATED PROGRAM OK")
 """
 
-    script_path = tmp_path / "test_l2_mhmc_dense.py"
+    script_path = tmp_path / "test_mhmc_dense.py"
     script_path.write_text(script + "\n\n" + epilogue)
 
     result = subprocess.run(
@@ -1324,11 +751,11 @@ print("L2 EMITTED OK")
         f"Emitted script crashed (exit {result.returncode}):\n"
         f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
-    assert "L2 EMITTED OK" in result.stdout
+    assert "GENERATED PROGRAM OK" in result.stdout
 
     import json
 
-    with open("/tmp/test_emit_script_l2_emitted_params.json") as f:
+    with open("/tmp/test_emit_script_mhmc_dense_params.json") as f:
         emitted = json.load(f)
 
     # Verify structure: single-chain warmup produces scalar step_size (ndim=0).
@@ -1355,71 +782,6 @@ _LAPLACE_HIGH_RECIPE_PATH = (
     / "recipes"
     / "high__laplace_mhmc__window_adaptation_dense_imm__inner_laplace_hmc.json"
 )
-
-
-@pytest.mark.fast
-def test_emit_script_laplace_high_recipe_is_valid_python() -> None:
-    """emit_script for the HIGH gp_regression × laplace_mhmc recipe is syntactically valid Python.
-
-    Validates that all laplace template slots are populated (no un-substituted
-    $slot markers) and that the assembled script parses without SyntaxError.
-    """
-    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
-        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
-
-    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
-    script = emit_script(recipe, num_samples=10, num_chains=2)
-    # ast.parse raises SyntaxError on malformed output (including un-substituted $slots)
-    ast.parse(script)
-
-
-@pytest.mark.fast
-def test_emit_script_laplace_high_recipe_keeps_inference_inline() -> None:
-    """An emitted Laplace HIGH recipe has zero forbidden tuningfork imports.
-
-    Only the canonical model and optional diagnostics modules are allowed.
-    The inference choreography (laplace preamble + multiphase warmup + sampler
-    + inference loop) must not import warmup, recipes, calibration, etc.
-
-    Also checks that blackjax is imported (required for the laplace kernels),
-    and that ``from blackjax.mcmc.laplace_marginal import laplace_marginal_factory``
-    appears as an inline generated dependency.
-    """
-    if not _LAPLACE_HIGH_RECIPE_PATH.exists():
-        pytest.skip("HIGH laplace_mhmc recipe not in catalog — generate first")
-
-    recipe = load_recipe(_LAPLACE_HIGH_RECIPE_PATH)
-    script = emit_script(recipe, num_samples=10, num_chains=2)
-    tree = ast.parse(script)
-
-    tuningfork_imports: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("tuningfork"):
-                    tuningfork_imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module is not None and node.module.startswith("tuningfork"):
-                tuningfork_imports.append(node.module)
-
-    disallowed = [
-        name for name in tuningfork_imports if name not in _ALLOWED_TUNINGFORK_IMPORTS
-    ]
-    assert not disallowed, (
-        "Emitted laplace HIGH script imports tuningfork modules outside the allowlist "
-        f"{_ALLOWED_TUNINGFORK_IMPORTS}.\nFound: {disallowed!r}\n"
-        "The inference choreography must remain inline."
-    )
-
-    # The generated program must inline the Laplace marginal factory.
-    assert "laplace_marginal_factory" in script, (
-        "Expected `laplace_marginal_factory` in the emitted script "
-        "(imported from blackjax.mcmc.laplace_marginal in laplace_preamble)."
-    )
-    assert "blackjax.laplace_mhmc" in script, (
-        "Expected `blackjax.laplace_mhmc` in the emitted script "
-        "(sampler template for the HIGH recipe)."
-    )
 
 
 @pytest.mark.fast
@@ -1523,164 +885,9 @@ def test_emit_script_laplace_optimizer_kwargs_persisted() -> None:
     ), "LaplaceMarginal factory call missing from emitted script"
 
 
-@pytest.mark.e2e
-def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
-    """Acceptance test: emitted laplace multiphase script runs end-to-end (exit 0, prints DONE).
-
-    Uses a synthetic multi-phase laplace_mhmc recipe with minimal warmup budgets
-    (n_warmup=2 per phase, maxiter=2) so the test completes quickly for e2e speed.
-
-    What is validated:
-    - The laplace_preamble + laplace_multiphase_warmup + laplace_mhmc sampler
-      templates assemble into a Python script that runs without errors.
-    - LaplaceMarginal factories are correctly built and passed to window_adaptation.
-    - The two-phase warmup loop (Phase 1 diag → Phase 2 dense) executes.
-    - The sampler produces draws and the postamble prints DONE + n_divergences.
-
-    Any generation-slot miss, assembly-order bug, or LaplaceMarginal contract
-    violation surfaces here as a Python error or non-zero exit code.
-
-    Lightweight config: num_samples=10, num_warmup=[2, 2] (Phase1=2, Phase2=2).
-    """
-    from tuningfork.recipes._base import Effort, Recipe
-
-    # Synthetic multi-phase laplace_mhmc recipe for gp_regression.
-    # Minimal warmup budgets (n_warmup=2, maxiter=2) for e2e speed.
-    recipe = Recipe(
-        model_name="gp_regression",
-        base_method_name="laplace_mhmc",
-        warmup_name="window_adaptation_dense_imm",
-        effort=Effort.HIGH,
-        base_method_params={
-            "num_integration_steps": 2,
-            "step_size": 0.5,
-            "inverse_mass_matrix": [
-                [0.23, 0.07, 0.0],
-                [0.07, 0.03, 0.0],
-                [0.0, 0.0, 0.002],
-            ],
-            "maxiter": 2,
-        },
-        warmup_params={
-            "n_warmup": 2,
-            "num_chains": 1,
-            "target_acceptance": 0.8,
-        },
-        warmups=[
-            {
-                "name": "window_adaptation_diag_imm",
-                "params": {
-                    "n_warmup": 2,
-                    "target_acceptance": 0.8,
-                    "num_integration_steps": 2,
-                    "maxiter": 2,
-                },
-            },
-            {
-                "name": "window_adaptation_dense_imm",
-                "params": {
-                    "n_warmup": 2,
-                    "target_acceptance": 0.8,
-                    "num_integration_steps": 2,
-                    "maxiter": 2,
-                    "initial_step_size_from_phase1": True,
-                },
-            },
-        ],
-        warmup_inner_kernel="laplace_hmc",
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={"num_chains": 1},
-        difficulty=None,
-        instructions="",
-        tuning_seed=42,
-    )
-
-    script = emit_script(recipe, num_samples=10, num_chains=1, num_warmup=[2, 2])
-    script_path = tmp_path / "test_laplace_multiphase.py"
-    script_path.write_text(script)
-
-    result = subprocess.run(
-        [sys.executable, str(script_path)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env={"JAX_PLATFORM_NAME": "cpu", **os.environ},
-    )
-    assert result.returncode == 0, (
-        f"Emitted laplace multiphase script failed (exit {result.returncode}):\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    assert "DONE" in result.stdout, (
-        f"Expected 'DONE' in stdout of laplace multiphase emitted script.\n"
-        f"stdout:\n{result.stdout}"
-    )
-    assert (
-        "n_divergences=" in result.stdout
-    ), f"Expected 'n_divergences=' in stdout.\nstdout:\n{result.stdout}"
-
-
 # ---------------------------------------------------------------------------
 # emit_script override params: num_warmup, progress_bar
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.fast
-def test_emit_script_num_warmup_int_single_phase() -> None:
-    """emit_script(recipe, num_warmup=50) overrides $n_warmup in single-phase warmup.
-
-    Checks that the emitted source contains '50' at the warmup call site, not
-    the recipe's stored n_warmup value (1000 for groundtruth recipes).
-    """
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script_default = emit_script(recipe, num_samples=50)
-    script_override = emit_script(recipe, num_samples=50, num_warmup=77)
-
-    # The override must appear in the warmup template's .run(..., 77) call.
-    # Groundtruth recipes have n_warmup=5000 in warmup_params; 77 is distinctive.
-    assert ", 77)" in script_override, (
-        "Expected ', 77)' (warmup run call) in emitted script with num_warmup=77.\n"
-        f"Script:\n{script_override[:1000]}"
-    )
-    # Without override, must NOT contain 77 in that position.
-    assert (
-        ", 77)" not in script_default
-    ), "Default emit should not contain ', 77)'; num_warmup override leaked."
-
-
-@pytest.mark.fast
-def test_emit_script_num_warmup_list_single_phase_length1() -> None:
-    """emit_script(recipe, num_warmup=[77]) works for single-phase warmup (list len=1)."""
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe, num_samples=50, num_warmup=[77])
-    assert (
-        ", 77)" in script
-    ), "Expected ', 77)' in emitted script with num_warmup=[77] (single-phase)."
-
-
-@pytest.mark.fast
-def test_emit_script_num_warmup_none_preserves_recipe_value() -> None:
-    """emit_script(recipe, num_warmup=None) uses recipe's stored n_warmup.
-
-    The groundtruth recipe has n_warmup=5000 in warmup_params; None must
-    preserve that value (backward-compatible).
-    """
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    n_warmup_recipe = recipe.warmup_params.get("n_warmup", 1000)
-    script = emit_script(recipe, num_samples=50, num_warmup=None)
-    assert f", {n_warmup_recipe})" in script, (
-        f"Expected ', {n_warmup_recipe})' (recipe n_warmup) with num_warmup=None.\n"
-        f"Script snippet:\n{script[:1000]}"
-    )
 
 
 @pytest.mark.fast
@@ -1798,121 +1005,6 @@ def test_emit_script_num_warmup_wrong_list_length_raises() -> None:
         emit_script(recipe, num_warmup=[100, 10, 50])  # 3 entries for a 2-phase recipe
 
 
-@pytest.mark.fast
-def test_emit_script_progress_bar_override_false() -> None:
-    """emit_script(recipe, progress_bar=False) selects the multichain topology.
-
-    Changed 2026-07-08 (blackjax #964 stage 1): blackjax removed progress_bar=
-    from window_adaptation / run_inference_algorithm entirely, so the emitted
-    script no longer forwards a progress_bar= kwarg at all (regardless of
-    topology). This test now checks:
-    - No literal progress_bar= kwarg leaks into the emitted script.
-    - Sampling constant _SAMPLING_PROGRESS_BAR = False (not True) — this is a
-      plain informational local variable in the emitted script, not forwarded
-      to blackjax, so it is unaffected by the blackjax #964 removal.
-    """
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe, num_samples=50, progress_bar=False)
-
-    assert "progress_bar=" not in script, (
-        "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
-        "(removed upstream in blackjax #964).\n"
-        f"Script snippet:\n{script[:1200]}"
-    )
-    assert "_SAMPLING_PROGRESS_BAR = False" in script, (
-        "Expected '_SAMPLING_PROGRESS_BAR = False' in emitted script when progress_bar=False.\n"
-        f"Script snippet:\n{script[:1200]}"
-    )
-    assert (
-        "_SAMPLING_PROGRESS_BAR = True" not in script
-    ), "Unexpected '_SAMPLING_PROGRESS_BAR = True' when progress_bar=False override."
-
-
-@pytest.mark.fast
-def test_emit_script_progress_bar_override_true() -> None:
-    """emit_script(recipe, progress_bar=True) wraps calls in blackjax.progress_bar().
-
-    Changed 2026-07-08 (blackjax #964 stage 2): blackjax.progress_bar() is
-    vmap-safe, so progress_bar=True no longer selects single-chain topology --
-    this groundtruth recipe has no warmup_num_chains stamped (None), so it
-    still resolves to the multichain template (_warmup_is_perchain = True),
-    same as progress_bar=False. The only observable difference is the added
-    ``with blackjax.progress_bar():`` wrap around the warmup + sampling calls.
-    """
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe, num_samples=50, progress_bar=True)
-
-    assert "progress_bar=" not in script, (
-        "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
-        "(removed upstream in blackjax #964)."
-    )
-    assert "_warmup_is_perchain = True" in script, (
-        "progress_bar=True must NOT change topology -- expected the multichain "
-        "warmup topology marker (unaffected by the flag)."
-    )
-    assert 'with blackjax.progress_bar(label="warmup"):' in script, (
-        "Expected the warmup run call wrapped in blackjax.progress_bar() when "
-        "progress_bar=True."
-    )
-    assert 'with blackjax.progress_bar(label="sampling"):' in script, (
-        "Expected the sampling run call wrapped in blackjax.progress_bar() when "
-        "progress_bar=True."
-    )
-    assert (
-        "_SAMPLING_PROGRESS_BAR = True" in script
-    ), "Expected '_SAMPLING_PROGRESS_BAR = True' in emitted script when progress_bar=True."
-
-
-@pytest.mark.fast
-def test_emit_script_progress_bar_none_keeps_defaults() -> None:
-    """emit_script(recipe, progress_bar=None) uses defaults (multichain topology).
-
-    The default behaviour (None) resolves to False (changed 2026-06-06) to preserve
-    multichain warmup specs in recipes. Changed 2026-07-08 (blackjax #964 stage 1):
-    no progress_bar= kwarg is forwarded to blackjax at all any more.
-    """
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script_default = emit_script(recipe, num_samples=50)
-    script_none = emit_script(recipe, num_samples=50, progress_bar=None)
-
-    # Both must be identical (None is the backward-compat default).
-    assert (
-        script_default == script_none
-    ), "emit_script with progress_bar=None should produce identical output to default call."
-    assert "progress_bar=" not in script_none, (
-        "Emitted script must NOT forward a progress_bar= kwarg to blackjax "
-        "(removed upstream in blackjax #964)."
-    )
-    assert "_SAMPLING_PROGRESS_BAR = False" in script_none
-
-
-@pytest.mark.fast
-def test_emit_script_sampling_progress_bar_constant_exposed() -> None:
-    """Emitted script exposes _SAMPLING_PROGRESS_BAR as a named constant.
-
-    The inference loop must declare '_SAMPLING_PROGRESS_BAR = <bool>' near the
-    top of the loop block so users can find and flip it in one line.
-    """
-    from tuningfork.catalog import emit_script, load_recipe
-
-    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-    recipe = load_recipe(recipe_path)
-    script = emit_script(recipe, num_samples=50)
-
-    assert (
-        "_SAMPLING_PROGRESS_BAR" in script
-    ), "Emitted script must expose _SAMPLING_PROGRESS_BAR constant in the inference loop."
-
-
 # ---------------------------------------------------------------------------
 # VI template round-trip tests (Phase 8B.2 -- meanfield_vi + fullrank_vi)
 # ---------------------------------------------------------------------------
@@ -1935,55 +1027,6 @@ def _make_vi_sampler_recipe(base_method_name: str):  # type: ignore[return]
         difficulty=None,
         instructions="vi template smoke",
         tuning_seed=42,
-    )
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_sampler_is_valid_python(base_method_name: str) -> None:
-    """VI sampler emission produces syntactically valid Python."""
-    recipe = _make_vi_sampler_recipe(base_method_name)
-    script = emit_script(recipe, num_samples=10)
-    ast.parse(script)
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_sampler_has_no_forbidden_imports(
-    base_method_name: str,
-) -> None:
-    """VI sampler emission has no forbidden tuningfork imports."""
-    recipe = _make_vi_sampler_recipe(base_method_name)
-    script = emit_script(recipe, num_samples=10)
-    tree = ast.parse(script)
-
-    tuningfork_imports: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("tuningfork"):
-                    tuningfork_imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module is not None and node.module.startswith("tuningfork"):
-                tuningfork_imports.append(node.module)
-
-    disallowed = [n for n in tuningfork_imports if n not in _ALLOWED_TUNINGFORK_IMPORTS]
-    assert (
-        not disallowed
-    ), f"VI sampler {base_method_name!r} emits forbidden imports: {disallowed!r}."
-
-
-@pytest.mark.fast
-@pytest.mark.parametrize("base_method_name", ["meanfield_vi", "fullrank_vi"])
-def test_emit_script_vi_sampler_contains_vi_module_import(
-    base_method_name: str,
-) -> None:
-    """VI sampler template imports the correct blackjax.vi.* module."""
-    recipe = _make_vi_sampler_recipe(base_method_name)
-    script = emit_script(recipe, num_samples=10)
-    assert f"blackjax.vi.{base_method_name}" in script, (
-        f"VI sampler template for {base_method_name!r} must import "
-        f"'blackjax.vi.{base_method_name}'."
     )
 
 
@@ -2016,145 +1059,7 @@ def test_emit_script_vi_sampler_executes(base_method_name: str, tmp_path: Path) 
     assert "n_divergences=" in result.stdout
 
 
-@pytest.mark.fast
-def test_emit_script_default_progress_bar_preserves_multichain() -> None:
-    """Default progress_bar=None resolves to False, preserving multichain warmup.
-
-    When progress_bar is not passed (the default, None), the emitted script should
-    contain jax.vmap for a window_adaptation recipe with num_chains > 1. This verifies
-    that the default no longer forces single-chain warmup.
-    """
-    # Load a window_adaptation recipe with num_chains=4 (multichain spec).
-    recipe_path = (
-        _CATALOG_ROOT
-        / "irt_2pl"
-        / "recipes"
-        / "medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json"
-    )
-    if not recipe_path.exists():
-        # Fallback: use a groundtruth recipe which should have window adaptation + multichain.
-        recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-
-    recipe = load_recipe(recipe_path)
-
-    # Emit with default progress_bar=None (no explicit argument).
-    script = emit_script(recipe, num_samples=100, num_chains=4)
-
-    # The emitted script should contain jax.vmap if it's truly multichain.
-    # This is a structural check: multichain window_adaptation wraps the
-    # per-chain adaptation in a vmap block.
-    assert "jax.vmap" in script, (
-        "Default emit_script (progress_bar=None) should preserve multichain warmup "
-        "for a window_adaptation recipe with num_chains > 1. Expected jax.vmap in emitted script."
-    )
-
-
-@pytest.mark.fast
-def test_emit_script_progress_bar_true_no_longer_warns() -> None:
-    """Explicit progress_bar=True does NOT warn, even for a multichain recipe.
-
-    Changed 2026-07-08 (blackjax #964 stage 2): the old "progress_bar=True
-    forces single-chain" UserWarning is gone -- blackjax.progress_bar() is
-    vmap-safe, so progress_bar=True no longer forces (or conflicts with)
-    multichain warmup. pytest.ini's filterwarnings=error means an unexpected
-    warning would fail this test outright, so no explicit pytest.warns(...)
-    context is needed to prove absence.
-    """
-    # Load a window_adaptation recipe with num_chains > 1.
-    recipe_path = (
-        _CATALOG_ROOT
-        / "irt_2pl"
-        / "recipes"
-        / "medium__dmhmc__window_adaptation_diag_imm__policy_v2-long.json"
-    )
-    if not recipe_path.exists():
-        # Fallback: use a groundtruth recipe.
-        recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
-
-    recipe = load_recipe(recipe_path)
-
-    # Emit with explicit progress_bar=True and num_chains > 1 -- no warning.
-    script = emit_script(recipe, num_samples=100, num_chains=4, progress_bar=True)
-
-    # The emitted script must still be multichain (jax.vmap present) and wrapped.
-    assert "jax.vmap" in script, (
-        "progress_bar=True must NOT force single-chain -- expected jax.vmap "
-        "to still be present for a multichain recipe."
-    )
-    assert 'with blackjax.progress_bar(label="warmup"):' in script
-
-
 # ── C5 regression guard: unadjusted mclmc info-fields ────────────────────────
-
-
-@pytest.mark.fast
-def test_mclmc_unadjusted_info_diagnostics_no_acceptance_rate() -> None:
-    """C5: unadjusted mclmc emits NaN acceptance (not _infos.acceptance_rate).
-
-    MCLMCInfo._fields = (logdensity, kinetic_change, energy_change, nonans) —
-    no acceptance_rate.  _build_info_diagnostics_block must NOT emit
-    `_infos.acceptance_rate` for 'mclmc'.  adjusted_mclmc IS MH-adjusted and
-    MUST still have the acceptance_rate line.
-    """
-    from tuningfork.recipes._emit_script import (
-        _build_draws_ss_block,
-        _build_info_diagnostics_block,
-    )
-
-    # unadjusted mclmc — acceptance_rate absent in MCLMCInfo
-    mclmc_diag = _build_info_diagnostics_block("mclmc")
-    assert "acceptance_rate" not in mclmc_diag, (
-        "C5 regression: _build_info_diagnostics_block emitted acceptance_rate "
-        "for 'mclmc'. MCLMCInfo has no such field — this crashes at runtime."
-    )
-    assert (
-        '_acceptance = float("nan")' in mclmc_diag
-    ), "unadjusted mclmc must still initialise _acceptance to NaN."
-
-    mclmc_ss = _build_draws_ss_block("mclmc")
-    assert (
-        "acceptance_rate" not in mclmc_ss
-    ), "C5 regression: _build_draws_ss_block emitted acceptance_rate for 'mclmc'."
-
-    # adjusted_mclmc IS MH-adjusted — must retain acceptance_rate
-    adj_diag = _build_info_diagnostics_block("adjusted_mclmc")
-    assert (
-        "acceptance_rate" in adj_diag
-    ), "adjusted_mclmc must retain acceptance_rate in info-diagnostics block."
-
-    adj_ss = _build_draws_ss_block("adjusted_mclmc")
-    assert (
-        "acceptance_rate" in adj_ss
-    ), "adjusted_mclmc must retain acceptance_rate in draws-ss block."
-
-
-@pytest.mark.fast
-def test_mclmc_unadjusted_emitted_script_no_acceptance_rate() -> None:
-    """C5: end-to-end check — emitted script for mclmc × mclmc_tuning has no
-    _infos.acceptance_rate reference.
-    """
-    from tuningfork.recipes._base import Effort, Recipe
-
-    recipe = Recipe(
-        model_name="mvn_10",
-        base_method_name="mclmc",
-        warmup_name="mclmc_tuning",
-        effort=Effort.LOW,
-        base_method_params={"step_size": 0.5, "L": 1.0},
-        warmup_params={"n_warmup": 10, "num_chains": 2},
-        warmups=[{"name": "mclmc_tuning", "params": {"n_warmup": 10, "num_chains": 2}}],
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={"num_chains": 2},
-        difficulty=None,
-        instructions="",
-        tuning_seed=0,
-    )
-    script = emit_script(recipe, num_samples=5, num_chains=2)
-    assert "_infos.acceptance_rate" not in script, (
-        "C5 regression: emitted mclmc script contains '_infos.acceptance_rate'. "
-        "MCLMCInfo has no such field — this crashes at runtime."
-    )
 
 
 @pytest.mark.fast

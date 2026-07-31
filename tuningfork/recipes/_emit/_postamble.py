@@ -13,8 +13,7 @@
 # limitations under the License.
 """Emit-time Python function for the recipe postamble section.
 
-Replaces ``_templates/postamble.py.tmpl`` (50 LOC, string.Template).
-All slot resolution is done in Python -- no $slot markers in the output.
+All slot resolution is done in Python; no slot markers remain in the output.
 
 The info-diagnostics and draws-stats blocks are passed in via ctx (already
 built by ``_build_info_diagnostics_block`` / ``_build_draws_ss_block`` in
@@ -62,9 +61,7 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     a("_recipe_wall = _recipe_time.perf_counter() - _recipe_t0")
     a("")
     a("# Print headline diagnostics for verification.")
-    a(
-        "# T1.5: info fields resolved per sampler family at emit time (no hasattr probes)."
-    )
+    a("# Info fields are resolved per sampler family at emit time.")
     a(ctx["info_diagnostics_block"])
     a("")
     a("# ---------------------------------------------------------------------------")
@@ -79,9 +76,7 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     a('#   az.from_dict({"posterior": {k: draws[k] for k in draws.files}})')
     a("try:")
     a("    _pos = _samples.position")
-    a(
-        "    # T1.5: numpyro models always return dict positions; pytree-ravel fallback removed."
-    )
+    a("    # NumPyro models return dict positions.")
     a("    _draws_dict = {k: np.asarray(v) for k, v in _pos.items()}")
     stat_prefix = ctx["sample_stat_prefix"]
     a(

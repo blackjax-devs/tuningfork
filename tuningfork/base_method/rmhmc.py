@@ -11,9 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""RMHMC algorithm entry for the tuningfork algorithm registry.
+"""Descriptor for RMHMC recipe emission.
 
-Wraps ``blackjax.rmhmc`` (``blackjax.mcmc.rmhmc.as_top_level_api``).
+Generated emission targets ``blackjax.rmhmc``
+(``blackjax.mcmc.rmhmc.as_top_level_api``).
 
 RMHMC is an alias of the HMC kernel with a different default integrator:
 ``implicit_midpoint`` instead of ``velocity_verlet``.  The implicit midpoint
@@ -26,8 +27,9 @@ num_integration_steps, *, divergence_threshold=1000, integrator=implicit_midpoin
 
 CRITICAL — ``mass_matrix`` vs ``inverse_mass_matrix``:
   The rmhmc upstream takes ``mass_matrix`` (NOT ``inverse_mass_matrix``).
-  The tuningfork runner and ``window_adaptation`` both produce an
-  ``inverse_mass_matrix``.  This wrapper converts at the factory boundary:
+  Generated recipes and window adaptation provide an
+  ``inverse_mass_matrix``.  The generated emitter converts it before calling
+  ``blackjax.rmhmc``:
 
   - Diagonal case (1-D array): ``mass_matrix = 1.0 / inverse_mass_matrix``
   - Dense case (2-D array):   ``mass_matrix = jnp.linalg.inv(inverse_mass_matrix)``
@@ -72,7 +74,6 @@ References
 - BlackJAX upstream: ``blackjax/mcmc/rmhmc.py`` (reuses HMC kernel).
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -80,61 +81,9 @@ from tuningfork.base_method._base import BaseMethod, HyperparamSpace
 __all__ = ["ENTRY"]
 
 
-def _factory(
-    logdensity_fn,
-    *,
-    step_size: float,
-    inverse_mass_matrix,
-    num_integration_steps: int = 5,
-    **kwargs,
-):
-    """Build a ``blackjax.rmhmc`` kernel, converting IMM to mass_matrix.
-
-    Parameters
-    ----------
-    logdensity_fn
-        Unnormalised log-density (log-posterior) callable ``x -> float``.
-    step_size
-        Symplectic integrator step size.
-    inverse_mass_matrix
-        Inverse mass matrix from warmup adaptation.  Shape ``(d,)`` for
-        diagonal, ``(d, d)`` for dense.  Converted to ``mass_matrix`` before
-        passing to ``blackjax.rmhmc``.
-    num_integration_steps
-        Number of implicit_midpoint integrator steps per sample.  Default 5.
-    **kwargs
-        Accepted for interface uniformity; ignored.
-
-    Returns
-    -------
-    SamplingAlgorithm
-        A BlackJAX kernel object with ``.init`` and ``.step`` methods.
-
-    Notes
-    -----
-    The IMM→mass_matrix conversion:
-    - 1-D (diagonal) IMM: ``mass_matrix = 1.0 / inverse_mass_matrix``
-    - 2-D (dense) IMM: ``mass_matrix = jnp.linalg.inv(inverse_mass_matrix)``
-    This conversion is exact for diagonal and dense positive-definite matrices.
-    """
-    if inverse_mass_matrix.ndim == 1:
-        mass_matrix = 1.0 / inverse_mass_matrix
-    else:  # 2-D dense
-        mass_matrix = jnp.linalg.inv(inverse_mass_matrix)
-
-    return blackjax.rmhmc(
-        logdensity_fn,
-        step_size=step_size,
-        mass_matrix=mass_matrix,
-        num_integration_steps=int(num_integration_steps),
-        **{k: v for k, v in kwargs.items() if k == "divergence_threshold"},
-    )
-
-
 ENTRY = BaseMethod(
     name="rmhmc",
     family="mcmc",
-    factory=_factory,
     grad_count_per_step=lambda info: jnp.asarray(info.num_integration_steps),
     grad_count_convention="info.num_integration_steps",
     default_hp_space=(
@@ -143,16 +92,11 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=True,
     target_acceptance_rate=0.8,
-    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
-    # Note: rmhmc factory converts inverse_mass_matrix → mass_matrix internally.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # HMCState from warmup is directly usable (rmhmc reuses HMCState).
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Riemannian Manifold HMC (Girolami & Calderhead 2011). "
         "Upstream: blackjax.mcmc.rmhmc reuses hmc.init + hmc.build_kernel with "
         "implicit_midpoint integrator default (vs velocity_verlet for vanilla HMC). "
-        "CRITICAL IMM→mass_matrix conversion at factory boundary: window_adaptation "
+        "CRITICAL IMM→mass_matrix conversion in generated emission: window_adaptation "
         "adapts inverse_mass_matrix; rmhmc upstream takes mass_matrix (NOT IMM). "
         "Diagonal (1-D IMM): mass_matrix = 1.0 / inverse_mass_matrix. "
         "Dense (2-D IMM): mass_matrix = jnp.linalg.inv(inverse_mass_matrix). "
@@ -170,10 +114,7 @@ ENTRY = BaseMethod(
         "HP-space: step_size loguniform [1e-3, 1.0], num_integration_steps int [1, 20]. "
         "target_acceptance_rate=0.8 (higher than HMC's 0.65, appropriate for "
         "implicit_midpoint integrator). "
-        "window_adaptation compatibility: the wrapper drives window_adaptation correctly "
-        "via the IMM→mass_matrix conversion. Direct use of blackjax.rmhmc with "
-        "window_adaptation requires passing blackjax.rmhmc (the GenerateSamplingAPI object) "
-        "as the algorithm — window_adaptation calls algorithm.build_kernel(integrator) "
-        "directly and bypasses the factory wrapper."
+        "Generated emission applies the same IMM→mass_matrix conversion for both "
+        "adapted and no-warmup paths."
     ),
 )

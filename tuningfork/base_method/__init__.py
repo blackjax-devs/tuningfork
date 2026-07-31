@@ -19,9 +19,11 @@ algorithms without hard-coding names.
 
 Adding a new algorithm
 ----------------------
-1. Create ``tuningfork/algorithms/<name>.py`` with an ``ENTRY`` module-level
+1. Create ``tuningfork/base_method/<name>.py`` with an ``ENTRY`` module-level
    variable of type ``BaseMethod``.
 2. Import it here and add it to ``BASE_METHODS``.
+3. Add a typed generated-emission route before using it in a recipe. Registry
+   membership alone does not make an algorithm executable.
 """
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace

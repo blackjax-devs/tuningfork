@@ -39,7 +39,6 @@ References
   Carlo without detailed balance. In *ICML 2014*.
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -49,7 +48,6 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="ghmc",
     family="mcmc",
-    factory=blackjax.ghmc,  # lower-level call: factory(logdensity_fn, **params)
     grad_count_per_step=lambda info: jnp.asarray(1),  # 1 leapfrog per step (constant)
     grad_count_convention="1 (one leapfrog per step, constant)",
     default_hp_space=(
@@ -58,20 +56,14 @@ ENTRY = BaseMethod(
         HyperparamSpace("delta", "uniform", low=0.0, high=1.0),
     ),
     needs_mass_matrix=True,  # momentum_inverse_scale comes from MEADS adaptation
-    # Legacy runtime-dispatch metadata; generated emission performs its own
-    # momentum_inverse_scale translation.
-    imm_kwarg_name="momentum_inverse_scale",
+    # Generated emission performs its own momentum_inverse_scale translation.
     target_acceptance_rate=0.65,  # Beskos et al. optimal ≈ 0.65 (same as HMC)
-    # T2.3 descriptors: step_size + imm per-chain from MEADS warmup.
     # NOTE: "inverse_mass_matrix" here is the semantic category marker the
     # emit-script generator's _needs_imm() checks for (_emit/_sampler.py:71),
     # NOT the literal batched_params key or factory kwarg name. Generated
     # emission translates that kwarg independently. Do not change this semantic
     # marker to "momentum_inverse_scale"; _needs_imm() would then miss GHMC.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # GHMCState from MEADS is directly usable by the sampling kernel.
     # Generated emission consumes the MEADS-produced GHMCState directly.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Generalized HMC with persistent momentum (Horowitz 1991; "
         "Sohl-Dickstein et al. 2014). alpha ∈ [0,1]: alpha=0 ≡ standard HMC "

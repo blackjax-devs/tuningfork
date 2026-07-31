@@ -10,6 +10,47 @@ from pathlib import Path
 
 Hit = tuple[str, str, str]
 
+# Constructors which return a BlackJAX sampling algorithm.  Keep this list
+# deliberately small and explicit: warmup/adaptation helpers are not sampling
+# paths, while an omitted constructor would let a custom scan bypass codegen.
+_SAMPLING_APIS = frozenset(
+    {
+        "nuts",
+        "hmc",
+        "mhmc",
+        "rmhmc",
+        "dynamic_hmc",
+        "dmhmc",
+        "ghmc",
+        "barker",
+        "mala",
+        "rmh",
+        "irmh",
+        "additive_step_random_walk",
+        "mclmc",
+        "adjusted_mclmc",
+        "adjusted_mclmc_dynamic",
+        "orbital_hmc",
+        "elliptical_slice",
+        "mgrad_gaussian",
+        "laplace_hmc",
+        "laplace_dhmc",
+        "laplace_mhmc",
+        "laplace_dmhmc",
+        "adaptive_tempered_smc",
+        "tempered_smc",
+        "partial_posteriors_smc",
+        "persistent_sampling_smc",
+        "adaptive_persistent_sampling_smc",
+    }
+)
+_REFERENCE_SCOPES = frozenset(
+    {
+        ("calibration/certify_reference.py", "certify_reference_nuts"),
+        ("groundtruth/_nuts_multichain.py", "_run_nuts_multichain.one_sample"),
+    }
+)
+
 
 def _qualifier(stack: list[str]) -> str:
     return ".".join(stack) if stack else "<module>"
@@ -20,19 +61,18 @@ class _Scanner(ast.NodeVisitor):
         self.relative_path = relative_path
         self.hits: Counter[Hit] = Counter()
         self._scope: list[str] = []
-        self._run_names: set[str] = set()
-        self._smc_names: set[str] = {"run_smc"}
         self._aliases: dict[str, str] = {"run_smc": "run_smc"}
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
+            if node.module == "blackjax" and alias.name in _SAMPLING_APIS:
+                name = alias.asname or alias.name
+                self._aliases[name] = f"blackjax.{alias.name}"
             if alias.name == "run_inference_algorithm":
                 name = alias.asname or alias.name
-                self._run_names.add(name)
                 self._aliases[name] = "run_inference_algorithm"
             if alias.name == "run_smc":
                 name = alias.asname or alias.name
-                self._smc_names.add(name)
                 self._aliases[name] = "run_smc"
         self.generic_visit(node)
 
@@ -42,12 +82,12 @@ class _Scanner(ast.NodeVisitor):
                 ".run_inference_algorithm"
             ):
                 name = alias.asname or alias.name.rsplit(".", 1)[-1]
-                self._run_names.add(name)
                 self._aliases[name] = "run_inference_algorithm"
             if alias.name == "run_smc" or alias.name.endswith(".run_smc"):
                 name = alias.asname or alias.name.rsplit(".", 1)[-1]
-                self._smc_names.add(name)
                 self._aliases[name] = "run_smc"
+            if alias.name == "blackjax":
+                self._aliases[alias.asname or "blackjax"] = "blackjax"
         self.generic_visit(node)
 
     def _visit_scope(
@@ -65,6 +105,19 @@ class _Scanner(ast.NodeVisitor):
         if isinstance(expr, ast.Name):
             return self._aliases.get(expr.id)
         if isinstance(expr, ast.Attribute):
+            parent = self._primitive_for_expr(expr.value)
+            if parent is not None:
+                dotted = f"{parent}.{expr.attr}"
+                if parent == "blackjax" and expr.attr in _SAMPLING_APIS:
+                    return dotted
+                if expr.attr in {
+                    "run_inference_algorithm",
+                    "run_smc",
+                    "runner",
+                    "factory",
+                }:
+                    return expr.attr
+                return None
             if expr.attr in {
                 "run_inference_algorithm",
                 "run_smc",
@@ -86,7 +139,14 @@ class _Scanner(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         primitive = self._primitive_for_expr(node.func)
-        if primitive is not None:
+        is_sampling_constructor = primitive is not None and (
+            primitive.startswith("blackjax.")
+            and primitive.rsplit(".", 1)[-1] in _SAMPLING_APIS
+        )
+        if primitive is not None and not (
+            is_sampling_constructor
+            and (self.relative_path, _qualifier(self._scope)) in _REFERENCE_SCOPES
+        ):
             self.hits[(self.relative_path, _qualifier(self._scope), primitive)] += 1
         self.generic_visit(node)
 

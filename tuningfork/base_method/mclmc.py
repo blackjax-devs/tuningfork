@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""MCLMC (Microcanonical Langevin Monte Carlo) algorithm wrapper.
+"""Descriptor for MCLMC (Microcanonical Langevin Monte Carlo).
 
 Note: each MCLMC step performs one integrator step. The default integrator
 (isokinetic_mclachlan) costs 2 gradient evaluations per integrator step
@@ -37,7 +37,6 @@ route. This registry module declares only the base MCLMC method; emitted
 programs bind the upstream LRD geometry directly.
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -47,7 +46,6 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="mclmc",
     family="mcmc",
-    factory=blackjax.mclmc,  # signature: (logdensity_fn, L, step_size, ...)
     grad_count_per_step=lambda info: jnp.asarray(2),
     grad_count_convention="2",
     default_hp_space=(
@@ -56,10 +54,6 @@ ENTRY = BaseMethod(
     ),
     needs_mass_matrix=False,
     target_acceptance_rate=None,  # rejection-free; not applicable
-    # T2.3 descriptors: MCLMC family — L is also per-chain from mclmc_tuning warmup.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix", "L"),
-    reinit_state=False,  # MCLMCState from mclmc_tuning is directly usable.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Constant 2 grads/step (default isokinetic_mclachlan integrator). "
         "MCLMCInfo._fields = ('logdensity', 'kinetic_change', 'energy_change', 'nonans'); "

@@ -52,13 +52,13 @@ _FAILURE_RULES = (
     ),
     (
         "gp_regression/recipes/failed__elliptical_slice__no_warmup.json",
-        FileNotFoundError,
-        "elliptical_slice.py.tmpl",
+        NotImplementedError,
+        "Unsupported base method for generated emission: 'elliptical_slice'",
     ),
     (
         "mvn_10/recipes/failed__elliptical_slice__no_warmup.json",
-        FileNotFoundError,
-        "elliptical_slice.py.tmpl",
+        NotImplementedError,
+        "Unsupported base method for generated emission: 'elliptical_slice'",
     ),
     (
         "mvn_10/recipes/failed__laplace_hmc__no_warmup.json",

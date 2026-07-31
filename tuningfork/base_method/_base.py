@@ -13,20 +13,11 @@
 # limitations under the License.
 """Base types for the tuningfork algorithm registry.
 
-Every sampling algorithm exposed to the benchmark is described by a single
-``BaseMethod`` frozen dataclass.  Whether the sampler is a gradient-free
-random-walk (RWM, 0 grads/step) or a sophisticated HMC variant with a full
-leapfrog integrator, lower-level warmup adapters and shared registry utilities
-see the same surface — no subclassing.
-
-Dispatch model
---------------
-Lower-level warmup adapters use ``entry.factory`` to instantiate the BlackJAX
-kernel::
-
-    kernel = entry.factory(logdensity_fn, **resolved_params)
-    init_state = kernel.init(position, rng_key)
-    final_state, info = kernel.step(rng_key, init_state)
+Every registered sampling method is described by a single ``BaseMethod``
+frozen dataclass. Whether the method is a gradient-free random walk (RWM,
+0 grads/step) or a sophisticated HMC variant with a full leapfrog integrator,
+recipe planning and evaluation see the same compact descriptor surface—no
+subclassing.
 
 Grad-count aggregation uses ``entry.grad_count_per_step`` together with
 ``tuningfork.metrics.grad_counter.total_grad_evals``::
@@ -42,14 +33,9 @@ Grad-count aggregation uses ``entry.grad_count_per_step`` together with
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from jax import Array
-
-# Sentinel for "not yet populated" — forces explicit assignment on every ENTRY.
-# Using a named object instead of None makes missing-population detectable at
-# import time (see tests/base_method/test_registry_descriptors.py).
-_DESCRIPTOR_REQUIRED: tuple[str, ...] = ()
 
 __all__ = ["HyperparamSpace", "BaseMethod"]
 
@@ -121,21 +107,15 @@ class BaseMethod:
     """Registry entry for a single sampling algorithm.
 
     Every algorithm in the zoo — from gradient-free RWM to MCLMC with a
-    palindromic integrator — exposes this exact surface so lower-level helpers
-    and registry consumers can remain algorithm-agnostic.
+    palindromic integrator — exposes this exact surface so recipe planners and
+    evaluators can remain algorithm-agnostic.
 
     Parameters
     ----------
     name
         Unique identifier, e.g. ``"hmc"``, ``"mala"``, ``"mclmc"``.
     family
-        Broad algorithm family: ``"mcmc"``, ``"vi"``, or ``"smc"``.
-    factory
-        A callable that accepts ``(logdensity_fn, **hyperparams)`` and
-        returns a BlackJAX kernel object (with ``.init`` and ``.step``
-        methods).  Typically ``blackjax.hmc``, ``blackjax.mala``, etc.
-        Wrappers in the per-algorithm modules adapt non-uniform BlackJAX
-        signatures to this common interface.
+        Broad algorithm family: ``"mcmc"`` or ``"vi"``.
     grad_count_per_step
         A JAX-compatible callable ``(info) -> Array | int`` that maps a
         *single* per-step info NamedTuple to the number of gradient
@@ -157,10 +137,11 @@ class BaseMethod:
         Free-form string for algorithm-specific caveats, citations, or
         implementation notes.
     extra_required_kwargs
-        Names of kwargs the factory requires beyond ``logdensity_fn`` and the
-        HP-space items.  Empty tuple (default) = standard factory.  Non-empty =
-        specialised: legacy lower-level callers must provide these kwargs from
-        ``Posterior`` metadata or recipe parameters before calling ``factory(...)``.
+        Names of inputs the generated routine requires beyond
+        ``logdensity_fn`` and the HP-space items. Empty tuple means the
+        standard generated inputs are sufficient. Non-empty means codegen
+        must obtain specialised inputs from model metadata or recipe
+        parameters.
 
         Examples::
 
@@ -169,13 +150,13 @@ class BaseMethod:
             ("proposal_distribution",)         — IRMH-family
             ("log_joint_fn", "theta_init")     — Laplace-marginal family
 
-        The standard ``no_warmup`` path raises ``NotImplementedError`` for any
-        entry with a non-empty ``extra_required_kwargs``.
+        Generated emission must provide these typed inputs; methods without a
+        registered emitter fail explicitly rather than inventing them.
 
     Raises
     ------
     ValueError
-        If ``name`` is empty; if ``family`` is not one of the three valid
+        If ``name`` is empty; if ``family`` is not one of the two valid
         values; or if ``default_hp_space`` is empty and
         ``extra_required_kwargs`` is also empty.
 
@@ -193,10 +174,7 @@ class BaseMethod:
 
     # ---- identity ----
     name: str
-    family: Literal["mcmc", "vi", "smc"]
-
-    # ---- BlackJAX kernel factory ----
-    factory: Callable[..., Any]
+    family: Literal["mcmc", "vi"]
 
     # ---- grad-cost oracle ----
     grad_count_per_step: Callable[[Any], Array | int]
@@ -206,26 +184,6 @@ class BaseMethod:
 
     # ---- optional fields ----
     needs_mass_matrix: bool = False
-    imm_kwarg_name: str = "inverse_mass_matrix"
-    """Name of the factory kwarg that receives the adapted mass-matrix-like
-    parameter.  Every kernel in the registry accepts ``inverse_mass_matrix``
-    EXCEPT ``blackjax.ghmc``, which names it ``momentum_inverse_scale`` (no
-    ``inverse_mass_matrix`` parameter at all, no ``**kwargs`` catch-all).
-
-    This is legacy descriptor metadata for generic runtime dispatch. No current
-    emitted program reads it: generated sampler emission retains an independent
-    GHMC translation instead.
-
-    ``batched_params`` (the warmup's raw adapted-param dict) is ALSO keyed by
-    this name — e.g. MEADS's adapted_params has a ``"momentum_inverse_scale"``
-    key, not ``"inverse_mass_matrix"`` — so this same field doubles as the
-    dict key to read the per-chain value from, in addition to naming the
-    kernel-factory kwarg.
-
-    This field is a next-tranche consolidation or removal candidate; the
-    generated sampler emitter currently translates
-    ``momentum_inverse_scale=inverse_mass_matrix`` for GHMC independently.
-    """
     target_acceptance_rate: float | None = None
     notes: str = ""
     # ---- grad-count convention string (for headline_basis.grad_count_convention) ----
@@ -233,13 +191,13 @@ class BaseMethod:
     # Example: "info.num_integration_steps" or "(NIS+1) × lbfgs_iter_num (lower bound)".
     # Defaults to empty string; populated in every BaseMethod ENTRY.
     grad_count_convention: str = ""
-    # ---- specialised: factory requires extra kwargs beyond logdensity_fn + HP-space ----
+    # ---- specialised: generated routine requires extra kwargs beyond standard HPs ----
     extra_required_kwargs: tuple[str, ...] = ()
-    """Names of kwargs the factory requires beyond logdensity_fn + HP-space items.
+    """Names of kwargs the generated routine requires beyond standard HP items.
 
-    Empty tuple = standard factory (logdensity_fn + HP-space kwargs are sufficient).
-    Non-empty = specialised: a legacy lower-level caller must inject these
-    kwargs from Posterior metadata or recipe parameters before calling factory(...).
+    An empty tuple means ``logdensity_fn`` plus the declared hyperparameters
+    are sufficient. Specialised methods declare additional model or recipe
+    inputs here.
 
     Examples:
       ("prior_cov", "prior_mean")        — Gaussian-prior specialists (mgrad_gaussian, elliptical_slice)
@@ -247,59 +205,7 @@ class BaseMethod:
       ("log_joint_fn", "theta_init")     — Laplace-marginal family
     """
 
-    # ---- data-driven dispatch descriptors (T2.3) ----
-    per_chain_param_keys: tuple[str, ...] = ("step_size", "inverse_mass_matrix")
-    """Parameter keys that are per-chain (vmapped) at step time.
-
-    These are the keys extracted from ``batched_params`` and passed
-    individually to each chain's factory call inside ``jax.vmap``.
-
-    Typical values:
-      ("step_size", "inverse_mass_matrix")  — HMC family, NUTS, MALA, Barker, GHMC, etc.
-      ("step_size", "inverse_mass_matrix", "L")  — MCLMC family (L also per-chain from warmup)
-      ()  — gradient-free (elliptical_slice, irmh, rwm via no_warmup): no adapted params
-    """
-
-    reinit_state: bool = False
-    """Whether state must be re-initialised post-warmup via kernel.init().
-
-    True for kernels whose state type differs from the HMCState that
-    window_adaptation / mclmc_tuning produces.
-
-    True for:
-      dynamic_hmc, dmhmc       — need DynamicHMCState (random_generator_arg)
-      ghmc                     — need GHMCState (momentum)
-      laplace_hmc, laplace_dhmc, laplace_mhmc, laplace_dmhmc
-                               — need LaplaceHMCState (theta_star warm-start)
-    False for everything else (HMC, NUTS, MALA, Barker, RWM, MCLMC, etc.).
-
-    Note: adjusted_mclmc_dynamic also needs reinit but only when batched_L
-    is not None (emit path).  Its reinit_state=True flag is guarded by the
-    ``batched_L is not None`` check in generated emission (the default path falls through to
-    the default no-reinit branch via batched_L=None).
-    """
-
-    extra_kwarg_builder: Callable[..., dict[str, Any]] | None = None
-    """Legacy descriptor for building extra factory kwargs from runtime context.
-
-    Signature: ``(base_method, logdensity_fn, posterior, batched_params, ...) -> dict``
-    where the dict is merged into ``shared_kwargs`` before calling factory(...).
-
-    It describes the former generic-dispatch contract for extra kwargs beyond
-    (logdensity_fn, step_size, imm, shared_kwargs) that cannot be computed
-    from HP-space alone and depend on runtime context:
-      - Laplace family: builds ``log_joint_fn`` + ``theta_init`` from the model
-      - mgrad_gaussian / elliptical_slice: builds ``prior_cov`` + ``prior_mean``
-      - irmh: builds ``proposal_distribution``
-      - additive_step_random_walk: builds ``proposal_generator``
-
-    None = no extra kwargs needed (standard HMC/NUTS/MALA/Barker/RWM/MCLMC/etc.).
-
-    No current production caller consumes this field. It remains registry
-    metadata for compatibility and is a next-tranche removal candidate.
-    """
-
-    _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})
+    _VALID_FAMILIES: ClassVar[frozenset[str]] = frozenset({"mcmc", "vi"})
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -313,5 +219,5 @@ class BaseMethod:
             raise ValueError(
                 f"BaseMethod '{self.name}': 'default_hp_space' must contain at least "
                 f"one HyperparamSpace entry, or 'extra_required_kwargs' must be non-empty "
-                f"(specialised factory that receives additional kwargs from a lower-level caller)"
+                f"(specialised generated route with additional model inputs)"
             )

@@ -29,7 +29,6 @@ left as ``None`` (identity) or supplied by warmup adaptation.
 ``needs_mass_matrix=True`` signals plan resolution to thread one through.
 """
 
-import blackjax
 import jax.numpy as jnp
 
 from tuningfork.base_method._base import BaseMethod, HyperparamSpace
@@ -39,16 +38,11 @@ __all__ = ["ENTRY"]
 ENTRY = BaseMethod(
     name="barker",
     family="mcmc",
-    factory=blackjax.barker,  # called as factory(logdensity_fn, step_size=..., inverse_mass_matrix=...)
     grad_count_per_step=lambda info: jnp.asarray(1),
     grad_count_convention="1",
     default_hp_space=(HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),),
     needs_mass_matrix=True,
     target_acceptance_rate=0.40,
-    # T2.3 descriptors: standard HMC family — step_size + imm per-chain from warmup.
-    per_chain_param_keys=("step_size", "inverse_mass_matrix"),
-    reinit_state=False,  # BarkerState from warmup is directly usable.
-    extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Livingstone & Zanella '22 optimal accept ≈ 0.40. "
         "Constant 1 grad/step. inverse_mass_matrix from warmup adaptation "

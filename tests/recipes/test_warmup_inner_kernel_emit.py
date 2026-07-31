@@ -68,7 +68,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     7. Recipe.load round-trips correctly with warmups list + warmup_inner_kernel
     """
     from tuningfork.recipes._base import Effort, Recipe
-    from tuningfork.recipes._recipe_runner import emit_low_recipe_for_cell
+    from tuningfork.recipes._certification_runner import emit_low_recipe_for_cell
 
     _hydrate_mvn10_reference(tmp_path)
     result = emit_low_recipe_for_cell(

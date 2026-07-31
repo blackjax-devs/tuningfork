@@ -66,6 +66,45 @@ def test_qualified_run_smc_is_reported(tmp_path: Path) -> None:
     assert hits[("qualified_smc.py", "sample", "run_smc")] == 1
 
 
+def test_direct_blackjax_constructor_is_reported(tmp_path: Path) -> None:
+    (tmp_path / "custom.py").write_text(
+        "import blackjax\n"
+        "def sample():\n"
+        "    kernel = blackjax.nuts(logdensity_fn)\n"
+        "    return scan(kernel)\n"
+    )
+    hits = boundary.scan_source(tmp_path)
+    assert hits[("custom.py", "sample", "blackjax.nuts")] == 1
+
+
+def test_sampling_constructor_alias_is_reported(tmp_path: Path) -> None:
+    (tmp_path / "aliased.py").write_text(
+        "from blackjax import hmc as build_sampler\n"
+        "def sample():\n"
+        "    return build_sampler(logdensity_fn)\n"
+    )
+    hits = boundary.scan_source(tmp_path)
+    assert hits[("aliased.py", "sample", "blackjax.hmc")] == 1
+
+
+def test_emitted_string_is_ignored_and_reference_scope_is_exempt(
+    tmp_path: Path,
+) -> None:
+    emit = tmp_path / "recipes"
+    emit.mkdir()
+    (emit / "_emit_script.py").write_text("source = 'blackjax.nuts(logdensity_fn)'\n")
+    (emit / "bad.py").write_text("import blackjax\nblackjax.nuts(logdensity_fn)\n")
+    reference = tmp_path / "calibration"
+    reference.mkdir()
+    (reference / "certify_reference.py").write_text(
+        "import blackjax\n"
+        "def certify_reference_nuts():\n"
+        "    return blackjax.nuts(logdensity_fn)\n"
+    )
+    hits = boundary.scan_source(tmp_path)
+    assert hits == {("recipes/bad.py", "<module>", "blackjax.nuts"): 1}
+
+
 def test_chained_assignment_alias_is_reported(tmp_path: Path) -> None:
     (tmp_path / "aliases.py").write_text(
         "def sample(base_method):\n"

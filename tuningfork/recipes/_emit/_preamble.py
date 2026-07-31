@@ -13,10 +13,9 @@
 # limitations under the License.
 """Emit-time Python function for the recipe preamble section.
 
-Replaces ``_templates/preamble.py.tmpl`` (43 LOC, string.Template).
-All slot resolution is done in Python — no $slot markers in the output.
-D8 compliant: core choreography stays inline; canonical model and optional
-diagnostics policy are the only tuningfork imports.
+All slot resolution is done in Python; no slot markers remain in the output.
+Core choreography stays inline; canonical model and optional diagnostics
+policy are the only tuningfork imports.
 """
 
 from __future__ import annotations
@@ -54,7 +53,7 @@ def emit_preamble(ctx: dict[str, Any]) -> str:
     a(f"Verdict:       {ctx['verdict']} (expected; pinned at recipe-emission time)")
     a("")
     a("The model definition is imported from ``tuningfork.model`` (canonical NumPyro")
-    a("code, no template-drift risk). The inference choreography (warmup + sampler +")
+    a("code, with one generation path). The inference choreography (warmup + sampler +")
     a("loop) is hand-written in this script, so the emitted choreography is")
     a("auditable in one file. Model code and opt-in tap diagnostics stay")
     a("single-sourced in their canonical tuningfork modules.")

@@ -13,18 +13,11 @@
 # limitations under the License.
 """Descriptor-driven Python emit-function for sampler sections.
 
-Replaces the 15 ``.tmpl`` files in
-``_templates/samplers/{nuts,hmc,mhmc,rmhmc,dynamic_hmc,dmhmc,ghmc,
-laplace_hmc,laplace_mhmc,laplace_dhmc,laplace_dmhmc,
-mala,barker,rwm,vi_sampler}.py.tmpl``
-(695 LOC total) with a single Python entry point.
+The sampler families are emitted directly through this single Python entry
+point.
 
-All routing is resolved at generation time (P1 straight-line principle).
-No dispatch on ``base_method_name`` string equality — every fork comes
-from descriptors (``per_chain_param_keys``, ``reinit_state``,
-``extra_required_kwargs``) or family-level structural differences.
-
-D8 compliant: emitted strings contain no ``import tuningfork``.
+All routing is resolved at generation time. Emitted strings contain no
+``import tuningfork``.
 
 Family groupings
 ----------------
@@ -64,16 +57,6 @@ def _is_laplace(base_method: BaseMethod) -> bool:
 def _is_vi(base_method: BaseMethod) -> bool:
     """True when the method name is a VI sampler."""
     return base_method.name in _VI_NAMES
-
-
-def _needs_imm(base_method: BaseMethod) -> bool:
-    """True when step_size + inverse_mass_matrix are per-chain adapted params."""
-    return "inverse_mass_matrix" in base_method.per_chain_param_keys
-
-
-def _is_gradient_free(base_method: BaseMethod) -> bool:
-    """True when per_chain_param_keys is empty (no warmup-adapted params)."""
-    return len(base_method.per_chain_param_keys) == 0
 
 
 def _is_numeric_tree(value: Any) -> bool:
@@ -185,17 +168,13 @@ def _emit_imm_assignment(lines: list[str], target: str, value: Any) -> None:
 def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     """Emit the sampler section for a recipe reproduction script.
 
-    Replaces the per-method ``.py.tmpl`` template files with a single
-    descriptor-driven Python function.
+    Emits the sampler section with a descriptor-driven Python function.
 
     Parameters
     ----------
     base_method : BaseMethod
-        Registry entry for the sampler.  Descriptors consumed:
+        Registry entry for the sampler.
         - ``base_method.name`` — method identifier string.
-        - ``base_method.per_chain_param_keys`` — drives which adapted params
-          the kernel factory call needs.
-        - ``base_method.reinit_state`` — drives ``_state_reinit`` emission.
         - ``base_method.extra_required_kwargs`` — drives laplace / VI dispatch.
     ctx : dict
         Substitution context from ``emit_script()``.  Required keys depend on
@@ -204,8 +183,8 @@ def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     Returns
     -------
     str
-        Python source for the sampler block (D8 compliant — no tuningfork
-        inference imports).
+        Python source for the sampler block, with no tuningfork inference
+        imports.
     """
     if _is_vi(base_method):
         body = _emit_vi_sampler(base_method, ctx)
@@ -259,11 +238,8 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     require a different state type than NUTSState (which warmup produces).
     """
     name = base_method.name
-    # Use structural frozenset for the emit-time _state_reinit decision.
-    # ghmc has reinit_state=False in the registry descriptor (the runner uses
-    # MEADS warmup which produces GHMCState directly) but the emitted script
-    # DOES need _state_reinit because window_adaptation warmup produces NUTSState,
-    # not GHMCState.  This mirrors _STATE_REINIT_SAMPLERS in _emit_script.py.
+    # These samplers need a state conversion when window adaptation produces a
+    # NUTS state rather than the sampler-specific state.
     _HMC_EMIT_REINIT = frozenset({"dynamic_hmc", "dmhmc", "ghmc"})
     needs_reinit = name in _HMC_EMIT_REINIT
     has_nis = name in _HMC_WITH_NIS
@@ -483,11 +459,11 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             a("        delta=_delta,")
             a("    ).init(position, rng_key)")
 
-    # no_warmup init block (T1.3: only emitted for no_warmup recipes).
+    # no_warmup initialization block.
     # The caller (_emit_script.py) strips this block for non-no_warmup paths.
     # We still emit it so the no_warmup path works correctly.
     a("")
-    a("# Bind _state_post_warmup: warmup template sets it when adaptation runs.")
+    a("# Bind _state_post_warmup produced by the warmup stage.")
     a("# For no_warmup, initialise from init_position here.")
     a("try:")
     a("    _state_post_warmup")
@@ -582,7 +558,7 @@ def _emit_mala(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("# kernel_builder is the protocol expected by the inference loop.")
     a("kernel_builder = _build_kernel")
     a("")
-    a("# Bind _state_post_warmup: warmup template sets it when adaptation runs;")
+    a("# Bind _state_post_warmup produced by the warmup stage;")
     a("# for no_warmup we initialize from init_position here.")
     a("try:")
     a("    _state_post_warmup")
@@ -683,7 +659,7 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     """Emit sampler block for the Laplace family.
 
     log_joint_fn and theta_init come from the laplace_preamble section above.
-    D8: no logdensity_fn reference — laplace_* uses log_joint_fn directly.
+    Laplace samplers use log_joint_fn directly rather than logdensity_fn.
     """
     name = base_method.name
     # needs_reinit governs _state_reinit emission:
@@ -705,7 +681,7 @@ def _emit_laplace_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
 
     a(f"# === SAMPLER: {name} (Laplace-marginalised sampler on phi-space) ===")
     a("# log_joint_fn and theta_init come from the laplace_preamble section above.")
-    a("# D8: no logdensity_fn reference -- laplace_* uses log_joint_fn directly.")
+    a("# Laplace samplers use log_joint_fn directly.")
     a("from jax.flatten_util import ravel_pytree as _ravel_pytree")
     a("")
     a("_flat_phi_init, _ = _ravel_pytree(init_position)")
@@ -905,7 +881,7 @@ def _emit_vi_sampler(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a(f"import {vi_module} as {vp}_module")
     a(f"from jax.flatten_util import ravel_pytree as {vp}_ravel")
     a("")
-    a("# Inline state definition (D8: no tuningfork import in inference choreography).")
+    a("# Inline state definition keeps the generated program self-contained.")
     a(
         f"{vi_state_name} = {vp}_collections.namedtuple("
         f'    "{vi_state_name}", ["position", "vi_state"]'
@@ -938,7 +914,7 @@ def _emit_vi_sampler(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("")
     a("# Bind _state_post_warmup for the no_warmup path: run the full VI optimisation")
     a("# loop here and store the final VI state (position = variational mean).")
-    a("# For a VI-warmup recipe this block is unreachable -- warmup template sets it.")
+    a("# For a VI-warmup recipe this block is unreachable -- warmup sets it.")
     a("try:")
     a("    _state_post_warmup")
     a("except NameError:")
@@ -994,7 +970,7 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
       resolver in ``_build_info_diagnostics_block`` (mclmc is not in
       ``_SAMPLERS_WITH_IS_DIVERGENT``).
     - ``blackjax.mclmc.init`` requires an ``rng_key`` (to generate the initial
-      unit-vector momentum).  The warmup template handles init; the
+      unit-vector momentum).  The warmup stage handles init; the
       ``kernel_builder`` here is for the *sampling* phase only.
     """
     lines: list[str] = []

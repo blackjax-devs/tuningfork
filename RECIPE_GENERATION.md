@@ -290,7 +290,14 @@ No adaptation; default hyperparameters from HP space. Low effort only for gradie
 
 ## Table 6 — Specialised Base Methods (no standard warmup path)
 
-These samplers use `extra_required_kwargs` — they cannot use `no_warmup` without external integration. Recipe generation must wire up the recipe-runner to supply these kwargs from `PosteriorEntry`.
+These descriptors declare model-specific inputs through
+`extra_required_kwargs`. There is no external-integration escape hatch: a
+combination is runnable only when the recipe schema and generated emitter
+represent those inputs. The Laplace family has that generated route.
+Elliptical slice, mgrad Gaussian, IRMH, additive-step random walk, and orbital
+HMC currently fail explicitly at generation time; enabling one requires adding
+its typed recipe inputs and emitter before it can produce certification
+evidence.
 
 ### 6A — Elliptical Slice + mgrad_gaussian (requires: prior_cov, prior_mean)
 

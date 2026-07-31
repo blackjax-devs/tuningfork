@@ -17,9 +17,6 @@ This is the entry point for recipe portability (Principle F): given a Recipe,
 emit a Python script that reproduces the recipe's inference with the wiring
 code visible inline.
 
-Templates live in ``_templates/`` and use string.Template ($slot) substitution
-because Python code contains curly braces that conflict with str.format.
-
 The emitted warmup, sampler, and inference loop contain no ``import
 tuningfork`` so the exact BlackJAX call shape is auditable in one file. The
 canonical model remains imported from ``tuningfork.model`` and optional tap
@@ -30,8 +27,6 @@ programs are covered by syntax and execution contracts.
 
 from __future__ import annotations
 
-from pathlib import Path
-from string import Template
 from typing import TYPE_CHECKING
 
 from tuningfork._version import __version__
@@ -386,13 +381,6 @@ def _build_inference_loop(
 
 __all__ = ["emit_script"]
 
-_TEMPLATES_DIR = Path(__file__).parent / "_templates"
-
-
-def _load_template(relpath: str) -> Template:
-    """Load a .py.tmpl file as a string.Template."""
-    return Template((_TEMPLATES_DIR / relpath).read_text())
-
 
 def emit_script(
     recipe: Recipe,
@@ -492,18 +480,14 @@ def emit_script(
 
     Raises
     ------
-    FileNotFoundError
-        If a required template is missing for the given
-        ``(model_name, warmup_name, base_method_name)`` combo.
+    NotImplementedError
+        If no generated emitter supports the requested sampler or warmup.
     KeyError
         If the recipe's ``warmup_params`` or ``base_method_params`` lack a
-        required slot for the template.
+        required generation parameter.
     ValueError
         If ``num_warmup`` is a list whose length does not match the number of
         warmup phases in ``recipe.warmups``.
-    NotImplementedError
-        If the requested warmup chain topology is not supported by code
-        generation.
     """
     # Keep legacy baked recipes on the same canonical executable identity as
     # the execution-plan resolver (zero-step ``no_warmup`` stage).
@@ -897,16 +881,16 @@ def emit_script(
             ctx["laplace_factories_expr"] = _laplace_factory_expr(_single_opt_kwargs)
             ctx["num_warmup_phases"] = 1
 
-        # Build a Python dict literal of optimizer kwargs for the sampler template.
-        # Templates use $bm_optimizer_kwargs_expr to get all optimizer kwargs as a
-        # dict they can spread: **_optimizer_kwargs.
+        # Build a Python dict literal of optimizer kwargs for the sampler emitter.
+        # The context value supplies all optimizer kwargs as a dict the sampler
+        # emitter can spread with **_optimizer_kwargs.
         _bm_opt_kwargs = extract_laplace_optimizer_kwargs(recipe.base_method_params)
         ctx["bm_optimizer_kwargs_expr"] = repr(_bm_opt_kwargs)
 
     # ── Multi-phase warmup slot population ───────────────────────────────────
     # For multi-phase laplace warmup (len(recipe.warmups) > 1), populate per-phase
-    # template slots: $wp0_*, $wp1_*, etc.  These are consumed by the
-    # laplace_multiphase_warmup.py.tmpl template.
+    # context slots: $wp0_*, $wp1_*, etc. These are consumed by the
+    # laplace multi-phase warmup emitter.
     if _is_laplace and _is_multiphase_warmup:
         # Build per-phase num_warmup overrides: None → use recipe value per phase.
         _per_phase_n_warmup: list[int | None]
@@ -1048,10 +1032,6 @@ def emit_script(
     )
 
     # Descriptor-driven emit for all supported sampler families.
-    # For methods outside this set (mclmc, adjusted_mclmc, etc.), the
-    # FileNotFoundError from _load_template propagates up, which causes
-    # _try_emit_script to return None (skip) in the golden gate tests --
-    # same behavior as before.
     _EMIT_SAMPLER_NAMES = frozenset(
         {
             "nuts",
@@ -1080,18 +1060,19 @@ def emit_script(
         ctx["chees_adapted"] = recipe.warmup_name == "chees"
         sampler_body = emit_sampler(_bm_entry, ctx)
     else:
-        sampler_body = _load_template(
-            f"samplers/{recipe.base_method_name}.py.tmpl"
-        ).safe_substitute(ctx)
+        raise NotImplementedError(
+            "Unsupported base method for generated emission: "
+            f"{recipe.base_method_name!r}. No sampler emitter is registered."
+        )
     # Strip the try/except NameError _state_post_warmup block from
-    # sampler templates for non-no_warmup recipes (dead code for those paths).
+    # sampler blocks for non-no_warmup recipes (dead code for those paths).
     # For no_warmup, the block is the initialization path and must be kept.
     if not _is_no_warmup or ctx["init_position_is_prebatched"]:
         sampler_body = _strip_no_warmup_try_block(sampler_body)
 
     # Resolve the three inference-loop sentinels at emit time.
-    # All three flags are statically determined from (warmup_name, warmup_template_path,
-    # base_method_name) — no runtime try/except NameError probes needed.
+    # All three flags are statically determined from the warmup route and
+    # base_method_name; no runtime try/except NameError probes are needed.
     #
     # _warmup_init_is_single_chain: True iff warmup_name == "no_warmup"
     _resolved_warmup_init_is_single_chain = (

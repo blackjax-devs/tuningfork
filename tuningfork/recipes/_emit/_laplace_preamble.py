@@ -13,9 +13,8 @@
 # limitations under the License.
 """Emit-time Python function for the Laplace preamble section.
 
-Replaces ``_templates/laplace_preamble.py.tmpl`` (40 LOC, string.Template).
-All slot resolution is done in Python — no $slot markers in the output.
-D8 compliant: emitted string imports only from blackjax (allowed by D8).
+All slot resolution is done in Python; no slot markers remain in the output.
+The emitted string imports only from blackjax.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ def emit_laplace_preamble(ctx: dict[str, Any]) -> str:
     """Emit the Laplace preamble section (phi/theta split, log_joint_fn, factories).
 
     Inserted between the standard preamble and the warmup body for laplace_*
-    recipes. D8 compliant: imports from blackjax.mcmc.laplace_marginal only.
+    recipes. Imports only from blackjax.mcmc.laplace_marginal.
 
     Parameters
     ----------
@@ -49,7 +48,7 @@ def emit_laplace_preamble(ctx: dict[str, Any]) -> str:
         f"# Model: {ctx['model_name']} -- phi sites: {ctx['phi_sites_repr']}, theta sites: {ctx['theta_sites_repr']}"
     )
     a("#")
-    a("# D8 compliant: zero `import tuningfork` in the inference path.")
+    a("# No tuningfork import is needed in the inference path.")
     a(
         "# blackjax.mcmc.laplace_marginal is part of the blackjax package, not tuningfork."
     )
@@ -77,7 +76,7 @@ def emit_laplace_preamble(ctx: dict[str, Any]) -> str:
     a("theta_init = {k: _full_init[k] for k in _theta_sites}")
     a("phi_init = {k: _full_init[k] for k in _phi_sites}")
     a("")
-    a("# Override: warmup templates and sampler templates see phi-space only.")
+    a("# Override: warmup and sampler emitters see phi-space only.")
     a("init_position = phi_init")
     a("")
     a("# Build one LaplaceMarginal per warmup phase.")

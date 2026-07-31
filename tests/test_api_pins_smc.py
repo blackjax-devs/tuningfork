@@ -11,15 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tripwire tests for BlackJAX SMC API shapes that tuningfork relies on.
-
-These are defensive: if BlackJAX upstream changes the return-tuple shape or
-NamedTuple fields of any SMC algorithm we depend on, these tests fire with a
-clear message pointing at the file in tuningfork that needs an update.
-
-Includes sections: 11 (adaptive_tempered_smc), 12 (partial_posteriors_smc +
-inner_kernel_tuning).
-"""
+"""Fail-fast pins for the BlackJAX APIs emitted by tuningfork's SMC programs."""
 
 import inspect
 
@@ -28,520 +20,148 @@ import pytest
 pytestmark = pytest.mark.fast
 
 
-# ───────────────── 11. SMC family — adaptive_tempered_smc ─────────────────
+def _assert_parameters(
+    callable_obj, required: set[str], *, var_keyword: str | None = None
+) -> None:
+    parameters = inspect.signature(callable_obj).parameters
+    missing = required - set(parameters)
+    assert not missing, (
+        f"{callable_obj!r} is missing generated-call parameters {sorted(missing)}; "
+        f"current parameters: {list(parameters)}"
+    )
+    if var_keyword is not None:
+        assert (
+            parameters[var_keyword].kind is inspect.Parameter.VAR_KEYWORD
+        ), f"{callable_obj!r} must retain **{var_keyword} for generated SMC options"
 
 
-def test_blackjax_adaptive_tempered_smc_factory_signature():
-    """Tripwire: blackjax.smc.adaptive_tempered.as_top_level_api must have exactly
-    {logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn, mcmc_parameters,
-    resampling_fn, target_ess, root_solver, num_mcmc_steps, extra_parameters}.
-
-    Pinned tripwire: tuningfork/smc/adaptive_tempered.py calls
-    blackjax.adaptive_tempered_smc(logprior_fn=..., loglikelihood_fn=...,
-    mcmc_step_fn=..., mcmc_init_fn=..., mcmc_parameters=..., resampling_fn=...,
-    target_ess=..., num_mcmc_steps=...).  If upstream renames or removes any of
-    these parameters, the wrapper's factory calls fail silently.
-
-    Note: extra_parameters is **extra_parameters (VAR_KEYWORD); it appears in
-    inspect.signature but is not a named POSITIONAL_OR_KEYWORD param.
-    """
+def test_adaptive_tempered_constructor_parameters() -> None:
+    """The adaptive route emits these keyword arguments to BlackJAX."""
     from blackjax.smc.adaptive_tempered import as_top_level_api
 
-    sig = inspect.signature(as_top_level_api)
-    expected_named = {
-        "logprior_fn",
-        "loglikelihood_fn",
-        "mcmc_step_fn",
-        "mcmc_init_fn",
-        "mcmc_parameters",
-        "resampling_fn",
-        "target_ess",
-        "root_solver",
-        "num_mcmc_steps",
-    }
-    missing = expected_named - set(sig.parameters)
-    assert not missing, (
-        f"blackjax.smc.adaptive_tempered.as_top_level_api is missing parameters: {missing}. "
-        f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/smc/adaptive_tempered.py if upstream API changed."
-    )
-    # Pin extra_parameters as VAR_KEYWORD (the **kwargs catch-all)
-    assert "extra_parameters" in sig.parameters, (
-        "blackjax.smc.adaptive_tempered.as_top_level_api lost the 'extra_parameters' "
-        "VAR_KEYWORD parameter. Update tuningfork/smc/adaptive_tempered.py."
-    )
-
-    assert sig.parameters["extra_parameters"].kind == inspect.Parameter.VAR_KEYWORD, (
-        "blackjax.smc.adaptive_tempered.as_top_level_api: 'extra_parameters' is no longer "
-        "VAR_KEYWORD. Update tuningfork/smc/adaptive_tempered.py."
+    _assert_parameters(
+        as_top_level_api,
+        {
+            "logprior_fn",
+            "loglikelihood_fn",
+            "mcmc_step_fn",
+            "mcmc_init_fn",
+            "mcmc_parameters",
+            "resampling_fn",
+            "target_ess",
+            "num_mcmc_steps",
+        },
+        var_keyword="extra_parameters",
     )
 
 
-def test_blackjax_smc_resampling_systematic_exists():
-    """Tripwire: blackjax.smc.resampling.systematic must be callable.
+def test_inner_kernel_tuning_constructor_parameters() -> None:
+    """The HMC-tuning route emits these keyword arguments to BlackJAX."""
+    from blackjax.smc.inner_kernel_tuning import as_top_level_api
 
-    Pinned tripwire: tuningfork/smc/adaptive_tempered.py uses
-    blackjax.smc.resampling.systematic as the default resampling function.
-    If upstream renames or removes it, the wrapper silently falls back to
-    importing a non-existent name at module load time (ImportError) or
-    produces a confusing AttributeError at factory call time.
-    """
-    from blackjax.smc import resampling as _smc_resampling
-
-    assert callable(_smc_resampling.systematic), (
-        "blackjax.smc.resampling.systematic is not callable or does not exist. "
-        "Update tuningfork/smc/adaptive_tempered.py: replace 'systematic' "
-        "with the new resampling function name."
+    _assert_parameters(
+        as_top_level_api,
+        {
+            "smc_algorithm",
+            "logprior_fn",
+            "loglikelihood_fn",
+            "mcmc_step_fn",
+            "mcmc_init_fn",
+            "resampling_fn",
+            "mcmc_parameter_update_fn",
+            "initial_parameter_value",
+            "num_mcmc_steps",
+        },
+        var_keyword="extra_parameters",
     )
 
 
-# ───────────────── 12. SMC family — partial_posteriors_smc + inner_kernel_tuning ─────────────────
-
-
-def test_blackjax_partial_posteriors_path_as_top_level_api_signature():
-    """Tripwire: blackjax.smc.partial_posteriors_path.as_top_level_api must have exactly
-    {mcmc_step_fn, mcmc_init_fn, mcmc_parameters, resampling_fn, num_mcmc_steps,
-    partial_logposterior_factory, update_strategy}.
-
-    Pinned tripwire: tuningfork/smc/partial_posteriors.py calls
-    blackjax.smc.partial_posteriors_path.as_top_level_api with keyword args
-    mcmc_step_fn, mcmc_init_fn, mcmc_parameters, resampling_fn, num_mcmc_steps,
-    partial_logposterior_factory.  If upstream renames or removes any of these,
-    the wrapper's factory calls fail.
-
-    Note: do NOT inspect blackjax.partial_posteriors_smc top-level — it collapses
-    to *args/**kwargs via GenerateSamplingAPI.  Inspect the inner module directly.
-    """
-    import blackjax.smc.partial_posteriors_path as _pp_path
-
-    sig = inspect.signature(_pp_path.as_top_level_api)
-    expected_named = {
-        "mcmc_step_fn",
-        "mcmc_init_fn",
-        "mcmc_parameters",
-        "resampling_fn",
-        "num_mcmc_steps",
-        "partial_logposterior_factory",
-        "update_strategy",
-        "batch_size",  # added upstream; tuningfork wrappers accept via **kwargs default
-    }
-    missing = expected_named - set(sig.parameters)
-    assert not missing, (
-        f"blackjax.smc.partial_posteriors_path.as_top_level_api is missing parameters: {missing}. "
-        f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/smc/partial_posteriors.py if upstream API changed."
-    )
-    assert set(sig.parameters) == expected_named, (
-        f"blackjax.smc.partial_posteriors_path.as_top_level_api has unexpected parameters. "
-        f"Expected exactly {expected_named}, got {set(sig.parameters)}. "
-        f"Update tuningfork/smc/partial_posteriors.py if upstream API changed."
-    )
-
-
-def test_blackjax_partial_posteriors_smc_state_fields():
-    """Tripwire: PartialPosteriorsSMCState._fields must be ('particles', 'weights', 'data_mask').
-
-    Pinned tripwire: tuningfork/smc/partial_posteriors.py documents
-    this state shape; tests check state.particles.shape, state.weights.shape,
-    state.data_mask.shape.  If upstream renames or adds/removes fields, our
-    shape tests break silently (e.g., 'data_mask' renamed to 'mask' would make
-    state.data_mask fail with AttributeError).
-    """
-    from blackjax.smc.partial_posteriors_path import PartialPosteriorsSMCState
-
-    expected = ("particles", "weights", "data_mask")
-    assert PartialPosteriorsSMCState._fields == expected, (
-        f"BlackJAX PartialPosteriorsSMCState fields changed from {expected} to "
-        f"{PartialPosteriorsSMCState._fields}. "
-        f"Update tuningfork/smc/partial_posteriors.py notes and "
-        f"tests/test_smc_method_partial_posteriors.py state-shape assertions."
-    )
-
-
-def test_blackjax_inner_kernel_tuning_as_top_level_api_signature():
-    """Tripwire: blackjax.smc.inner_kernel_tuning.as_top_level_api must have exactly
-    {smc_algorithm, logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn,
-    resampling_fn, mcmc_parameter_update_fn, initial_parameter_value,
-    num_mcmc_steps, smc_returns_state_with_parameter_override, extra_parameters}.
-
-    Pinned tripwire: tuningfork/smc/inner_kernel_tuning.py calls
-    blackjax.smc.inner_kernel_tuning.as_top_level_api with all of these.
-    If upstream renames or removes any, the wrapper's factory calls fail.
-
-    Note: 'extra_parameters' is a VAR_KEYWORD (**kwargs catch-all) — pin its kind.
-    """
-    import blackjax.smc.inner_kernel_tuning as _ikt
-
-    sig = inspect.signature(_ikt.as_top_level_api)
-    expected_named = {
-        "smc_algorithm",
-        "logprior_fn",
-        "loglikelihood_fn",
-        "mcmc_step_fn",
-        "mcmc_init_fn",
-        "resampling_fn",
-        "mcmc_parameter_update_fn",
-        "initial_parameter_value",
-        "num_mcmc_steps",
-        "smc_returns_state_with_parameter_override",
-    }
-    missing = expected_named - set(sig.parameters)
-    assert not missing, (
-        f"blackjax.smc.inner_kernel_tuning.as_top_level_api is missing parameters: {missing}. "
-        f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/smc/inner_kernel_tuning.py if upstream API changed."
-    )
-    # Pin extra_parameters as VAR_KEYWORD (the **kwargs catch-all)
-    assert "extra_parameters" in sig.parameters, (
-        "blackjax.smc.inner_kernel_tuning.as_top_level_api lost the 'extra_parameters' "
-        "VAR_KEYWORD parameter. Update tuningfork/smc/inner_kernel_tuning.py."
-    )
-    assert sig.parameters["extra_parameters"].kind == inspect.Parameter.VAR_KEYWORD, (
-        "blackjax.smc.inner_kernel_tuning.as_top_level_api: 'extra_parameters' is no longer "
-        "VAR_KEYWORD. Update tuningfork/smc/inner_kernel_tuning.py."
-    )
-
-
-def test_blackjax_state_with_parameter_override_fields():
-    """Tripwire: StateWithParameterOverride._fields must be ('sampler_state', 'parameter_override').
-
-    Pinned tripwire: tuningfork/smc/inner_kernel_tuning.py documents
-    that particles live at state.sampler_state.particles (not state.particles
-    directly).  Tests access state.sampler_state.particles and
-    state.parameter_override.  If upstream renames these fields, tests break.
-    """
-    from blackjax.smc.inner_kernel_tuning import StateWithParameterOverride
-
-    expected = ("sampler_state", "parameter_override")
-    assert StateWithParameterOverride._fields == expected, (
-        f"BlackJAX StateWithParameterOverride fields changed from {expected} to "
-        f"{StateWithParameterOverride._fields}. "
-        f"Update tuningfork/smc/inner_kernel_tuning.py notes and "
-        f"tests/test_smc_method_inner_kernel_tuning.py state-access patterns."
-    )
-
-
-def test_blackjax_smc_registry_has_three_entries():
-    """Tripwire: SMC_METHODS registry must contain all three registered entries
-    after (adaptive_tempered_smc, partial_posteriors_smc, inner_kernel_tuning).
-
-    Pinned tripwire: verifies that the __init__.py registration is complete
-    and that all three names are resolvable in the registry dict.
-    """
-    from tuningfork.smc import SMC_METHODS
-
-    required = {
-        "adaptive_tempered_smc",
-        "partial_posteriors_smc",
-        "inner_kernel_tuning",
-    }
-    missing = required - set(SMC_METHODS.keys())
-    assert not missing, (
-        f"SMC_METHODS registry is missing entries after registration: {missing}. "
-        f"Update tuningfork/smc/__init__.py to register all three SMC methods."
-    )
-
-
-# ───────── 13. Persistent sampling family ─────────
-
-
-def test_blackjax_persistent_sampling_as_top_level_api_signature():
-    """Tripwire: blackjax.smc.persistent_sampling.as_top_level_api must have exactly
-    {logprior_fn, loglikelihood_fn, n_schedule, mcmc_step_fn, mcmc_init_fn,
-    mcmc_parameters, resampling_fn, num_mcmc_steps, update_strategy}.
-
-    Pinned tripwire: tuningfork/smc/persistent_sampling.py calls
-    blackjax.smc.persistent_sampling.as_top_level_api with keyword args
-    logprior_fn, loglikelihood_fn, n_schedule, mcmc_step_fn, mcmc_init_fn,
-    mcmc_parameters, resampling_fn, num_mcmc_steps.  If upstream renames or
-    removes any of these, the wrapper's factory calls fail.
-
-    Note: update_strategy has a default (update_and_take_last) but is a named
-    POSITIONAL_OR_KEYWORD param — pin its presence.
-    """
-    from blackjax.smc.persistent_sampling import as_top_level_api
-
-    sig = inspect.signature(as_top_level_api)
-    expected_named = {
-        "logprior_fn",
-        "loglikelihood_fn",
-        "n_schedule",
-        "mcmc_step_fn",
-        "mcmc_init_fn",
-        "mcmc_parameters",
-        "resampling_fn",
-        "num_mcmc_steps",
-        "update_strategy",
-        "batch_size",  # added upstream; tuningfork wrappers accept via **kwargs default
-    }
-    missing = expected_named - set(sig.parameters)
-    assert not missing, (
-        f"blackjax.smc.persistent_sampling.as_top_level_api is missing parameters: {missing}. "
-        f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/smc/persistent_sampling.py if upstream API changed."
-    )
-    assert set(sig.parameters) == expected_named, (
-        f"blackjax.smc.persistent_sampling.as_top_level_api has unexpected parameters. "
-        f"Expected exactly {expected_named}, got {set(sig.parameters)}. "
-        f"Update tuningfork/smc/persistent_sampling.py if upstream API changed."
-    )
-
-
-def test_blackjax_adaptive_persistent_sampling_as_top_level_api_signature():
-    """Tripwire: blackjax.smc.adaptive_persistent_sampling.as_top_level_api must have
-    exactly {logprior_fn, loglikelihood_fn, max_iterations, mcmc_step_fn, mcmc_init_fn,
-    mcmc_parameters, resampling_fn, target_ess, num_mcmc_steps, update_strategy,
-    root_solver}.
-
-    Pinned tripwire: tuningfork/smc/adaptive_persistent_sampling.py calls
-    blackjax.smc.adaptive_persistent_sampling.as_top_level_api with keyword args
-    logprior_fn, loglikelihood_fn, max_iterations, mcmc_step_fn, mcmc_init_fn,
-    mcmc_parameters, resampling_fn, target_ess, num_mcmc_steps.  If upstream renames
-    or removes any of these, the wrapper's factory calls fail.
-    """
-    from blackjax.smc.adaptive_persistent_sampling import as_top_level_api
-
-    sig = inspect.signature(as_top_level_api)
-    expected_named = {
-        "logprior_fn",
-        "loglikelihood_fn",
-        "max_iterations",
-        "mcmc_step_fn",
-        "mcmc_init_fn",
-        "mcmc_parameters",
-        "resampling_fn",
-        "target_ess",
-        "num_mcmc_steps",
-        "update_strategy",
-        "root_solver",
-        "batch_size",  # added upstream; tuningfork wrappers accept via **kwargs default
-    }
-    missing = expected_named - set(sig.parameters)
-    assert not missing, (
-        f"blackjax.smc.adaptive_persistent_sampling.as_top_level_api is missing parameters: "
-        f"{missing}. Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/smc/adaptive_persistent_sampling.py if upstream API changed."
-    )
-    assert set(sig.parameters) == expected_named, (
-        f"blackjax.smc.adaptive_persistent_sampling.as_top_level_api has unexpected parameters. "
-        f"Expected exactly {expected_named}, got {set(sig.parameters)}. "
-        f"Update tuningfork/smc/adaptive_persistent_sampling.py if upstream API changed."
-    )
-
-
-def test_blackjax_adaptive_persistent_sampling_step_arity_is_two_arg():
-    """Tripwire —  candidate #8: step_fn of adaptive_persistent_sampling
-    is 2-arg (rng_key, state), NOT 3-arg (rng_key, state, lmbda) as the docstring
-    incorrectly states.
-
-    Pinned tripwire: tuningfork/smc/adaptive_persistent_sampling.py
-    wraps the 2-arg step_fn as a standard tuningfork step (step_kwargs_schema=()).
-    If upstream silently changes step_fn to 3-arg, our wrapper would silently
-    drop the lmbda arg, producing incorrect (delta=0) tempering.
-
-    We pin BOTH aspects:
-    1. The actual parameter count of step_fn is 2 (rng_key, state).
-    2. The upstream docstring STILL says '(rng_key, state, lmbda)' — if that
-       changes (docstring fix), the second assertion fires, reminding us to
-       re-audit whether the actual arity also changed.
-
-    When the docstring is eventually fixed upstream, remove or update the
-    docstring mismatch assertion below.
-    """
-    import functools as _functools
-
-    import blackjax.mcmc.random_walk as _rw
-    import jax.numpy as _jnp
-    from blackjax.base import SamplingAlgorithm as _SA
-    from blackjax.smc import resampling as _resampling
-    from blackjax.smc.adaptive_persistent_sampling import as_top_level_api
-
-    # Build a minimal algorithm instance to inspect the step_fn arity
-    def _logprior(x):
-        return -0.5 * _jnp.sum(x**2)
-
-    def _loglikelihood(x):
-        return -0.5 * _jnp.sum((x - 1.0) ** 2)
-
-    sigma_arr = _jnp.full(3, 0.5)
-    _step = _functools.partial(
-        _rw.build_additive_step(), random_step=_rw.normal(sigma_arr)
-    )
-    inner = _SA(init=_rw.init, step=_step)
-
-    alg = as_top_level_api(
-        logprior_fn=_logprior,
-        loglikelihood_fn=_loglikelihood,
-        max_iterations=5,
-        mcmc_step_fn=inner.step,
-        mcmc_init_fn=inner.init,
-        mcmc_parameters={},
-        resampling_fn=_resampling.systematic,
-        target_ess=0.5,
-        num_mcmc_steps=2,
-    )
-
-    step_sig = inspect.signature(alg.step)
-    actual_params = list(step_sig.parameters)
-    assert actual_params == ["rng_key", "state"], (
-        f"adaptive_persistent_sampling step_fn arity changed from 2-arg to {actual_params}. "
-        f"Update tuningfork/smc/adaptive_persistent_sampling.py: if now 3-arg, "
-        f"set step_kwargs_schema=('lmbda',) and update the factory. "
-        f" candidate #8 — check if docstring was also fixed upstream."
-    )
-
-    # Pin the docstring mismatch: upstream says '(rng_key, state, lmbda)' but step is 2-arg.
-    # When upstream fixes the docstring, this assertion will fire — re-audit at that point.
-    docstring = as_top_level_api.__doc__ or ""
-    assert "lmbda" in docstring, (
-        "blackjax.smc.adaptive_persistent_sampling.as_top_level_api docstring no longer "
-        "mentions 'lmbda' in the step signature description. The upstream docstring/arity "
-        "mismatch ( #8) may have been fixed. Re-audit: confirm actual step arity "
-        "is still 2-arg (rng_key, state) and update tuningfork wrapper notes accordingly."
-    )
-
-
-def test_blackjax_persistent_smc_state_fields():
-    """Tripwire: PersistentSMCState._fields must be
-    ('persistent_particles', 'persistent_log_likelihoods', 'persistent_log_Z',
-    'tempering_schedule', 'iteration').
-
-    Pinned tripwire: tuningfork wrapper docs and tests access state.particles
-    (property), state.tempering_param (property), state.iteration, and
-    state.persistent_particles (direct field). If upstream renames or adds/removes
-    fields, our access patterns break.
-    """
-    from blackjax.smc.persistent_sampling import PersistentSMCState
-
-    expected = (
-        "persistent_particles",
-        "persistent_log_likelihoods",
-        "persistent_log_Z",
-        "tempering_schedule",
-        "iteration",
-    )
-    assert PersistentSMCState._fields == expected, (
-        f"BlackJAX PersistentSMCState fields changed from {expected} to "
-        f"{PersistentSMCState._fields}. "
-        f"Update tuningfork/smc/persistent_sampling.py notes and "
-        f"tests/inference/smc/test_persistent_sampling.py state-access patterns."
-    )
-
-
-def test_blackjax_persistent_state_info_fields():
-    """Tripwire: PersistentStateInfo._fields must be ('ancestors', 'update_info').
-
-    Pinned tripwire: tests access info.ancestors (resampling indices) and
-    info.update_info (MCMC kernel info). If upstream renames these fields,
-    our access patterns break silently.
-    """
-    from blackjax.smc.persistent_sampling import PersistentStateInfo
-
-    expected = ("ancestors", "update_info")
-    assert PersistentStateInfo._fields == expected, (
-        f"BlackJAX PersistentStateInfo fields changed from {expected} to "
-        f"{PersistentStateInfo._fields}. "
-        f"Update tuningfork/smc/persistent_sampling.py notes and "
-        f"tests/inference/smc/test_persistent_sampling.py info-access patterns."
-    )
-
-
-def test_smc_methods_registry_subset_after_p511():
-    """Tripwire ( subset check): SMC_METHODS must contain at minimum the five
-    entries registered after (adaptive_tempered_smc, partial_posteriors_smc,
-    inner_kernel_tuning, persistent_sampling_smc, adaptive_persistent_sampling_smc).
-
-    Uses subset check (not equality) per : future additions to SMC_METHODS
-    should not trigger this tripwire — only removals will.
-    """
-    from tuningfork.smc import SMC_METHODS
-
-    required = {
-        "adaptive_tempered_smc",
-        "partial_posteriors_smc",
-        "inner_kernel_tuning",
-        "persistent_sampling_smc",
-        "adaptive_persistent_sampling_smc",
-    }
-    missing = required - set(SMC_METHODS.keys())
-    assert not missing, (
-        f"SMC_METHODS registry is missing entries after registration: {missing}. "
-        f"Update tuningfork/smc/__init__.py to register all five SMC methods."
-    )
-
-
-# ───────── tempered_smc ────────────────────────────────────────────
-
-
-def test_blackjax_tempered_smc_as_top_level_api_signature():
-    """Tripwire: blackjax.smc.tempered.as_top_level_api must accept
-    {logprior_fn, loglikelihood_fn, mcmc_step_fn, mcmc_init_fn, mcmc_parameters,
-    resampling_fn, num_mcmc_steps, update_strategy, update_particles_fn}.
-
-    Pinned tripwire: tuningfork/smc/tempered.py calls
-    _tempered.as_top_level_api(...) with these parameters.  Note that
-    blackjax.tempered_smc (the top-level object) collapses to *args/**kwargs
-    via GenerateSamplingAPI wrapping -- this tripwire inspects the inner module
-    directly, same pattern as adaptive_tempered_smc tripwire.
-    """
-    import inspect
-
-    from blackjax.smc.tempered import as_top_level_api
-
-    sig = inspect.signature(as_top_level_api)
-    expected = {
-        "logprior_fn",
-        "loglikelihood_fn",
-        "mcmc_step_fn",
-        "mcmc_init_fn",
-        "mcmc_parameters",
-        "resampling_fn",
-        "num_mcmc_steps",
-        "update_strategy",
-        "update_particles_fn",
-    }
-    missing = expected - set(sig.parameters)
-    assert not missing, (
-        f"blackjax.smc.tempered.as_top_level_api is missing parameters: {missing}. "
-        f"Current params: {list(sig.parameters)}. "
-        f"Update tuningfork/smc/tempered.py if upstream API changed."
-    )
-
-
-def test_blackjax_tempered_smc_state_fields():
-    """Tripwire: TemperedSMCState._fields must be ('particles', 'weights', 'tempering_param').
-
-    Pinned tripwire: tuningfork/smc/tempered.py documents that the
-    state field is 'tempering_param' (NOT 'lmbda' as in persistent_sampling).
-    If upstream renames this field, our wrapper's notes and tests/inference/smc/
-    test_tempered.py state-access patterns break silently.
-
-    Finding: 'tempering_param' is the correct upstream spelling --
-    distinct from 'lmbda' used in blackjax.smc.persistent_sampling.
-    """
+def test_generated_smc_state_fields() -> None:
+    """Generated programs read the tempered state fields directly."""
     from blackjax.smc.tempered import TemperedSMCState
 
-    expected = ("particles", "weights", "tempering_param")
-    assert TemperedSMCState._fields == expected, (
-        f"BlackJAX TemperedSMCState fields changed from {expected} to "
-        f"{TemperedSMCState._fields}. "
-        f"Update tuningfork/smc/tempered.py notes and "
-        f"tests/inference/smc/test_tempered.py state-access patterns. "
-        f"NOTE: field name is 'tempering_param' (not 'lmbda')."
+    assert TemperedSMCState._fields == ("particles", "weights", "tempering_param")
+
+
+def test_generated_smc_tuning_state_and_info_fields() -> None:
+    """The tuning route unwraps its state and reads the update info field."""
+    from blackjax.smc.base import SMCInfo
+    from blackjax.smc.inner_kernel_tuning import StateWithParameterOverride
+
+    assert StateWithParameterOverride._fields == (
+        "sampler_state",
+        "parameter_override",
+    )
+    assert SMCInfo._fields == (
+        "ancestors",
+        "log_likelihood_increment",
+        "update_info",
     )
 
 
-def test_smc_methods_registry_subset_after_p5155():
-    """Tripwire ( subset check): SMC_METHODS must contain 'tempered_smc'
-    after registration.
+def test_generated_smc_step_signatures() -> None:
+    """Both emitted algorithms retain the standard ``step(key, state)`` shape."""
+    from blackjax.smc.adaptive_tempered import as_top_level_api as adaptive
+    from blackjax.smc.inner_kernel_tuning import as_top_level_api as tuning
 
-    Subset check: future additions to SMC_METHODS do not break this test;
-    only removal of 'tempered_smc' triggers it.
-    """
-    from tuningfork.smc import SMC_METHODS
+    def _logdensity(_position):
+        return 0.0
 
-    assert "tempered_smc" in SMC_METHODS, (
-        f"SMC_METHODS is missing 'tempered_smc' after registration. "
-        f"Registered keys: {sorted(SMC_METHODS.keys())}. "
-        f"Check tuningfork/smc/__init__.py imports."
+    def _inner_step(_key, _state, **_kwargs):
+        return _state, None
+
+    def _inner_init(_position):
+        return None
+
+    adaptive_algorithm = adaptive(
+        logprior_fn=_logdensity,
+        loglikelihood_fn=_logdensity,
+        mcmc_step_fn=_inner_step,
+        mcmc_init_fn=_inner_init,
+        mcmc_parameters={},
+        resampling_fn=lambda *_args: None,
+        target_ess=0.5,
+        num_mcmc_steps=1,
     )
+    tuning_algorithm = tuning(
+        smc_algorithm=lambda **_kwargs: adaptive_algorithm,
+        logprior_fn=_logdensity,
+        loglikelihood_fn=_logdensity,
+        mcmc_step_fn=_inner_step,
+        mcmc_init_fn=_inner_init,
+        resampling_fn=lambda *_args: None,
+        mcmc_parameter_update_fn=lambda *_args: {},
+        initial_parameter_value={},
+        num_mcmc_steps=1,
+    )
+
+    assert list(inspect.signature(adaptive_algorithm.step).parameters) == [
+        "rng_key",
+        "state",
+    ]
+    tuning_step_parameters = inspect.signature(tuning_algorithm.step).parameters
+    assert list(tuning_step_parameters)[:2] == ["rng_key", "state"]
+    assert (
+        tuning_step_parameters["extra_step_parameters"].kind
+        is inspect.Parameter.VAR_KEYWORD
+    )
+
+    for algorithm in (adaptive_algorithm, tuning_algorithm):
+        assert list(inspect.signature(algorithm.init).parameters) == [
+            "position",
+            "rng_key",
+        ]
+
+
+def test_generated_smc_resampling_and_update_apis() -> None:
+    """Pin helper APIs imported literally by generated SMC source."""
+    from blackjax.smc import resampling
+    from blackjax.smc.tuning.from_kernel_info import update_scale_from_acceptance_rate
+    from blackjax.smc.tuning.from_particles import particles_as_rows
+
+    assert callable(resampling.systematic)
+    _assert_parameters(
+        update_scale_from_acceptance_rate,
+        {"scales", "acceptance_rates", "target_acceptance_rate"},
+    )
+    assert callable(particles_as_rows)
