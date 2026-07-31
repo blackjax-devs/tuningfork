@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -10,12 +11,23 @@ from typing import Any, cast
 import pytest
 
 from tuningfork.recipes import Recipe
-from tuningfork.recipes._attempt_evidence import append_attempt, build_attempt_record
+from tuningfork.recipes._attempt_evidence import (
+    ATTEMPT_SCHEMA,
+    _canonical_json,
+    _validate_envelope,
+    append_attempt,
+    build_attempt_record,
+)
 from tuningfork.recipes._base_smc import SMCRecipe
 
 pytestmark = pytest.mark.fast
 
 _ROOT = Path(__file__).parents[2]
+_PINNED_LEGACY_VIEWS = {
+    Path(
+        "tuningfork/catalog/gmm_25/recipes/smc__adaptive_tempered_smc__rwm.json"
+    ): "50d1f54ea8adc74063ba510c9ea4d65ae0cc2dd883ae11b6a20923e788306456"
+}
 
 
 def _committed_recipe_paths() -> list[Path]:
@@ -114,6 +126,34 @@ def test_catalog_recipe_evidence_survives_roundtrip(
 ) -> None:
     """Failed-attempt evidence, diagnoses, and legacy annotations survive I/O."""
     raw = json.loads(source.read_text())
+    rich_attempts = [
+        attempt
+        for attempt in raw.get("attempted_configurations", [])
+        if isinstance(attempt, dict) and attempt.get("schema") == ATTEMPT_SCHEMA
+    ]
+    for attempt in rich_attempts:
+        assert _validate_envelope(attempt) == attempt
+    selected = (raw.get("calibration_budget") or {}).get("selected_attempt_id")
+    if selected is not None:
+        assert selected in {attempt["attempt_id"] for attempt in rich_attempts}
+    expected_legacy_digest = _PINNED_LEGACY_VIEWS.get(source.relative_to(_ROOT))
+    if expected_legacy_digest is not None:
+        legacy = next(
+            attempt
+            for attempt in rich_attempts
+            if attempt["attempt_id"] == "legacy-current-view"
+        )
+        assert (
+            hashlib.sha256(
+                _canonical_json(legacy["metrics"]["legacy_current_view"])
+            ).hexdigest()
+            == expected_legacy_digest
+        )
+        selected_attempt = next(
+            attempt for attempt in rich_attempts if attempt["attempt_id"] == selected
+        )
+        assert selected_attempt["metrics"]["dropped_json_pointers"] == []
+
     recipe_type = _recipe_kind(raw, source)
     loaded = recipe_type.load(source)
     saved = loaded.save(tmp_path)

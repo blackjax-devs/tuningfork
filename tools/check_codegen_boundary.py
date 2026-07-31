@@ -52,6 +52,26 @@ _REFERENCE_SCOPES = frozenset(
 )
 
 
+def _is_low_level_symbol(symbol: str) -> bool:
+    """Return whether *symbol* names BlackJAX's internal sampler plumbing."""
+    parts = symbol.split(".")
+    if len(parts) >= 4 and parts[:2] in (["blackjax", "mcmc"], ["blackjax", "smc"]):
+        return parts[-1].startswith("build_") or parts[-1] == "as_top_level_api"
+    return (
+        len(parts) == 3
+        and parts[0] == "blackjax"
+        and parts[1] in _SAMPLING_APIS
+        and (parts[-1].startswith("build_") or parts[-1] == "as_top_level_api")
+    )
+
+
+def _is_blackjax_namespace(symbol: str) -> bool:
+    """Return whether *symbol* can lead to internal BlackJAX sampler plumbing."""
+    return symbol in {"blackjax.mcmc", "blackjax.smc"} or symbol.startswith(
+        ("blackjax.mcmc.", "blackjax.smc.")
+    )
+
+
 def _qualifier(stack: list[str]) -> str:
     return ".".join(stack) if stack else "<module>"
 
@@ -65,9 +85,24 @@ class _Scanner(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
+            if node.module == "importlib" and alias.name == "import_module":
+                self._aliases[alias.asname or alias.name] = "importlib.import_module"
             if node.module == "blackjax" and alias.name in _SAMPLING_APIS:
                 name = alias.asname or alias.name
                 self._aliases[name] = f"blackjax.{alias.name}"
+            if node.module in {"blackjax.mcmc", "blackjax.smc"}:
+                name = alias.asname or alias.name
+                self._aliases[name] = f"{node.module}.{alias.name}"
+            elif node.module and node.module.startswith("blackjax.mcmc."):
+                symbol = f"{node.module}.{alias.name}"
+                if _is_low_level_symbol(symbol):
+                    name = alias.asname or alias.name
+                    self._aliases[name] = symbol
+            elif node.module and node.module.startswith("blackjax.smc."):
+                symbol = f"{node.module}.{alias.name}"
+                if _is_low_level_symbol(symbol):
+                    name = alias.asname or alias.name
+                    self._aliases[name] = symbol
             if alias.name == "run_inference_algorithm":
                 name = alias.asname or alias.name
                 self._aliases[name] = "run_inference_algorithm"
@@ -88,6 +123,14 @@ class _Scanner(ast.NodeVisitor):
                 self._aliases[name] = "run_smc"
             if alias.name == "blackjax":
                 self._aliases[alias.asname or "blackjax"] = "blackjax"
+            if alias.name.startswith(("blackjax.mcmc.", "blackjax.smc.")):
+                if alias.asname:
+                    self._aliases[alias.asname] = alias.name
+                else:
+                    # ``import a.b.c`` binds ``a``, not ``c``.
+                    self._aliases["blackjax"] = "blackjax"
+            if alias.name == "importlib":
+                self._aliases[alias.asname or "importlib"] = "importlib"
         self.generic_visit(node)
 
     def _visit_scope(
@@ -110,6 +153,12 @@ class _Scanner(ast.NodeVisitor):
                 dotted = f"{parent}.{expr.attr}"
                 if parent == "blackjax" and expr.attr in _SAMPLING_APIS:
                     return dotted
+                if _is_low_level_symbol(dotted):
+                    return dotted
+                if _is_blackjax_namespace(dotted):
+                    return dotted
+                if dotted == "importlib.import_module":
+                    return dotted
                 if expr.attr in {
                     "run_inference_algorithm",
                     "run_smc",
@@ -125,6 +174,33 @@ class _Scanner(ast.NodeVisitor):
                 "factory",
             }:
                 return expr.attr
+        if isinstance(expr, ast.Call):
+            if (
+                isinstance(expr.func, ast.Name)
+                and expr.func.id == "getattr"
+                and len(expr.args) == 2
+                and isinstance(expr.args[1], ast.Constant)
+                and isinstance(expr.args[1].value, str)
+            ):
+                parent = self._primitive_for_expr(expr.args[0])
+                if parent is not None:
+                    dotted = f"{parent}.{expr.args[1].value}"
+                    if (
+                        (parent == "blackjax" and expr.args[1].value in _SAMPLING_APIS)
+                        or _is_low_level_symbol(dotted)
+                        or _is_blackjax_namespace(dotted)
+                    ):
+                        return dotted
+            importer = self._primitive_for_expr(expr.func)
+            if (
+                importer == "importlib.import_module"
+                and len(expr.args) == 1
+                and isinstance(expr.args[0], ast.Constant)
+                and isinstance(expr.args[0].value, str)
+            ):
+                module = expr.args[0].value
+                if module == "blackjax" or _is_blackjax_namespace(module):
+                    return module
         return None
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -139,12 +215,27 @@ class _Scanner(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         primitive = self._primitive_for_expr(node.func)
+        if primitive is None:
+            self.generic_visit(node)
+            return
         is_sampling_constructor = primitive is not None and (
             primitive.startswith("blackjax.")
             and primitive.rsplit(".", 1)[-1] in _SAMPLING_APIS
         )
-        if primitive is not None and not (
+        is_low_level_builder = _is_low_level_symbol(primitive)
+        if (
             is_sampling_constructor
+            or is_low_level_builder
+            or primitive
+            in {
+                "run_inference_algorithm",
+                "run_smc",
+                "runner",
+                "factory",
+            }
+        ) and not (
+            is_sampling_constructor
+            and primitive == "blackjax.nuts"
             and (self.relative_path, _qualifier(self._scope)) in _REFERENCE_SCOPES
         ):
             self.hits[(self.relative_path, _qualifier(self._scope), primitive)] += 1
@@ -152,16 +243,14 @@ class _Scanner(ast.NodeVisitor):
 
 
 def scan_source(root: Path) -> Counter[Hit]:
-    """Scan production Python below *root*, excluding tests/catalog/notebooks."""
+    """Scan authored production Python below *root*."""
     root = Path(root)
     hits: Counter[Hit] = Counter()
     for path in sorted(root.rglob("*.py")):
-        rel = path.relative_to(root).as_posix()
-        if any(
-            part in {"tests", "catalog", "notebooks"}
-            for part in path.relative_to(root).parts
-        ):
+        relative = path.relative_to(root)
+        if "tests" in relative.parts or "_cache" in relative.parts:
             continue
+        rel = relative.as_posix()
         tree = ast.parse(path.read_text(), filename=str(path))
         scanner = _Scanner(rel)
         scanner.visit(tree)

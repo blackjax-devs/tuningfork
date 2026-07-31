@@ -87,6 +87,106 @@ def test_sampling_constructor_alias_is_reported(tmp_path: Path) -> None:
     assert hits[("aliased.py", "sample", "blackjax.hmc")] == 1
 
 
+@pytest.mark.parametrize(
+    ("name", "source", "primitive"),
+    [
+        (
+            "from_module.py",
+            "from blackjax.mcmc import hmc as internal_hmc\n"
+            "internal_hmc.build_kernel()\n",
+            "blackjax.mcmc.hmc.build_kernel",
+        ),
+        (
+            "import_module.py",
+            "import blackjax.mcmc.hmc as internal_hmc\n"
+            "internal_hmc.build_kernel()\n",
+            "blackjax.mcmc.hmc.build_kernel",
+        ),
+        (
+            "import_module_unaliased.py",
+            "import blackjax.mcmc.hmc\n" "blackjax.mcmc.hmc.build_kernel()\n",
+            "blackjax.mcmc.hmc.build_kernel",
+        ),
+        (
+            "import_smc_module_unaliased.py",
+            "import blackjax.smc.adaptive_tempered_smc\n"
+            "blackjax.smc.adaptive_tempered_smc.build_kernel()\n",
+            "blackjax.smc.adaptive_tempered_smc.build_kernel",
+        ),
+        (
+            "from_function.py",
+            "from blackjax.mcmc.random_walk import build_rmh\n" "build_rmh()\n",
+            "blackjax.mcmc.random_walk.build_rmh",
+        ),
+        (
+            "top_level_module.py",
+            "import blackjax\nblackjax.nuts.build_kernel()\n",
+            "blackjax.nuts.build_kernel",
+        ),
+        (
+            "top_level_api.py",
+            "from blackjax.mcmc.hmc import as_top_level_api\n" "as_top_level_api()\n",
+            "blackjax.mcmc.hmc.as_top_level_api",
+        ),
+        (
+            "smc_builder.py",
+            "from blackjax.smc.adaptive_tempered_smc import build_kernel\n"
+            "build_kernel()\n",
+            "blackjax.smc.adaptive_tempered_smc.build_kernel",
+        ),
+    ],
+)
+def test_low_level_sampling_builder_import_forms_are_reported(
+    tmp_path: Path, name: str, source: str, primitive: str
+) -> None:
+    (tmp_path / name).write_text(source)
+    hits = boundary.scan_source(tmp_path)
+    assert hits[(name, "<module>", primitive)] == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "source", "primitive"),
+    [
+        (
+            "getattr_constructor.py",
+            "import blackjax\ngetattr(blackjax, 'nuts')(logdensity_fn)\n",
+            "blackjax.nuts",
+        ),
+        (
+            "getattr_builder.py",
+            "import blackjax.mcmc.hmc\n"
+            "getattr(blackjax.mcmc.hmc, 'build_kernel')()\n",
+            "blackjax.mcmc.hmc.build_kernel",
+        ),
+        (
+            "dynamic_module.py",
+            "import importlib\n"
+            "importlib.import_module('blackjax.mcmc.hmc').build_kernel()\n",
+            "blackjax.mcmc.hmc.build_kernel",
+        ),
+        (
+            "aliased_dynamic_module.py",
+            "from importlib import import_module as load\n"
+            "load('blackjax.smc.adaptive_tempered_smc').build_kernel()\n",
+            "blackjax.smc.adaptive_tempered_smc.build_kernel",
+        ),
+    ],
+)
+def test_constant_dynamic_sampling_forms_are_reported(
+    tmp_path: Path, name: str, source: str, primitive: str
+) -> None:
+    (tmp_path / name).write_text(source)
+    hits = boundary.scan_source(tmp_path)
+    assert hits[(name, "<module>", primitive)] == 1
+
+
+def test_unrelated_build_function_is_ignored(tmp_path: Path) -> None:
+    (tmp_path / "helper.py").write_text(
+        "from project.helpers import build_sampler\n" "build_sampler(logdensity_fn)\n"
+    )
+    assert not boundary.scan_source(tmp_path)
+
+
 def test_emitted_string_is_ignored_and_reference_scope_is_exempt(
     tmp_path: Path,
 ) -> None:
@@ -99,10 +199,39 @@ def test_emitted_string_is_ignored_and_reference_scope_is_exempt(
     (reference / "certify_reference.py").write_text(
         "import blackjax\n"
         "def certify_reference_nuts():\n"
+        "    blackjax.hmc(logdensity_fn)\n"
         "    return blackjax.nuts(logdensity_fn)\n"
     )
     hits = boundary.scan_source(tmp_path)
-    assert hits == {("recipes/bad.py", "<module>", "blackjax.nuts"): 1}
+    assert hits == {
+        (
+            "calibration/certify_reference.py",
+            "certify_reference_nuts",
+            "blackjax.hmc",
+        ): 1,
+        ("recipes/bad.py", "<module>", "blackjax.nuts"): 1,
+    }
+
+
+def test_catalog_python_is_inside_the_boundary(tmp_path: Path) -> None:
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    (catalog / "custom.py").write_text(
+        "import blackjax\nblackjax.nuts(logdensity_fn)\n"
+    )
+    hits = boundary.scan_source(tmp_path)
+    assert hits[("catalog/custom.py", "<module>", "blackjax.nuts")] == 1
+
+
+def test_generated_cache_is_outside_the_authored_source_boundary(
+    tmp_path: Path,
+) -> None:
+    generated = tmp_path / "catalog" / "model" / "_cache" / "generated_runs"
+    generated.mkdir(parents=True)
+    (generated / "program.py").write_text(
+        "import blackjax\nblackjax.nuts(logdensity_fn)\n"
+    )
+    assert not boundary.scan_source(tmp_path)
 
 
 def test_chained_assignment_alias_is_reported(tmp_path: Path) -> None:

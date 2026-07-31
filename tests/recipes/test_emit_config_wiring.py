@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import json
 from pathlib import Path
 
 import pytest
@@ -142,3 +143,33 @@ def test_resolver_rejects_step_policy_on_non_dynamic_sampler() -> None:
     )
     with pytest.raises(ValueError, match="only executable for dynamic_hmc and dmhmc"):
         emit_script(invalid, num_warmup=1, num_samples=1)
+
+
+def test_nondefault_nuts_limit_reaches_manifest_and_generated_constructor() -> None:
+    recipe = _recipe("horseshoe/recipes/medium__nuts__window_adaptation_diag_imm.json")
+    assert recipe.base_method_params["max_num_doublings"] == 15
+    source = emit_script(recipe, num_warmup=1, num_samples=1)
+    manifest_node = next(
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "EXECUTION_MANIFEST_JSON"
+            for target in node.targets
+        )
+    )
+    manifest = json.loads(ast.literal_eval(manifest_node))
+    assert (
+        manifest["executable_config"]["base_method_params"]["max_num_doublings"] == 15
+    )
+    calls = _calls(source, "nuts")
+    assert calls
+    assert all(
+        any(
+            keyword.arg == "max_num_doublings"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value == 15
+            for keyword in call.keywords
+        )
+        for call in calls
+    )

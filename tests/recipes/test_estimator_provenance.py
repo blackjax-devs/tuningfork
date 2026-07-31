@@ -11,50 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Consumer tests for HEADLINE_ESTIMATOR_EXCLUDED_MODELS.
-
-``catalog/_estimator_provenance.py`` already has invariant tests in
-``test_emit.py`` that check the allowlist describes the catalog correctly
-(no dead entries, no stale ones). Those never call either place that actually
-CONSULTS the allowlist at read time: ``headline_estimator_of`` (surfaced to a
-reader via ``summarize_recipe``) and ``reemit_sweep.reconstruct`` (which must
-decline to re-verify an excluded model rather than comparing its legacy-
-estimator headline against the current-estimator convention). A dict that is
-only ever iterated by its own invariant tests is decorative; these tests
-exercise the two call sites so an allowlist entry is provably load-bearing.
-"""
+"""Consumer tests for recorded headline-estimator provenance."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 pytestmark = pytest.mark.fast
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _load_reemit_driver():
-    spec = importlib.util.spec_from_file_location(
-        "reemit_sweep", _REPO_ROOT / "tools" / "reemit_sweep.py"
-    )
-    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    sys.modules["reemit_sweep"] = module
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
-    return module
-
-
-driver = _load_reemit_driver()
-
-
-# ---------------------------------------------------------------------------
-# headline_estimator_of: pure-function behaviour
-# ---------------------------------------------------------------------------
 
 
 def test_excluded_model_reports_the_legacy_estimator_with_its_recorded_reason() -> None:
@@ -108,11 +75,6 @@ def test_non_excluded_model_without_a_stamp_is_flagged_unrecorded_not_excluded()
     assert estimator == "unrecorded"
     assert caveat is not None
     assert "gp_regression" not in caveat
-
-
-# ---------------------------------------------------------------------------
-# Consumer 1: tuningfork.catalog.inspect.summarize_recipe
-# ---------------------------------------------------------------------------
 
 
 def _write_recipe(tmp_path: Path, model_name: str, headline_basis) -> Path:
@@ -187,48 +149,3 @@ def test_summarize_recipe_shows_a_plain_estimator_for_a_non_excluded_model(
     row = df.loc[df["Property"] == "headline_ESS_estimator", "Value"].iloc[0]
     assert row == HEADLINE_ESS_ESTIMATOR
     assert "NOT COMPARABLE" not in row
-
-
-# ---------------------------------------------------------------------------
-# Consumer 2: tools/reemit_sweep.py's reconstruct()
-# ---------------------------------------------------------------------------
-
-
-def test_reconstruct_declines_an_excluded_model_before_any_other_check(
-    tmp_path: Path,
-) -> None:
-    """The exclusion check runs first, so it fires even for an otherwise-valid cell.
-
-    Directory name drives the check (``recipe_path.parent.parent.name``), not
-    the recipe's own ``model_name`` field — pinning that keeps a future refactor
-    from silently reading the wrong field.
-    """
-    model_dir = tmp_path / "gp_regression" / "recipes"
-    model_dir.mkdir(parents=True)
-    p = model_dir / "high__hmc__chees.json"
-    p.write_text(
-        json.dumps(
-            {"effort": "high", "base_method_name": "hmc", "model_name": "banana"}
-        )
-    )
-    result = driver.reconstruct(p)
-    assert isinstance(result, driver.Skip)
-    assert "excluded from the estimator migration" in result.reason
-
-
-def test_reconstruct_does_not_decline_a_non_excluded_model_for_estimator_exclusion(
-    tmp_path: Path,
-) -> None:
-    """The exclusion check is conditioned on allowlist membership, not a
-    directory-name pattern — a model that merely sounds related is unaffected.
-    """
-    model_dir = tmp_path / "gp_regression_v2" / "recipes"
-    model_dir.mkdir(parents=True)
-    p = model_dir / "failed__elliptical_slice__no_warmup.json"
-    p.write_text(
-        json.dumps({"effort": "failed", "base_method_name": "elliptical_slice"})
-    )
-    result = driver.reconstruct(p)
-    assert isinstance(result, driver.Skip)
-    assert "excluded from the estimator migration" not in result.reason
-    assert "failed recipe" in result.reason

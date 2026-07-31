@@ -76,8 +76,14 @@ def test_precedence_and_warmup_shape():
 def test_non_laplace_multiphase_execution_fails_closed():
     r = recipe(
         warmups=[
-            {"name": "a", "params": {"n_warmup": 2}},
-            {"name": "b", "params": {"n_warmup": 3}},
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {"n_warmup": 2},
+            },
+            {
+                "name": "window_adaptation_dense_imm",
+                "params": {"n_warmup": 3},
+            },
         ],
         warmup_num_chains=[2, 2],
     )
@@ -89,14 +95,34 @@ def test_non_laplace_multiphase_execution_fails_closed():
 
 def test_single_phase_flat_fields_win_over_compatibility_list():
     r = recipe(
-        warmup_name="flat",
+        warmup_name="window_adaptation_dense_imm",
         warmup_params={"n_warmup": 17, "target_acceptance": 0.9},
-        warmups=[{"name": "stale", "params": {"n_warmup": 2}}],
+        warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 2}}],
     )
     plan = resolve_execution_plan(r)
-    assert plan.config.warmup_stages[0].name == "flat"
+    assert plan.config.warmup_stages[0].name == "window_adaptation_dense_imm"
     assert plan.config.warmup_stages[0].num_warmup == 17
     assert plan.config.warmup_params["target_acceptance"] == 0.9
+
+
+def test_unknown_executable_components_fail_at_plan_boundary():
+    with pytest.raises(ValueError, match="unknown base method"):
+        resolve_execution_plan(recipe(base_method_name="unknown"))
+    with pytest.raises(ValueError, match="unknown warmup stage 0"):
+        resolve_execution_plan(
+            recipe(
+                warmup_name="unknown",
+                warmups=[{"name": "unknown", "params": {}}],
+            )
+        )
+
+
+def test_incompatible_warmup_fails_at_plan_boundary():
+    with pytest.raises(
+        ValueError,
+        match=("window_adaptation_diag_imm.*incompatible.*base method 'mclmc'"),
+    ):
+        resolve_execution_plan(recipe(base_method_name="mclmc"))
 
 
 def test_seed_zero_and_default_budget_fallbacks():
@@ -400,9 +426,15 @@ def test_reference_summary_replay_accepts_prebatched_no_warmup() -> None:
     assert plan.config.init_strategy["type"] == "reference_summary"
 
 
-@pytest.mark.parametrize("warmup_name", ["pathfinder", "mclmc_tuning"])
-def test_reference_summary_rejects_non_window_non_replay_topology(warmup_name) -> None:
+@pytest.mark.parametrize(
+    ("warmup_name", "base_method_name"),
+    [("pathfinder", "hmc"), ("mclmc_tuning", "mclmc")],
+)
+def test_reference_summary_rejects_non_window_non_replay_topology(
+    warmup_name, base_method_name
+) -> None:
     r = recipe(
+        base_method_name=base_method_name,
         warmup_name=warmup_name,
         warmup_params={"n_warmup": 10},
         warmups=[{"name": warmup_name, "params": {"n_warmup": 10}}],

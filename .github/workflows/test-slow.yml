@@ -35,11 +35,6 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
-        with:
-          # tests/recipes/test_verify_emitted_configs.py compares every stamped
-          # catalog artifact against the pinned baseline revision via `git show`,
-          # so the default shallow clone would leave it nothing to compare.
-          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3

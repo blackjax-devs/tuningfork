@@ -93,16 +93,21 @@ def test_baked_fixed_step_hmc_requires_integration_steps() -> None:
     recipe = Recipe(
         model_name="mvn_10",
         base_method_name="hmc",
-        warmup_name="",
+        warmup_name="no_warmup",
         effort=Effort.MEDIUM,
         base_method_params={
             "step_size": 0.1,
             "inverse_mass_matrix": [1.0] * 10,
         },
         warmup_params={},
+        warmups=[{"name": "no_warmup", "params": {}}],
         headline_metric=None,
         sample_quality=None,
-        calibration_budget={"trials": 0, "wall_seconds_estimate": 0.0},
+        calibration_budget={
+            "trials": 0,
+            "wall_seconds_estimate": 0.0,
+            "baked_from": {"warmup_name": "window_adaptation_diag_imm"},
+        },
         difficulty=None,
         instructions="test",
     )

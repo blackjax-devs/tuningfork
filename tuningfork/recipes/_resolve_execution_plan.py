@@ -6,6 +6,9 @@ import copy
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from tuningfork.base_method import BASE_METHODS
+from tuningfork.warmup import WARMUPS
+
 from ._execution_plan import (
     ExecutableConfigurationSnapshot,
     ExecutionOverrides,
@@ -64,6 +67,21 @@ def _stages(recipe: Recipe) -> list[dict[str, Any]]:
     return out
 
 
+def _validate_components(recipe: Recipe, stages: list[dict[str, Any]]) -> None:
+    base_method_name = recipe.base_method_name
+    if base_method_name not in BASE_METHODS:
+        raise ValueError(f"unknown base method: {base_method_name!r}")
+    for i, stage in enumerate(stages):
+        warmup_name = stage["name"]
+        if warmup_name not in WARMUPS:
+            raise ValueError(f"unknown warmup stage {i}: {warmup_name!r}")
+        if not WARMUPS[warmup_name].is_compatible(base_method_name):
+            raise ValueError(
+                f"warmup stage {i} ({warmup_name!r}) is incompatible with "
+                f"base method {base_method_name!r}"
+            )
+
+
 def resolve_execution_plan(
     recipe: Recipe, overrides: ExecutionOverrides | None = None
 ) -> ExecutionPlan[ExecutableConfigurationSnapshot]:
@@ -82,6 +100,7 @@ def resolve_execution_plan(
     if not isinstance(ov, ExecutionOverrides):
         raise TypeError("overrides must be an ExecutionOverrides instance")
     stages = _stages(recipe)
+    _validate_components(recipe, stages)
     nphases = len(stages)
     budget = getattr(recipe, "calibration_budget", {}) or {}
     wp = getattr(recipe, "warmup_params", {}) or {}
