@@ -56,6 +56,16 @@ def test_overrides_target_and_empirical_policy():
     assert intent.filename_tag == "inner_hmc"
 
 
+def test_trajectory_tuning_defaults_are_recipe_configuration():
+    intent = _build(
+        sampler_name="adjusted_mclmc_dynamic",
+        warmup_name="adjusted_mclmc_trajectory_tuning",
+    )
+    assert intent.recipe.warmup_params["target_acceptance"] == 0.9
+    assert intent.recipe.warmup_params["n_pilot"] == 500
+    assert intent.recipe.warmup_params["avg_grid"] == [1.0, 2.0, 4.0]
+
+
 def test_rejects_non_dynamic_policy_and_bad_inputs():
     with pytest.raises(ValueError):
         _build(step_policy={"kind": "uniform_int", "low": 1, "high": 2})

@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING
 
 from tuningfork._version import __version__
 from tuningfork.recipes._emit import (
+    EMITTABLE_WARMUP_NAMES,
     emit_diagnostics,
     emit_diagnostics_close,
     emit_init_strategy,
@@ -566,7 +567,10 @@ def emit_script(
     # newer recipe-generation code uses "target_acceptance_rate".
     target_acceptance_rate = recipe.warmup_params.get(
         "target_acceptance_rate",
-        recipe.warmup_params.get("target_acceptance", 0.8),
+        recipe.warmup_params.get(
+            "target_acceptance",
+            0.9 if recipe.warmup_name == "adjusted_mclmc_trajectory_tuning" else 0.8,
+        ),
     )
 
     # Substitution context — every $slot the templates reference must be here.
@@ -664,6 +668,7 @@ def emit_script(
             "mclmc_tuning",
             "mclmc_lrd_tuning",
             "adjusted_mclmc_tuning",
+            "adjusted_mclmc_trajectory_tuning",
         }:
             _telemetry_geometry["L"] = "_adapted_params.get('L')"
         if recipe.warmup_name == "meads":
@@ -1020,9 +1025,7 @@ def emit_script(
     # emit_sampler (A2). Resolved once here before warmup dispatch.
     _bm_entry = BASE_METHODS[recipe.base_method_name]
 
-    # Build the warmup body: A3 Python emit-functions (descriptor-driven).
-    # All 8 warmup template families now use emit_warmup() — no .tmpl loading.
-    #
+    # Build the warmup body with descriptor-selected Python emit functions.
     # The multichain flag for WA variants is resolved here and injected into ctx
     # so emit_warmup can dispatch on it without re-deriving the same logic.
     #
@@ -1039,49 +1042,22 @@ def emit_script(
     )
     ctx["_warmup_is_multichain"] = _is_wa_multichain
 
-    # A3: all 8 warmup families use Python emit-functions.
-    # For warmup names NOT in the 8 known families (e.g. mclmc_tuning,
-    # adjusted_mclmc_tuning), emit_warmup raises ValueError which propagates
-    # up — same effect as the previous FileNotFoundError from _load_template.
-    #
-    # SPECIAL CASE (preserved from pre-A3 logic): laplace multi-phase recipes
+    # Laplace multi-phase recipes
     # dispatch to "laplace_multiphase_warmup" REGARDLESS of recipe.warmup_name.
     # The compatibility ``recipe.warmup_name`` may identify the first phase;
     # the ordered ``recipe.warmups`` list is authoritative whenever it contains
     # multiple phases, so dispatch to the explicit orchestration emitter.
-    _EMIT_WARMUP_NAMES = frozenset(
-        {
-            "no_warmup",
-            "window_adaptation_diag_imm",
-            "window_adaptation_dense_imm",
-            "window_adaptation_low_rank_imm",
-            "pathfinder",
-            "multipathfinder",
-            "multipathfinder_window_adaptation",
-            "meanfield_vi",
-            "fullrank_vi",
-            "laplace_multiphase_warmup",
-            "mclmc_tuning",
-            "adjusted_mclmc_tuning",
-            "mclmc_lrd_tuning",
-            "chees",
-            "meads",
-        }
-    )
     _effective_warmup_name = (
         "laplace_multiphase_warmup"
         if (_is_laplace and _is_multiphase_warmup)
         else ("no_warmup" if _is_no_warmup else recipe.warmup_name)
     )
-    if _effective_warmup_name in _EMIT_WARMUP_NAMES:
+    if _effective_warmup_name in EMITTABLE_WARMUP_NAMES:
         warmup_body = emit_warmup(_effective_warmup_name, _bm_entry, ctx)
     else:
-        # Unsupported warmup (mclmc_tuning, adjusted_mclmc_tuning, etc.) —
-        # raise FileNotFoundError to match the old _load_template behaviour so
-        # _try_emit_script returns None (skip) in the golden gate tests.
         raise FileNotFoundError(
             f"No emit function for warmup {recipe.warmup_name!r}. "
-            "emit_warmup supports only the 8 standard warmup families."
+            "The warmup registry and emitter support must be updated together."
         )
 
     # Pre-compute whether laplace_hmc/laplace_mhmc need warmup-state reinit.
@@ -1155,7 +1131,12 @@ def emit_script(
     # mclmc_tuning / mclmc_lrd_tuning (always multi-chain per-chain warmup).
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
     _MCLMC_WARMUP_NAMES = frozenset(
-        {"mclmc_tuning", "mclmc_lrd_tuning", "adjusted_mclmc_tuning"}
+        {
+            "mclmc_tuning",
+            "mclmc_lrd_tuning",
+            "adjusted_mclmc_tuning",
+            "adjusted_mclmc_trajectory_tuning",
+        }
     )
     # Stage 2 (blackjax #964): must stay in lockstep with _is_wa_multichain
     # above — this flag decides how the INFERENCE LOOP interprets the warmup

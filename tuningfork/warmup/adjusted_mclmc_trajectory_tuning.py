@@ -70,6 +70,7 @@ import jax
 import jax.numpy as jnp
 from blackjax.mcmc.adjusted_mclmc_dynamic import make_random_trajectory_length_fn
 
+from tuningfork.base_method._base import HyperparamSpace
 from tuningfork.warmup._base import Warmup, _maybe_replicate
 
 __all__ = ["ENTRY"]
@@ -370,6 +371,10 @@ ENTRY = Warmup(
     name="adjusted_mclmc_trajectory_tuning",
     runner=_runner,
     compatible_methods=("adjusted_mclmc_dynamic",),
+    default_hp_space=(
+        HyperparamSpace("n_pilot", "int", low=500, high=500),
+        HyperparamSpace("avg_grid", "categorical", choices=((1.0, 2.0, 4.0),)),
+    ),
     notes=(
         "Extended adjusted-MCLMC warmup that escapes the MALA-collapse artifact. "
         "Step 1: runs blackjax.adjusted_mclmc_find_L_and_step_size (static kernel) "

@@ -43,9 +43,10 @@ from tuningfork.recipes._emit._postamble import emit_postamble
 from tuningfork.recipes._emit._preamble import emit_preamble
 from tuningfork.recipes._emit._sampler import emit_sampler
 from tuningfork.recipes._emit._step_policy import emit_step_policy
-from tuningfork.recipes._emit._warmup import emit_warmup
+from tuningfork.recipes._emit._warmup import EMITTABLE_WARMUP_NAMES, emit_warmup
 
 __all__ = [
+    "EMITTABLE_WARMUP_NAMES",
     "emit_diagnostics",
     "emit_diagnostics_close",
     "emit_init_strategy",

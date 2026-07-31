@@ -19,7 +19,8 @@ import ast
 import pytest
 
 from tuningfork.base_method import BASE_METHODS
-from tuningfork.recipes._emit._warmup import emit_warmup
+from tuningfork.recipes._emit._warmup import EMITTABLE_WARMUP_NAMES, emit_warmup
+from tuningfork.warmup import WARMUPS
 
 pytestmark = pytest.mark.fast
 
@@ -57,6 +58,23 @@ def _ctx(**extra: object) -> dict[str, object]:
     return ctx
 
 
+def test_every_registered_warmup_has_generated_implementation() -> None:
+    assert set(WARMUPS) <= EMITTABLE_WARMUP_NAMES
+    for name, descriptor in WARMUPS.items():
+        method = (
+            "nuts"
+            if "*" in descriptor.compatible_methods
+            else descriptor.compatible_methods[0]
+        )
+        ast.parse(
+            emit_warmup(
+                name,
+                BASE_METHODS[method],
+                _ctx(warmup_name=name),
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("warmup", "method", "needle"),
     [
@@ -68,6 +86,11 @@ def _ctx(**extra: object) -> dict[str, object]:
         ),
         ("mclmc_tuning", "mclmc", "_warmup_grad_evals = int(jnp.sum"),
         ("adjusted_mclmc_tuning", "adjusted_mclmc", "_warmup_grad_evals = int(jnp.sum"),
+        (
+            "adjusted_mclmc_trajectory_tuning",
+            "adjusted_mclmc_dynamic",
+            "2 * int(jnp.sum",
+        ),
     ],
 )
 def test_exact_routes_emit_accounting_once(

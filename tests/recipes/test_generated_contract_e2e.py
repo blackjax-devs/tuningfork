@@ -144,6 +144,63 @@ def test_adjusted_mclmc_dynamic_generated_execution_threads_rng_and_state(
 
 
 @pytest.mark.e2e
+def test_adjusted_mclmc_trajectory_grid_is_executed_from_recipe(
+    tmp_path: Path,
+) -> None:
+    avg_grid = [1.0, 2.0, 4.0]
+    recipe = Recipe(
+        model_name="mvn_10",
+        base_method_name="adjusted_mclmc_dynamic",
+        warmup_name="adjusted_mclmc_trajectory_tuning",
+        effort=Effort.LOW,
+        base_method_params={"step_size": 0.1, "L": 1.0},
+        warmup_params={
+            "n_warmup": 20,
+            "num_chains": 2,
+            "target_acceptance": 0.9,
+            "n_pilot": 10,
+            "avg_grid": avg_grid,
+        },
+        headline_metric=None,
+        sample_quality=None,
+        calibration_budget={"n_samples": 1, "num_chains": 2},
+        difficulty=None,
+        instructions="generated trajectory-grid contract test",
+        tuning_seed=7,
+    )
+    result = execute_recipe(
+        recipe,
+        tmp_path / "runs",
+        num_warmup=20,
+        num_samples=1,
+        num_chains=2,
+        progress_bar=False,
+        timeout=180,
+        env={"JAX_PLATFORM_NAME": "cpu"},
+    )
+
+    config = result.manifest.executable_config
+    assert config["warmup_params"]["n_pilot"] == 10
+    assert config["warmup_params"]["avg_grid"] == tuple(avg_grid)
+    assert isinstance(result.telemetry, ExecutionTelemetry)
+    assert result.telemetry.geometry_scope == "per_chain"
+    geometry = result.telemetry.geometry
+    step_size = np.asarray(geometry["step_size"])
+    trajectory_length = np.asarray(geometry["L"])
+    inverse_mass_matrix = np.asarray(geometry["inverse_mass_matrix"])
+    assert step_size.shape == (2,)
+    assert trajectory_length.shape == (2,)
+    assert inverse_mass_matrix.shape == (2, 10)
+    selected_avg = trajectory_length / step_size
+    assert np.allclose(selected_avg, selected_avg[0])
+    assert any(np.isclose(selected_avg[0], candidate) for candidate in avg_grid)
+
+    source = result.source_path.read_text()
+    assert "blackjax.diagnostics.effective_sample_size" in source
+    assert "_avg_search_ess_per_grad" in source
+
+
+@pytest.mark.e2e
 def test_sidecar_fixed_step_mhmc_replay_preserves_nis_and_imm(tmp_path: Path) -> None:
     model_root = tmp_path / "mvn_10"
     (model_root / "reference").mkdir(parents=True)
