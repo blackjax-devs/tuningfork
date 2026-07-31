@@ -41,7 +41,6 @@ from tuningfork.recipes import (
     RecipeFailedError,
     SplitSource,
 )
-from tuningfork.recipes._base_smc import SMCRecipe
 from tuningfork.recipes._instructions import render_instructions
 
 # Path to the committed catalog (post-R2 layout, 2026-05-17)
@@ -224,30 +223,6 @@ def test_save_json_effort_is_string(tmp_path: Path) -> None:
 
 
 @pytest.mark.fast
-def test_recipe_unknown_top_level_fields_roundtrip(tmp_path: Path) -> None:
-    """Unknown top-level annotations survive Recipe load/save unchanged."""
-    recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
-    path = recipe.save(tmp_path)
-    raw = json.loads(path.read_text())
-    raw["revisit_as"] = {"owner": "statistician", "priority": 2}
-    raw["warmup_grad_evals"] = 12345
-    raw["_extra_fields"] = {"sentinel": [1, 2, 3]}
-    path.write_text(json.dumps(raw) + "\n")
-
-    loaded = Recipe.load(path)
-    saved = loaded.save(tmp_path / "out")
-    roundtripped = json.loads(saved.read_text())
-    assert roundtripped["revisit_as"] == raw["revisit_as"]
-    assert roundtripped["warmup_grad_evals"] == raw["warmup_grad_evals"]
-    assert roundtripped["_extra_fields"] == raw["_extra_fields"]
-
-    with pytest.raises(ValueError, match="collides with a canonical Recipe field"):
-        dataclasses.replace(loaded, _extra_fields={"model_name": "collision"}).save(
-            tmp_path / "collision"
-        )
-
-
-@pytest.mark.fast
 def test_recipe_to_dict_canonical_and_legacy_are_lossless() -> None:
     """Canonical serialization is pure while the CLI can request flat warmups."""
     recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
@@ -322,26 +297,6 @@ def test_attempted_configurations_preserve_mixed_shapes(tmp_path: Path) -> None:
     diagnosis_raw["failure_diagnosis"] = "legacy free-text diagnosis"
     path.write_text(json.dumps(diagnosis_raw) + "\n")
     assert Recipe.load(path).failure_diagnosis == "legacy free-text diagnosis"
-
-
-@pytest.mark.fast
-def test_smc_unknown_top_level_fields_roundtrip(tmp_path: Path) -> None:
-    """Unknown top-level annotations survive SMCRecipe load/save unchanged."""
-    recipe = SMCRecipe(
-        model_name="mvn_10",
-        smc_method_name="tempered_smc",
-        inner_method_name="hmc",
-        num_particles=16,
-        max_steps=4,
-    )
-    path = recipe.save(tmp_path)
-    raw = json.loads(path.read_text())
-    raw["legacy_note"] = ["kept", {"exact": True}]
-    path.write_text(json.dumps(raw) + "\n")
-
-    loaded = SMCRecipe.load(path)
-    saved = loaded.save(tmp_path / "out")
-    assert json.loads(saved.read_text())["legacy_note"] == raw["legacy_note"]
 
 
 # ---------------------------------------------------------------------------

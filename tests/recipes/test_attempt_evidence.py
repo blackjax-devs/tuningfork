@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from pathlib import Path
 
 import pytest
@@ -92,21 +91,6 @@ def test_append_order_and_no_mutation():
     assert updated.attempted_configurations is not recipe.attempted_configurations
     attempt["intent_snapshot"]["sampler"] = "changed"
     assert updated.attempted_configurations[1]["intent_snapshot"]["sampler"] == "hmc"
-
-
-def test_unknown_fields_survive_recipe_roundtrip(tmp_path):
-    recipe = _recipe([{"legacy": {"unknown": [1, {"x": 2}]}}])
-    recipe._extra_fields["future_top_level"] = {"z": 3}
-    path = recipe.save(tmp_path)
-    loaded = Recipe.load(path)
-    updated = append_attempt(loaded, _attempt())
-    out = updated.save(tmp_path, filename_tag="roundtrip")
-    raw = json.loads(out.read_text())
-    assert raw["future_top_level"] == {"z": 3}
-    assert raw["attempted_configurations"][0] == {"legacy": {"unknown": [1, {"x": 2}]}}
-    assert (
-        raw["attempted_configurations"][1]["schema"] == "tuningfork.recipe-attempt.v1"
-    )
 
 
 def test_recipe_save_failure_preserves_previous_document(tmp_path, monkeypatch):

@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from tuningfork.recipes import Recipe
+from tuningfork.recipes._attempt_evidence import append_attempt, build_attempt_record
 from tuningfork.recipes._base_smc import SMCRecipe
 
 pytestmark = pytest.mark.fast
@@ -95,6 +96,14 @@ def _recipe_kind(raw: dict[str, Any], source: Path) -> type[Recipe] | type[SMCRe
     )
 
 
+def _sentinel_recipe_paths() -> list[Path]:
+    selected: dict[type[Recipe] | type[SMCRecipe], Path] = {}
+    for source in _committed_recipe_paths():
+        raw = json.loads(source.read_text())
+        selected.setdefault(_recipe_kind(raw, source), source)
+    return list(selected.values())
+
+
 @pytest.mark.parametrize(
     "source",
     _committed_recipe_paths(),
@@ -121,11 +130,13 @@ def test_catalog_recipe_evidence_survives_roundtrip(
     assert not dropped, f"{source}: lossy leaves after load/save: {sorted(dropped)}"
 
 
-def test_nested_unknown_field_sentinel_roundtrip(
-    tmp_path: Path,
-) -> None:
-    """An opaque nested annotation remains exact through typed load/save."""
-    source = _committed_recipe_paths()[0]
+@pytest.mark.parametrize(
+    "source",
+    _sentinel_recipe_paths(),
+    ids=lambda path: str(path.relative_to(_ROOT)),
+)
+def test_nested_unknown_field_sentinel_roundtrip(source: Path, tmp_path: Path) -> None:
+    """Opaque annotations and prior failures survive an appended failed attempt."""
     raw = json.loads(source.read_text())
     raw["legacy_nested_sentinel"] = {
         "attempts": [{"status": "FAIL", "diagnosis": ["keep", {"n": 7}]}],
@@ -135,6 +146,25 @@ def test_nested_unknown_field_sentinel_roundtrip(
     input_path.write_text(json.dumps(raw, allow_nan=True) + "\n")
     recipe_type = _recipe_kind(raw, input_path)
     loaded = recipe_type.load(input_path)
-    saved = loaded.save(tmp_path / "out")
+    attempt = build_attempt_record(
+        attempt_id="lossless-update-sentinel",
+        rationale="exercise failure-evidence update",
+        lifecycle_stage="EVALUATED",
+        automatic_verdict="FAIL",
+        intent_snapshot={"source": source.name},
+        execution=None,
+        ground_truth=None,
+        measurement_conditions={"seed": 7},
+        metrics=None,
+        gate_evidence=None,
+        failure_evidence={"diagnosis": "sentinel failure"},
+        recorded_at="2026-01-01T00:00:00Z",
+    )
+    updated = append_attempt(cast(Any, loaded), attempt)
+    saved = updated.save(tmp_path / "out")
     serialized = json.loads(saved.read_text())
     assert serialized["legacy_nested_sentinel"] == raw["legacy_nested_sentinel"]
+    assert serialized["attempted_configurations"][:-1] == raw.get(
+        "attempted_configurations", []
+    )
+    assert serialized["attempted_configurations"][-1] == attempt
