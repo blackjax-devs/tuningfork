@@ -17,11 +17,11 @@ from tuningfork.recipes._attempt_evidence import (
 )
 from tuningfork.recipes._base_smc import SMCRecipe
 from tuningfork.recipes._certification_record import launch_evidence
+from tuningfork.recipes._launcher import LaunchResult
 from tuningfork.recipes._legacy_evidence import (
     encode_legacy_value,
     legacy_encoding_metadata,
 )
-from tuningfork.recipes._launcher import LaunchResult
 
 _VERDICTS = frozenset({"NOT_RUN", "PASS", "REVIEW", "FAIL", "ERROR"})
 _INTENT_FIELDS = frozenset(

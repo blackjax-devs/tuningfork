@@ -18,7 +18,7 @@ This subpackage is the consumer-side surface. Users typically do:
     from tuningfork.catalog import load_recipe, load_idata, summarize_recipe
 
 The generator-side wiring (``model/``, ``base_method/``, ``warmup/``, ``smc/``,
-``recipes/``, ``calibration/``, ``metrics/``, ``runner/``) lives outside this
+``recipes/``, ``calibration/``, and ``metrics/``) lives outside this
 subpackage and is used to PRODUCE the recipes the catalog SERVES.
 
 Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
@@ -49,6 +49,7 @@ from tuningfork.catalog.emit import (
     GeneratedProgramError,
     LaunchResult,
     emit_script,
+    emit_smc_script,
     execute_recipe,
 )
 from tuningfork.catalog.inspect import list_recipes, load_recipe, summarize_recipe
@@ -77,6 +78,7 @@ __all__ = [
     "format_timing_context",
     # emit
     "emit_script",
+    "emit_smc_script",
     "execute_recipe",
     "ExecutionTimings",
     "LaunchResult",

@@ -53,6 +53,7 @@ from pathlib import Path
 import pytest
 
 from tuningfork.catalog import emit_script, load_recipe
+from tuningfork.recipes._base_smc import SMCRecipe
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -61,7 +62,13 @@ from tuningfork.catalog import emit_script, load_recipe
 _CATALOG_ROOT = Path(__file__).resolve().parents[2] / "tuningfork" / "catalog"
 
 # Allowed tuningfork imports in emitted scripts (D8 constraint).
-_ALLOWED_TF_IMPORTS = frozenset({"tuningfork.model", "tuningfork.model._numpyro"})
+_ALLOWED_TF_IMPORTS = frozenset(
+    {
+        "tuningfork.diagnostics._tap",
+        "tuningfork.model",
+        "tuningfork.model._numpyro",
+    }
+)
 
 
 def _sha1_of(text: str) -> str:
@@ -107,7 +114,7 @@ def _assert_d8(script: str, label: str) -> None:
     assert not bad, (
         f"D8 violation in emitted script for {label!r}: found forbidden tuningfork imports:\n"
         f"  {bad!r}\n"
-        "Only tuningfork.model and tuningfork.model._numpyro are allowed."
+        "Only model loading and opt-in diagnostics imports are allowed."
     )
 
 
@@ -134,7 +141,7 @@ def _try_emit_script(recipe_path: Path) -> tuple | None:
     """Try to load and emit a recipe, returning (recipe, script) or None if unsupported.
 
     Returns None (→ pytest.skip) when:
-    - SMC recipes (SMCRecipe type): no tuning_seed attr.
+    - a recipe names an SMC or warmup call shape not implemented by codegen;
     - Missing templates: warmups like mclmc_tuning / adjusted_mclmc_tuning don't
       have .py.tmpl files yet (not yet in scope for Phase 1).
     - Structurally incompatible combinations that raise at emit time.
@@ -143,7 +150,13 @@ def _try_emit_script(recipe_path: Path) -> tuple | None:
         recipe = load_recipe(recipe_path)
         script = emit_script(recipe)
         return recipe, script
-    except (AttributeError, TypeError, ValueError, FileNotFoundError):
+    except (
+        AttributeError,
+        TypeError,
+        ValueError,
+        FileNotFoundError,
+        NotImplementedError,
+    ):
         return None
 
 
@@ -168,13 +181,13 @@ def _is_known_preexisting_invalid(recipe_path: Path) -> bool:
     ids=lambda p: f"{p.parent.parent.name}/{p.name}",
 )
 def test_catalog_recipe_emits_valid_python(recipe_path: Path) -> None:
-    """Every non-SMC catalog recipe emits syntactically valid Python.
+    """Every codegen-supported catalog recipe emits syntactically valid Python.
 
     This is the fast-path golden gate: AST-only, no execution.
     Catches any $slot not substituted (would be a SyntaxError in the emitted
     script or left as an unresolved literal).
 
-    SMC recipes (SMCRecipe type) do not use emit_script — they are skipped.
+    Unsupported call shapes are skipped until their codegen capability lands.
     """
     result = _try_emit_script(recipe_path)
     if result is None:
@@ -196,7 +209,7 @@ def test_catalog_recipe_emits_valid_python(recipe_path: Path) -> None:
     ids=lambda p: f"{p.parent.parent.name}/{p.name}",
 )
 def test_catalog_recipe_d8_compliant(recipe_path: Path) -> None:
-    """Every non-SMC catalog recipe emitted script satisfies D8 (zero forbidden tuningfork imports)."""
+    """Every supported emitted script has no forbidden tuningfork imports."""
     result = _try_emit_script(recipe_path)
     if result is None:
         pytest.skip(f"emit_script not supported for {recipe_path.name}")
@@ -255,18 +268,22 @@ def test_catalog_recipe_has_done_marker(recipe_path: Path) -> None:
     ids=lambda p: f"{p.parent.parent.name}/{p.name}",
 )
 def test_catalog_recipe_has_timing_fence(recipe_path: Path) -> None:
-    """Emitted script contains timing infrastructure (_recipe_t0, _warmup_t0)."""
+    """Emitted script contains family-specific timing boundaries."""
     result = _try_emit_script(recipe_path)
     if result is None:
         pytest.skip(f"emit_script not supported for {recipe_path.name}")
         return
-    _recipe, script = result
-    assert (
-        "_recipe_t0" in script
-    ), f"Emitted script for {recipe_path.name} missing '_recipe_t0' wall-clock start."
-    assert (
-        "_warmup_t0" in script
-    ), f"Emitted script for {recipe_path.name} missing '_warmup_t0' warmup-phase timer."
+    recipe, script = result
+    expected_timers = (
+        ("_total_t0", "_initialization_t0")
+        if isinstance(recipe, SMCRecipe)
+        else ("_recipe_t0", "_warmup_t0")
+    )
+    for timer in expected_timers:
+        assert timer in script, (
+            f"Emitted script for {recipe_path.name} missing "
+            f"{timer!r} timing boundary."
+        )
 
 
 @pytest.mark.fast
@@ -287,8 +304,7 @@ def test_catalog_recipe_no_unresolved_dollar_slots(recipe_path: Path) -> None:
     from ``$bm_*`` references that legitimately appear in inline comments
     (e.g., ``# sampler falls back to $bm_* recipe defaults``).
 
-    Note: SMC recipes (SMCRecipe type) do not go through emit_script and are
-    excluded upstream (load_recipe raises AttributeError for them).
+    Recipes whose call shape is not yet supported by codegen are skipped.
     """
     result = _try_emit_script(recipe_path)
     if result is None:
@@ -1144,17 +1160,7 @@ def test_golden_execution_laplace_hmc(tmp_path: Path) -> None:
     assert (
         "_warmup_logdensity_fn" in script
     ), "Missing scalar warmup adapter (_warmup_logdensity_fn) in laplace preamble"
-    # Verify D8: no forbidden tuningfork imports
-    import ast as _ast
-
-    tree = _ast.parse(script)
-    for node in _ast.walk(tree):
-        if isinstance(node, _ast.ImportFrom):
-            m = node.module or ""
-            assert not (
-                m.startswith("tuningfork")
-                and m not in {"tuningfork.model", "tuningfork.model._numpyro"}
-            ), f"D8 violation: {m}"
+    _assert_d8(script, "eight_schools_ncp/laplace_hmc")
 
     # Execute: verify the script runs to completion in subprocess.
     script_path = tmp_path / "golden_laplace_hmc.py"

@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from tuningfork.recipes._base_smc import SMCRecipe
 from tuningfork.recipes._generated_smc import (
     GeneratedSMCArtifact,
     evaluate_generated_smc,
@@ -10,7 +11,6 @@ from tuningfork.recipes._generated_smc import (
 )
 from tuningfork.recipes._ground_truth_reference import GroundTruthReference
 from tuningfork.recipes._smc_execution_plan import resolve_smc_execution_plan
-from tuningfork.recipes._base_smc import SMCRecipe
 
 pytestmark = pytest.mark.fast
 
@@ -123,9 +123,7 @@ def test_incomplete_tempering_is_retained_as_gate_failure(tmp_path):
         },
     )
     artifact = load_generated_smc_artifact(path, _config())
-    result = evaluate_generated_smc(
-        artifact, _config(), _reference(tmp_path)
-    )
+    result = evaluate_generated_smc(artifact, _config(), _reference(tmp_path))
     assert result.gate.verdict == "FAIL"
     assert result.lambda_final == 0.8
 

@@ -8,13 +8,14 @@ import pytest
 import tuningfork.catalog as catalog
 import tuningfork.catalog.emit as emit_module
 from tuningfork.recipes import Effort, Recipe
+from tuningfork.recipes._base_smc import SMCRecipe
 from tuningfork.recipes._execution_plan import canonical_json
 from tuningfork.recipes._launcher import GeneratedProgramError
 
 pytestmark = pytest.mark.fast
 
 
-class _Recipe:
+class _Recipe(Recipe):
     def __init__(self):
         self.snapshot = {
             "model_name": "demo",
@@ -108,24 +109,33 @@ def test_execute_recipe_forwards_options_and_preserves_launch_result(monkeypatch
     ]
 
 
+def test_execute_recipe_rejects_unsupported_type_without_launch(monkeypatch):
+    monkeypatch.setattr(
+        emit_module,
+        "launch_generated_program",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("launched")),
+    )
+
+    with pytest.raises(TypeError, match="Recipe or SMCRecipe"):
+        emit_module.execute_recipe(object(), Path("runs"))
+
+
 def test_execute_recipe_does_not_launch_when_emission_fails(monkeypatch):
     error = ValueError("emit failed")
-    launched = False
-
-    def fake_emit(*args, **kwargs):
-        raise error
-
-    def fake_launch(*args, **kwargs):
-        nonlocal launched
-        launched = True
-
-    monkeypatch.setattr(emit_module, "emit_script", fake_emit)
-    monkeypatch.setattr(emit_module, "launch_generated_program", fake_launch)
+    monkeypatch.setattr(
+        emit_module,
+        "emit_script",
+        lambda *args, **kwargs: (_ for _ in ()).throw(error),
+    )
+    monkeypatch.setattr(
+        emit_module,
+        "launch_generated_program",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("launched")),
+    )
 
     with pytest.raises(ValueError) as caught:
-        emit_module.execute_recipe(object(), Path("runs"))
+        emit_module.execute_recipe(_Recipe(), Path("runs"))
     assert caught.value is error
-    assert launched is False
 
 
 def test_execute_recipe_recipe_evidence_preserves_negative_and_unknown_fields(
@@ -250,16 +260,17 @@ def test_execute_recipe_rejects_reserved_or_invalid_reference_identity(monkeypat
         emit_module.execute_recipe(_Recipe(), Path("runs"), reference_identity="bad")
 
 
-def test_execute_recipe_rejects_smc_until_generated_smc_is_supported(monkeypatch):
+def test_execute_recipe_supports_smc_generated_program(monkeypatch, tmp_path):
     from tuningfork.recipes._base_smc import SMCRecipe
 
-    launched = False
-
-    def fake_emit(*args, **kwargs):
-        nonlocal launched
-        launched = True
-
-    monkeypatch.setattr(emit_module, "emit_script", fake_emit)
+    calls = []
+    monkeypatch.setattr(emit_module, "emit_smc_script", lambda recipe: "smc-source")
+    monkeypatch.setattr(
+        emit_module,
+        "launch_generated_program",
+        lambda source, run_root, **kwargs: calls.append((source, run_root, kwargs))
+        or object(),
+    )
     recipe = SMCRecipe(
         model_name="gmm_25",
         smc_method_name="adaptive_tempered_smc",
@@ -267,9 +278,40 @@ def test_execute_recipe_rejects_smc_until_generated_smc_is_supported(monkeypatch
         num_particles=8,
         max_steps=3,
     )
-    with pytest.raises(TypeError, match="generated SMC.*capability"):
-        emit_module.execute_recipe(recipe, Path("runs"))  # type: ignore[arg-type]
-    assert launched is False
+    emit_module.execute_recipe(recipe, tmp_path)
+    assert calls[0][0] == "smc-source"
+    assert calls[0][1] == tmp_path
+    assert (
+        calls[0][2]["reference_identity"][emit_module.RECIPE_EVIDENCE_KEY]["snapshot"]
+        == recipe.to_dict()
+    )
+
+
+def test_public_emit_script_dispatches_smc(monkeypatch):
+    recipe = SMCRecipe(
+        model_name="gmm_25",
+        smc_method_name="adaptive_tempered_smc",
+        inner_method_name="rwm",
+        num_particles=8,
+        max_steps=3,
+    )
+    monkeypatch.setattr(
+        emit_module, "emit_smc_script", lambda requested: f"smc:{requested.model_name}"
+    )
+
+    assert emit_module.emit_script(recipe) == "smc:gmm_25"
+
+
+def test_execute_recipe_rejects_mcmc_overrides_for_smc(tmp_path):
+    recipe = SMCRecipe(
+        model_name="gmm_25",
+        smc_method_name="adaptive_tempered_smc",
+        inner_method_name="rwm",
+        num_particles=8,
+        max_steps=3,
+    )
+    with pytest.raises(TypeError, match="MCMC-only"):
+        emit_module.execute_recipe(recipe, tmp_path, num_samples=2)
 
 
 def test_execute_recipe_propagates_generated_program_error(monkeypatch):
@@ -288,6 +330,8 @@ def test_execute_recipe_propagates_generated_program_error(monkeypatch):
 
 def test_execute_recipe_public_exports():
     assert catalog.execute_recipe is emit_module.execute_recipe
+    assert catalog.emit_script is emit_module.emit_script
+    assert catalog.emit_smc_script is emit_module.emit_smc_script
     assert catalog.ExecutionTimings is emit_module.ExecutionTimings
     assert catalog.LaunchResult is emit_module.LaunchResult
     assert catalog.GeneratedProgramError is emit_module.GeneratedProgramError

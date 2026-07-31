@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 from tuningfork._version import __version__
 from tuningfork.recipes._execution_manifest import ExecutionManifest
-from tuningfork.recipes._smc_execution_telemetry import SMC_TELEMETRY_SCHEMA
 from tuningfork.recipes._smc_execution_plan import resolve_smc_execution_plan
+from tuningfork.recipes._smc_execution_telemetry import SMC_TELEMETRY_SCHEMA
 
 if TYPE_CHECKING:
     from tuningfork.recipes._base_smc import SMCRecipe
@@ -34,18 +34,14 @@ _SUPPORTED_ROUTES = frozenset(
     }
 )
 _ALLOWED_SMC_PARAMS = {
-    ("adaptive_tempered_smc", "rwm"): frozenset(
-        {"target_ess", "num_mcmc_steps"}
-    ),
+    ("adaptive_tempered_smc", "rwm"): frozenset({"target_ess", "num_mcmc_steps"}),
     ("inner_kernel_tuning", "hmc"): frozenset(
         {"target_ess", "num_mcmc_steps", "num_integration_steps"}
     ),
 }
 _ALLOWED_INNER_PARAMS = {
     ("adaptive_tempered_smc", "rwm"): frozenset({"sigma"}),
-    ("inner_kernel_tuning", "hmc"): frozenset(
-        {"step_size", "inverse_mass_matrix"}
-    ),
+    ("inner_kernel_tuning", "hmc"): frozenset({"step_size", "inverse_mass_matrix"}),
 }
 
 
@@ -90,10 +86,15 @@ def emit_smc_script(recipe: SMCRecipe) -> str:
         if route == ("adaptive_tempered_smc", "rwm")
         else _HMC_TUNING_LIFECYCLE
     )
+    lifecycle = lifecycle.replace(
+        "$parameter_update",
+        _parameter_update_snippet(
+            plan.config.parameter_update_strategy,
+            plan.config.parameter_update_strategy_kwargs,
+        ),
+    )
     x64_line = (
-        'jax.config.update("jax_enable_x64", True)'
-        if plan.config.requires_x64
-        else ""
+        'jax.config.update("jax_enable_x64", True)' if plan.config.requires_x64 else ""
     )
     return _PROGRAM.substitute(
         manifest_literal=repr(manifest.to_json()),
@@ -142,10 +143,69 @@ _final_inner_params = {}
 """
 
 
+def _parameter_update_snippet(strategy: str, kwargs: Mapping[str, Any]) -> str:
+    """Select standalone update code for a validated strategy."""
+    target = repr(float(kwargs.get("target_acceptance", 0.65)))
+    snippets = {
+        "none": """
+def _update_none(rng_key, smc_state, smc_info):
+    return dict(_inner_params)
+
+_update = _update_none
+""",
+        "step_size_from_acceptance_rate": f"""
+from blackjax.smc.tuning.from_kernel_info import update_scale_from_acceptance_rate
+_target_acceptance = {target}
+def _update_step(rng_key, smc_state, smc_info):
+    result = dict(_inner_params)
+    result["step_size"] = update_scale_from_acceptance_rate(
+        _inner_params["step_size"], smc_info.update_info.acceptance_rate,
+        target_acceptance_rate=_target_acceptance,
+    )
+    return result
+_update = _update_step
+""",
+        "imm_from_particles": """
+from blackjax.smc.tuning.from_particles import particles_as_rows
+def _update_imm(rng_key, smc_state, smc_info):
+    result = dict(_inner_params)
+    variance = jnp.maximum(
+        jnp.var(particles_as_rows(smc_state.particles), axis=0), 1e-6
+    )
+    shape = jnp.asarray(_inner_params["inverse_mass_matrix"]).shape
+    result["inverse_mass_matrix"] = (
+        variance if len(shape) == 1 else jnp.broadcast_to(variance, shape)
+    )
+    return result
+_update = _update_imm
+""",
+        "step_size_and_imm_from_particles": f"""
+from blackjax.smc.tuning.from_kernel_info import update_scale_from_acceptance_rate
+from blackjax.smc.tuning.from_particles import particles_as_rows
+_target_acceptance = {target}
+def _update_combined(rng_key, smc_state, smc_info):
+    result = dict(_inner_params)
+    result["step_size"] = update_scale_from_acceptance_rate(
+        _inner_params["step_size"], smc_info.update_info.acceptance_rate,
+        target_acceptance_rate=_target_acceptance,
+    )
+    variance = jnp.maximum(
+        jnp.var(particles_as_rows(smc_state.particles), axis=0), 1e-6
+    )
+    shape = jnp.asarray(_inner_params["inverse_mass_matrix"]).shape
+    result["inverse_mass_matrix"] = (
+        variance if len(shape) == 1 else jnp.broadcast_to(variance, shape)
+    )
+    return result
+_update = _update_combined
+""",
+    }
+    return snippets[strategy]
+
+
 _HMC_TUNING_LIFECYCLE = r"""
 from functools import partial
 from blackjax.base import SamplingAlgorithm
-from tuningfork.smc.parameter_update_registry import build_parameter_update_fn
 
 _model_dim = int(sum(np.asarray(x).size for x in jax.tree.leaves(_init_position)))
 _step_size = jnp.asarray(_cfg["inner_params_init"]["step_size"])
@@ -178,11 +238,7 @@ _inner = SamplingAlgorithm(
         ),
     ),
 )
-_update = build_parameter_update_fn(
-    _cfg["parameter_update_strategy"],
-    initial_parameter_value=_inner_params,
-    **dict(_cfg["parameter_update_strategy_kwargs"]),
-)
+$parameter_update
 _algorithm = blackjax.smc.inner_kernel_tuning.as_top_level_api(
     smc_algorithm=blackjax.adaptive_tempered_smc,
     logprior_fn=_logprior,

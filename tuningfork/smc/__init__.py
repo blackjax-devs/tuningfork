@@ -11,11 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""SMC algorithm registry — sister abstraction to BASE_METHODS.
+"""Declarative SMC capability registry, parallel to ``BASE_METHODS``.
 
-See tuningfork/smc/_base.py for the SMCMethod dataclass.
-SMC methods have a different factory contract from BaseMethod
-(prior/likelihood split, inner kernel composition).
+The entries describe validation and code-generation requirements. They do not
+carry a second, in-process sampling implementation.
 """
 
 from tuningfork.smc._base import SMCMethod

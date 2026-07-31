@@ -8,10 +8,12 @@ used by manifests and launchers.
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ._base_smc import SMCRecipe
 from ._execution_plan import (
     ExecutionPlan,
     _freeze,
@@ -19,7 +21,6 @@ from ._execution_plan import (
     canonical_json,
     execution_config_hash,
 )
-from ._base_smc import SMCRecipe
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,11 @@ class SMCExecutionConfiguration:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
-        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
             raise ValueError("seed must be a non-negative integer")
         for name in ("smc_params", "parameter_update_strategy_kwargs"):
             if not isinstance(getattr(self, name), Mapping):
@@ -100,9 +105,7 @@ def resolve_smc_execution_plan(
     from tuningfork.calibration.tune import default_value_for_space
     from tuningfork.model import MODELS
     from tuningfork.smc import SMC_METHODS
-    from tuningfork.smc.parameter_update_registry import (
-        PARAMETER_UPDATE_STRATEGIES,
-    )
+    from tuningfork.smc.parameter_update_registry import PARAMETER_UPDATE_STRATEGIES
 
     if not isinstance(recipe, SMCRecipe):
         raise TypeError("recipe must be an SMCRecipe")
@@ -110,24 +113,32 @@ def resolve_smc_execution_plan(
         smc_name = recipe.smc_method_name
         smc_entry = SMC_METHODS[smc_name]
     except (AttributeError, KeyError) as exc:
-        raise ValueError(f"unsupported SMC method: {getattr(recipe, 'smc_method_name', None)!r}") from exc
+        raise ValueError(
+            f"unsupported SMC method: {getattr(recipe, 'smc_method_name', None)!r}"
+        ) from exc
     try:
         inner_name = recipe.inner_method_name
         if inner_name is None or inner_name == "":
             inner_name = smc_entry.default_inner_method
         inner_entry = BASE_METHODS[inner_name]
     except (AttributeError, KeyError) as exc:
-        raise ValueError(f"unsupported inner method: {getattr(recipe, 'inner_method_name', None)!r}") from exc
+        raise ValueError(
+            f"unsupported inner method: {getattr(recipe, 'inner_method_name', None)!r}"
+        ) from exc
     if inner_name not in smc_entry.compatible_inner_methods:
         raise ValueError(
             f"inner method {inner_name!r} is incompatible with SMC method {smc_name!r}"
         )
     if getattr(inner_entry, "family", None) != "mcmc":
-        raise ValueError(f"inner method {inner_name!r} is not an executable MCMC method")
+        raise ValueError(
+            f"inner method {inner_name!r} is not an executable MCMC method"
+        )
     try:
         model = MODELS[recipe.model_name]
     except (AttributeError, KeyError) as exc:
-        raise ValueError(f"unsupported model: {getattr(recipe, 'model_name', None)!r}") from exc
+        raise ValueError(
+            f"unsupported model: {getattr(recipe, 'model_name', None)!r}"
+        ) from exc
     smc_params = {
         space.name: default_value_for_space(space)
         for space in smc_entry.default_hp_space
@@ -143,10 +154,33 @@ def resolve_smc_execution_plan(
         inner_params.setdefault("step_size", 0.1)
         inner_params.setdefault("inverse_mass_matrix", [1.0] * model.dim)
         smc_params.setdefault("num_integration_steps", 10)
-    if recipe.parameter_update_strategy not in PARAMETER_UPDATE_STRATEGIES:
+    strategy_name = recipe.parameter_update_strategy
+    strategy = PARAMETER_UPDATE_STRATEGIES.get(strategy_name)
+    if strategy is None:
+        raise ValueError(f"unsupported parameter update strategy: {strategy_name!r}")
+    strategy_kwargs = copy.deepcopy(recipe.parameter_update_strategy_kwargs)
+    if strategy.allowed_kwargs == frozenset({"target_acceptance"}):
+        strategy_kwargs.setdefault("target_acceptance", 0.65)
+    unknown_kwargs = set(strategy_kwargs) - strategy.allowed_kwargs
+    if unknown_kwargs:
         raise ValueError(
-            "unsupported parameter update strategy: "
-            f"{recipe.parameter_update_strategy!r}"
+            f"parameter update strategy {strategy_name!r} does not allow kwargs: "
+            f"{sorted(unknown_kwargs)!r}"
+        )
+    if "target_acceptance" in strategy_kwargs:
+        target = strategy_kwargs["target_acceptance"]
+        if (
+            isinstance(target, bool)
+            or not isinstance(target, (int, float))
+            or not math.isfinite(float(target))
+            or not 0.0 < float(target) < 1.0
+        ):
+            raise ValueError(
+                "target_acceptance must be finite and satisfy 0 < target_acceptance < 1"
+            )
+    if smc_name != "inner_kernel_tuning" and strategy_name != "none":
+        raise ValueError(
+            "non-'none' parameter update strategies require inner_kernel_tuning"
         )
     config = SMCExecutionConfiguration(
         execution_family="smc",
@@ -155,10 +189,8 @@ def resolve_smc_execution_plan(
         inner_method_name=inner_name,
         smc_params=_freeze(smc_params),
         inner_params_init=_freeze(inner_params),
-        parameter_update_strategy=recipe.parameter_update_strategy,
-        parameter_update_strategy_kwargs=_freeze(
-            copy.deepcopy(recipe.parameter_update_strategy_kwargs)
-        ),
+        parameter_update_strategy=strategy_name,
+        parameter_update_strategy_kwargs=_freeze(strategy_kwargs),
         num_particles=recipe.num_particles,
         max_steps=recipe.max_steps,
         seed=recipe.seed,

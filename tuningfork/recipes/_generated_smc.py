@@ -21,8 +21,10 @@ from tuningfork.base_method import BASE_METHODS
 from tuningfork.calibration.smc_gate import SMCGateVerdict, smc_gate
 from tuningfork.model import MODELS
 from tuningfork.recipes._execution_plan import _freeze
-from tuningfork.recipes._ground_truth_reference import GroundTruthReference
-from tuningfork.recipes._ground_truth_reference import align_ground_truth
+from tuningfork.recipes._ground_truth_reference import (
+    GroundTruthReference,
+    align_ground_truth,
+)
 from tuningfork.smc import SMC_METHODS
 
 
@@ -204,9 +206,7 @@ def load_generated_smc_artifact(path: str | Path, config: Any) -> GeneratedSMCAr
         if np.issubdtype(lambdas.dtype, np.floating)
         else 0.0
     )
-    if np.any(lambdas < -lambda_tolerance) or np.any(
-        lambdas > 1.0 + lambda_tolerance
-    ):
+    if np.any(lambdas < -lambda_tolerance) or np.any(lambdas > 1.0 + lambda_tolerance):
         raise ValueError("SMC lambda history must stay within [0, 1]")
     if np.any(ess <= 0):
         raise ValueError("SMC ESS history must be strictly positive")
@@ -269,9 +269,7 @@ def evaluate_generated_smc(
     if artifact.inner_method_name == "rwm":
         cost_per_inner_step = 1
     elif artifact.inner_method_name == "hmc":
-        cost_per_inner_step = _positive_int(
-            smc_params, "num_integration_steps", 10
-        )
+        cost_per_inner_step = _positive_int(smc_params, "num_integration_steps", 10)
     else:
         raise ValueError(
             "exact SMC cost accounting is not implemented for inner method "

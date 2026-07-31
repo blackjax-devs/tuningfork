@@ -16,7 +16,7 @@ pytestmark = pytest.mark.fast
 
 
 def _recipe(**updates: Any) -> SMCRecipe:
-    values = dict(
+    values: dict[str, Any] = dict(
         model_name="mvn_10",
         smc_method_name="tempered_smc",
         inner_method_name="hmc",

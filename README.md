@@ -172,15 +172,15 @@ tuningfork/
 │   │   └── _data/             # raw input datasets (CSV/NPZ); fetch via tools/
 │   ├── base_method/           # 24 sampler wrappers (hmc, nuts, mclmc, ...)
 │   ├── warmup/                # 12 warmup wrappers (window_adaptation_diag_imm, pathfinder, ...)
-│   ├── smc/                   # 6 SMC method wrappers (adaptive_tempered, ...)
+│   ├── smc/                   # declarative SMC method descriptors
 │   ├── recipes/               # Recipe schema + generators + emit_script
 │   │   ├── _base.py, _instructions.py
 │   │   ├── _generate_starter.py, _generate_groundtruth.py
 │   │   ├── _emit_script.py    # recipe → reproduction Python script — orchestrator
+│   │   ├── _emit_smc_script.py # SMC recipe → generated sampling program
 │   │   └── _emit/             # Python emit-functions (preamble/postamble/inference_loop/sampler/warmup)
 │   ├── calibration/           # certify_reference, tune (Optuna BO), statistician_gate
 │   ├── metrics/               # headline metric, grad-counter, reference_compare
-│   ├── runner/                # SMC init + run helpers
 │   ├── _cache_io.py           # internal cache I/O for reference artifacts
 │   ├── _posteriordb_xcheck.py # posteriordb cross-check logic
 │   ├── cli.py                 # tuningfork {reference, warmup, tune} subcommands
@@ -218,7 +218,10 @@ tuningfork/
 └── CONTRIBUTING.md            # test markers, folder layout, contribution rules
 ```
 
-The package splits into two layers (post-R3 restructure, 2026-05-17): the **generator** layer (`model/`, `base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`, `runner/`, `_cache_io.py`) produces recipes; the **catalog** layer (`tuningfork.catalog`) is what a regular user imports to consume recipes + read per-model artifacts.
+The package splits into two layers: the **generator** layer (`model/`,
+`base_method/`, `warmup/`, `smc/`, `recipes/`, `calibration/`, `metrics/`,
+`_cache_io.py`) produces recipes through generated programs; the **catalog**
+layer (`tuningfork.catalog`) loads recipes, artifacts, and generated source.
 
 ## License
 

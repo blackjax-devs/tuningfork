@@ -238,8 +238,8 @@ def build_prior_sample_fn(
     a non-trivial bijector (e.g. positive-constrained parameters) are handled
     transparently by ``Predictive``.
 
-    The ``init_particles_from_prior`` helper in ``tuningfork.runner.smc``
-    calls this function's output as ``prior_sample_fn(key, n_particles)``.
+    Generated SMC programs call this function's output as
+    ``prior_sample_fn(key, n_particles)`` when initializing particles.
     """
     if entry.analytic_sampler is not None:
         # Fast path: analytically-defined prior sampler.

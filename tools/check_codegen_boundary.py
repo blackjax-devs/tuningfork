@@ -142,8 +142,6 @@ TRANSITIONAL_DEBT_BASELINE: Counter[Hit] = Counter(
         ("calibration/tune.py", "_run_trial", "run_inference_algorithm"): 1,
         ("calibration/tune.py", "_run_warmup", "runner"): 1,
         ("recipes/_base.py", "Recipe.from_warmup_only", "runner"): 1,
-        ("recipes/_smc_runner.py", "emit_smc_recipe_for_cell", "factory"): 2,
-        ("recipes/_smc_runner.py", "emit_smc_recipe_for_cell", "run_smc"): 1,
         ("recipes/emit_mclmc_lrd.py", "_run_cert_seed", "runner"): 1,
         (
             "recipes/sequential_run_recipe_pipeline.py",

@@ -28,10 +28,11 @@ Example usage::
 
     result = execute_recipe(recipe, Path("runs"), num_samples=500)
 
-``emit_script`` is pure: it returns the generated source and performs no I/O.
-``execute_recipe`` uses that same source and launches it through the receipt-
-preserving runner, so callers receive a typed :class:`LaunchResult` and can
-inspect evidence when execution fails with :class:`GeneratedProgramError`.
+``emit_script`` dispatches typed MCMC and SMC recipes, returns generated source,
+and performs no I/O. ``execute_recipe`` uses that same source and launches it
+through the receipt-preserving runner, so callers receive a typed
+:class:`LaunchResult` and can inspect evidence when execution fails with
+:class:`GeneratedProgramError`.
 """
 
 from __future__ import annotations
@@ -41,9 +42,12 @@ import hashlib
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from tuningfork.recipes._emit_script import emit_script
+from tuningfork.recipes._base import Recipe
+from tuningfork.recipes._base_smc import SMCRecipe
+from tuningfork.recipes._emit_script import emit_script as _emit_mcmc_script
+from tuningfork.recipes._emit_smc_script import emit_smc_script
 from tuningfork.recipes._execution_plan import canonical_json
 from tuningfork.recipes._launcher import (
     ExecutionTimings,
@@ -52,29 +56,69 @@ from tuningfork.recipes._launcher import (
     launch_generated_program,
 )
 
-if TYPE_CHECKING:
-    from tuningfork.recipes._base import Recipe
-
-
 RECIPE_EVIDENCE_KEY = "tuningfork_recipe_evidence"
 RECIPE_EVIDENCE_SCHEMA = "tuningfork.recipe-evidence.v1"
 RECIPE_EVIDENCE_HASH_DOMAIN = RECIPE_EVIDENCE_SCHEMA + "\0"
 _NONFINITE_TAG = "\u0000tuningfork_recipe_evidence_nonfinite_float"
 
 
-def canonical_recipe_snapshot(recipe: Recipe) -> dict[str, Any]:
+def emit_script(
+    recipe: Recipe | SMCRecipe,
+    *,
+    tuning_seed: int | None = None,
+    num_samples: int | None = None,
+    sampler_seed: int | None = None,
+    reinit_seed: int | None = None,
+    num_chains: int | None = None,
+    num_warmup: int | list[int] | None = None,
+    progress_bar: bool | None = None,
+    warmup_num_chains: list[int] | None = None,
+) -> str:
+    """Emit the standalone program selected by a typed recipe."""
+    if isinstance(recipe, SMCRecipe):
+        if any(
+            value is not None
+            for value in (
+                tuning_seed,
+                num_samples,
+                sampler_seed,
+                reinit_seed,
+                num_chains,
+                num_warmup,
+                progress_bar,
+                warmup_num_chains,
+            )
+        ):
+            raise TypeError("MCMC-only emission overrides are not valid for SMCRecipe")
+        return emit_smc_script(recipe)
+    if not isinstance(recipe, Recipe):
+        raise TypeError("recipe must be a Recipe or SMCRecipe")
+    return _emit_mcmc_script(
+        recipe,
+        tuning_seed=tuning_seed,
+        num_samples=num_samples,
+        sampler_seed=sampler_seed,
+        reinit_seed=reinit_seed,
+        num_chains=num_chains,
+        num_warmup=num_warmup,
+        progress_bar=progress_bar,
+        warmup_num_chains=warmup_num_chains,
+    )
+
+
+def canonical_recipe_snapshot(recipe: Recipe | SMCRecipe) -> dict[str, Any]:
     """Return the lossless, JSON-safe recipe identity used in receipts.
 
     Receipt production and certification binding must compare the same
     materialized representation.  In particular, this normalizes namedtuple
     and tuple values to JSON arrays and tags non-finite floats before hashing.
     """
-    to_dict = getattr(recipe, "to_dict", None)
-    if not callable(to_dict):
-        raise TypeError(
-            "recipe must provide to_dict(include_legacy_warmup_fields=True)"
-        )
-    snapshot = to_dict(include_legacy_warmup_fields=True)
+    if isinstance(recipe, SMCRecipe):
+        snapshot = recipe.to_dict()
+    elif isinstance(recipe, Recipe):
+        snapshot = recipe.to_dict(include_legacy_warmup_fields=True)
+    else:
+        raise TypeError("recipe must be a Recipe or SMCRecipe")
     if not isinstance(snapshot, Mapping):
         raise TypeError("recipe.to_dict() must return a mapping")
     return _receipt_snapshot_value(copy.deepcopy(dict(snapshot)))
@@ -98,14 +142,15 @@ def _receipt_snapshot_value(value: Any) -> Any:
 
 
 def _recipe_reference_identity(
-    recipe: Recipe, caller_identity: Mapping[str, Any] | None
+    recipe: Recipe | SMCRecipe,
+    caller_identity: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     """Build the receipt provenance envelope for a recipe execution.
 
-    The snapshot is intentionally serialized with the legacy warmup keys: this
-    keeps the receipt self-contained across schema migrations, including failed
-    attempts and unknown extension fields.  A caller's identity is copied under
-    a nested key so the generated evidence cannot overwrite it.
+    The snapshot uses the complete family-specific schema, including MCMC
+    legacy warmup keys. This keeps the receipt self-contained across schema
+    migrations, failed attempts, and unknown extension fields. A caller's
+    identity is nested so generated evidence cannot overwrite it.
     """
     if caller_identity is not None and not isinstance(caller_identity, Mapping):
         raise GeneratedProgramError("reference_identity must be a mapping or None")
@@ -131,7 +176,7 @@ def _recipe_reference_identity(
 
 
 def execute_recipe(
-    recipe: Recipe,
+    recipe: Recipe | SMCRecipe,
     run_root: Path,
     *,
     tuning_seed: int | None = None,
@@ -155,13 +200,6 @@ def execute_recipe(
     Emission always completes first; any emission error prevents launching.
     ``diagnostics`` optionally overrides the child tap-diagnostics environment.
     """
-    from tuningfork.recipes._base_smc import SMCRecipe
-
-    if isinstance(recipe, SMCRecipe):
-        raise TypeError(
-            "execute_recipe does not yet support SMCRecipe; add the missing "
-            "generated SMC plan/emitter capability before executing this recipe"
-        )
     if diagnostics is not None:
         if not isinstance(diagnostics, bool):
             raise TypeError("diagnostics must be a bool or None")
@@ -170,6 +208,8 @@ def execute_recipe(
                 "diagnostics conflicts with explicit TUNINGFORK_TAP_DIAGNOSTICS"
             )
 
+    if isinstance(recipe, SMCRecipe) and diagnostics is not None:
+        raise TypeError("MCMC-only diagnostics are not valid for SMCRecipe")
     source = emit_script(
         recipe,
         tuning_seed=tuning_seed,
@@ -181,6 +221,7 @@ def execute_recipe(
         progress_bar=progress_bar,
         warmup_num_chains=warmup_num_chains,
     )
+
     launch_env: Mapping[str, str] | None
     if diagnostics is not None:
         launch_env = dict(env or {})
@@ -203,6 +244,7 @@ __all__ = [
     "GeneratedProgramError",
     "LaunchResult",
     "emit_script",
+    "emit_smc_script",
     "execute_recipe",
     "canonical_recipe_snapshot",
     "RECIPE_EVIDENCE_HASH_DOMAIN",

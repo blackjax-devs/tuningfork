@@ -107,7 +107,7 @@ class SMCRecipe:
         W6 registry key for the ``mcmc_parameter_update_fn`` (e.g.
         ``"step_size_and_imm_from_particles"``).  ``"none"`` for no tuning.
     parameter_update_strategy_kwargs
-        Extra kwargs forwarded to ``build_parameter_update_fn`` (e.g.
+        Declarative kwargs materialized by codegen (for example,
         ``{"target_acceptance": 0.65}``).
     headline_metric
         ``particle_ess / total_grad_evals`` (HMC) or
@@ -175,7 +175,7 @@ class SMCRecipe:
     )
 
     def __post_init__(self) -> None:
-        """Reject malformed plans before they can reach an execution runner."""
+        """Reject malformed plans before they can reach generated execution."""
         for name in ("model_name", "smc_method_name", "inner_method_name"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value:
@@ -362,7 +362,7 @@ class SMCRecipe:
         parameter_update_strategy
             W6 registry key for the update function.
         parameter_update_strategy_kwargs
-            Extra kwargs for ``build_parameter_update_fn``.
+            Extra declarative kwargs for the generated update strategy.
         """
         from tuningfork.smc import SMC_METHODS  # inline to avoid circular dep
 
