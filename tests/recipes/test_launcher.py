@@ -352,6 +352,42 @@ def test_sample_stat_semantics_are_deferred_to_the_evaluator(tmp_path):
         load_generated_artifact(result.artifact_path, result.manifest)
 
 
+def test_nonfinite_in_stat_array_is_permissive_and_counted(tmp_path):
+    # Sampler-stat (_ss_) arrays may legitimately contain inf/nan:
+    # a divergent HMC step or a rejected ODE proposal produces non-finite
+    # energy, and that is diagnostic evidence, not corruption.
+    # The launcher must NOT raise; it must surface the per-array count in
+    # result.nonfinite_stat_counts so downstream evaluators can act on it.
+    source = _source(
+        _manifest(),
+        "np.savez(ARTIFACT, "
+        "position=np.zeros((1, 2, 1)), "
+        "_ss_energy=np.full((1, 2), np.nan))\n"
+        "print('DONE')",
+    )
+    result = launch_generated_program(source, tmp_path)
+    assert result.receipt.status == "success"
+    # 1 chain × 2 samples = 2 non-finite entries in _ss_energy
+    assert result.nonfinite_stat_counts == {"_ss_energy": 2}
+
+
+def test_nonfinite_in_draw_array_still_raises_with_failed_receipt(tmp_path):
+    # Draw/position arrays must be finite — non-finite = corruption.
+    # This test must stay red if the strict draw-finiteness branch is disabled.
+    source = _source(
+        _manifest(),
+        "np.savez(ARTIFACT, "
+        "position=np.full((1, 2, 1), np.nan), "
+        "_ss_energy=np.zeros((1, 2)))\n"
+        "print('DONE')",
+    )
+    with pytest.raises(GeneratedProgramError) as caught:
+        launch_generated_program(source, tmp_path)
+    receipt = _receipt(caught.value)
+    assert receipt.status == "failed"
+    assert "non-finite values" in (receipt.error or "")
+
+
 def test_environment_override_values_are_not_recorded_in_receipt(tmp_path):
     secret = "sentinel-secret-value"
     source = _source(

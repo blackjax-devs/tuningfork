@@ -150,6 +150,7 @@ def _launch(
                 warmup_seconds=1.0, sampling_seconds=2.0, total_seconds=3.0
             ),
         ),
+        nonfinite_stat_counts={},
     )
 
 

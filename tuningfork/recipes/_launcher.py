@@ -119,6 +119,7 @@ class LaunchResult:
     manifest: ExecutionManifest
     receipt: ExecutionReceipt
     timings: ExecutionTimings | None
+    nonfinite_stat_counts: dict[str, int]
 
 
 class GeneratedProgramError(RuntimeError):
@@ -312,13 +313,26 @@ def _append_error(error: str | None, detail: str) -> str:
     return detail if error is None else f"{error}; {detail}"
 
 
-def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
+def _validate_artifact(
+    path: Path, manifest: ExecutionManifest
+) -> tuple[str, dict[str, int]]:
+    """Validate an artifact archive; return (sha256, nonfinite_stat_counts).
+
+    Draw/position arrays are validated strictly: any non-finite value raises
+    ValueError (non-finite draws indicate corruption, not legitimate evidence).
+
+    Sampler-stat arrays (``_ss_`` prefix) are validated permissively: inf/nan
+    is legitimate evidence from a divergent step or a rejected ODE proposal and
+    must not suppress the run.  The per-array non-finite count is collected in
+    ``nonfinite_stat_counts`` (keys are stat array names; absent = all-finite).
+    """
     if manifest.executable_config.get("execution_family") == "smc":
         from ._generated_smc import load_generated_smc_artifact
 
         load_generated_smc_artifact(path, manifest)
-        return _sha256_file(path)
+        return _sha256_file(path), {}
     artifact_sha256 = _sha256_file(path)
+    nonfinite_stat_counts: dict[str, int] = {}
     with np.load(path, allow_pickle=False) as archive:
         files = list(archive.files)
         if not files:
@@ -334,6 +348,7 @@ def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
         )
         for name in files:
             array = archive[name]
+            is_stat = name.startswith(SAMPLE_STAT_PREFIX)
             if array.dtype.hasobject or array.size == 0:
                 raise ValueError(f"artifact array {name!r} is empty or object-typed")
             if not (
@@ -345,20 +360,24 @@ def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
             ):
                 raise ValueError(f"artifact array {name!r} is not real numeric")
             if not np.all(np.isfinite(array)):
-                raise ValueError(f"artifact array {name!r} contains non-finite values")
+                if is_stat:
+                    # Non-finite values in sampler-stat arrays are legitimate
+                    # evidence (divergent step, rejected proposal on a stiff
+                    # ODE). Record the count; do not raise.
+                    nonfinite_stat_counts[name] = int(np.sum(~np.isfinite(array)))
+                else:
+                    raise ValueError(
+                        f"artifact array {name!r} contains non-finite values"
+                    )
             if array.ndim < 2 or array.shape[:2] != expected_shape:
-                kind = (
-                    "statistic"
-                    if name.startswith(SAMPLE_STAT_PREFIX)
-                    else "position array"
-                )
+                kind = "statistic" if is_stat else "position array"
                 raise ValueError(
                     f"{kind} {name!r} has leading shape {array.shape[:2]!r}; "
                     f"expected {expected_shape!r}"
                 )
             if name == SAMPLE_STAT_PREFIX:
                 raise ValueError("statistic name is empty")
-    return artifact_sha256
+    return artifact_sha256, nonfinite_stat_counts
 
 
 def _read_telemetry(
@@ -413,6 +432,7 @@ def _finish_attempt(
     reference_identity: Mapping[str, Any] | None,
     error: str | None,
     timings: ExecutionTimings | None,
+    nonfinite_stat_counts: dict[str, int],
 ) -> LaunchResult:
     def build_receipt(receipt_error: str | None) -> ExecutionReceipt:
         return ExecutionReceipt.create(
@@ -473,6 +493,7 @@ def _finish_attempt(
         manifest=manifest,
         receipt=receipt,
         timings=timings,
+        nonfinite_stat_counts=nonfinite_stat_counts,
     )
 
 
@@ -578,6 +599,7 @@ def launch_generated_program(
     timings: ExecutionTimings | None = None
     telemetry: ExecutionTelemetry | SMCExecutionTelemetry | None = None
     telemetry_sha256: str | None = None
+    nonfinite_stat_counts: dict[str, int] = {}
     with (
         tempfile.TemporaryFile() as stdout_stream,
         tempfile.TemporaryFile() as stderr_stream,
@@ -813,7 +835,7 @@ def launch_generated_program(
         error = _append_error(error, "manifest-declared draws artifact is missing")
     else:
         try:
-            validated_artifact_sha256 = _validate_artifact(
+            validated_artifact_sha256, nonfinite_stat_counts = _validate_artifact(
                 expected_artifact_path, manifest
             )
         except (OSError, ValueError) as exc:
@@ -859,6 +881,7 @@ def launch_generated_program(
         telemetry_path=telemetry_path,
         telemetry_sha256=telemetry_sha256,
         telemetry=telemetry,
+        nonfinite_stat_counts=nonfinite_stat_counts,
     )
     if result.receipt.status == "failed":
         raise GeneratedProgramError(
