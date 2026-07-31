@@ -50,11 +50,11 @@ per-chain IMM has shape ``(d, d)`` (stacked to ``(num_chains, d, d)``).
 HIGH-effort recipes that adapt a dense or large-diagonal IMM should
 persist it via ``Recipe.save_imm_sidecar`` rather than inlining.
 
-If the ``base_method`` has a BO-tunable HP that is NOT step_size or
+If the ``base_method`` declares a parameter that is NOT step_size or
 inverse_mass_matrix (e.g. ``num_integration_steps`` for HMC), the
 default value for that HP is injected into the ``window_adaptation``
-call so the warmup kernel can construct itself; BO trials later override
-those HPs via trial_params.
+call so the warmup kernel can construct itself; generated recipe resolution
+supplies the recorded value at sampling time.
 """
 
 from typing import Any
@@ -137,13 +137,13 @@ def _runner(
     num_chains
         Number of independent chains to run in parallel via ``jax.vmap``.
         Default ``4``, matching Stan/NumPyro convention.  Pass ``num_chains=1``
-        explicitly for BO trials (intentionally single-chain — chain count is
-        orthogonal to HP tuning).
+        explicitly for isolated adaptation checks (chain count is orthogonal to
+        parameter resolution).
     **kwargs
         Additional keyword arguments forwarded to ``window_adaptation``
         (e.g. ``num_integration_steps`` for HMC — the warmup kernel needs
-        it to build its leapfrog integrator, even though BO will tune it
-        later).
+        it to build its leapfrog integrator; generated recipes supply the
+        recorded value later).
 
     Returns
     -------

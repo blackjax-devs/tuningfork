@@ -27,7 +27,7 @@ chains), then:
 No step-size adaptation is performed.  A scalar default of ``1.0`` is
 returned for every chain.  The downstream sampler should rely on its own
 dual-averaging adaptation (e.g. NUTS window adaptation) or Bayesian
-optimisation to tune the step size; this warmup only provides a better
+adaptation to resolve the step size; this warmup provides a better
 initialisation and diagonal IMM than a flat prior sample.
 
 Runner signature (multi-chain contract)::
@@ -224,7 +224,7 @@ ENTRY = Warmup(
     runner=_runner,
     compatible_methods=_COMPATIBLE,
     default_hp_space=(
-        # num_optimization_steps: BO-tunable VI optimisation budget.
+        # num_optimization_steps: recipe-resolved VI optimisation budget.
         # Mirror the base_method VI range for consistency (1k–50k).
         # Default value (midpoint = 25_500) is close to the production 10_000 default
         # when the recipe runner uses default_value_for_space; override by passing

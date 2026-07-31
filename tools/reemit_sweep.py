@@ -102,7 +102,7 @@ HISTORICAL_NON_REEMITTABLE_CELLS: dict[str, str] = {
 #: reproduces, keyed by cell with the recorded ``jax_x64_enabled`` transition.
 #:
 #: x64 is a per-model attribute (``Posterior.requires_x64``, honoured at
-#: ``_recipe_runner.py:1431``) rather than a recorded parameter, so it is set by
+#: generated certification lifecycle rather than a recorded parameter, so it is set by
 #: the ambient environment for every model that does not demand it.  These cells
 #: were committed with ``JAX_ENABLE_X64=1`` ambient — off-protocol, since none of
 #: their models sets ``requires_x64`` — and the re-emit ran under the documented
@@ -335,7 +335,7 @@ def _reconstruct_sampler_kwargs(
 
     Returns ``(override_or_None, notes, blocking_reason_or_None)``.
     """
-    from tuningfork.calibration.tune import default_params_for
+    from tuningfork.base_method import default_params_for
 
     pinned = dict(recipe.get("base_method_params") or {})
     defaults = default_params_for(base_method)
@@ -412,8 +412,11 @@ def config_fidelity_violations(cfg: CellConfig, committed: dict) -> list[str]:
     Values the warmup adapts at run time are excluded by name, with a comment
     each, rather than by being quietly absent.
     """
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.calibration.tune import default_params_for, default_value_for_space
+    from tuningfork.base_method import (
+        BASE_METHODS,
+        default_params_for,
+        default_value_for_space,
+    )
     from tuningfork.warmup import WARMUPS
 
     violations: list[str] = []

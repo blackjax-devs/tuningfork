@@ -97,7 +97,7 @@ def test_low_rank_warmup_has_max_rank_hp_space() -> None:
 
 def test_default_value_for_space_midpoint() -> None:
     """default_value_for_space returns integer midpoint for int HP space."""
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
     from tuningfork.warmup import WARMUPS
 
     space = WARMUPS["meanfield_vi"].default_hp_space[0]
@@ -112,7 +112,7 @@ def test_warmup_hp_space_roundtrip_in_warmup_params_dict() -> None:
     warmup_params when emitting a VI warmup recipe (uses a synthetic recipe
     to avoid running actual VI optimization).
     """
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
     from tuningfork.warmup import WARMUPS
 
     mfwu = WARMUPS["meanfield_vi"]
@@ -127,7 +127,7 @@ def test_warmup_hp_space_roundtrip_in_warmup_params_dict() -> None:
 
 def test_warmup_hp_space_override_roundtrip() -> None:
     """warmup_kwargs_override correctly overrides the HP default in warmup_params."""
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
     from tuningfork.warmup import WARMUPS
 
     mfwu = WARMUPS["meanfield_vi"]

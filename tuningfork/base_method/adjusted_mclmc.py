@@ -17,13 +17,13 @@ Adjusted MCLMC adds a Metropolis-Hastings correction step on top of the
 MCLMC trajectory, improving exactness of the stationary distribution at the
 cost of a higher rejection rate.
 
-The BO hyperparameter space is ``(step_size, L)`` — matching vanilla MCLMC —
+The declared parameter space is ``(step_size, L)`` — matching vanilla MCLMC —
 but the upstream factory does not accept ``L`` directly.  Instead, the number
 of integration steps is derived as ``N = max(1, round(L / step_size))``, and
 ``integration_steps_params=(N,)`` is passed to the upstream factory.  The
 translation uses JAX-native ``jnp.maximum`` / ``jnp.round`` so that the factory
 is safe to call inside ``jax.vmap`` (where ``step_size`` is a traced array).
-Both BO tuning (concrete float args) and the recipe runner (traced vmap args)
+Both concrete arguments and generated recipe execution's traced vmap arguments
 are handled without a separate code path.
 
 Grad cost: the default integrator (isokinetic_mclachlan, a palindromic
@@ -50,7 +50,7 @@ __all__ = ["ENTRY"]
 def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     """Build a BlackJAX adjusted_mclmc SamplingAlgorithm.
 
-    Translates the ``(step_size, L)`` BO hyperparameter space used by
+    Translates the ``(step_size, L)`` declared parameter space used by
     the benchmark into the ``integration_steps_params=(N,)`` convention
     expected by upstream ``blackjax.adjusted_mclmc``.
 
@@ -77,7 +77,7 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
         Object with ``.init`` and ``.step`` methods.
     """
     # Use jnp ops so the factory is safe inside jax.vmap (step_size may be a
-    # traced array).  Works with concrete values from BO tuning too.
+    # traced array). Works with concrete values too.
     n_steps = jnp.maximum(1, jnp.round(L / step_size)).astype(jnp.int32)
     return blackjax.adjusted_mclmc(
         logdensity_fn,

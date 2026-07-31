@@ -148,7 +148,7 @@ def _runner(
 
     # Inject default HPs for base_method that aren't step_size or IMM.
     # Mirrors the pattern used by other warmup wrappers in this module.
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
 
     extra_kwargs: dict[str, Any] = dict(kwargs)
     for space in base_method.default_hp_space:

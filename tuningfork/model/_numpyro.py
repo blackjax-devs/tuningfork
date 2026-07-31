@@ -14,7 +14,7 @@
 """NumPyro helper for building BlackJAX-ready log-density functions.
 
 This is the single helper used by every Path-B (long-NUTS) reference run and by
-every BO tuning / warmup-only run that needs ``logdensity_fn``.
+every generated recipe execution that needs ``logdensity_fn``.
 
 Also provides SMC-specific helpers (W1/W2, Phase 8B.1):
   - ``build_smc_logfns`` — splits the joint log-density into (logprior_fn, loglik_fn)

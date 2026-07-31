@@ -63,7 +63,7 @@ class SMCMethod:
     num_particles_default
         Default particle count for tests / LOW recipes.  Default ``1000``.
     default_hp_space
-        Tuple of ``HyperparamSpace`` for SMC-level BO (target_ess,
+        Tuple of ``HyperparamSpace`` for declared SMC-level parameters (target_ess,
         num_mcmc_steps, etc.).  Non-empty.
     step_kwargs_schema
         Names of extra kwargs the SMC algorithm's ``step_fn`` requires

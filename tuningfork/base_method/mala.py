@@ -13,7 +13,7 @@
 # limitations under the License.
 """MALA algorithm entry for the tuningfork algorithm registry.
 
-Metropolis-Adjusted Langevin Algorithm.  Only ``step_size`` is BO-tunable;
+Metropolis-Adjusted Langevin Algorithm. Only ``step_size`` is recipe-resolved;
 no mass matrix is needed (MALA uses a fixed isotropic metric).
 
 Grad cost per step: constant 1.  The MALAState caches ``logdensity_grad``

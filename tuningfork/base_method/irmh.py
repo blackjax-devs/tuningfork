@@ -25,8 +25,8 @@ proposal ``q(y)`` does not depend on the current state ``x``.
 keyword arguments.  The standard ``no_warmup`` path raises
 ``NotImplementedError``; a specialised wiring path is required.
 
-Hyperparameter-free: no BO-tunable scalar HPs (``default_hp_space=()``).
-The proposal is a full callable; it cannot be reduced to a tunable scalar.
+Hyperparameter-free: no declared scalar HPs (``default_hp_space=()``).
+The proposal is a full callable; it cannot be reduced to a declared scalar.
 Gradient-free: ``grad_count_per_step=0``.
 ``target_acceptance_rate=None``: depends entirely on proposal-vs-target
 overlap; no universal optimal rate.

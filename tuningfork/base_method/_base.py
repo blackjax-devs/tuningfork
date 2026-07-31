@@ -16,14 +16,15 @@
 Every sampling algorithm exposed to the benchmark is described by a single
 ``BaseMethod`` frozen dataclass.  Whether the sampler is a gradient-free
 random-walk (RWM, 0 grads/step) or a sophisticated HMC variant with a full
-leapfrog integrator, the runner, Optuna tuning loop, and CLI always see the
-same surface — no subclassing.
+leapfrog integrator, lower-level warmup adapters and shared registry utilities
+see the same surface — no subclassing.
 
 Dispatch model
 --------------
-The runner uses ``entry.factory`` to instantiate the BlackJAX kernel::
+Lower-level warmup adapters use ``entry.factory`` to instantiate the BlackJAX
+kernel::
 
-    kernel = entry.factory(logdensity_fn, **trial_params)
+    kernel = entry.factory(logdensity_fn, **resolved_params)
     init_state = kernel.init(position, rng_key)
     final_state, info = kernel.step(rng_key, init_state)
 
@@ -32,12 +33,11 @@ Grad-count aggregation uses ``entry.grad_count_per_step`` together with
 
     n_grads = total_grad_evals(infos, entry.grad_count_per_step)
 
-``default_hp_space`` flows into Optuna's distribution constructors.
-Each ``HyperparamSpace`` maps 1-to-1 to an Optuna ``suggest_*`` call:
-- ``"loguniform"`` → ``trial.suggest_float(name, low, high, log=True)``
-- ``"uniform"``    → ``trial.suggest_float(name, low, high)``
-- ``"int"``        → ``trial.suggest_int(name, low, high)``
-- ``"categorical"`` → ``trial.suggest_categorical(name, choices)``
+``default_hp_space`` declares deterministic defaults for generated recipe plans:
+- ``"loguniform"`` → 70th percentile on the log scale
+- ``"uniform"``    → arithmetic midpoint
+- ``"int"``        → integer midpoint
+- ``"categorical"`` → first declared choice
 """
 
 from collections.abc import Callable
@@ -63,7 +63,7 @@ _VALID_KINDS: frozenset[str] = frozenset(
 
 @dataclass(frozen=True)
 class HyperparamSpace:
-    """Search space descriptor for a single algorithm hyperparameter.
+    """Declared parameter-space descriptor for a single algorithm hyperparameter.
 
     Parameters
     ----------
@@ -121,8 +121,8 @@ class BaseMethod:
     """Registry entry for a single sampling algorithm.
 
     Every algorithm in the zoo — from gradient-free RWM to MCLMC with a
-    palindromic integrator — exposes this exact surface so the runner and
-    the Optuna BO loop are algorithm-agnostic.
+    palindromic integrator — exposes this exact surface so lower-level helpers
+    and registry consumers can remain algorithm-agnostic.
 
     Parameters
     ----------
@@ -144,14 +144,14 @@ class BaseMethod:
         ``jax.vmap`` over the full chain info.
     default_hp_space
         Non-empty tuple of ``HyperparamSpace`` objects describing the
-        recommended hyperparameter search space for Optuna BO.
+        declared parameter space used to resolve generated recipe defaults.
     needs_mass_matrix
         When ``True``, the kernel requires an inverse mass matrix (or
-        metric tensor) to be wired in.  The BO tuning runner will construct
-        and pass one; the exact API is documented in tests.  Default ``False``.
+        metric tensor) to be provided by the applicable warmup and sampling
+        path. The exact API is documented in tests. Default ``False``.
     target_acceptance_rate
         Optimal MH acceptance rate for this kernel, if applicable.  Used
-        by window adaptation and reported in tuning results.  ``None``
+        by window adaptation and recorded in generated evidence. ``None``
         for gradient-free kernels (RWM) and MCLMC (no MH step).
     notes
         Free-form string for algorithm-specific caveats, citations, or
@@ -159,8 +159,8 @@ class BaseMethod:
     extra_required_kwargs
         Names of kwargs the factory requires beyond ``logdensity_fn`` and the
         HP-space items.  Empty tuple (default) = standard factory.  Non-empty =
-        specialised: the runner must inject these kwargs from ``Posterior``
-        metadata or recipe parameters before calling ``factory(...)``.
+        specialised: legacy lower-level callers must provide these kwargs from
+        ``Posterior`` metadata or recipe parameters before calling ``factory(...)``.
 
         Examples::
 
@@ -182,14 +182,13 @@ class BaseMethod:
     Notes
     -----
     Why no inheritance / ``MCMCEntry(BaseMethod)`` subclass: registry
-    consumers (runner, BO loop, CLI) must not branch on type.  All
+    consumers must not branch on type. All
     algorithm-specific logic (grad cost, HP space) is carried as
     callable/data fields, not subclass overrides.
 
-    The ``needs_mass_matrix`` flag signals to the BO tuning runner that it
-    must construct and thread through a mass matrix (e.g. diagonal
-    estimate from warmup draws).  This is documented here but
-    the runner wiring happens there.
+    The ``needs_mass_matrix`` flag records that the applicable sampling path
+    must thread through a mass matrix (e.g. a diagonal estimate from warmup
+    draws).
     """
 
     # ---- identity ----
@@ -202,7 +201,7 @@ class BaseMethod:
     # ---- grad-cost oracle ----
     grad_count_per_step: Callable[[Any], Array | int]
 
-    # ---- Optuna search space ----
+    # ---- Declared parameter space ----
     default_hp_space: tuple[HyperparamSpace, ...]
 
     # ---- optional fields ----
@@ -213,13 +212,9 @@ class BaseMethod:
     EXCEPT ``blackjax.ghmc``, which names it ``momentum_inverse_scale`` (no
     ``inverse_mass_matrix`` parameter at all, no ``**kwargs`` catch-all).
 
-    Single source of truth for that one exception: the generic dispatch
-    (``_build_vmapped_inference`` in ``_recipe_runner.py``) reads this field
-    instead of hardcoding the kwarg name or special-casing
-    ``base_method.name == "ghmc"``, so the translation lives in exactly one
-    place rather than being duplicated at every call site that builds a
-    factory call (the emit-script generator, ``_emit/_sampler.py``, has its
-    own independent translation for the reproduction-script code path).
+    This is legacy descriptor metadata for generic runtime dispatch. No current
+    emitted program reads it: generated sampler emission retains an independent
+    GHMC translation instead.
 
     ``batched_params`` (the warmup's raw adapted-param dict) is ALSO keyed by
     this name — e.g. MEADS's adapted_params has a ``"momentum_inverse_scale"``
@@ -227,12 +222,9 @@ class BaseMethod:
     dict key to read the per-chain value from, in addition to naming the
     kernel-factory kwarg.
 
-    TODO(descriptor-driven): ``_emit/_sampler.py:258`` (the emit-script /
-    reproduction-script generator) still has its own independent
-    ``momentum_inverse_scale=inverse_mass_matrix`` translation for ghmc,
-    predating this field. Consolidating it to read ``imm_kwarg_name`` too is
-    a follow-up, not done in this pass (that code path works and is
-    out of scope here).
+    This field is a next-tranche consolidation or removal candidate; the
+    generated sampler emitter currently translates
+    ``momentum_inverse_scale=inverse_mass_matrix`` for GHMC independently.
     """
     target_acceptance_rate: float | None = None
     notes: str = ""
@@ -246,8 +238,8 @@ class BaseMethod:
     """Names of kwargs the factory requires beyond logdensity_fn + HP-space items.
 
     Empty tuple = standard factory (logdensity_fn + HP-space kwargs are sufficient).
-    Non-empty = specialised: the runner must inject these kwargs from Posterior
-    metadata or recipe parameters before calling factory(...).
+    Non-empty = specialised: a legacy lower-level caller must inject these
+    kwargs from Posterior metadata or recipe parameters before calling factory(...).
 
     Examples:
       ("prior_cov", "prior_mean")        — Gaussian-prior specialists (mgrad_gaussian, elliptical_slice)
@@ -283,18 +275,19 @@ class BaseMethod:
 
     Note: adjusted_mclmc_dynamic also needs reinit but only when batched_L
     is not None (emit path).  Its reinit_state=True flag is guarded by the
-    ``batched_L is not None`` check in the runner (rerun path falls through to
+    ``batched_L is not None`` check in generated emission (the default path falls through to
     the default no-reinit branch via batched_L=None).
     """
 
     extra_kwarg_builder: Callable[..., dict[str, Any]] | None = None
-    """Optional callable that builds extra factory kwargs from runtime context.
+    """Legacy descriptor for building extra factory kwargs from runtime context.
 
     Signature: ``(base_method, logdensity_fn, posterior, batched_params, ...) -> dict``
     where the dict is merged into ``shared_kwargs`` before calling factory(...).
 
-    Used to inject extra kwargs beyond (logdensity_fn, step_size, imm, shared_kwargs)
-    that cannot be computed from HP-space alone and depend on runtime context:
+    It describes the former generic-dispatch contract for extra kwargs beyond
+    (logdensity_fn, step_size, imm, shared_kwargs) that cannot be computed
+    from HP-space alone and depend on runtime context:
       - Laplace family: builds ``log_joint_fn`` + ``theta_init`` from the model
       - mgrad_gaussian / elliptical_slice: builds ``prior_cov`` + ``prior_mean``
       - irmh: builds ``proposal_distribution``
@@ -302,11 +295,8 @@ class BaseMethod:
 
     None = no extra kwargs needed (standard HMC/NUTS/MALA/Barker/RWM/MCLMC/etc.).
 
-    NOTE: ``extra_kwarg_builder`` is for runner-level dispatch only — the actual
-    construction of laplace components, prior pytrees, etc., still requires
-    model-specific logic in the runner.  The builder receives a ``context`` dict
-    with all runner-available state.  See ``_recipe_runner.py`` for the calling
-    convention.
+    No current production caller consumes this field. It remains registry
+    metadata for compatibility and is a next-tranche removal candidate.
     """
 
     _VALID_FAMILIES: frozenset[str] = frozenset({"mcmc", "vi", "smc"})
@@ -323,5 +313,5 @@ class BaseMethod:
             raise ValueError(
                 f"BaseMethod '{self.name}': 'default_hp_space' must contain at least "
                 f"one HyperparamSpace entry, or 'extra_required_kwargs' must be non-empty "
-                f"(specialised factory that receives additional kwargs from the runner)"
+                f"(specialised factory that receives additional kwargs from a lower-level caller)"
             )

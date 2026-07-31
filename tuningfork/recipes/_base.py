@@ -26,9 +26,6 @@ Constructor helpers:
 
   - ``Recipe.from_default_config(posterior, base_method)`` — placeholder
     Recipe stamped with default sampler params; no MCMC run.
-  - ``Recipe.from_warmup_only(posterior, base_method, warmup, ...)`` —
-    runs the warmup, captures the adapted ``(step_size, IMM)``, returns a
-    Recipe with the adapted params.
 """
 
 from __future__ import annotations
@@ -152,12 +149,11 @@ class Effort(str, Enum):
              doesn't pass, and Statistician workarounds + alternative pairings
              don't recover it.  The Statistician brings in a gold-standard
              reference — compares the failing run against NUTS + window_adaptation
-             output (step_size, inverse_mass_matrix), runs BO over warmup
-             hyperparameters (BO is used primarily for warmup HPs; optional on
-             sampler HPs), and injects model-specific parameters into either the
+             output (step_size, inverse_mass_matrix), resolves the declared
+             warmup and sampler parameters, and injects model-specific parameters into either the
              warmup or the sampler.  The Statistician writes up the full Bayesian-
              workflow journey in ``Recipe.workflow``.
-             Wall time: MEDIUM + extra Statistician work + BO compute.
+             Wall time: MEDIUM + extra Statistician work + generated-plan evaluation.
              When the HIGH cell consumes groundtruth samples for reference comparison,
              ``wall_seconds_estimate`` MUST = ``groundtruth_wall + extra_engineering_wall``
              (i.e., include the upstream groundtruth generation cost). The convention
@@ -192,11 +188,11 @@ class Effort(str, Enum):
       - Extra effort yields meaningfully better ESS/grad → both LOW and HIGH are
         kept so the user can choose by ESS-per-grad budget.
 
-    **CI consumption.**  CI reads the pinned ``base_method_params`` (and
-    ``inverse_mass_matrix_path`` sidecar if present) directly from the recipe and
-    runs the BlackJAX kernel without re-running warmup.  This "sampler-only at
-    runtime" consumption pattern applies to recipes at *any* tier — what makes
-    HIGH special is the production effort, not the consumption.
+    **CI consumption.**  CI executes the generated program from the recipe's
+    declared intent, including pinned ``base_method_params`` and any
+    ``inverse_mass_matrix_path`` sidecar. Whether warmup runs is determined by
+    that intent. This generated-program path applies at every tier — what makes
+    HIGH special is the production effort, not the execution mechanism.
     """
 
     LOW = "low"
@@ -516,7 +512,7 @@ class Recipe:
         is wired.
     calibration_budget
         Cost summary: ``{"trials": int, "wall_seconds_estimate": float, ...}``.
-        ``trials > 0`` only for HIGH (where BO ran); ``wall_seconds_estimate``
+        ``trials`` records evaluated configurations when available; ``wall_seconds_estimate``
         is filled at every tier (LOW captures warmup + sampler wall time).
 
         Optional timing-breakdown fields (all ``None`` for legacy recipes):
@@ -538,8 +534,8 @@ class Recipe:
             count, OS, JAX/BlackJAX versions, x64 flag, GPU if visible).
             Written by ``get_machine_info()`` from ``tuningfork._machine_info``.
     difficulty
-        Serialised ``TuningDifficulty.asdict()`` or ``None``.  Only meaningful
-        for HIGH recipes (the only tier with a BO study).
+        Retained legacy difficulty metadata or ``None``. It preserves the
+        recorded effort evidence without requiring a live search implementation.
     instructions
         Auto-templated user-facing prose (rendered by ``_instructions.py``).
     notes
@@ -598,8 +594,8 @@ class Recipe:
     # For HIGH recipes that consume GROUNDTRUTH samples upstream, include the
     # upstream groundtruth wall time in `wall_seconds_estimate`.
 
-    # ---- Difficulty profile (only meaningful for HIGH; None for LOW/MEDIUM) ----
-    difficulty: dict[str, Any] | None  # serialized TuningDifficulty.asdict() or None
+    # ---- Difficulty profile (legacy evidence; None for many recipes) ----
+    difficulty: dict[str, Any] | None
 
     # ---- User-facing prose ----
     instructions: str
@@ -750,7 +746,7 @@ class Recipe:
 
     workflow: str = ""
     # Long-form Bayesian-workflow narrative (markdown). HIGH recipes populate this
-    # with the journey: gold-standard comparison findings, BO trial summary,
+    # with the journey: gold-standard comparison findings, evaluated-configuration summary,
     # model-specific param choices. LOW/MEDIUM typically leave empty (use `notes`
     # instead for the shorter MEDIUM workaround text).
 
@@ -801,8 +797,8 @@ class Recipe:
     def to_dict(self, *, include_legacy_warmup_fields: bool = False) -> dict[str, Any]:
         """Return a canonical, independent mapping for recipe serialization.
 
-        By default the consolidated ``warmups`` schema is emitted.  The CLI
-        compatibility path can request the legacy flat warmup keys explicitly.
+        By default the consolidated ``warmups`` schema is emitted. Legacy
+        export and migration callers can request the flat warmup keys explicitly.
         """
         # ``asdict`` recursively copies nested dataclasses (including typed
         # AttemptedConfig entries), so this method never mutates the recipe.
@@ -1092,7 +1088,7 @@ class Recipe:
             ``headline_metric=None``, and ``base_method_params`` from
             ``default_params_for(base_method)``.
         """
-        from tuningfork.calibration.tune import default_params_for
+        from tuningfork.base_method import default_params_for
         from tuningfork.recipes._instructions import render_instructions
 
         params = default_params_for(base_method)
@@ -1135,193 +1131,6 @@ class Recipe:
         # Build provisional recipe to render instructions, then rebuild with prose.
         # Two-step construction avoids threading `recipe` into render_instructions
         # before the object exists.
-        provisional = cls(**recipe_kwargs)
-        recipe_kwargs["instructions"] = render_instructions(provisional)
-        return cls(**recipe_kwargs)
-
-    @classmethod
-    def from_warmup_only(
-        cls,
-        posterior: Posterior,
-        base_method: BaseMethod,
-        warmup: Any,  # Warmup; imported inline to avoid circular dep
-        *,
-        n_warmup: int = 1000,
-        rng_key: Any,  # jax.Array
-        tuningfork_version: str = "0.0.0.dev0",
-        effort: Effort = Effort.MEDIUM,
-        headline_metric: float | None = None,
-        bake_warmup: bool = False,
-        attempted_configurations: list | None = None,
-        notes: str = "",
-        variant_label: str | None = None,
-        init_strategy: dict | None = None,
-        **warmup_kwargs: Any,
-    ) -> Recipe:
-        """Build a Recipe from a warmup result (no post-warmup sampler chain).
-
-        This legacy construction helper cannot produce certification evidence.
-        Forward sampling and certification must use the generated recipe lifecycle.
-
-        Captures the warmup-adapted ``(step_size, inverse_mass_matrix, ...)``
-        values into a Recipe with ``effort=Effort.MEDIUM``.  Calibration cost is
-        the warmup wall-clock time; ``calibration_budget`` records both
-        ``n_warmup`` and ``wall_seconds_estimate``.
-
-        Calling ``from_warmup_only(..., WARMUPS["no_warmup"])`` returns a Recipe
-        with ``effort=Effort.MEDIUM`` and ``warmup_name="no_warmup"`` —
-        semantically distinct from a LOW placeholder produced by
-        ``from_default_config``, which never goes through this warmup path.
-
-        Parameters
-        ----------
-        posterior
-            The target posterior describing the benchmark model.
-        base_method
-            The sampling algorithm whose HP space seeds the recipe.
-        warmup
-            A ``Warmup`` instance from ``tuningfork.warmup.WARMUPS``.
-        n_warmup
-            Number of warmup adaptation steps.
-        rng_key
-            JAX random key for both model initialization and warmup.
-        tuningfork_version
-            Version string to embed in provenance; defaults to ``"0.0.0.dev0"``.
-        **warmup_kwargs
-            Extra keyword arguments forwarded verbatim to ``warmup.runner``
-            (e.g. ``k_rank=40`` for ``mclmc_lrd_tuning``).
-
-        Returns
-        -------
-        Recipe
-            A frozen ``Recipe`` with ``effort=Effort.MEDIUM``, populated
-            ``base_method_params`` (defaults merged with warmup-adapted values),
-            and ``calibration_budget`` recording the wall-clock time.
-
-        Raises
-        ------
-        ValueError
-            If the warmup is not compatible with the base_method.
-        """
-        import time
-
-        import jax
-
-        from tuningfork.calibration.tune import default_params_for
-        from tuningfork.model._numpyro import build_logdensity_fn
-        from tuningfork.recipes._instructions import render_instructions
-
-        if not warmup.is_compatible(base_method.name):
-            raise ValueError(
-                f"warmup {warmup.name!r} is not compatible with base_method "
-                f"{base_method.name!r}; "
-                f"compatible_methods = {warmup.compatible_methods}"
-            )
-
-        # Validate init_strategy before doing any work.
-        validate_init_strategy(init_strategy)
-
-        init_key, warmup_key = jax.random.split(rng_key, 2)
-        init_position, logdensity_fn, _ = build_logdensity_fn(init_key, posterior)
-
-        # Apply init_strategy override (e.g. zero-init, uniform jitter).
-        if init_strategy is not None:
-            from tuningfork.recipes._init_strategy import apply_init_strategy
-
-            init_position = apply_init_strategy(init_strategy, init_position, init_key)
-
-        # MEDIUM recipes are single-chain by design: they capture one chain's
-        # adapted (step_size, IMM, ...) for downstream sampling.  Multi-chain
-        # execution happens at recipe-run time, not at recipe-build time.
-        # Pass num_chains=1 + squeeze the leading dim out of the result, mirroring
-        # the BO tuning-trial pattern.
-        from tuningfork.warmup._base import squeeze_single_chain
-
-        t0 = time.perf_counter()
-        _base_warmup_result = warmup.runner(
-            warmup_key,
-            init_position,
-            n_warmup,
-            base_method,
-            logdensity_fn=logdensity_fn,
-            num_chains=1,
-            **warmup_kwargs,
-        )
-        batched_state, batched_params = _base_warmup_result[0], _base_warmup_result[1]
-        # SYNC: block until warmup compute completes before stamping wall time.
-        # Without this, elapsed measures dispatch latency only, not actual compute.
-        jax.block_until_ready((batched_state, batched_params))
-        _state, adapted_params = squeeze_single_chain(batched_state, batched_params)
-        elapsed = time.perf_counter() - t0
-
-        # Thread underscore-prefixed metadata (e.g. "_total_tuning_steps" from
-        # mclmc_tuning) into calibration_budget; strip them from recipe params.
-        metadata_keys = {k: v for k, v in adapted_params.items() if k.startswith("_")}
-        clean_adapted = {
-            k: v for k, v in adapted_params.items() if not k.startswith("_")
-        }
-
-        # Merge defaults with adapted (adapted wins) for a complete config.
-        base_params = {**default_params_for(base_method), **clean_adapted}
-        base_params = _to_jsonable(base_params)
-
-        # Coerce metadata values to JSON-safe types before storing.
-        metadata_jsonable = {
-            k: (int(v) if isinstance(v, (int, float)) else v)
-            for k, v in metadata_keys.items()
-        }
-
-        calibration_budget: dict[str, Any] = {
-            "trials": 0,
-            "wall_seconds_estimate": elapsed,
-            "n_warmup": n_warmup,
-            **metadata_jsonable,
-        }
-        if attempted_configurations is not None:
-            calibration_budget["seed_evidence"] = attempted_configurations
-
-        # Extract a stable int seed from the rng_key.  In JAX 0.10.0 the key is
-        # a typed-key Array; jax.random.bits() is the portable extraction path.
-        tuning_seed = int(jax.random.bits(rng_key, dtype="uint32"))
-
-        _warmup_params_dict = {"n_warmup": n_warmup}
-
-        # bake_warmup: blank out warmup fields (runner-skip hint); provenance
-        # preserved under calibration_budget["baked_from"].
-        if bake_warmup:
-            _effective_warmup_name = ""
-            _effective_warmups: list[dict[str, Any]] = []
-            calibration_budget["baked_from"] = {
-                "warmup_name": warmup.name,
-                "n_warmup": n_warmup,
-                "tuning_seed": tuning_seed,
-            }
-        else:
-            _effective_warmup_name = warmup.name
-            _effective_warmups = [{"name": warmup.name, "params": _warmup_params_dict}]
-
-        recipe_kwargs: dict[str, Any] = dict(
-            model_name=posterior.name,
-            base_method_name=base_method.name,
-            warmup_name=_effective_warmup_name,
-            effort=effort,
-            base_method_params=base_params,
-            warmup_params=_warmup_params_dict,
-            warmups=_effective_warmups,
-            headline_metric=headline_metric,
-            sample_quality=None,
-            calibration_budget=calibration_budget,
-            difficulty=None,
-            instructions="",  # rendered below after provisional construction
-            notes=notes,
-            variant_label=variant_label,
-            init_strategy=init_strategy,
-            tuning_seed=tuning_seed,
-            tuningfork_version=tuningfork_version,
-            blackjax_version=_get_blackjax_version(),
-            jax_version=_get_jax_version(),
-            timestamp_utc=_now_utc_iso(),
-        )
         provisional = cls(**recipe_kwargs)
         recipe_kwargs["instructions"] = render_instructions(provisional)
         return cls(**recipe_kwargs)

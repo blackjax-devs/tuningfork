@@ -14,7 +14,7 @@
 """Multinomial HMC (mhmc) algorithm entry for the tuningfork algorithm registry.
 
 Fixed-L Hamiltonian Monte Carlo with **multinomial trajectory proposal**.  Both
-``step_size`` and ``num_integration_steps`` are BO-tunable;
+``step_size`` and ``num_integration_steps`` are recipe-resolved;
 ``inverse_mass_matrix`` comes from window adaptation warmup.
 
 The multinomial proposal replaces the standard slice-sampling trajectory
@@ -58,8 +58,8 @@ ENTRY = BaseMethod(
         "Multinomial HMC (Betancourt 2017 §A.2). Replaces HMC's slice-sampling "
         "trajectory selector with multinomial sampling; HP surface is identical to HMC. "
         "Beskos et al. optimal accept ≈ 0.65 for fixed-L HMC; both step_size "
-        "and num_integration_steps are BO-tunable. inverse_mass_matrix comes "
-        "from warmup adaptation, not BO. "
+        "and num_integration_steps are recipe-resolved. inverse_mass_matrix comes "
+        "from warmup adaptation. "
         "Alias: blackjax.multinomial_hmc is blackjax.mhmc (confirmed 2026-05-10). "
         "multinomial_hmc_proposal is at blackjax.mcmc.hmc.multinomial_hmc_proposal "
         "(NOT blackjax.multinomial_hmc_proposal — that's the SamplingAPI alias)."

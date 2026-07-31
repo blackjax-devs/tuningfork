@@ -96,7 +96,7 @@ __all__ = [
 
 
 class _RMHMCImplicitMidpointAlgorithm:
-    """Warmup-only wrapper around blackjax.rmhmc with implicit_midpoint integrator.
+    """Warmup wrapper around blackjax.rmhmc with implicit_midpoint integrator.
 
     ``blackjax.window_adaptation`` calls ``algorithm.build_kernel(integrator)``
     with its own ``integrator`` default (``velocity_verlet``).  For rmhmc we
@@ -156,7 +156,7 @@ RMHMC_API_METHOD_NAMES: frozenset[str] = frozenset(("rmhmc",))
 # the adapted `(step_size, IMM)` are functionally equivalent for the
 # downstream sampler.  The downstream sampler then re-inits from
 # `adapted_state.position` with its own state structure (see
-# `_recipe_runner.py`).
+# generated sampler emission).
 WARMUP_SUBSTITUTE_METHOD_NAMES: frozenset[str] = LAPLACE_METHOD_NAMES | frozenset(
     ("dynamic_hmc", "dmhmc")
 )
@@ -228,5 +228,5 @@ def resolve_warmup_algorithm(
     # feed at warmup time.  NUTS adapts (step_size, IMM) using its own
     # trajectory-termination criterion; the dynamic_hmc-family kernels then
     # consume those adapted params at sample time with their own state
-    # structure (see ``_recipe_runner.py`` ``_run_one_chain``).
+    # structure in generated sampler emission.
     return blackjax.nuts, {}

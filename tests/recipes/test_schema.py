@@ -30,8 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tuningfork.base_method import BASE_METHODS
-from tuningfork.calibration.tune import default_params_for
+from tuningfork.base_method import BASE_METHODS, default_params_for
 from tuningfork.model import MODELS
 from tuningfork.recipes import (
     AttemptedConfig,
@@ -327,7 +326,7 @@ def test_render_instructions_low() -> None:
 @pytest.mark.fast
 def test_render_instructions_medium_stub() -> None:
     """render_instructions with a stub MEDIUM recipe returns non-empty text."""
-    # Build a Recipe manually with MEDIUM effort (simulating a future from_warmup_only)
+    # Build a Recipe manually with MEDIUM effort.
     recipe = Recipe(
         model_name="mvn_10",
         base_method_name="nuts",
@@ -735,99 +734,6 @@ def test_save_false_imm_sidecar_does_not_auto_write(tmp_path: Path) -> None:
     assert path.exists()
 
 
-# ---------------------------------------------------------------------------
-# Tests for from_warmup_only new kwargs (bake_warmup, headline_metric, etc.)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.fast
-def test_from_warmup_only_new_kwargs_zero_behavior_change() -> None:
-    """from_warmup_only with all-default new kwargs behaves exactly as before.
-
-    Calling with no new kwargs must produce the same recipe structure as the
-    original: effort=MEDIUM, warmup_name=warmup.name, headline_metric=None.
-    """
-    import jax
-
-    from tuningfork.warmup._base import Warmup
-
-    # Minimal no-op warmup that returns batched JAX pytree state + adapted params.
-    def _noop_runner(
-        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
-    ):
-        import jax.numpy as jnp
-
-        # Batch position leaves to (num_chains, ...) and return as fake state dict.
-        batched_pos = jax.tree.map(
-            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
-        )
-        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
-
-    fake_warmup = Warmup(
-        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
-    )
-
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.model import MODELS
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["mclmc"]
-
-    recipe = Recipe.from_warmup_only(
-        posterior, base_method, fake_warmup, n_warmup=10, rng_key=jax.random.key(0)
-    )
-
-    assert recipe.effort == Effort.MEDIUM
-    assert recipe.warmup_name == "no_warmup"
-    assert recipe.headline_metric is None
-    assert recipe.notes == ""
-    assert recipe.variant_label is None
-    assert recipe.init_strategy is None
-
-
-@pytest.mark.fast
-def test_from_warmup_only_bake_warmup_clears_warmup_name() -> None:
-    """from_warmup_only with bake_warmup=True sets warmup_name='' and warmups=[]."""
-    import jax
-    import jax.numpy as jnp
-
-    from tuningfork.warmup._base import Warmup
-
-    def _noop_runner(
-        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
-    ):
-        batched_pos = jax.tree.map(
-            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
-        )
-        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
-
-    fake_warmup = Warmup(
-        name="mclmc_lrd_tuning", runner=_noop_runner, compatible_methods=("*",)
-    )
-
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.model import MODELS
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["mclmc"]
-
-    recipe = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        fake_warmup,
-        n_warmup=10,
-        rng_key=jax.random.key(1),
-        bake_warmup=True,
-    )
-
-    assert recipe.warmup_name == ""
-    assert recipe.warmups == []
-    # Provenance stored in calibration_budget.
-    assert "baked_from" in recipe.calibration_budget
-    assert recipe.calibration_budget["baked_from"]["warmup_name"] == "mclmc_lrd_tuning"
-    assert recipe.calibration_budget["baked_from"]["n_warmup"] == 10
-
-
 @pytest.mark.fast
 def test_normalize_pinned_replay_is_lossless_and_preserves_provenance() -> None:
     recipe = Recipe(
@@ -907,129 +813,6 @@ def test_catalog_stem_preserves_baked_warmup_and_variant_identity() -> None:
 
 
 @pytest.mark.fast
-def test_from_warmup_only_effort_override() -> None:
-    """from_warmup_only with effort=Effort.LOW produces a LOW recipe."""
-    import jax
-    import jax.numpy as jnp
-
-    from tuningfork.warmup._base import Warmup
-
-    def _noop_runner(
-        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
-    ):
-        batched_pos = jax.tree.map(
-            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
-        )
-        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
-
-    fake_warmup = Warmup(
-        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
-    )
-
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.model import MODELS
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["mclmc"]
-
-    recipe = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        fake_warmup,
-        n_warmup=10,
-        rng_key=jax.random.key(2),
-        effort=Effort.LOW,
-        headline_metric=0.25,
-    )
-
-    assert recipe.effort == Effort.LOW
-    assert recipe.headline_metric == 0.25
-
-
-@pytest.mark.fast
-def test_from_warmup_only_attempted_configurations_in_calibration_budget() -> None:
-    """attempted_configurations kwarg is stored in calibration_budget.seed_evidence."""
-    import jax
-    import jax.numpy as jnp
-
-    from tuningfork.warmup._base import Warmup
-
-    def _noop_runner(
-        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
-    ):
-        batched_pos = jax.tree.map(
-            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
-        )
-        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
-
-    fake_warmup = Warmup(
-        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
-    )
-
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.model import MODELS
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["mclmc"]
-
-    evidence = [
-        {"seed": 11111, "verdict": "PASS", "ess_per_grad": 0.25},
-        {"seed": 22222, "verdict": "FAIL", "ess_per_grad": 0.1},
-    ]
-    recipe = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        fake_warmup,
-        n_warmup=10,
-        rng_key=jax.random.key(3),
-        attempted_configurations=evidence,
-    )
-
-    assert "seed_evidence" in recipe.calibration_budget
-    assert recipe.calibration_budget["seed_evidence"] == evidence
-
-
-@pytest.mark.fast
-def test_from_warmup_only_variant_label_and_notes() -> None:
-    """variant_label and notes kwargs are stored in the recipe."""
-    import jax
-    import jax.numpy as jnp
-
-    from tuningfork.warmup._base import Warmup
-
-    def _noop_runner(
-        rng_key, init_pos, n_warmup, base_method, *, logdensity_fn, num_chains=4, **kw
-    ):
-        batched_pos = jax.tree.map(
-            lambda x: jnp.zeros((num_chains,) + x.shape), init_pos
-        )
-        return (batched_pos, {"step_size": jnp.ones(num_chains) * 0.1})
-
-    fake_warmup = Warmup(
-        name="no_warmup", runner=_noop_runner, compatible_methods=("*",)
-    )
-
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.model import MODELS
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["mclmc"]
-
-    recipe = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        fake_warmup,
-        n_warmup=10,
-        rng_key=jax.random.key(4),
-        variant_label="mclmc_lrd",
-        notes="test note",
-    )
-
-    assert recipe.variant_label == "mclmc_lrd"
-    assert recipe.notes == "test note"
-
-
-@pytest.mark.fast
 def test_mclmc_lrd_tuning_registered_in_warmups() -> None:
     """mclmc_lrd_tuning is registered in the WARMUPS registry."""
     from tuningfork.warmup import WARMUPS
@@ -1042,47 +825,8 @@ def test_mclmc_lrd_tuning_registered_in_warmups() -> None:
     assert not entry.is_compatible("nuts")
 
 
-@pytest.mark.fast
-def test_squeeze_single_chain_lrd_passthrough() -> None:
-    """squeeze_single_chain passes LRD namedtuple through unchanged (per-leaf fix)."""
-    import jax.numpy as jnp
-    from blackjax.mcmc.metrics import LowRankInverseMassMatrix
-
-    from tuningfork.warmup._base import squeeze_single_chain
-
-    d, k = 6, 2
-    lrd = LowRankInverseMassMatrix(
-        sigma=jnp.ones(d), U=jnp.eye(d, k), lam=jnp.ones(k) * 2.0
-    )
-    # Mimic num_chains=1 adapted_params: step_size shape (1,), LRD shared (not batched).
-    batched_params = {
-        "step_size": jnp.array([0.05]),
-        "L": jnp.array([1.5]),
-        "inverse_mass_matrix": lrd,
-    }
-    # Minimal fake batched_state with a (1, d) position leaf.
-    from unittest.mock import MagicMock
-
-    fake_state = MagicMock()
-    fake_state.__getitem__ = lambda self, idx: fake_state  # survive state[0]
-
-    _, params = squeeze_single_chain(fake_state, batched_params)
-
-    # step_size and L should be squeezed to scalars.
-    assert (
-        params["step_size"].shape == ()
-    ), f"Expected scalar, got {params['step_size'].shape}"
-    assert params["L"].shape == (), f"Expected scalar, got {params['L'].shape}"
-    # LRD should pass through verbatim (leaves are (d,) and (d,k) — not leading-1).
-    result_lrd = params["inverse_mass_matrix"]
-    assert isinstance(result_lrd, LowRankInverseMassMatrix)
-    assert result_lrd.sigma.shape == (d,)
-    assert result_lrd.U.shape == (d, k)
-    assert result_lrd.lam.shape == (k,)
-
-
 # ---------------------------------------------------------------------------
-# Tests for Effort.GROUNDTRUTH (Phase 0)
+# Tests for Effort.GROUNDTRUTH
 # ---------------------------------------------------------------------------
 
 

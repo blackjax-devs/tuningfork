@@ -371,49 +371,6 @@ def test_kwargs_forwarded_to_upstream(monkeypatch):
     )
 
 
-def test_from_warmup_only_mclmc_lrd_tuning_squeeze():
-    """Recipe.from_warmup_only with mclmc_lrd_tuning squeezes step_size/L, preserves LRD.
-
-    After squeeze_single_chain, step_size and L become scalars while the
-    LowRankInverseMassMatrix passes through verbatim (per-leaf fix).
-
-    Note: with a short pilot the rank guard may clamp k_rank; the test accepts
-    that UserWarning and verifies the squeezed contract only.
-    """
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.model import MODELS
-    from tuningfork.recipes import Effort, Recipe
-    from tuningfork.warmup import WARMUPS
-
-    entry = MODELS["ill_cond_50"]
-    warmup = WARMUPS["mclmc_lrd_tuning"]
-    base_method = BASE_METHODS["mclmc"]
-
-    # Accept rank-guard UserWarning for short-pilot tests.
-    with pytest.warns(UserWarning, match="rank-safety bound|Clamping"):
-        recipe = Recipe.from_warmup_only(
-            entry,
-            base_method,
-            warmup,
-            n_warmup=300,
-            rng_key=jax.random.key(99),
-            k_rank=10,
-        )
-
-    assert recipe.effort == Effort.MEDIUM
-    # LRD IMM must be in base_method_params as a LowRankInverseMassMatrix.
-    imm = recipe.base_method_params.get("inverse_mass_matrix")
-    assert isinstance(
-        imm, LowRankInverseMassMatrix
-    ), f"Expected LowRankInverseMassMatrix, got {type(imm)}"
-    assert "step_size" in recipe.base_method_params
-    assert "L" in recipe.base_method_params
-    # step_size and L should be Python floats (squeezed scalars).
-    assert isinstance(
-        recipe.base_method_params["step_size"], float
-    ), f"step_size should be float, got {type(recipe.base_method_params['step_size'])}"
-
-
 # ---------------------------------------------------------------------------
 # B-c hardening: dtype-agnostic settle-key reshape
 # ---------------------------------------------------------------------------

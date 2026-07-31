@@ -127,7 +127,7 @@ def _runner(
         )
 
     # Build extra kwargs for the algorithm (e.g. num_integration_steps for HMC).
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
 
     extra_kwargs: dict[str, Any] = dict(kwargs)
     for space in base_method.default_hp_space:

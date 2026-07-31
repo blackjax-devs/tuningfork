@@ -99,7 +99,7 @@ def _runner(
     num_chains
         Number of independent chains to run in parallel via ``jax.vmap``.
         Default ``4``, matching Stan/NumPyro convention.  Pass
-        ``num_chains=1`` explicitly for BO trials.
+        ``num_chains=1`` explicitly for isolated adaptation checks.
     **kwargs
         Ignored; present for interface uniformity.
 
@@ -117,7 +117,7 @@ def _runner(
             "_total_tuning_steps"   : int — total gradient evals across all
                                             chains (for Recipe.calibration_budget)
     """
-    from tuningfork.calibration.tune import default_params_for
+    from tuningfork.base_method import default_params_for
 
     # Split rng_key: num_chains init_keys + num_chains warmup_keys
     all_keys = jax.random.split(rng_key, 2 * num_chains)

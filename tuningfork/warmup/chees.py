@@ -276,7 +276,7 @@ def _runner(
     functions returned by CHEES and are passed through to the downstream kernel
     factory unchanged.
     """
-    # The generic recipe-runner dispatch (_recipe_runner.py) always forwards
+    # Generated sampler emission always forwards
     # target_acceptance_rate explicitly, including None when the caller has no
     # override — the emit default is None, not "omit the kwarg".  A plain typed
     # default only helps direct callers; it does nothing once None is passed in.
@@ -363,7 +363,7 @@ def _runner(
         "_chees_target_acceptance_rate": float(_target_acceptance_rate),
         "_chees_max_leapfrog_steps": int(max_leapfrog_steps),
         # Trajectory-length optimizer config used (provenance; underscore-prefixed
-        # so it never reaches a kernel factory — see _recipe_runner filtering).
+        # so it never reaches a kernel factory).
         "_chees_optim_learning_rate": float(optim_learning_rate),
         "_chees_optim_b1": float(_DEFAULT_CHEES_OPTIM_B1),
         "_chees_optim_b2": float(_DEFAULT_CHEES_OPTIM_B2),

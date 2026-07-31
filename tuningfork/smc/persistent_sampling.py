@@ -61,7 +61,7 @@ ENTRY = SMCMethod(
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
         "invariance violated by tempering). Default inner: rwm (statistician "
         "verdict: RWM/IRMH first). num_particles=1000 default. "
-        "SMC-level BO HPs: n_schedule (int [5, 50]) and num_mcmc_steps "
+        "Declared SMC parameters: n_schedule (int [5, 50]) and num_mcmc_steps "
         "(int [1, 50]). Resampling default: systematic. "
         "Generated source binds inner-kernel parameters before constructing the "
         "BlackJAX kernel."

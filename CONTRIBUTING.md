@@ -32,7 +32,6 @@ tests/
 ├── recipes/                # Recipe schema + emission + emit_script tests
 ├── metrics/                # Headline metric + diagnostics
 ├── reference/              # Reference cache I/O + posteriordb cross-checks
-├── tuning/                 # Optuna BO tests (formerly tier_b)
 ├── notebooks/              # tuningfork.catalog.inspect / render tests
 ├── numpyro/                # NumPyro integration helpers
 ├── e2e/                    # End-to-end gate tests
@@ -155,7 +154,6 @@ Post-R3 restructure (2026-05-17), the package is split into two layers.
 | Recipe schema + generators + emit_script templates | `tuningfork/recipes/` | `tests/recipes/` |
 | Metrics (headline, diagnostics) | `tuningfork/metrics/` | `tests/metrics/` |
 | Reference certification + xcheck logic | `tuningfork/calibration/certify_reference.py`, `tuningfork/_cache_io.py`, `tuningfork/_posteriordb_xcheck.py` | `tests/reference/` |
-| Optuna BO tuning loop | `tuningfork/calibration/tune.py` | `tests/tuning/` |
 | SMC runner | `tuningfork/runner/` | `tests/runner/` |
 
 **Catalog layer** (user-facing; consumes recipes):

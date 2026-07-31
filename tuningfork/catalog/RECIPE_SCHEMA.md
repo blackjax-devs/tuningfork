@@ -36,7 +36,7 @@ class Recipe:
     headline_basis: dict | None        # accounting behind headline_metric — see §4.5
     sample_quality: dict | None        # vs-reference comparisons (optional)
     calibration_budget: dict           # trials, wall_seconds_estimate, n_warmup, n_samples, num_chains
-    difficulty: dict | None            # HIGH-only; BO study output
+    difficulty: dict | None            # legacy HIGH-effort evidence
     instructions: str                  # auto-templated user-facing prose
     notes: str = ""                    # statistician-authored note (MEDIUM-workaround rationale)
 

@@ -195,6 +195,31 @@ def test_blackjax_meads_adaptation_run_returns_2tuple():
 
 
 # ───────────────── window_adaptation works for HMC/NUTS/Barker/MALA ─────────────────
+def test_window_adaptation_constructs_for_supported_kernels():
+    """Retained warmup and generated emitters construct every supported kernel.
+
+    This is a construction-only tripwire for the window-adaptation contract;
+    generated code exercises the resulting warmup path, while this test keeps
+    the API check fast and independent of a sampling run.
+    """
+
+    def logdensity_fn(x):
+        return -0.5 * jnp.sum(x["x"] ** 2)
+
+    for kernel_factory in (blackjax.hmc, blackjax.nuts, blackjax.barker, blackjax.mala):
+        try:
+            adaptation = blackjax.window_adaptation(kernel_factory, logdensity_fn)
+            assert hasattr(adaptation, "run"), (
+                f"blackjax.window_adaptation(blackjax.{kernel_factory.__name__}) "
+                "returned an object without .run; generated emitter contract changed."
+            )
+        except Exception as exc:
+            raise AssertionError(
+                f"blackjax.window_adaptation(blackjax.{kernel_factory.__name__}) "
+                f"failed at construction: {type(exc).__name__}: {exc}"
+            ) from exc
+
+
 def test_blackjax_lbfgs_inverse_hessian_importable():
     """Tripwire: multipathfinder_window_adaptation uses lbfgs_inverse_hessian_formula_1
     from blackjax.optimizers.lbfgs for computing the PSIS-weighted mixture covariance.
@@ -230,46 +255,13 @@ def test_window_adaptation_accepts_initial_imm_kwarg():
 
 
 def test_window_adaptation_accepts_imm_shrinkage_kwarg():
-    """Tripwire: window_adaptation must accept imm_shrinkage_to_previous kwarg.
-
-    Pinned by tuningfork/warmup/multipathfinder_window_adaptation.py which passes
-    imm_shrinkage_to_previous=20.0 (medium persistence default).
-    """
+    """Multipathfinder adaptation requires the shrinkage keyword."""
     import inspect
 
     sig = inspect.signature(blackjax.window_adaptation)
-    assert "imm_shrinkage_to_previous" in sig.parameters, (
-        "blackjax.window_adaptation is missing parameter 'imm_shrinkage_to_previous'. "
-        "Update tuningfork/warmup/multipathfinder_window_adaptation.py."
-    )
-
-
-def test_window_adaptation_constructs_for_supported_kernels():
-    """Pinned tripwire: tuningfork/calibration/tune.py:_run_warmup uses
-    blackjax.window_adaptation for kernels with needs_mass_matrix=True (and
-    structurally for MALA, even though MALA's needs_mass_matrix=False
-    — sanity check). Verifies the construction path stays valid.
-    """
-
-    def logdensity_fn(x):
-        return -0.5 * jnp.sum(x["x"] ** 2)
-
-    for kernel_factory in (blackjax.hmc, blackjax.nuts, blackjax.barker, blackjax.mala):
-        # window_adaptation construction (no .run) — fast smoke
-        try:
-            wa = blackjax.window_adaptation(kernel_factory, logdensity_fn)
-            assert hasattr(wa, "run"), (
-                f"blackjax.window_adaptation(blackjax.{kernel_factory.__name__}) "
-                f"returned object lacking .run; surface changed."
-            )
-        except Exception as exc:
-            raise AssertionError(
-                f"blackjax.window_adaptation(blackjax.{kernel_factory.__name__}) "
-                f"failed at construction: {type(exc).__name__}: {exc}"
-            ) from exc
-
-
-# ───────────────── meanfield_vi + fullrank_vi state/info field pins ─────────────────
+    assert (
+        "imm_shrinkage_to_previous" in sig.parameters
+    ), "blackjax.window_adaptation is missing parameter 'imm_shrinkage_to_previous'."
 
 
 def test_mfvi_state_fields():

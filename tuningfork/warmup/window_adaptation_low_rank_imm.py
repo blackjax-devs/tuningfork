@@ -73,10 +73,10 @@ These are stored in an IMM sidecar via ``Recipe.save_imm_sidecar()`` as a
 structured dictionary ``{"sigma": ..., "U": ..., "lam": ...}`` (one dict per
 chain, stacked).
 
-If the ``base_method`` has a BO-tunable HP that is NOT step_size or
+If the ``base_method`` declares a parameter that is NOT step_size or
 inverse_mass_matrix, the default value for that HP is injected into the
-warmup call so the kernel can construct itself; BO trials later override
-those HPs via trial_params.
+warmup call so the kernel can construct itself; generated recipe resolution
+supplies the recorded value at sampling time.
 """
 
 from typing import Any
@@ -132,13 +132,13 @@ def _runner(
     num_chains
         Number of independent chains to run in parallel via ``jax.vmap``.
         Default ``4``, matching Stan/NumPyro convention.  Pass ``num_chains=1``
-        explicitly for BO trials (intentionally single-chain — chain count is
-        orthogonal to HP tuning).
+        explicitly for isolated adaptation checks (chain count is orthogonal to
+        parameter resolution).
     **kwargs
         Additional keyword arguments forwarded to ``low_rank_window_adaptation``
         (e.g. ``num_integration_steps`` for HMC — the warmup kernel needs
-        it to build its leapfrog integrator, even though BO will tune it
-        later).
+        it to build its leapfrog integrator; generated recipes supply the
+        recorded value later).
 
     Returns
     -------
@@ -209,7 +209,7 @@ ENTRY = Warmup(
         # Declared here so the recipe runner persists it into warmup_params
         # (and emit_script can read it back via recipe.warmup_params["max_rank"]).
         # Default=10 matches the _runner default and all existing catalog recipes.
-        # BO callers may widen the range; recipes use warmup_kwargs_override to pin it.
+        # Recipe builders may choose another recorded range; recipes pin the resolved value.
         HyperparamSpace("max_rank", "int", low=10, high=10),
     ),
     notes=(

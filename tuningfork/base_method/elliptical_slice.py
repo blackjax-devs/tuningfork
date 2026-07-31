@@ -26,7 +26,7 @@ IMPORTANT: the upstream BlackJAX parameter is named ``loglikelihood_fn`` but
 our registry wrapper names its first argument ``logdensity_fn`` for interface
 uniformity.  Callers must supply a likelihood-only function here.
 
-Hyperparameter-free: no BO-tunable parameters (``default_hp_space=()``).
+Hyperparameter-free: no declared scalar parameters (``default_hp_space=()``).
 Gradient-free: ``grad_count_per_step=0``.
 No MH step: ``target_acceptance_rate=None`` (slice sampler always accepts).
 

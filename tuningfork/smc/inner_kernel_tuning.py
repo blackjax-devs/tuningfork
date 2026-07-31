@@ -57,7 +57,7 @@ ENTRY = SMCMethod(
         "particle state before each mutation. "
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
         "invariance violated by tempering). Default inner: rwm. "
-        "num_particles=1000 default. SMC-level BO HPs: num_mcmc_steps (int [1, 50]). "
+        "num_particles=1000 default. Declared SMC parameters: num_mcmc_steps (int [1, 50]). "
         "Resampling default: systematic."
     ),
 )

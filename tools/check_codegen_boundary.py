@@ -1,8 +1,8 @@
 """Static guard for direct sampling calls in production code.
 
-The two baseline sets below are deliberately explicit.  The lower-level set is
-the small capability layer generated programs may build on; the transitional
-set is caller debt that must shrink as those callers move to generated programs.
+The two baseline sets below are deliberately explicit. The lower-level set is
+the small capability layer generated programs may build on; the ground-truth
+exception set contains the two canonical reference-generation paths.
 Both sets are exact, multiplicity-preserving counters (not line-number lists).
 """
 
@@ -115,8 +115,8 @@ def scan_source(root: Path) -> Counter[Hit]:
     return hits
 
 
-# Filled from the checked-in production tree.  Keep these as literals so a
-# removed call is visible and fails until the debt is intentionally retired.
+# Filled from the checked-in production tree. Keep these literals exact so a
+# changed call is visible and must be deliberately accounted for.
 LOWER_LEVEL_BASELINE: Counter[Hit] = Counter(
     {
         ("warmup/_vi_warmup_runner.py", "_vi_warmup_runner", "factory"): 2,
@@ -126,7 +126,7 @@ LOWER_LEVEL_BASELINE: Counter[Hit] = Counter(
     }
 )
 
-TRANSITIONAL_DEBT_BASELINE: Counter[Hit] = Counter(
+GROUND_TRUTH_EXCEPTION_BASELINE: Counter[Hit] = Counter(
     {
         (
             "calibration/certify_reference.py",
@@ -138,16 +138,12 @@ TRANSITIONAL_DEBT_BASELINE: Counter[Hit] = Counter(
             "_run_nuts_multichain.one_sample",
             "run_inference_algorithm",
         ): 1,
-        ("calibration/tune.py", "_run_trial", "factory"): 1,
-        ("calibration/tune.py", "_run_trial", "run_inference_algorithm"): 1,
-        ("calibration/tune.py", "_run_warmup", "runner"): 1,
-        ("recipes/_base.py", "Recipe.from_warmup_only", "runner"): 1,
     }
 )
 
 
 def baseline() -> Counter[Hit]:
-    return LOWER_LEVEL_BASELINE + TRANSITIONAL_DEBT_BASELINE
+    return LOWER_LEVEL_BASELINE + GROUND_TRUTH_EXCEPTION_BASELINE
 
 
 def report(root: Path) -> dict[str, Counter[Hit]]:
@@ -169,8 +165,7 @@ def check(root: Path) -> tuple[bool, str]:
     if not additions and not removals:
         return (
             True,
-            "matches the recorded direct-sampling baseline; transitional debt remains "
-            "non-admissible and must shrink",
+            "no alternate recipe-sampling debt remains",
         )
     lines = ["codegen boundary mismatch"]
     if additions:

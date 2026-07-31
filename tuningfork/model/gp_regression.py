@@ -160,7 +160,7 @@ def gp_regression(X: jnp.ndarray, y: jnp.ndarray, n: int = N_OBS) -> None:
 # Statistician verdict (TL-orchestrated, 2026-05-08):
 #     Approve-with-modifications. Joint posterior over (3 hyperparams, 200 latents)
 #     = 203-D. NCP via Cholesky for f. posteriordb_id=None.
-#     NUTS/HMC HIGH BO defensible; Pathfinder expected to underperform on
+#     NUTS/HMC HIGH escalation defensible; Pathfinder expected to underperform on
 #     log-scale hyperparam marginals due to non-Gaussian geometry.
 #     Parameterization (NCP Cholesky):
 #         log_lengthscale  ~ Normal(0, 1)           # RBF kernel length scale (log)

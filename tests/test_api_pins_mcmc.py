@@ -11,18 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tripwire tests for BlackJAX MCMC API shapes that tuningfork relies on.
-
-These are defensive: if BlackJAX upstream changes the return-tuple shape or
-NamedTuple fields of any MCMC kernel/adaptation we depend on, these tests fire
-with a clear message pointing at the file in tuningfork that needs an update.
-
-Includes sections: 1 (MCLMC), 2 (MCLMCInfo), 3 (MCLMCAdaptationState),
-4 (HMCInfo/NUTSInfo), 6 (GHMC), 7 (dynamic_hmc), 8 (adjusted_mclmc),
-9 (elliptical_slice + mgrad_gaussian), 10 (irmh),
-11 (standard-momentum 2x2: mhmc + dmhmc),
-12 (Laplace-marginal 2x2: laplace_hmc + laplace_dhmc + laplace_mhmc + laplace_dmhmc).
-"""
+"""Tripwire tests for retained BlackJAX MCMC API shapes."""
 
 import blackjax
 import jax
@@ -34,68 +23,40 @@ from blackjax.mcmc.mclmc import MCLMCInfo
 pytestmark = pytest.mark.fast
 
 
-# ───────── 1. mclmc_find_L_and_step_size return shape ─────────
-def test_mclmc_find_L_and_step_size_returns_3_tuple():
-    """Pinned tripwire: tuningfork/calibration/tune.py:_run_warmup unpacks
-    (state, params, _n_tuning_steps). If BlackJAX changes this to a 2-tuple
-    (matching its docstring) or a different shape, the unpack fails opaquely.
+def test_mclmc_info_fields():
+    """MCLMC gradient accounting relies on the current info fields."""
+    expected = ("logdensity", "kinetic_change", "energy_change", "nonans")
+    assert MCLMCInfo._fields == expected
 
-    Caught at commit 55792ac. Documented in WORKLOG tripwire watch.
-    """
+
+def test_mclmc_find_L_and_step_size_returns_3_tuple():
+    """Generated MCLMC warmup relies on the upstream 3-value adaptation result."""
 
     def logdensity_fn(x):
         return -0.5 * jnp.sum(x["x"] ** 2)
 
     key = jax.random.key(0)
-    # Build the kernel and state following tune.py:_run_warmup
-    default_kwargs = {"L": 1.0, "step_size": 0.1}
-    kernel = blackjax.mclmc(logdensity_fn, **default_kwargs)
+    kernel = blackjax.mclmc(logdensity_fn, L=1.0, step_size=0.1)
     init_state = kernel.init({"x": jnp.zeros(5)}, key)
-    # Call mclmc_find_L_and_step_size with raw build_kernel (not the wrapper)
-    mclmc_kernel = blackjax.mclmc.build_kernel()
     result = blackjax.mclmc_find_L_and_step_size(
-        mclmc_kernel,
+        blackjax.mclmc.build_kernel(),
         num_steps=20,
         state=init_state,
         rng_key=key,
         logdensity_fn=logdensity_fn,
         diagonal_preconditioning=True,
     )
-    assert len(result) == 3, (
-        f"BlackJAX changed mclmc_find_L_and_step_size return arity from 3 to {len(result)}. "
-        f"Update tuningfork/calibration/tune.py:_run_warmup unpack accordingly."
-    )
+    assert len(result) == 3
 
 
-# ───────── 2. MCLMCInfo NamedTuple fields ─────────
-def test_mclmc_info_fields():
-    """Pinned tripwire: tuningfork/algorithms/mclmc.py grad_count_per_step is a
-    constant 2 (NOT 2 × info.num_integration_steps), because MCLMCInfo lacks
-    that field. If BlackJAX adds num_integration_steps to MCLMCInfo, our
-    constant-2 formula becomes incorrect for any integrator beyond default.
-    """
-    expected = ("logdensity", "kinetic_change", "energy_change", "nonans")
-    assert MCLMCInfo._fields == expected, (
-        f"BlackJAX MCLMCInfo fields changed from {expected} to {MCLMCInfo._fields}. "
-        f"Update tuningfork/algorithms/mclmc.py:grad_count_per_step if num_integration_steps appeared."
-    )
-
-
-# ───────────────── 3. MCLMCAdaptationState fields (params dict) ─────────────────
 def test_mclmc_adaptation_state_fields():
-    """Pinned tripwire: tuningfork/calibration/tune.py treats the warmup
-    output as a dict-like with at least step_size and L. If BlackJAX renames
-    or removes either, our trial-params merge silently misbehaves.
-    """
-    fields = MCLMCAdaptationState._fields
-    for name in ("step_size", "L", "inverse_mass_matrix"):
-        assert name in fields, (
-            f"MCLMCAdaptationState lost field {name!r}. Current fields: {fields}. "
-            f"Update tuningfork/calibration/tune.py:_run_warmup."
-        )
+    """MCLMC warmup adaptation exposes the fields consumed by generated code."""
+    assert all(
+        name in MCLMCAdaptationState._fields
+        for name in ("step_size", "L", "inverse_mass_matrix")
+    )
 
 
-# ───────────────── 4. HMCInfo / NUTSInfo expose num_integration_steps ─────────────────
 def test_hmc_nuts_info_have_num_integration_steps():
     """Pinned tripwire: grad_count_per_step for HMC and NUTS reads
     info.num_integration_steps. If that field disappears, our gradient-count
@@ -124,7 +85,7 @@ def test_blackjax_ghmc_factory_signature():
     Pinned tripwire: tuningfork/base_method/ghmc.py calls
     blackjax.ghmc(logdensity_fn, **trial_params) where trial_params includes
     step_size, momentum_inverse_scale, alpha, delta.  If upstream renames or
-    removes any of these, factory calls in the BO loop fail silently.
+    removes any of these, generated sampler construction would fail.
     """
     import inspect
 
@@ -156,8 +117,8 @@ def test_blackjax_dynamic_hmc_factory_signature():
     Pinned tripwire: tuningfork/base_method/dynamic_hmc.py calls
     blackjax.dynamic_hmc(logdensity_fn, **trial_params) where trial_params
     includes step_size and inverse_mass_matrix (from CHEES warmup).  If
-    upstream renames or removes any of these, factory calls in the BO loop
-    fail silently.  Also confirms blackjax.dhmc is blackjax.dynamic_hmc.
+    upstream renames or removes any of these, generated sampler construction
+    would fail. Also confirms blackjax.dhmc is blackjax.dynamic_hmc.
     """
     import inspect
 
@@ -254,8 +215,8 @@ def test_blackjax_adjusted_mclmc_factory_signature():
     Pinned tripwire: tuningfork/base_method/adjusted_mclmc.py calls
     blackjax.adjusted_mclmc(logdensity_fn, step_size=...,
     integration_steps_params=(...,), inverse_mass_matrix=...).
-    If upstream renames or removes any of these, factory calls in the BO loop
-    fail silently.
+    If upstream renames or removes any of these, generated sampler construction
+    would fail.
     """
     import inspect
 
@@ -285,7 +246,8 @@ def test_blackjax_adjusted_mclmc_dynamic_factory_signature():
     blackjax.adjusted_mclmc_dynamic(logdensity_fn, step_size=...,
     integration_steps_fn=..., integration_steps_params=(...,),
     inverse_mass_matrix=...).
-    If upstream renames or removes any of these, factory calls fail silently.
+    If upstream renames or removes any of these, generated program construction
+    would fail.
     """
     import inspect
 
@@ -418,7 +380,7 @@ def test_blackjax_mgrad_gaussian_factory_signature():
     Pinned tripwire: tuningfork/base_method/mgrad_gaussian.py calls
     blackjax.mgrad_gaussian(logdensity_fn, covariance=prior_cov, mean=prior_mean,
     step_size=step_size).  If upstream renames or removes any of these, factory
-    calls in the BO loop fail silently.
+    generated sampler construction would fail.
     """
     import inspect
 
@@ -489,7 +451,7 @@ def test_blackjax_irmh_factory_signature():
     Pinned tripwire: tuningfork/base_method/irmh.py calls
     blackjax.irmh(logdensity_fn, proposal_distribution=...,
     proposal_logdensity_fn=...).  If upstream renames or removes any of these,
-    factory calls in the BO loop fail silently.
+    generated sampler construction would fail.
     """
     import inspect
 
@@ -581,7 +543,7 @@ def test_blackjax_mhmc_factory_signature():
     blackjax.mhmc(logdensity_fn, **trial_params) where trial_params includes
     step_size, inverse_mass_matrix, and num_integration_steps.  mhmc is a
     partial-applied HMC with multinomial_hmc_proposal; if upstream changes
-    the as_top_level_api signature, factory calls in the BO loop fail silently.
+    the as_top_level_api signature, generated sampler construction would fail.
     """
     import inspect
 
@@ -609,7 +571,7 @@ def test_blackjax_dmhmc_factory_signature():
     blackjax.dmhmc(logdensity_fn, **trial_params) where trial_params includes
     step_size and inverse_mass_matrix (from CHEES warmup).  dmhmc is a
     partial-applied dynamic_hmc with multinomial_hmc_proposal; if upstream
-    changes the as_top_level_api signature, factory calls in the BO loop fail.
+    changes the as_top_level_api signature, generated sampler construction would fail.
     """
     import inspect
 
@@ -857,8 +819,8 @@ def test_blackjax_orbital_hmc_factory_signature():
 
     Pinned tripwire: tuningfork/base_method/orbital_hmc.py calls
     blackjax.orbital_hmc(logdensity_fn, step_size=..., inverse_mass_matrix=...,
-    period=...).  If upstream renames or removes any of these, factory calls
-    in the BO loop fail silently.
+    period=...).  If upstream renames or removes any of these, generated sampler
+    construction would fail.
 
     Note: 'bijection' is a keyword-only arg defaulting to velocity_verlet.
     The tuningfork wrapper does not expose bijection in the HP space; the
@@ -988,7 +950,7 @@ def test_blackjax_rmhmc_factory_signature():
     num_integration_steps=...).  The CRITICAL parameter is 'mass_matrix'
     (NOT 'inverse_mass_matrix' -- the tuningfork factory converts IMM to
     mass_matrix at the boundary).  If upstream renames this parameter,
-    factory calls will fail silently.
+    generated program construction would fail.
     """
     import inspect
 

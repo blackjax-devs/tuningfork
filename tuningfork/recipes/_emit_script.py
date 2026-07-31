@@ -826,8 +826,7 @@ def emit_script(
     # branches here so e.g. an mhmc warmup gets its required
     # `num_integration_steps` kwarg (without it, `blackjax.mhmc` raises
     # TypeError at warmup time).
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import BASE_METHODS, default_value_for_space
 
     _warmup_extra: dict[str, object]
     if (
@@ -1082,7 +1081,7 @@ def emit_script(
         # _try_emit_script returns None (skip) in the golden gate tests.
         raise FileNotFoundError(
             f"No emit function for warmup {recipe.warmup_name!r}. "
-            "emit_warmup only supports the 8 standard warmup families."
+            "emit_warmup supports only the 8 standard warmup families."
         )
 
     # Pre-compute whether laplace_hmc/laplace_mhmc need warmup-state reinit.

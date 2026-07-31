@@ -25,7 +25,7 @@ the factory requires a ``proposal_generator`` callable beyond ``logdensity_fn`` 
 the HP-space items.  The standard ``no_warmup`` path raises ``NotImplementedError``;
 a specialised wiring path is required.
 
-Hyperparameter-free: no BO-tunable scalar HPs (``default_hp_space=()``).  The
+Hyperparameter-free: no declared scalar HPs (``default_hp_space=()``). The
 proposal distribution is a full callable that encodes its own scale parameters.
 
 Gradient-free: ``grad_count_per_step=0``.

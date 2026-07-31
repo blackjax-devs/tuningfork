@@ -14,7 +14,7 @@
 """HMC algorithm entry for the tuningfork algorithm registry.
 
 Fixed-L Hamiltonian Monte Carlo.  Both ``step_size`` and
-``num_integration_steps`` are BO-tunable; ``inverse_mass_matrix`` comes from
+``num_integration_steps`` are recipe-resolved; ``inverse_mass_matrix`` comes from
 window adaptation warmup.
 
 Grad cost per step: ``info.num_integration_steps`` (1 gradient per leapfrog
@@ -46,7 +46,7 @@ ENTRY = BaseMethod(
     extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Beskos et al. optimal accept ≈ 0.65 for fixed-L HMC; both step_size "
-        "and num_integration_steps are BO-tunable. inverse_mass_matrix comes "
-        "from warmup adaptation, not BO."
+        "and num_integration_steps are recipe-resolved. inverse_mass_matrix comes "
+        "from warmup adaptation."
     ),
 )

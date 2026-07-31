@@ -19,24 +19,17 @@ Covers:
   3. window_adaptation_diag_imm smoke: NUTS on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
   4. mclmc_tuning smoke: MCLMC on 10-D MVN at n_warmup=200, num_chains=1 (single-chain shim).
   5. no_warmup smoke: RWM (gradient-free) and NUTS, num_chains=1.
-  6. Compatibility error via _run_warmup (wrong warmup for algorithm).
-  7. Auto-dispatch in tune_algorithm: mclmc → mclmc_tuning, nuts → window_adaptation_diag_imm,
-     rwm → no_warmup (verified via result structure).
-  8. tune_algorithm regression: existing calls with warmup_name=None still pass.
-  9. Multi-chain contract tests: shape checks for num_chains=1/4/8,
+  6. Multi-chain contract tests: shape checks for num_chains=1/4/8,
      pre-batched init_position, dense mass matrix, MCLMC multi-chain, no_warmup multi-chain.
  10. HARD-KEEP unique invariants: MEADS num_chains<num_folds raises ValueError; CHEES returns
      callable params; multipathfinder broadcasts a shared IMM; no_warmup always returns {}.
 """
-
-import math
 
 import jax
 import jax.numpy as jnp
 import pytest
 
 from tuningfork.base_method import BASE_METHODS
-from tuningfork.calibration.tune import _run_warmup, tune_algorithm
 from tuningfork.model import MODELS
 from tuningfork.warmup import WARMUPS, Warmup
 
@@ -397,205 +390,8 @@ class TestNoWarmupSmoke:
             num_chains=1,
         )
         assert state is not None
-        assert params == {}
 
 
-# ---------------------------------------------------------------------------
-# 6. Compatibility error via _run_warmup — SLOW (builds logdensity_fn)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-class TestCompatibilityError:
-    """_run_warmup raises ValueError when warmup is incompatible with algorithm."""
-
-    def test_mclmc_tuning_on_nuts_raises(self) -> None:
-        key = jax.random.key(401)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        with pytest.raises(ValueError, match="not compatible with"):
-            _run_warmup(
-                logdensity_fn=logdensity_fn,
-                init_position=init_pos,
-                algorithm_entry=_NUTS,
-                n_warmup=50,
-                rng_key=jax.random.fold_in(key, 1),
-                warmup_name="mclmc_tuning",
-            )
-
-    def test_window_adaptation_diag_imm_on_mclmc_raises(self) -> None:
-        key = jax.random.key(402)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        with pytest.raises(ValueError, match="not compatible with"):
-            _run_warmup(
-                logdensity_fn=logdensity_fn,
-                init_position=init_pos,
-                algorithm_entry=_MCLMC,
-                n_warmup=50,
-                rng_key=jax.random.fold_in(key, 1),
-                warmup_name="window_adaptation_diag_imm",
-            )
-
-    def test_unknown_warmup_name_raises(self) -> None:
-        key = jax.random.key(403)
-        init_pos, logdensity_fn = _build_logdensity(_MVN, key)
-        with pytest.raises(ValueError, match="unknown warmup"):
-            _run_warmup(
-                logdensity_fn=logdensity_fn,
-                init_position=init_pos,
-                algorithm_entry=_NUTS,
-                n_warmup=50,
-                rng_key=jax.random.fold_in(key, 1),
-                warmup_name="nonexistent_warmup",
-            )
-
-
-# ---------------------------------------------------------------------------
-# 7. Auto-dispatch in tune_algorithm — SLOW (JAX chain runs)
-# ---------------------------------------------------------------------------
-
-
-_AUTO_N_TRIALS = 1
-_AUTO_N_SEEDS = 1
-_AUTO_N_CHAINS = 1
-_AUTO_N_SAMPLES = 50
-_AUTO_N_WARMUP = 100
-
-
-@pytest.mark.slow
-class TestAutoDispatch:
-    """tune_algorithm auto-dispatch resolves warmup_name=None correctly.
-
-    We only run n_trials=1 to keep runtime low; the goal is to confirm
-    the dispatch doesn't raise and produces a valid TuningResult.
-    """
-
-    def test_mclmc_auto_dispatches_to_mclmc_tuning(self) -> None:
-        """MCLMC with warmup_name=None should use mclmc_tuning (not window_adaptation_diag_imm)."""
-        result = tune_algorithm(
-            _MVN,
-            _MCLMC,
-            rng_key=jax.random.key(501),
-            n_trials=_AUTO_N_TRIALS,
-            n_seeds=_AUTO_N_SEEDS,
-            n_chains=_AUTO_N_CHAINS,
-            n_samples=_AUTO_N_SAMPLES,
-            n_warmup=_AUTO_N_WARMUP,
-        )
-        # If auto-dispatch went to window_adaptation_diag_imm instead, it would raise
-        # ValueError("not compatible with").  So if we reach this assertion,
-        # dispatch is correct.
-        assert result.base_method_name == "mclmc"
-
-    def test_nuts_auto_dispatches_to_window_adaptation_diag_imm(self) -> None:
-        """NUTS with warmup_name=None should use window_adaptation_diag_imm."""
-        result = tune_algorithm(
-            _MVN,
-            _NUTS,
-            rng_key=jax.random.key(502),
-            n_trials=_AUTO_N_TRIALS,
-            n_seeds=_AUTO_N_SEEDS,
-            n_chains=_AUTO_N_CHAINS,
-            n_samples=_AUTO_N_SAMPLES,
-            n_warmup=_AUTO_N_WARMUP,
-        )
-        assert result.base_method_name == "nuts"
-        # Verify: best_score is finite (window_adaptation_diag_imm warmup worked).
-        assert math.isfinite(result.best_score), f"best_score={result.best_score}"
-
-    def test_rwm_auto_dispatches_to_no_warmup(self) -> None:
-        """RWM with warmup_name=None should use no_warmup."""
-        result = tune_algorithm(
-            _MVN,
-            _RWM,
-            rng_key=jax.random.key(503),
-            n_trials=_AUTO_N_TRIALS,
-            n_seeds=_AUTO_N_SEEDS,
-            n_chains=_AUTO_N_CHAINS,
-            n_samples=_AUTO_N_SAMPLES,
-            n_warmup=_AUTO_N_WARMUP,
-        )
-        assert result.base_method_name == "rwm"
-
-    def test_explicit_warmup_name_overrides_auto(self) -> None:
-        """Passing warmup_name='no_warmup' for NUTS should skip window_adaptation_diag_imm."""
-        result = tune_algorithm(
-            _MVN,
-            _NUTS,
-            warmup_name="no_warmup",
-            rng_key=jax.random.key(504),
-            n_trials=_AUTO_N_TRIALS,
-            n_seeds=_AUTO_N_SEEDS,
-            n_chains=_AUTO_N_CHAINS,
-            n_samples=_AUTO_N_SAMPLES,
-            n_warmup=_AUTO_N_WARMUP,
-        )
-        # no_warmup is compatible with NUTS via "*"; should not raise.
-        assert result.base_method_name == "nuts"
-
-
-# ---------------------------------------------------------------------------
-# 8. Regression: existing tune_algorithm calls still pass — SLOW
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-class TestTuneAlgorithmRegression:
-    """Confirm that the refactored _run_warmup produces the same structural
-    outcomes as the old inline dispatch.  Only structural tests (not numeric)
-    because the warmup key path is identical to old code.
-    """
-
-    _N_WARMUP = 200
-    _N_SAMPLES = 200
-    _N_TRIALS = 3
-    _N_SEEDS = 1
-    _N_CHAINS = 1
-
-    def _run(self, algo, seed):
-        return tune_algorithm(
-            _MVN,
-            algo,
-            n_trials=self._N_TRIALS,
-            n_seeds=self._N_SEEDS,
-            n_chains=self._N_CHAINS,
-            n_samples=self._N_SAMPLES,
-            n_warmup=self._N_WARMUP,
-            rng_key=jax.random.key(seed),
-        )
-
-    def test_nuts_result_structure_unchanged(self) -> None:
-        result = self._run(_NUTS, 600)
-        assert result.base_method_name == "nuts"
-        assert result.n_trials_completed == self._N_TRIALS
-        assert len(result.history) == self._N_TRIALS
-        assert math.isfinite(result.best_score)
-
-    def test_hmc_result_structure_unchanged(self) -> None:
-        result = self._run(_HMC, 601)
-        assert result.base_method_name == "hmc"
-        assert result.n_trials_completed == self._N_TRIALS
-        assert "step_size" in result.best_params
-        assert "num_integration_steps" in result.best_params
-
-    def test_mclmc_result_structure_unchanged(self) -> None:
-        result = self._run(_MCLMC, 602)
-        assert result.base_method_name == "mclmc"
-        assert result.n_trials_completed == self._N_TRIALS
-        assert "step_size" in result.best_params
-        assert "L" in result.best_params
-
-    def test_rwm_result_structure_unchanged(self) -> None:
-        result = self._run(_RWM, 603)
-        assert result.base_method_name == "rwm"
-        assert result.n_trials_completed == self._N_TRIALS
-
-    def test_mala_result_structure_unchanged(self) -> None:
-        result = self._run(_MALA, 604)
-        assert result.base_method_name == "mala"
-        assert result.n_trials_completed == self._N_TRIALS
-
-
-# ---------------------------------------------------------------------------
 # 9. Multi-chain contracts — window_adaptation_diag_imm — SLOW
 # ---------------------------------------------------------------------------
 

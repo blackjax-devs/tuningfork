@@ -17,11 +17,11 @@ This is the "zero-cost" warmup used for:
 
 - **LOW-effort recipes**: skip adaptation entirely; use default hyperparameters.
 - **Gradient-free kernels** (RWM): no warmup is meaningful or needed.
-- **warmup-only-isolation runs** where the researcher wants to measure
+- **isolated no-warmup baselines** where the researcher wants to measure
   raw kernel performance before any adaptation overhead.
 
 The runner returns an empty ``adapted_params`` dict; all kernel
-hyperparameters come from the BO trial or the recipe defaults.
+hyperparameters come from the generated recipe's resolved values or defaults.
 
 Runner signature (multi-chain contract)::
 
@@ -150,7 +150,7 @@ def _runner(
         BlackJAX-compatible log-density function.  For ``elliptical_slice``
         this must be the **likelihood-only** function (joint minus prior);
         the recipe runner is responsible for the subtraction before calling
-        this runner (see B3 wiring in ``_recipe_runner.py``).
+        the generated execution path.
     num_chains
         Number of independent chains.  Default ``4``, matching Stan/NumPyro
         convention.  The returned ``states`` has leading dim ``num_chains``
@@ -171,7 +171,7 @@ def _runner(
     adapted_params
         Always ``{}`` — no adaptation was run; all HPs come from defaults.
     """
-    from tuningfork.calibration.tune import default_params_for
+    from tuningfork.base_method import default_params_for
 
     if base_method.extra_required_kwargs:
         if posterior_entry is None:
@@ -191,7 +191,7 @@ def _runner(
     defaults = {**default_params_for(base_method), **prior_kwargs}
 
     # For kernels that require an inverse_mass_matrix (e.g. HMC, NUTS, Barker)
-    # but don't list it in their BO HP space (since it normally comes from
+    # but don't list it in their declared parameter space (since it normally comes from
     # warmup adaptation), we inject a diagonal identity preconditioner so the
     # kernel can initialise.  We derive the dimension from init_position's
     # total leaf count using jax.tree_util.tree_leaves.
@@ -236,7 +236,7 @@ ENTRY = Warmup(
         "Identity warmup: returns the kernel's init state with default params "
         "and an empty adapted_params dict.  Zero gradient evaluations.  "
         "Used for LOW-effort recipes, gradient-free kernels (RWM), and "
-        "warmup-only-isolation baselines.  "
+        "isolated no-warmup baselines. "
         "MCLMC is handled specially: kernel.init(position, rng_key) rather "
         "than kernel.init(position).  "
         "multi-chain by default (num_chains=4 via jax.vmap); states "

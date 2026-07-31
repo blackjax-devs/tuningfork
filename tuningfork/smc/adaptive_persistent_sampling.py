@@ -64,7 +64,7 @@ ENTRY = SMCMethod(
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
         "invariance violated by tempering). Default inner: rwm (statistician "
         "verdict: RWM/IRMH first). num_particles=1000 default. "
-        "SMC-level BO HPs: max_iterations (int [5, 50]), target_ess "
+        "Declared SMC parameters: max_iterations (int [5, 50]), target_ess "
         "(uniform [1.0, 5.0]), num_mcmc_steps (int [1, 50]). "
         "Resampling default: systematic. "
         "CRITICAL inner-kernel contract: mcmc_parameters dict must contain ONLY "

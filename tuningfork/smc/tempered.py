@@ -58,7 +58,7 @@ ENTRY = SMCMethod(
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
         "invariance violated by tempering). Default inner: rwm (statistician "
         "verdict: RWM/IRMH first). num_particles=1000 default. "
-        "BO HP: num_mcmc_steps (int [1, 50]). Resampling default: systematic. "
+        "Declared parameter: num_mcmc_steps (int [1, 50]). Resampling default: systematic. "
         "CRITICAL inner-kernel contract: mcmc_parameters dict must contain ONLY "
         "JAX arrays — callable params (e.g. random_step for RWM) must be bound "
         "via functools.partial at build time. "

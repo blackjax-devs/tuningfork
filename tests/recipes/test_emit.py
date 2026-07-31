@@ -11,12 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for Recipe emission logic (from warmup/tuning results).
+"""Tests for catalog recipe emission invariants.
 
 This file contains all tests that run actual MCMC chains or tuning algorithms.
 These are marked @pytest.mark.slow individually (not at module level, per PR-4 rules).
-
-Tests: from_warmup_only and render_instructions_medium_real.
 
 History: test_medium_recipe_exists_and_has_warmup_data (parametrized over 6
 (model × {hmc, nuts}) combos) was removed 2026-05-17 as a slow-CI fix —
@@ -29,151 +27,10 @@ Recipe Phase 1+ pipeline; their existence-on-disk is no longer a test gate.
 
 from pathlib import Path
 
-import jax
 import pytest
 
-from tuningfork.base_method import BASE_METHODS
 from tuningfork.catalog._estimator_provenance import HEADLINE_ESTIMATOR_EXCLUDED_MODELS
 from tuningfork.metrics.headline import HEADLINE_ESS_ESTIMATOR
-from tuningfork.model import MODELS
-from tuningfork.recipes import Effort, Recipe
-from tuningfork.recipes._instructions import render_instructions
-from tuningfork.warmup import WARMUPS
-
-# ---------------------------------------------------------------------------
-# MEDIUM and HIGH constructors (require actual warmup)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_from_warmup_only_window_adaptation_diag_imm_nuts() -> None:
-    """from_warmup_only with window_adaptation_diag_imm + NUTS returns a MEDIUM recipe.
-
-    Verifies:
-    - effort = MEDIUM
-    - warmup_name = "window_adaptation_diag_imm"
-    - base_method_params contains both step_size (from defaults) and
-      inverse_mass_matrix (from warmup adaptation)
-    - calibration_budget["n_warmup"] == 200
-    - calibration_budget["wall_seconds_estimate"] > 0
-    """
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["window_adaptation_diag_imm"]
-
-    recipe = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        warmup,
-        n_warmup=200,
-        rng_key=jax.random.key(0),
-    )
-
-    assert recipe.effort == Effort.MEDIUM
-    assert recipe.warmup_name == "window_adaptation_diag_imm"
-    assert recipe.model_name == "mvn_10"
-    assert recipe.base_method_name == "nuts"
-
-    # base_method_params must include both the default step_size (loguniform
-    # 70th-pctile ≈ 0.126) AND the warmup-adapted inverse_mass_matrix.
-    assert "step_size" in recipe.base_method_params
-    assert "inverse_mass_matrix" in recipe.base_method_params
-
-    # IMM must be a list (coerced from jax.Array by _to_jsonable).
-    imm = recipe.base_method_params["inverse_mass_matrix"]
-    assert isinstance(imm, list), f"inverse_mass_matrix should be list, got {type(imm)}"
-    assert len(imm) == 10  # mvn_10 is 10-D
-
-    # calibration_budget fields
-    assert recipe.calibration_budget["n_warmup"] == 200
-    assert recipe.calibration_budget["wall_seconds_estimate"] > 0
-    assert recipe.calibration_budget["trials"] == 0
-
-    # warmup_params records the input config
-    assert recipe.warmup_params["n_warmup"] == 200
-
-    # headline_metric is None for MEDIUM (no post-warmup samples)
-    assert recipe.headline_metric is None
-
-    # instructions must be non-empty prose
-    assert isinstance(recipe.instructions, str)
-    assert len(recipe.instructions) > 10
-
-
-@pytest.mark.slow
-def test_from_warmup_only_mclmc_tuning_metadata() -> None:
-    """from_warmup_only with mclmc_tuning threads _total_tuning_steps into calibration_budget.
-
-    Threading the ``_total_tuning_steps`` metadata key from mclmc_tuning into
-    adapted_params with an underscore prefix.  from_warmup_only must capture it
-    in calibration_budget and strip it from base_method_params.
-    """
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["mclmc"]
-    warmup = WARMUPS["mclmc_tuning"]
-
-    recipe = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        warmup,
-        n_warmup=200,
-        rng_key=jax.random.key(1),
-    )
-
-    assert recipe.effort == Effort.MEDIUM
-    assert recipe.warmup_name == "mclmc_tuning"
-
-    # _total_tuning_steps must appear in calibration_budget (threaded from metadata).
-    assert "_total_tuning_steps" in recipe.calibration_budget
-    assert isinstance(recipe.calibration_budget["_total_tuning_steps"], int)
-
-    # _total_tuning_steps must NOT appear in base_method_params (stripped).
-    assert "_total_tuning_steps" not in recipe.base_method_params
-
-    # MCLMC adapted params (L, step_size) must be in base_method_params.
-    assert "step_size" in recipe.base_method_params
-    assert "L" in recipe.base_method_params
-
-
-@pytest.mark.slow
-def test_from_warmup_only_incompatible_raises() -> None:
-    """from_warmup_only with an incompatible (warmup, base_method) pair raises ValueError."""
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    # mclmc_tuning is only compatible with mclmc, not nuts.
-    warmup = WARMUPS["mclmc_tuning"]
-
-    with pytest.raises(ValueError, match="not compatible"):
-        Recipe.from_warmup_only(
-            posterior,
-            base_method,
-            warmup,
-            n_warmup=100,
-            rng_key=jax.random.key(0),
-        )
-
-
-@pytest.mark.slow
-def test_render_instructions_medium_real() -> None:
-    """render_instructions on a real MEDIUM recipe returns meaningful prose."""
-
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    warmup_sw = WARMUPS["window_adaptation_diag_imm"]
-
-    # --- MEDIUM ---
-    medium = Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        warmup_sw,
-        n_warmup=100,
-        rng_key=jax.random.key(7),
-    )
-    prose_m = render_instructions(medium)
-    assert isinstance(prose_m, str)
-    assert len(prose_m) > 20
-    assert "window_adaptation_diag_imm" in prose_m
-
 
 # test_medium_recipe_exists_and_has_warmup_data (parametrized over 6 combos)
 # removed 2026-05-17 — see module docstring "History" section.

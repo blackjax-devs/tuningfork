@@ -27,8 +27,11 @@ import jax
 import numpy as np
 
 import tuningfork
-from tuningfork.base_method import BASE_METHODS
-from tuningfork.calibration.tune import default_params_for, default_value_for_space
+from tuningfork.base_method import (
+    BASE_METHODS,
+    default_params_for,
+    default_value_for_space,
+)
 from tuningfork.model import MODELS
 from tuningfork.recipes._base import Effort, Recipe, validate_init_strategy
 from tuningfork.recipes._instructions import render_instructions

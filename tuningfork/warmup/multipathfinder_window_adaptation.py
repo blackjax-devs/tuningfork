@@ -217,7 +217,7 @@ def _runner(
     # init_from_psis: pytree with leading dim num_chains
 
     # --- Step 4: window adaptation seeded with the multipathfinder IMM -------
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
 
     # Build extra kwargs for window_adaptation (inject HP defaults that the
     # warmup kernel needs but are not step_size/IMM).

@@ -91,7 +91,7 @@ def _factory(
         Leapfrog step size.
     inverse_mass_matrix
         Inverse mass matrix (1-D array for diagonal, scalar for isotropic).
-        Supplied by warmup adaptation; not BO-tunable.
+        Supplied by warmup adaptation; not a declared scalar parameter.
     **kwargs
         Forwarded to ``blackjax.mcmc.laplace_dynamic_hmc.as_top_level_api`` as
         ``**optimizer_kwargs`` (e.g. ``maxiter=100``, ``gtol=1e-6``).
@@ -136,7 +136,7 @@ ENTRY = BaseMethod(
         "leapfrog step) with a quasi-random number of leapfrog steps per transition "
         "(CHEES-style, avoids periodic-orbit sensitivity). "
         "State carries theta_star (MAP latent) and random_generator_arg (Halton index). "
-        "Only step_size is BO-tunable; trajectory length is adapted internally. "
+        "Only step_size is recipe-resolved; trajectory length is adapted internally. "
         "Grad cost approximation: num_integration_steps * 5 (coarse; varies per "
         "transition due to random step count). "
         "extra_required_kwargs=('log_joint_fn', 'theta_init'); no_warmup raises "

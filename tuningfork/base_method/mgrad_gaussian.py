@@ -24,7 +24,7 @@ Gaussian proposal derived from the marginal.  ``logdensity_fn`` is the full
 posterior log-density (Titsias 2018 marginal form internally subtracts the
 Gaussian prior contribution).
 
-The sole BO-tunable hyperparameter is ``step_size`` (delta in Titsias 2018).
+The sole declared scalar hyperparameter is ``step_size`` (delta in Titsias 2018).
 Upstream guidance: calibrate ``step_size`` so that acceptance rate ≈ 50%.
 
 Grad cost per step: 1 (``jax.value_and_grad(logdensity_fn)`` once per step).
@@ -92,7 +92,7 @@ ENTRY = BaseMethod(
     target_acceptance_rate=0.5,  # upstream docstring guidance
     extra_required_kwargs=("prior_cov", "prior_mean"),
     # T2.3 descriptors: gradient-based but no adapted step_size/imm from HMC warmup.
-    # step_size is BO-tunable but not per-chain (no mass matrix warmup).
+    # step_size is recipe-resolved but not per-chain (no mass matrix warmup).
     # Uses the default/gradient-free path (is_no_adapted_params check in runner).
     per_chain_param_keys=(),
     reinit_state=False,  # MarginalState from .init() is directly usable.
@@ -101,7 +101,7 @@ ENTRY = BaseMethod(
     notes=(
         "Titsias 2018 marginal sampler for latent-Gaussian models q(x) ∝ exp(f(x)) * "
         "N(x; mean, cov). Uses a first-order approximation to the log-likelihood; sole "
-        "tunable is delta (step_size). MarginalInfo carries (acceptance_rate, is_accepted, "
+        "declared scalar is delta (step_size). MarginalInfo carries (acceptance_rate, is_accepted, "
         "proposal). 1 grad/step (jax.value_and_grad inside the kernel). Upstream guidance: "
         "target accept ≈ 0.5. extra_required_kwargs=('prior_cov', 'prior_mean'); no_warmup raises "
         "NotImplementedError; a specialised path is required. Internally precomputes "

@@ -369,7 +369,7 @@ class SMCRecipe:
         smc_entry = SMC_METHODS[smc_method_name]
 
         # Default SMC-level HPs from the method's HP space.
-        from tuningfork.calibration.tune import default_value_for_space
+        from tuningfork.base_method import default_value_for_space
 
         default_smc_params: dict[str, Any] = {
             space.name: default_value_for_space(space)

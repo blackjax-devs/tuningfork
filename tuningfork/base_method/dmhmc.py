@@ -18,7 +18,7 @@ Dynamic HMC with **multinomial trajectory proposal**.  Like ``dynamic_hmc``,
 the number of leapfrog steps is sampled from a length distribution at each step
 rather than fixed.  The trajectory-length randomization is controlled by
 ``integration_steps_fn`` and ``next_random_arg_fn``, which CHEES adaptation
-sets internally — they are not directly BO-tunable.  The only BO-tunable scalar
+sets internally — they are not directly recipe-resolved. The only declared scalar
 hyperparameter is ``step_size``; the ``inverse_mass_matrix`` is warmup-derived
 from CHEES.
 
@@ -48,11 +48,11 @@ ENTRY = BaseMethod(
     grad_count_convention="info.num_integration_steps (realized count per step)",
     default_hp_space=(
         HyperparamSpace("step_size", "loguniform", low=1e-3, high=1.0),
-        # inverse_mass_matrix is NOT BO-tunable — it comes from CHEES warmup.
+        # inverse_mass_matrix is not a static parameter — it comes from CHEES warmup.
         # integration_steps_fn / next_random_arg_fn are callables set by CHEES;
-        # not representable as Optuna search space HPs.
+        # represented by the generated warmup policy rather than scalar defaults.
     ),
-    needs_mass_matrix=True,  # inverse_mass_matrix from CHEES warmup, not BO
+    needs_mass_matrix=True,  # inverse_mass_matrix from CHEES warmup
     target_acceptance_rate=0.651,  # CHEES upstream default (slightly above HMC 0.65)
     # T2.3 descriptors: step_size + imm per-chain from CHEES warmup.
     per_chain_param_keys=("step_size", "inverse_mass_matrix"),
@@ -65,7 +65,7 @@ ENTRY = BaseMethod(
         "to dynamic_hmc. Each step samples a random number of leapfrog steps from "
         "a length distribution adapted by CHEES. "
         "grad_count_per_step = info.num_integration_steps (realized count per step). "
-        "Only BO-tunable HP: step_size (loguniform). "
+        "Only declared scalar HP: step_size (loguniform). "
         "inverse_mass_matrix from CHEES warmup; "
         "integration_steps_fn / next_random_arg_fn set internally by CHEES. "
         "target_acceptance_rate=0.651 matches CHEES upstream default."

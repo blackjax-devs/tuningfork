@@ -20,8 +20,7 @@ def test_repository_matches_exact_baseline() -> None:
     assert boundary.scan_source(_PRODUCTION) == boundary.baseline()
     assert boundary.check(_PRODUCTION) == (
         True,
-        "matches the recorded direct-sampling baseline; transitional debt remains "
-        "non-admissible and must shrink",
+        "no alternate recipe-sampling debt remains",
     )
 
 

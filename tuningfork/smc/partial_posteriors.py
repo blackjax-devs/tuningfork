@@ -55,7 +55,7 @@ ENTRY = SMCMethod(
         "num_observations is the total data count for the initial all-zeros mask. "
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
         "invariance violated by tempering). Default inner: rwm. "
-        "num_particles=1000 default. SMC-level BO HPs: num_mcmc_steps (int [1, 50]). "
+        "num_particles=1000 default. Declared SMC parameters: num_mcmc_steps (int [1, 50]). "
         "Resampling default: systematic. "
         "CRITICAL inner-kernel contract: mcmc_parameters dict must contain ONLY JAX "
         "arrays — callable params (e.g. random_step for RWM) must be bound via "

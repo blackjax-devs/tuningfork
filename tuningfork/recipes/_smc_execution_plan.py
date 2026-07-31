@@ -101,8 +101,7 @@ def resolve_smc_execution_plan(
     recipe: Any,
 ) -> ExecutionPlan[SMCExecutionConfiguration]:
     """Resolve and validate an ``SMCRecipe`` before code generation."""
-    from tuningfork.base_method import BASE_METHODS
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import BASE_METHODS, default_value_for_space
     from tuningfork.model import MODELS
     from tuningfork.smc import SMC_METHODS
     from tuningfork.smc.parameter_update_registry import PARAMETER_UPDATE_STRATEGIES

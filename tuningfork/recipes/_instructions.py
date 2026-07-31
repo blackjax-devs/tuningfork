@@ -27,11 +27,11 @@ not how the user consumes it.  The prose framing reflects that:
            pairing (e.g., ``window_adaptation_diag_imm`` + ``mala``, ``window_adaptation_diag_imm`` + ``rmhmc``).
            Wall time = LOW + Statistician investigation.
   HIGH   — LOW and MEDIUM both failed.  The Statistician ran Bayesian workflow,
-           BO over warmup hyperparameters, and injected model-specific
+           declared warmup and sampler parameter resolution, and injected model-specific
            parameters until the gate passed. The full journey is recorded in
-           ``workflow``. CI consumes HIGH recipes by reading the pinned scalars
-           + IMM sidecar and running the sampler directly (no warmup re-run).
-           Wall time = MEDIUM + extra Statistician work + BO compute.
+           ``workflow``. CI executes the generated program with the pinned
+           scalars and IMM sidecar; whether warmup runs follows recipe intent.
+           Wall time = MEDIUM + extra Statistician work + generated-plan evaluation.
 
 The same "use the pinned config" snippet applies to all tiers; the tier-specific
 prose explains what production effort produced those values.
@@ -55,10 +55,9 @@ __all__ = ["render_instructions"]
 _LOW_TEMPLATE = """\
 **Low-effort recipe** (conventional `({warmup_name}, {base_method_name})` pairing; \
 library defaults passed the auto-gate at first emit).
-To use the pinned config (skip warmup at runtime):
-  ```python
-  kernel = blackjax.{base_method_name}(logdensity_fn, **{base_method_params})
-  ```
+To reproduce, emit and execute the generated program for this recipe. It
+applies the resolved parameters and runs warmup only when the recipe intent
+requires it.
 Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
 Wall time to produce this recipe: ~{wall_seconds} s (machine-only).\
 """
@@ -69,28 +68,25 @@ _MEDIUM_TEMPLATE = """\
 The default emit either failed the auto-gate or explored a technically-possible-but-\
 unconventional pairing; the Statistician applied workarounds until the gate passed. \
 See `notes` for the specific intervention.
-To use the pinned config:
-  ```python
-  kernel = blackjax.{base_method_name}(logdensity_fn, **{base_method_params})
-  ```
+To reproduce, emit and execute the generated program for this recipe. It
+applies the resolved parameters and runs warmup only when the recipe intent
+requires it.
 Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
 Wall time: machine + Statistician investigation (see `calibration_budget`).\
 """
 
 _HIGH_TEMPLATE = """\
-**High-effort recipe** (Bayesian workflow + BO + model-specific injection on \
+**High-effort recipe** (Bayesian workflow + generated plan + model-specific injection on \
 `({warmup_name}, {base_method_name})`).
 After LOW and MEDIUM both failed the auto-gate, the Statistician ran Bayesian \
-workflow, conducted BO over warmup hyperparameters, and injected model-specific \
+workflow, resolved declared warmup and sampler parameters, and injected model-specific \
 parameters. The full journey is recorded in `workflow`; CI consumes the pinned \
 scalars below.
-To use (sampler-only at runtime — the intended CI consumption pattern):
-  ```python
-  # If `inverse_mass_matrix_path` is set, load the IMM sidecar first.
-  kernel = blackjax.{base_method_name}(logdensity_fn, **{base_method_params})
-  ```
+To reproduce, emit and execute the generated program for this recipe. It uses
+the pinned scalars and IMM sidecar, and runs warmup only when the recipe intent
+requires it.
 Expected `min-bulk-ESS / total_grad_evals`: {headline_metric}.
-Total calibration time: ~{calibration_minutes} min (warmup + BO + Statistician).\
+Total calibration time: ~{calibration_minutes} min (warmup + generated plan + Statistician).\
 """
 
 _GROUNDTRUTH_TEMPLATE = """\

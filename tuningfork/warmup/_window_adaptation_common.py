@@ -69,7 +69,7 @@ def _window_adaptation_body(
         ``base_method.target_acceptance_rate``, then ``0.80``.
     num_chains
         Number of independent chains to run in parallel via ``jax.vmap``.
-        Default ``4``.  Pass ``num_chains=1`` for BO trials.
+        Default ``4``. Pass ``num_chains=1`` for isolated adaptation checks.
     warmup_builder_fn
         Callable ``(warmup_algorithm, logdensity_fn, target_acceptance_rate,
         **warmup_kwargs) -> warmup`` that constructs the BlackJAX warmup object.
@@ -87,7 +87,7 @@ def _window_adaptation_body(
     kernel_info
         Per-step kernel info (NUTSInfo / HMCInfo) for wge accounting.
     """
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
 
     target = target_acceptance_rate or base_method.target_acceptance_rate or 0.80
 

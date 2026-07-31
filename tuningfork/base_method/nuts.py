@@ -14,9 +14,9 @@
 """NUTS algorithm entry for the tuningfork algorithm registry.
 
 NUTS (No-U-Turn Sampler) is the default reference sampler in BlackJAX.
-The only BO-tunable hyperparameter is ``step_size``; the
-``inverse_mass_matrix`` comes from window adaptation warmup and is not
-searched by Bayesian optimisation.
+The only declared scalar hyperparameter is ``step_size``; the
+``inverse_mass_matrix`` comes from window adaptation warmup rather than the
+declared scalar parameter space.
 
 Grad cost per step: ``info.num_integration_steps`` (1 gradient per
 leapfrog step, same accounting as HMC).
@@ -44,6 +44,6 @@ ENTRY = BaseMethod(
     extra_kwarg_builder=None,  # No extra kwargs beyond logdensity_fn + HP-space.
     notes=(
         "Stan-default target acceptance 0.80; inverse_mass_matrix supplied "
-        "by warmup adaptation, not BO. step_size is the only BO-tunable HP."
+        "by warmup adaptation. step_size is the only declared scalar HP."
     ),
 )

@@ -25,8 +25,7 @@ This design makes the wrapper consistent with the sampler-mode contract
 in the registry, even though VI is fundamentally an optimisation algorithm.
 
 Hyperparameter space: **empty** ``()`` — ``num_optimization_steps`` and
-``optimizer`` are recipe-time constants, not Bayesian-optimisation tunable
-parameters at the trial level.
+``optimizer`` are recipe-time constants, not declared scalar parameters.
 
 Grad cost approximation: ``grad_count_per_step = lambda info: 1``.  Each VI
 optimisation step requires one gradient of the log-density (via the ELBO
@@ -132,10 +131,10 @@ ENTRY = BaseMethod(
     grad_count_per_step=lambda info: jnp.asarray(1),
     grad_count_convention="1",
     default_hp_space=(
-        # num_optimization_steps is recipe-time by default (not BO-tuned),
+        # num_optimization_steps is recipe-time by default,
         # but must be listed here to satisfy BaseMethod validation (at least
         # one HyperparamSpace required for non-specialised entries).
-        # The BO loop can tune this if desired; recipe-builders should
+        # Recipe builders can set it explicitly; recipe emitters should
         # override it directly via the factory kwarg.
         HyperparamSpace("num_optimization_steps", "int", low=1_000, high=50_000),
     ),

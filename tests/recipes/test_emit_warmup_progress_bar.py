@@ -35,12 +35,12 @@ e2e tests (lightweight, num_samples=10, minimal warmup):
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-import jax
 import pytest
 
 from tuningfork.catalog import emit_script
@@ -60,10 +60,8 @@ _WARMUP_VARIANTS = [
 def _make_recipe(warmup_name: str, n_warmup: int = 10) -> Recipe:
     """Minimal in-memory recipe for mvn_10 x nuts x <warmup_name>.
 
-    Uses Recipe.from_warmup_only for diag/dense IMM warmups.  For
-    window_adaptation_low_rank_imm, Recipe.from_warmup_only fails because
-    squeeze_single_chain can't handle the heterogeneous-shape LowRankIMM tuple,
-    so we build a synthetic Recipe directly.
+    Uses a declarative default recipe with the requested warmup identity; no
+    sampling is needed for these emitted-source assertions.
     """
     from tuningfork.recipes._base import Effort
 
@@ -91,17 +89,18 @@ def _make_recipe(warmup_name: str, n_warmup: int = 10) -> Recipe:
 
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
-    from tuningfork.warmup import WARMUPS
 
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS[warmup_name]
-    return Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        warmup,
-        n_warmup=n_warmup,
-        rng_key=jax.random.key(0),
+    recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
+    return dataclasses.replace(
+        recipe,
+        warmup_name=warmup_name,
+        warmup_params={"n_warmup": n_warmup, "num_chains": 2},
+        warmups=[
+            {
+                "name": warmup_name,
+                "params": {"n_warmup": n_warmup, "num_chains": 2},
+            }
+        ],
     )
 
 

@@ -108,7 +108,7 @@ def _factory(
         HMC leapfrog step size.
     inverse_mass_matrix
         Inverse mass matrix (1-D array for diagonal, scalar for isotropic).
-        Supplied by warmup adaptation; not BO-tunable.
+        Supplied by warmup adaptation; not a declared scalar parameter.
     num_integration_steps
         Number of leapfrog steps per HMC transition.  Default 5.
     **kwargs

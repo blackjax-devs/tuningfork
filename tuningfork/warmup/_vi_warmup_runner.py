@@ -179,7 +179,7 @@ def _vi_warmup_runner(
     init_positions_pytree = jax.vmap(unravel_fn)(flat_init_positions)
 
     # --- Build extra kwargs for the downstream kernel ---
-    from tuningfork.calibration.tune import default_value_for_space
+    from tuningfork.base_method import default_value_for_space
 
     _extra_kwargs: dict[str, Any] = {}
     if base_method.needs_mass_matrix:

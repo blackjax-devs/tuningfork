@@ -37,6 +37,7 @@ errors), NOT inference quality. This keeps the e2e gate fast and memory-safe.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import os
 import subprocess
 import sys
@@ -448,26 +449,21 @@ def test_emit_script_executes_for_cell(
     reports n_divergences).  Uses mvn_10 (well-behaved 10-D Gaussian) for speed.
     Lightweight config: num_samples=10, num_warmup=10 (just enough to verify structure).
     """
-    import jax
-
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
     from tuningfork.recipes._base import Recipe
-    from tuningfork.warmup import WARMUPS
 
     posterior = MODELS["mvn_10"]
     base_method = BASE_METHODS[base_method_name]
-    warmup = WARMUPS[warmup_name]
-
-    if warmup_name == "no_warmup":
-        recipe = Recipe.from_default_config(posterior, base_method)
-    else:
-        recipe = Recipe.from_warmup_only(
-            posterior,
-            base_method,
-            warmup,
-            n_warmup=10,
-            rng_key=jax.random.key(0),
+    recipe = Recipe.from_default_config(posterior, base_method)
+    if warmup_name != "no_warmup":
+        recipe = dataclasses.replace(
+            recipe,
+            warmup_name=warmup_name,
+            warmup_params={"n_warmup": 10, "num_chains": 1},
+            warmups=[
+                {"name": warmup_name, "params": {"n_warmup": 10, "num_chains": 1}}
+            ],
         )
 
     script = emit_script(recipe, num_samples=10, num_warmup=10)

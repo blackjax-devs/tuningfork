@@ -6,8 +6,11 @@
 
 ## Decision
 
-Code generation is the only supported sampling path for tuningfork experiments,
-reference certification, and catalog evidence.
+Code generation is the only supported sampling path for tuningfork experiments
+and catalog recipe evidence. The narrow direct-sampling exceptions are canonical
+ground-truth/reference generation in ``calibration/certify_reference.py`` and
+``groundtruth/_nuts_multichain.py``; analytic or deterministic reference
+builders are also outside the sampling route.
 
 A recipe is not only a final sampler configuration. It is the versioned,
 progressively enriched record of the work:
@@ -55,14 +58,15 @@ This decision applies to:
 
 - MCMC, VI, and SMC recipe production;
 - calibration and parameter-search candidates;
-- sampled ground-truth production and certification;
+- sampled ground-truth production and certification, except the canonical
+  direct NUTS reference-generation paths named above;
 - catalog re-runs, revalidation, and performance experiments whose results may
   become recipe evidence; and
 - benchmarks that claim to execute a catalog recipe.
 
 Analytic or deterministic reference builders do not need to pretend to be a
-sampling route. Their outputs must still enter the same recipe evidence envelope
-with exact provenance.
+sampling route. Their outputs, and the canonical direct-reference exceptions,
+must still enter the same recipe evidence envelope with exact provenance.
 
 Pure algorithm prototypes and unit tests may call lower-level BlackJAX APIs
 directly. Their samples are not admissible as catalog or certification evidence.
@@ -205,6 +209,8 @@ Responsibilities are:
 - **Planner:** recipe intent to a typed, normalized execution plan.
 - **Emitter:** execution plan to standalone Python plus an embedded manifest.
 - **Launcher:** execute only a generated program and capture its receipt.
+  The two canonical direct-reference paths are isolated exceptions and still
+  record the same reference provenance and certification artifacts.
 - **Evaluator:** run artifacts plus exact ground truth to metrics and gate
   evidence. It does not construct a sampler.
 - **Recipe writer:** atomically append evidence and update the materialized
@@ -223,7 +229,8 @@ must not be replaced with a single branch-heavy generator.
 An in-process runner may temporarily remain as a compatibility shim or test
 oracle. It is not a second production implementation: supported callers must
 make it generate and launch the emitted program. It cannot produce admissible
-recipe evidence by constructing and running a sampler directly.
+recipe evidence by constructing and running a sampler directly, outside the
+canonical direct-reference exceptions named above.
 
 ## Generated-program contract
 

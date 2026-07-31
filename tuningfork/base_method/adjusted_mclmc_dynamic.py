@@ -23,7 +23,7 @@ trajectory-length distribution:
 - ``integration_steps_params = (avg_num_integration_steps,)``
   carries the adapted average from warmup.
 
-The BO hyperparameter space ``(step_size, L)`` matches vanilla MCLMC for
+The declared parameter space ``(step_size, L)`` matches vanilla MCLMC for
 consistency.  The adapter translates ``L`` to an average number of steps via
 ``avg = jnp.maximum(1.0, L / step_size)`` — JAX-native so the factory is
 safe inside ``jax.vmap`` when ``step_size`` is a traced array.
@@ -59,7 +59,7 @@ _steps_fn = make_random_trajectory_length_fn(True)  # (rng_arg, avg) -> int
 def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
     """Build a BlackJAX adjusted_mclmc_dynamic SamplingAlgorithm.
 
-    Translates the ``(step_size, L)`` BO hyperparameter space into
+    Translates the ``(step_size, L)`` declared parameter space into
     ``integration_steps_params=(avg,)`` where ``avg = max(1.0, L / step_size)``.
 
     Parameters
@@ -85,7 +85,7 @@ def _factory(logdensity_fn, *, step_size, L, inverse_mass_matrix=1.0, **kwargs):
         Object with ``.init`` (requires ``rng_key``) and ``.step`` methods.
     """
     # Use jnp ops so the factory is safe inside jax.vmap (step_size may be a
-    # traced array).  Works with concrete values from BO tuning too.
+    # traced array). Works with concrete values too.
     avg = jnp.maximum(1.0, L / step_size)
     return blackjax.adjusted_mclmc_dynamic(
         logdensity_fn,

@@ -27,7 +27,7 @@ chains), then:
 No step-size adaptation is performed.  A scalar default of ``1.0`` is
 returned for every chain.  The downstream sampler should rely on its own
 dual-averaging adaptation (e.g. NUTS window adaptation) or Bayesian
-optimisation to tune the step size; this warmup only provides a better
+adaptation to resolve the step size; this warmup provides a better
 initialisation and dense IMM than a flat prior sample.
 
 Runner signature (multi-chain contract)::

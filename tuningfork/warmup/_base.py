@@ -36,8 +36,7 @@ num_chains
     Number of independent chains.  Default ``4``, matching Stan/NumPyro
     convention.  v2-P0 will study the chain-count/accuracy tradeoff per
     sampler; for now 4 is locked.  Pass ``num_chains=1`` explicitly when
-    single-chain semantics are required (e.g., BO tuning trials, which
-    are intentionally single-chain — chain count is orthogonal to HP tuning).
+    a generated plan explicitly requests one chain for a supported capability.
 
 Returns
 -------
@@ -104,60 +103,6 @@ def _maybe_replicate(position: Any, num_chains: int) -> Any:
     )
 
 
-def squeeze_single_chain(
-    batched_state: Any, batched_params: dict[str, Any]
-) -> tuple[Any, dict[str, Any]]:
-    """Squeeze a leading length-1 chain dim from a single-chain warmup result.
-
-    Use this in callers that ran a warmup with ``num_chains=1`` and need the
-    un-batched ``(state, params)`` shape that the rest of the codebase expects
-    (e.g. BO tuning trials, MEDIUM-effort recipe builders, single-chain demos).
-
-    Behaviour
-    ---------
-    - State pytree leaves: ``x`` becomes ``x[0]`` when subscriptable; non-array
-      leaves pass through unchanged.
-    - Param dict values: scalar Python numbers pass through; array-like values
-      are coerced to ``jnp.asarray`` and indexed with ``[0]`` only when their
-      first dim is exactly 1.  Anything else is returned verbatim.
-
-    Parameters
-    ----------
-    batched_state
-        Pytree returned by ``Warmup.runner`` with leading dim 1.
-    batched_params
-        Dict of adapted parameters (e.g. ``{"step_size": (1,)-array, ...}``).
-
-    Returns
-    -------
-    tuple[Any, dict[str, Any]]
-        ``(state, params)`` with the leading length-1 chain axis removed.
-    """
-    state = jax.tree.map(
-        lambda x: x[0] if hasattr(x, "__getitem__") else x, batched_state
-    )
-    params: dict[str, Any] = {}
-    for k, v in batched_params.items():
-        if isinstance(v, (int, float, bool)):
-            params[k] = v
-            continue
-        # Squeeze the leading length-1 chain axis per pytree leaf.  This handles
-        # both flat array params (single leaf) and structured params such as the
-        # LowRankInverseMassMatrix namedtuple (sigma, U, lam) whose leaves have
-        # different ranks — jnp.asarray on the whole value would try to
-        # concatenate those leaves and raise.  Only squeeze when EVERY leaf has a
-        # leading dim of exactly 1; otherwise return the value verbatim.
-        leaves = jax.tree.leaves(v)
-        if leaves and all(
-            hasattr(leaf, "shape") and leaf.shape and leaf.shape[0] == 1
-            for leaf in leaves
-        ):
-            params[k] = jax.tree.map(lambda leaf: leaf[0], v)
-        else:
-            params[k] = v
-    return state, params
-
-
 @dataclass(frozen=True)
 class Warmup:
     """A warmup procedure: produces ``(states, params)`` before sampling.
@@ -176,7 +121,7 @@ class Warmup:
 
         Returns the post-warmup kernel states (batched over ``num_chains``)
         and a dict of adapted parameters.  Empty dict means "use default
-        params from BO / recipe".
+        params from generated recipe resolution".
 
         See module-level docstring for the full multi-chain contract.
     compatible_methods

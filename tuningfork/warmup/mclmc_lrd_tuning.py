@@ -35,8 +35,8 @@ Multi-chain contract (mirrors ``mclmc_tuning``)::
                                 ``num_chains`` axis (vmappable per-chain)
 - ``"_total_tuning_steps"``   : int — LRD adaptation steps per chain
                                 (= ``n_warmup``; pilot steps not counted, for
-                                historical continuity with calibration budget
-                                accounting in ``_recipe_runner.py``)
+                                historical continuity with calibration-budget
+                                accounting)
 - ``"_settle_steps"``         : int — post-adaptation settle steps per chain
                                 run to produce warm-started return states.
                                 Does NOT contribute to ``_total_tuning_steps``.
@@ -235,12 +235,12 @@ def _runner(
         "step_size": step_size_arr,
         "inverse_mass_matrix": lrd_imm_batched,
         # Per-chain LRD adaptation steps (= n_warmup).  Historical convention:
-        # _recipe_runner.py multiplies by 2 * num_chains to derive calibration
-        # budget; pilot steps are not included here (same as the pre-delegate
+        # Calibration reporting derives the historical budget by multiplying this
+        # by 2 * num_chains; pilot steps are not included here (same as the pre-delegate
         # implementation).
         "_total_tuning_steps": int(n_warmup),
         # Settle steps run after adaptation — NOT folded into _total_tuning_steps
-        # so that golden budget accounting in _recipe_runner.py stays comparable.
+        # so that golden budget accounting stays comparable.
         "_settle_steps": _SETTLE_STEPS,
     }
 

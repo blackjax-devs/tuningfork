@@ -42,12 +42,12 @@ errors), NOT inference quality. This keeps the e2e gate fast and memory-safe.
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-import jax
 import pytest
 
 from tuningfork.catalog import emit_script
@@ -60,18 +60,18 @@ def _make_mvn10_nuts_wadapt_recipe(n_warmup: int = 10) -> Recipe:
     """Minimal in-memory recipe for mvn_10 × nuts × window_adaptation_diag_imm."""
     from tuningfork.base_method import BASE_METHODS
     from tuningfork.model import MODELS
-    from tuningfork.warmup import WARMUPS
 
-    posterior = MODELS["mvn_10"]
-    base_method = BASE_METHODS["nuts"]
-    warmup = WARMUPS["window_adaptation_diag_imm"]
-
-    return Recipe.from_warmup_only(
-        posterior,
-        base_method,
-        warmup,
-        n_warmup=n_warmup,
-        rng_key=jax.random.key(0),
+    recipe = Recipe.from_default_config(MODELS["mvn_10"], BASE_METHODS["nuts"])
+    return dataclasses.replace(
+        recipe,
+        warmup_name="window_adaptation_diag_imm",
+        warmup_params={"n_warmup": n_warmup, "num_chains": 2},
+        warmups=[
+            {
+                "name": "window_adaptation_diag_imm",
+                "params": {"n_warmup": n_warmup, "num_chains": 2},
+            }
+        ],
     )
 
 

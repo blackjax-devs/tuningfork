@@ -51,7 +51,7 @@ ENTRY = SMCMethod(
         "ESS(loglikelihood_fn(particles)) hitting target_ess * num_particles. "
         "Inner kernel must be MH-based — MCLMC family excluded (microcanonical "
         "invariance violated by tempering). Default inner: rwm (statistician "
-        "verdict: RWM/IRMH first). num_particles=1000 default. SMC-level BO HPs: "
+        "verdict: RWM/IRMH first). num_particles=1000 default. Declared SMC parameters: "
         "target_ess (uniform [0.3, 0.95]) and num_mcmc_steps (int [1, 50]). "
         "Resampling default: systematic. step_fn standard (key, state); no extras. "
         "Inner-kernel parameters are represented declaratively; generated source "
