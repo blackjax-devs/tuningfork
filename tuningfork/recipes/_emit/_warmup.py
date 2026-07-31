@@ -1110,11 +1110,11 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
 
     Pipeline (all inlined — D8 compliant, zero tuningfork imports):
     1. Single-chain NUTS pilot (pilot_n_warmup + pilot_n_samples steps).
-    2. Rank-k_rank SVD extraction (inline extract_lrd_from_samples logic).
-    3. Inline make_lrd_kernel closure + vmapped mclmc_find_L_and_step_size.
+    2. Rank-k_rank SVD extraction.
+    3. Statically bound LRD kernel + vmapped mclmc_find_L_and_step_size.
 
-    D8 note: run_pilot_nuts, extract_lrd_from_samples, and make_lrd_kernel
-    are inlined directly (only jax / blackjax imports, no tuningfork).
+    D8 note: every phase is emitted directly (only jax / blackjax imports,
+    no tuningfork inference helpers).
 
     Parameters
     ----------
@@ -1139,8 +1139,8 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     )
     a("# The upstream isokinetic_mclachlan integrator dispatches natively on")
     a("# LowRankInverseMassMatrix (blackjax PR #936) — no logdensity_fn wrapping.")
-    a("# D8: run_pilot_nuts / extract_lrd_from_samples / make_lrd_kernel inlined")
-    a("# (only jax + blackjax imports — zero tuningfork inference imports).")
+    a("# D8: every LRD phase is emitted inline (only jax + blackjax imports;")
+    a("# zero tuningfork inference imports).")
     a("import blackjax.mcmc.mclmc")
     a("from blackjax.mcmc.metrics import LowRankInverseMassMatrix as _LRD")
     a("from jax.flatten_util import ravel_pytree as _lrd_ravel")
@@ -1157,7 +1157,7 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
         "jax.random.key(_lrd_tuning_seed), 2)"
     )
     a("")
-    a("# ── Phase 1: NUTS pilot (inline run_pilot_nuts) ──────────────────────────")
+    a("# ── Phase 1: NUTS pilot ──────────────────────────────────────────────────")
     a("# Single-chain window_adaptation(nuts) warmup → collect pilot positions.")
     a("_lrd_warmup_key, _lrd_sampling_key = jax.random.split(_lrd_pilot_key)")
     a("_lrd_nuts_warmup = blackjax.window_adaptation(blackjax.nuts, logdensity_fn)")
@@ -1190,7 +1190,7 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("    jax.random.split(_lrd_sampling_key, _lrd_pilot_n_samples),")
     a(")")
     a("")
-    a("# ── Phase 2: LRD extraction (inline extract_lrd_from_samples) ────────────")
+    a("# ── Phase 2: LRD extraction ──────────────────────────────────────────────")
     a("# SVD of standardised pilot samples → (sigma, U, lam) LRD components.")
     a(
         "_lrd_flat_positions = jax.vmap(lambda p: _lrd_ravel(p)[0])(_lrd_pilot_positions)"
@@ -1215,7 +1215,7 @@ def _emit_mclmc_lrd_tuning(ctx: dict[str, Any]) -> str:
     a("_lrd_U = _lrd_V[:, _lrd_top_idx]")
     a("_lrd_imm = _LRD(sigma=_lrd_sigma, U=_lrd_U, lam=_lrd_lam)")
     a("")
-    a("# ── Phase 2b: build LRD kernel (inline make_lrd_kernel) ──────────────────")
+    a("# ── Phase 2b: build statically bound LRD kernel ──────────────────────────")
     a("# Closure over _lrd_imm — always routes through LRD geometry regardless")
     a("# of the diagonal placeholder that mclmc_find_L_and_step_size passes.")
     a("_lrd_base_kernel = blackjax.mclmc.build_kernel()")

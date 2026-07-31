@@ -19,8 +19,8 @@ automatic and NUTS-free** (detects the smooth-vs-funnel boundary from the pilot'
 energy error, dissolving the "you don't know it's a funnel until you sample" problem).
 
 For model-specific findings see the individual `catalog/<model>/lessons.md` files.
-For the LRD utility API see `tuningfork/base_method/mclmc.py` and
-`tuningfork/base_method/mclmc_lrd_utils.py`.
+For the executable LRD route see the `mclmc_lrd_tuning` emitter in
+`tuningfork/recipes/_emit/_warmup.py`.
 
 ---
 
@@ -45,10 +45,12 @@ invariant measure is provably preserved for ALL targets — log-concave or not.
 Implementation: `blackjax.mcmc.integrators.isokinetic_mclachlan` dispatches natively
 on `blackjax.mcmc.metrics.LowRankInverseMassMatrix` (blackjax PR #936).
 
-The **tuningfork entry point** is `make_lrd_kernel(lrd_imm)` in
-`tuningfork/base_method/mclmc.py` — a thin closure that statically binds the LRD mass
-matrix so that `mclmc_find_L_and_step_size(diagonal_preconditioning=False)` receives the
-correct geometry during warmup.
+The **tuningfork entry point** is the generated `mclmc_lrd_tuning` route. It emits a
+thin closure that statically binds the LRD mass matrix so that
+`mclmc_find_L_and_step_size(diagonal_preconditioning=False)` receives the correct
+geometry during warmup. The original investigation exposed this closure as
+`make_lrd_kernel(lrd_imm)`; codegen now emits the same choreography inline so there is
+only one executable route.
 
 ---
 
@@ -105,7 +107,8 @@ Based on empirical stress-testing across the full catalog and validated against 
 
 **Category B — Correlated Regression / GLMs** (e.g., `german_credit`, `ill_cond_50`)
 - Route to: `mclmc` with LRD preconditioning
-- Pipeline: Short NUTS Pilot → SVD Extraction → `make_lrd_kernel` → `mclmc_find_L_and_step_size`
+- Pipeline: generated Short NUTS Pilot → SVD Extraction → statically bound LRD kernel
+  → `mclmc_find_L_and_step_size`
 - Why: Resolves rotational ill-conditioning in O(dk) without dense-matrix overhead.
 
 **Category C — Heavy Tails / Sparsity** (e.g., `horseshoe`)
@@ -259,12 +262,16 @@ funnel curvature is the dominant bottleneck.
 ## 8. Key Parameter Notes
 
 ### LRD mass matrix construction
-From a NUTS pilot (1000 steps) via `run_pilot_nuts` + `extract_lrd_from_samples`:
+The generated route emits a 1000-step NUTS pilot followed by SVD extraction:
 1. Flatten samples to (N, d) matrix
 2. Compute empirical σ (standard deviations per dimension)
 3. Standardize and compute SVD: X_std = U S Vᵀ
 4. Eigenvalues: λ = S²/N; sort by |λ-1| descending
 5. Take top k: `LowRankInverseMassMatrix(sigma, U_k, lam_k)`
+
+The original investigation called these two phases `run_pilot_nuts` and
+`extract_lrd_from_samples`; the names are retained here as provenance, but the phases
+now exist only inside the emitted recipe program.
 
 ### Step-size scaling for adjusted samplers
 `mclmc_find_L_and_step_size` (unadjusted warmup) adapts a large step_size.

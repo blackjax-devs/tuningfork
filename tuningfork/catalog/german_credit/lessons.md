@@ -27,7 +27,11 @@ covariance structure. A diagonal mass matrix cannot resolve the rotated correlat
 axes, causing isotropic MCLMC to be highly inefficient.
 
 ### LRD MCLMC on german_credit (REVIEW, 2026-06-09)
-**NUTS pilot → k=26 full-rank SVD → `make_lrd_kernel` → `mclmc_find_L_and_step_size`**
+**Generated NUTS pilot → k=26 full-rank SVD → statically bound LRD kernel →
+`mclmc_find_L_and_step_size`**
+
+The recorded experiment used a direct helper named `make_lrd_kernel`; codegen now
+emits the same binding inline and is the only executable route.
 
 - R-hat=1.0126, ESS=520.6, verdict REVIEW
 - R-hat=1.0126 places this in the REVIEW band (1.01–1.05), not PASS. The original

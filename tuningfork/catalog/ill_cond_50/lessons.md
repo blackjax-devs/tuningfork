@@ -37,13 +37,18 @@ relative to the coordinate axes**, so any diagonal mass matrix is misaligned.
   [boundary: FAIL confirmed up to n_warmup=100k; no warmup budget recovers this — geometry is the blocker]
 
 ### LRD MCLMC pipeline (ill_cond_50, k=40)
-**NUTS pilot → SVD extraction → `make_lrd_kernel` → `mclmc_find_L_and_step_size`**
+**Generated NUTS pilot → SVD extraction → statically bound LRD kernel →
+`mclmc_find_L_and_step_size`**
 
-1. Run 1000-step diagonal NUTS pilot (`run_pilot_nuts`)
-2. Compute empirical σ and top-40 eigenvectors/eigenvalues via SVD
-   (`extract_lrd_from_samples`)
+1. Emit and run a 1000-step diagonal NUTS pilot
+2. Compute empirical σ and top-40 eigenvectors/eigenvalues via emitted SVD extraction
 3. Construct `LowRankInverseMassMatrix(sigma, U, lam)`
-4. Bind with `make_lrd_kernel` and run `mclmc_find_L_and_step_size(diagonal_preconditioning=False)`
+4. Emit a statically bound LRD kernel and run
+   `mclmc_find_L_and_step_size(diagonal_preconditioning=False)`
+
+The recorded experiment used direct helpers named `run_pilot_nuts`,
+`extract_lrd_from_samples`, and `make_lrd_kernel`; codegen now emits the same steps
+inline and is the only executable route.
 
 Result: R-hat=1.0039, ESS=1993.3, ESS/grad=0.2492, PASS (statistician independent
 run, seed=98765). Multi-seed hardening at seeds 11111/22222/33333 all PASS
