@@ -80,7 +80,7 @@ For `mhmc` and `rmhmc`: `window_adaptation_diag_imm` is also compatible (they ac
 - ill_cond_50 + mala/barker Y: gradient-based step limited by worst-conditioned direction; κ≈1000 means mala step-size has to be tiny — converges but slowly without IMM adaptation, and window_adaptation_diag_imm diagonal IMM helps a lot here, so actually likely G with good adaptation; flagged Y as conservative.
 - lotka_volterra + mala/barker Y: stiff ODE likelihood; gradients can be large and variable; step size needs to be very small; convergence possible but requires tuning care.
 - eight_schools + mhmc Y: same as hmc — moderate NCP benefit, but mhmc multinomial proposal gives no extra advantage over nuts here; green for hmc, yellow for mhmc (extra cost for similar quality).
-- radon/irt_2pl + hmc/mhmc Y: high dimension (d=390, d=144); fixed-L HMC at these dims needs careful L selection; window_adaptation_diag_imm adapts step_size but not L — use BO on num_integration_steps.
+- radon/irt_2pl + hmc/mhmc Y: high dimension (d=390, d=144); fixed-L HMC at these dims needs careful L selection; window_adaptation_diag_imm adapts step_size but not L — needs manual or scripted search over num_integration_steps.
 - neals_funnel + nuts Y: NCP analytic model — the funnel is the target, not an artifact. NUTS handles it better than fixed-L HMC but geometry still forces short steps in the neck. Achievable with careful warmup; flag Y not R.
 - neals_funnel + hmc/mhmc/mala/barker Y/R: hmc needs L tuning (Y); mala and barker at the funnel neck take very small steps (R for mala/barker — divergences expected without reparameterization, and reparameterization IS the model, so skip).
 - gmm_25 + all R: multimodal; any single-chain gradient sampler gets trapped. NUTS can visit one mode but won't mix. Only SMC or parallel tempering can cover all 25 modes.
@@ -97,7 +97,7 @@ For `mhmc` and `rmhmc`: `window_adaptation_diag_imm` is also compatible (they ac
 
 #### Subgroup B: `pathfinder` warmup — compatible: nuts, hmc, mala, rwm, barker
 
-Pathfinder provides init position + diagonal IMM (L-BFGS inverse Hessian). No step_size adaptation; needs dual-averaging or BO downstream.
+Pathfinder provides init position + diagonal IMM (L-BFGS inverse Hessian). No step_size adaptation; needs dual-averaging or a downstream hyperparameter search step.
 
 | Warmup + Sampler | mvn_10 | ill_cond_50 | logistic_syn | eight_schools | lotka_volterra | radon | irt_2pl | german_credit | neals_funnel | gmm_25 | banana | horseshoe | gp_regression | stoch_vol | irt_1pl | lgcp |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -628,15 +628,15 @@ This is the "everything works and we know it" tier. NUTS + window_adaptation_dia
 
 - **LOW** if library defaults produce gate-passing samples at first emit (the green cells in the matrix below).
 - **MEDIUM** if the default emit fails the gate and a Statistician workaround (seed change, init change, bug fix) recovers it (the yellow cells; matches the matrix's "workflow narrative required" tier).
-- **HIGH** if both LOW and MEDIUM fail and the Statistician must run Bayesian workflow + BO over warmup hyperparameters + inject model-specific parameters (the red-leaning cells where defaults are insufficient).
+- **HIGH** if both LOW and MEDIUM fail and the Statistician must run the full Bayesian workflow with scripted or manual hyperparameter search over warmup hyperparameters + inject model-specific parameters (the red-leaning cells where defaults are insufficient). (The in-repo Optuna BO loop was removed in the codegen-first refactor, PR #259; hyperparameter search is now statistician-driven over generated programs.)
 
 Deliverable: all green cells emit at LOW; yellow cells emit at MEDIUM with `notes` capturing the workaround; red cells either emit at HIGH with the full `workflow` narrative or are documented as skipped.
 
-**Start with**: mvn_10, ill_cond_50, logistic_syn, eight_schools, german_credit (all-green easy group). Then radon, irt_2pl (green but high-d requires BO on num_integration_steps). Then gp_regression, lotka_volterra. Last: horseshoe (yellow), neals_funnel (yellow), banana (yellow), stoch_vol (yellow).
+**Start with**: mvn_10, ill_cond_50, logistic_syn, eight_schools, german_credit (all-green easy group). Then radon, irt_2pl (green but high-d requires a scripted or manual search over num_integration_steps). Then gp_regression, lotka_volterra. Last: horseshoe (yellow), neals_funnel (yellow), banana (yellow), stoch_vol (yellow).
 
 **Key tuning decisions in 6.1**:
 - For NUTS: `num_warmup=1000` default; `num_warmup=2000` for radon/irt_2pl/horseshoe/stoch_vol.
-- For HMC: BO on `num_integration_steps`; range [5, 50] for easy, [20, 100] for high-d.
+- For HMC: search over `num_integration_steps`; search range [5, 50] for easy models, [20, 100] for high-d.
 - Exclude: neals_funnel + hmc (Y→skip HMC for funnel, stick with NUTS).
 
 ### The MCLMC recipe sweep — MCLMC family, smooth + high-d models
