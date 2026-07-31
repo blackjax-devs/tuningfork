@@ -30,6 +30,10 @@ Metrics evaluated:
   - ``min_bulk_ess``   : min bulk-ESS across all params/dims.
   - ``n_divergences``  : total divergent transitions (rate-tolerant threshold;
                          see ``DEFAULT_THRESHOLDS["n_divergences"]``).
+  - ``n_nonfinite_proposals`` : false entries in MCLMC ``info.nonans``, kept
+                                separate from divergences. Zero contributes
+                                PASS; a positive count provisionally contributes
+                                REVIEW until a calibrated boundary exists.
   - ``max_abs_mean_z`` : max |sample_mean - gt_mean| / max(SE_sample, SE_gt)
                          across all params/dims; only when ground truth is
                          available. At ensemble scale (min_bulk_ess > 6400),
@@ -49,7 +53,8 @@ modules under ``tuningfork.calibration._gate``:
   - ``_gate.bands``     — ``sidak_t_pass``, ``resolve_thresholds``, classify/
                           margin helpers, VI-mode threshold override.
   - ``_gate.layout``    — ``_samples_to_multichain`` (single→multichain).
-  - ``_gate.mixing``    — ``_compute_mixing_stats`` (R̂, ESS, divergences).
+  - ``_gate.mixing``    — ``_compute_mixing_stats`` (R̂, ESS, sampler-specific
+                          numerical evidence).
   - ``_gate.gt_compare``— ``_compute_gt_compare`` (z-scores, bias-sigma fields).
   - ``_gate.verdict``   — ``AutoGateVerdict``, ``_assemble_verdict``.
 
@@ -111,7 +116,8 @@ def auto_gate(
     samples
         Post-warmup chain output, dict of arrays.
     info
-        Optional sampler info (e.g. NUTSInfo) with ``is_divergent`` field.
+        Optional sampler info. ``is_divergent`` supplies HMC divergences;
+        MCLMC ``nonans`` supplies separate non-finite-proposal evidence.
     ground_truth_summaries
         Per-site summary stats (mean, std, bulk_ess, tail_ess) from the
         multichain GT.  Required for the mean-z and W1 realm stages.
@@ -126,8 +132,8 @@ def auto_gate(
     Stages (in order):
     1. ``resolve_thresholds`` + optional VI-mode override (``_gate.bands``).
     2. ``_samples_to_multichain`` (``_gate.layout``).
-    3. ``_compute_mixing_stats`` → rhat_max, min_bulk_ess, n_divergences
-       (``_gate.mixing``).
+    3. ``_compute_mixing_stats`` → R̂, ESS, divergences, and conditional
+       non-finite-proposal evidence (``_gate.mixing``).
     4. ``_compute_gt_compare`` → max_abs_mean_z + bias-sigma fields
        (``_gate.gt_compare``), when ground truth is provided.
     4.5 ``compute_w1_realm`` → W1/σ two-prong equivalence gate (``_gate.w1_realm``),
@@ -148,7 +154,10 @@ def auto_gate(
     mc_samples = _samples_to_multichain(samples, n_chunks, multichain=multichain)
 
     # --- Stage 3: R̂, bulk-ESS, divergences ---
-    rhat_max, min_bulk_ess, n_divergences = _compute_mixing_stats(mc_samples, info)
+    mixing_stats = _compute_mixing_stats(mc_samples, info)
+    rhat_max = mixing_stats.rhat_max
+    min_bulk_ess = mixing_stats.min_bulk_ess
+    n_divergences = mixing_stats.n_divergences
 
     # --- Stage 4: ground-truth z-scores and bias-sigma diagnostics ---
     gt_result = None
@@ -219,4 +228,7 @@ def auto_gate(
         total_grad_evals=total_grad_evals,
         wall_seconds=wall_seconds,
         w1_realm_result=_w1_realm_result,
+        n_nonfinite_proposals=mixing_stats.n_nonfinite_proposals,
+        n_proposals_evaluated=mixing_stats.n_proposals_evaluated,
+        nonfinite_proposal_rate=mixing_stats.nonfinite_proposal_rate,
     )

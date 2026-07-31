@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Mixing diagnostics stage — R̂, bulk-ESS, and divergence count."""
+"""Mixing diagnostics stage — R̂, bulk-ESS, and sampler evidence counts."""
+
+from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
@@ -19,11 +21,23 @@ from blackjax.diagnostics import ess_bulk as _bj_ess_bulk
 from blackjax.diagnostics import rhat as _bj_rhat
 
 
+@dataclass(frozen=True)
+class MixingStats:
+    """Computed mixing and sampler-evidence metrics."""
+
+    rhat_max: float | None
+    min_bulk_ess: float | None
+    n_divergences: int | None
+    n_nonfinite_proposals: int | None = None
+    n_proposals_evaluated: int | None = None
+    nonfinite_proposal_rate: float | None = None
+
+
 def _compute_mixing_stats(
     mc_samples: dict,
     info,
-) -> tuple[float | None, float | None, int | None]:
-    """Compute R̂, bulk-ESS, and divergence count from multichain samples.
+) -> MixingStats:
+    """Compute mixing and sampler-specific numerical evidence.
 
     Parameters
     ----------
@@ -31,15 +45,18 @@ def _compute_mixing_stats(
         Dict of arrays with shape ``(n_chains, n_draws, *event_shape)``,
         already returned by ``_samples_to_multichain``.
     info
-        Sampler info struct.  ``None`` → divergence count skipped (returns
-        ``None``).  If ``info`` has no ``is_divergent`` attribute (MCLMC
-        family, rejection-free), returns 0.
+        Sampler info struct. ``is_divergent`` contributes the HMC-style
+        divergence count. ``nonans`` contributes a separate count, denominator,
+        and rate for non-finite MCLMC proposals. An info struct with ``nonans``
+        but no ``is_divergent`` leaves ``n_divergences`` unset rather than
+        inventing a zero.
 
     Returns
     -------
-    tuple of (rhat_max, min_bulk_ess, n_divergences)
-        Each is ``None`` when not computable (empty ``mc_samples`` /
-        ``info=None`` respectively).
+    MixingStats
+        ``nonans`` evidence counts false
+        entries as non-finite proposals; this evidence is independent of
+        HMC divergence counting.
     """
     # --- R̂ and bulk-ESS ---
     rhat_max: float | None = None
@@ -60,13 +77,29 @@ def _compute_mixing_stats(
 
     # --- Divergences ---
     n_divergences: int | None = None
+    n_nonfinite_proposals: int | None = None
+    n_proposals_evaluated: int | None = None
+    nonfinite_proposal_rate: float | None = None
     if info is not None:
         if hasattr(info, "is_divergent"):
             # HMC/NUTS/laplace family: explicit divergence flag per step.
             n_divergences = int(jnp.sum(jnp.asarray(info.is_divergent)))
-        else:
-            # MCLMC family (MCLMCInfo, AdjustedMCLMCInfo): rejection-free /
-            # no HMC-style divergent transition concept → 0 by definition.
+        elif not hasattr(info, "nonans"):
+            # Preserve the historical fallback for unrelated sampler infos.
             n_divergences = 0
 
-    return rhat_max, min_bulk_ess, n_divergences
+        if hasattr(info, "nonans"):
+            nonans = np.asarray(info.nonans, dtype=bool)
+            n_proposals_evaluated = int(nonans.size)
+            n_nonfinite_proposals = int(np.count_nonzero(~nonans))
+            if n_proposals_evaluated:
+                nonfinite_proposal_rate = n_nonfinite_proposals / n_proposals_evaluated
+
+    return MixingStats(
+        rhat_max,
+        min_bulk_ess,
+        n_divergences,
+        n_nonfinite_proposals,
+        n_proposals_evaluated,
+        nonfinite_proposal_rate,
+    )

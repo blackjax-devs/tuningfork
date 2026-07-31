@@ -188,3 +188,38 @@ def test_geometry_requirement_uses_method_capability(monkeypatch):
         n_chunks=2,
     )
     assert out.pinned_base_method_params["step_size"] == 0.2
+
+
+def test_mclmc_nonfinite_evidence_survives_generated_evaluation():
+    positions = {"x": np.zeros((2, 10, 10), dtype=np.float64)}
+    info_type = namedtuple(
+        "MCLMCInfo", ["logdensity", "kinetic_change", "energy_change", "nonans"]
+    )
+    info = info_type(
+        np.zeros((2, 10)),
+        np.zeros((2, 10)),
+        np.zeros((2, 10)),
+        np.ones((2, 10), dtype=bool),
+    )
+    info.nonans[0, 0] = False
+    run = GeneratedRunData(positions, {}, info, "generated", 2, 10, "mclmc")
+
+    out = evaluate_generated_run(
+        _recipe("mclmc"), run, _telemetry(), _reference(), n_chunks=2
+    )
+    auto = out.gate_evidence["auto"]
+
+    assert auto["n_divergences"] is None
+    assert auto["n_nonfinite_proposals"] == 1
+    assert auto["n_proposals_evaluated"] == 20
+    assert auto["nonfinite_proposal_rate"] == 1 / 20
+    assert auto["margins"]["n_nonfinite_proposals"] == {
+        "value": 1,
+        "band": "REVIEW",
+        "n_proposals_evaluated": 20,
+        "nonfinite_proposal_rate": 1 / 20,
+        "policy_id": "tuningfork.nonfinite-proposal-review.v1",
+        "policy_status": "provisional",
+        "calibrated": False,
+    }
+    assert auto["verdict"] != "PASS"
