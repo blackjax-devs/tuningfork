@@ -35,6 +35,18 @@ _ALLOWED_TUNINGFORK_IMPORTS = frozenset(
 # Rules describe each current explicit generation failure; the frozen label set
 # prevents a broad or stale glob from silently classifying a new recipe.
 _FAILURE_RULES = (
+    # Registered capability gap: baked-replay recipes with sidecar-stored IMM
+    # are not yet emittable.  Root cause: the baked-replay guard
+    # (_emit_script.py:741-757) requires a pinned inverse_mass_matrix, but
+    # these recipes store it in a committed .imm.npz sidecar which Recipe.load()
+    # does not hydrate, and array-valued params are not JSON-safe in the
+    # manifest.  The capability itself works (stoch_vol LRD emits fine); the
+    # gap is the baked-replay + sidecar-IMM combination, which is PR-introduced.
+    # german_credit/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json and
+    # ill_cond_50/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json are certified
+    # PASS and MUST become emittable when sidecar-IMM replay support lands.
+    # Per docs/design/codegen-first-recipes.md § Custom sampling scripts, this
+    # is a temporary owned exception, not a permanent rule.
     (
         "*/recipes/low__mclmc_lrd__mclmc_lrd_tuning.json",
         ValueError,
