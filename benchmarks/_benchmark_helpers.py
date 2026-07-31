@@ -18,7 +18,6 @@ Used by both test_fast_recipes.py and test_e2e_recipes.py.
 from __future__ import annotations
 
 import json
-import warnings
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -33,10 +32,6 @@ _N_SAMPLES = 1000  # matches recipe-cert n_samp=4000 (1000×4 chains) for z<2.0
 _Z_THRESHOLD = (
     4.0  # PASS gate: mock proved 2.0 false-positives hard geometries (z<=3.8)
 )
-_BENCHMARK_SEED = (
-    20260531  # fixed seed for reproducible runs (legacy; overridden by nightly)
-)
-
 # Per-cell JAX/blackjax-drift detection tolerances (provisional; statistician to refine)
 _JAX_DRIFT_ESS_FLOOR_FACTOR = 0.5  # warn if rerun ESS < 50% of committed recipe value
 _JAX_DRIFT_Z_DELTA = 2.0  # warn if rerun z > committed_z + 2.0
@@ -193,46 +188,7 @@ def extract_cell_metrics(
 
 
 # ---------------------------------------------------------------------------
-# JIT warmup pass (P1)
-# ---------------------------------------------------------------------------
-
-
-def run_jit_warmup(seed: int = _BENCHMARK_SEED) -> None:
-    """Run one throwaway calibrated cell to warm the XLA JIT cache.
-
-    The mock showed up to 63% ESS difference between cold-start (first cell) and
-    warm runs.  This pass stabilises subsequent cells.  Silently skips if the
-    logistic_synthetic/nuts recipe is absent (CI bootstraps cleanly).
-    """
-    from tuningfork.catalog.inspect import load_recipe
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
-
-    warmup_recipe_path = (
-        _CATALOG_ROOT
-        / "logistic_synthetic"
-        / "recipes"
-        / "low__nuts__window_adaptation_diag_imm.json"
-    )
-    if not warmup_recipe_path.exists():
-        return  # absent on fresh checkouts — skip silently
-    try:
-        recipe = load_recipe(warmup_recipe_path)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            run_recipe_to_idata(
-                recipe,
-                skip_warmup=True,
-                n_samples=100,
-                force_resample_config={"seed": seed, "n_samples": 100},
-                _suppress_print=True,
-                _no_tap=True,  # benchmark context: never touch tap regardless of env var
-            )
-    except Exception:  # noqa: BLE001
-        pass  # best-effort; never break the benchmark run
-
-
-# ---------------------------------------------------------------------------
-# Per-cell compile-warmup and JAX-drift detection helpers
+# Per-cell JAX-drift detection helpers
 # ---------------------------------------------------------------------------
 
 
@@ -241,7 +197,7 @@ def _get_committed_metrics(
 ) -> tuple[int | None, float | None, float | None]:
     """Extract (tuning_seed, committed_min_bulk_ess, committed_max_abs_mean_z).
 
-    Used to seed the compile-warmup run and compare the rerun against the
+    Used to seed the drift probe and compare the rerun against the
     recipe's certified metrics for JAX/blackjax-drift detection.
     """
     tuning_seed: int | None = getattr(recipe, "tuning_seed", None)
@@ -366,6 +322,52 @@ def _mean_metrics(m1: dict[str, Any], m2: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _run_generated(
+    recipe: Any,
+    model_name: str,
+    mode: str,
+    seed: int,
+    n_samples: int,
+) -> tuple[Any, float | None, float | None]:
+    """Execute one standalone generated program and load its verified artifact.
+
+    Returns InferenceData plus child-reported warmup and sampling timings.  Each
+    call launches a fresh subprocess; no warm-JIT persistence is assumed across
+    calls.
+    """
+    if mode not in {"e2e", "calibrated"}:
+        raise ValueError(f"benchmark mode must be 'e2e' or 'calibrated'; got {mode!r}")
+    if getattr(recipe, "model_name", None) != model_name:
+        raise ValueError(
+            "benchmark model does not match recipe: "
+            f"{model_name!r} != {getattr(recipe, 'model_name', None)!r}"
+        )
+
+    from tuningfork.catalog import (
+        execute_recipe,
+        load_generated_idata,
+        prepare_pinned_replay,
+    )
+
+    if mode == "calibrated":
+        recipe = prepare_pinned_replay(recipe, catalog_root=_CATALOG_ROOT)
+    run_root = _CATALOG_ROOT / model_name / "_cache" / "generated_runs"
+    result = execute_recipe(
+        recipe,
+        run_root,
+        tuning_seed=seed,
+        num_samples=n_samples,
+        diagnostics=False,
+    )
+    if result.artifact_path is None:
+        raise RuntimeError("generated execution succeeded without a verified artifact")
+    idata = load_generated_idata(result.artifact_path)
+    timings = result.timings
+    if timings is None:
+        return idata, None, None
+    return idata, timings.warmup_seconds, timings.sampling_seconds
+
+
 def run_benchmark_cell(
     benchmark: Any,
     model_name: str,
@@ -373,18 +375,19 @@ def run_benchmark_cell(
     mode: str,
     run_date: date | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Run a single benchmark cell with compile-warmup + 3 date-seeds x 2 warm runs.
+    """Run a benchmark cell with one drift probe + 3 date-seeds x 2 runs.
 
     Cell shape: **7 runs total** per cell.
 
-    1. **Compile-warmup** (1 run, discarded from metrics):
-       Runs the cell with the recipe's committed ``tuning_seed`` to compile the
-       XLA executable so all date-seeds execute on a warm JIT cache.
-       The warmup-run metrics are compared to the recipe's committed
+    1. **Drift probe** (1 run, discarded from benchmark metrics):
+       Runs the cell with the recipe's committed ``tuning_seed``. Its metrics
+       are compared to the recipe's committed
        ``gate_evidence.auto`` values: a significant drop in ESS or spike in z
        emits a ``::warning::JAX_DRIFT`` annotation (JAX/blackjax numeric drift).
+       Generated executions are independent subprocesses; no in-memory JIT
+       warming is assumed.
 
-    2. **3 date-seeds x 2 warm runs** (6 runs, all warm):
+    2. **3 date-seeds x 2 runs** (6 runs):
        Each seed is run twice.  Per-seed metric = mean of the 2 runs.
        If the 2 runs of a seed disagree beyond tolerance a
        ``::warning::DETERMINISM_WARN`` annotation is emitted (warm + fixed-seed
@@ -407,13 +410,11 @@ def run_benchmark_cell(
     import time
 
     from tuningfork.catalog.inspect import load_recipe
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
 
     recipe_path = _CATALOG_ROOT / model_name / "recipes" / recipe_file
     if not recipe_path.exists():
         pytest.skip(f"Recipe not found on disk: {recipe_path}")
     recipe = load_recipe(recipe_path)
-
     # ------------------------------------------------------------------
     # JAX version mismatch guard — emit a GHA annotation when the
     # benchmarking JAX version differs from the recipe's cert JAX.
@@ -440,34 +441,33 @@ def run_benchmark_cell(
         )
 
     seeds = get_nightly_seeds(run_date)
-    skip_warmup = mode == "calibrated"
     per_seed_metrics: dict[int, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
-    # Step 1: compile-warmup with recipe's committed tuning_seed.
+    # Step 1: drift probe with recipe's committed tuning_seed.
     # Outside the benchmark() call — not timed, result discarded.
-    # Best-effort: never break the benchmark run on warmup failure.
+    # Best-effort: never break the benchmark run on probe failure.
     # JAX-drift flag + details stored in extra_info for run_nightly.py.
     # ------------------------------------------------------------------
     tuning_seed, committed_ess, committed_z = _get_committed_metrics(recipe)
-    compile_seed = tuning_seed if tuning_seed is not None else seeds[0]
+    probe_seed = tuning_seed if tuning_seed is not None else seeds[0]
     jax_drift_flag: bool = False
     jax_drift_details: list[str] = []
     try:
-        idata_warmup = run_recipe_to_idata(
-            recipe,
-            skip_warmup=skip_warmup,
-            n_samples=_N_SAMPLES,
-            force_resample_config={"seed": compile_seed, "n_samples": _N_SAMPLES},
-            _suppress_print=True,
-            _no_tap=True,  # compile-warmup is outside the timed block; never tap
+        idata_warmup, warmup_s, sample_s = _run_generated(
+            recipe, model_name, mode, probe_seed, _N_SAMPLES
         )
-        warmup_metrics = extract_cell_metrics(idata_warmup, model_name)
+        warmup_metrics = extract_cell_metrics(
+            idata_warmup,
+            model_name,
+            warmup_wall_s=warmup_s if warmup_s is not None else 0.0,
+            sample_wall_s=sample_s if sample_s is not None else 0.0,
+        )
         jax_drift_flag, jax_drift_details = _check_jax_drift(
             warmup_metrics, committed_ess, committed_z, model_name, recipe_file
         )
     except Exception:  # noqa: BLE001
-        pass  # compile-warmup is best-effort; proceed to seed runs regardless
+        pass  # drift probe is best-effort; proceed to seed runs regardless
 
     # ------------------------------------------------------------------
     # Step 2: 3 date-seeds x 2 warm runs each.
@@ -480,19 +480,25 @@ def run_benchmark_cell(
             runs: list[dict[str, Any]] = []
             for _ in range(2):
                 t0 = time.perf_counter()
-                idata = run_recipe_to_idata(
-                    recipe,
-                    skip_warmup=skip_warmup,
-                    n_samples=_N_SAMPLES,
-                    force_resample_config=(
-                        None if skip_warmup else {"seed": s, "n_samples": _N_SAMPLES}
-                    ),
-                    _suppress_print=True,
-                    _no_tap=True,  # timed body: structurally gates tap from all timing
+                idata, warmup_s, sample_s = _run_generated(
+                    recipe, model_name, mode, s, _N_SAMPLES
                 )
                 t_run = time.perf_counter() - t0
                 runs.append(
-                    extract_cell_metrics(idata, model_name, warmup_wall_s=t_run)
+                    extract_cell_metrics(
+                        idata,
+                        model_name,
+                        warmup_wall_s=(
+                            warmup_s
+                            if warmup_s is not None
+                            else (0.0 if mode == "calibrated" else t_run)
+                        ),
+                        sample_wall_s=(
+                            sample_s
+                            if sample_s is not None
+                            else (t_run if mode == "calibrated" else 0.0)
+                        ),
+                    )
                 )
             _check_within_seed_determinism(runs[0], runs[1], s, model_name, recipe_file)
             per_seed_metrics[s] = _mean_metrics(runs[0], runs[1])

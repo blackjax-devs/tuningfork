@@ -1,11 +1,11 @@
 import pytest
 
 from tuningfork.catalog.inspect import load_recipe
-from tuningfork.recipes._emit_script import emit_script
 from tuningfork.recipes._emit._diagnostics import (
     emit_diagnostics,
     emit_diagnostics_close,
 )
+from tuningfork.recipes._emit_script import emit_script
 
 pytestmark = pytest.mark.fast
 

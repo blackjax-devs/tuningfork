@@ -93,6 +93,8 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
         body = _emit_laplace_multiphase_warmup(ctx)
     elif warmup_name == "mclmc_tuning":
         body = _emit_mclmc_tuning(ctx)
+    elif warmup_name == "adjusted_mclmc_tuning":
+        body = _emit_adjusted_mclmc_tuning(ctx)
     elif warmup_name == "mclmc_lrd_tuning":
         body = _emit_mclmc_lrd_tuning(ctx)
     elif warmup_name == "chees":
@@ -1004,6 +1006,45 @@ def _emit_mclmc_tuning(ctx: dict[str, Any]) -> str:
     a("_state_post_warmup = _mclmc_states")
     a("_warmup_is_perchain = True")
 
+    return "\n".join(lines)
+
+
+def _emit_adjusted_mclmc_tuning(ctx: dict[str, Any]) -> str:
+    """Emit adjusted-MCLMC adaptation with per-chain L/step/IMM outputs."""
+    lines: list[str] = []
+    a = lines.append
+    n_warmup = ctx["n_warmup"]
+    tuning_seed = ctx["tuning_seed"]
+    num_chains = ctx["num_chains"]
+    a("# === WARMUP: adjusted_mclmc_tuning (diagonal adaptation) ===")
+    a(f"_adjusted_keys = jax.random.split(jax.random.key({tuning_seed}), {num_chains})")
+    a("_adjusted_positions = jax.tree.map(")
+    a(
+        f"    lambda x: jnp.broadcast_to(x[None], ({num_chains},) + x.shape), init_position"
+    )
+    a(")")
+    a("@jax.vmap")
+    a("def _adjusted_init_one(x0):")
+    a("    return blackjax.mcmc.adjusted_mclmc.init(x0, logdensity_fn)")
+    a("_adjusted_states = _adjusted_init_one(_adjusted_positions)")
+    a("_adjusted_kernel = blackjax.mcmc.adjusted_mclmc.build_kernel()")
+    a("@jax.vmap")
+    a("def _adjusted_tune_one(k, state):")
+    a("    return blackjax.adjusted_mclmc_find_L_and_step_size(")
+    a("        _adjusted_kernel, logdensity_fn=logdensity_fn,")
+    a(f"        num_steps={n_warmup}, state=state, rng_key=k, target=0.9,")
+    a("        diagonal_preconditioning=True,")
+    a("    )")
+    a(
+        "_adjusted_states, _adjusted_adap, _ = _adjusted_tune_one(_adjusted_keys, _adjusted_states)"
+    )
+    a("_adapted_params = {")
+    a('    "L": _adjusted_adap.L,')
+    a('    "step_size": _adjusted_adap.step_size,')
+    a('    "inverse_mass_matrix": _adjusted_adap.inverse_mass_matrix,')
+    a("}")
+    a("_state_post_warmup = _adjusted_states")
+    a("_warmup_is_perchain = True")
     return "\n".join(lines)
 
 

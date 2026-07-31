@@ -155,9 +155,8 @@ class Effort(str, Enum):
 class SplitSource(str, Enum):
     """How the ``warmup_wall_seconds`` / ``sampling_wall_seconds`` split was obtained.
 
-    MEASURED   — both phases were timed at Python orchestration level by the
-                 recipe runner (``emit_low_recipe_for_cell`` or
-                 ``run_recipe_to_idata``).  The most trustworthy source.
+    MEASURED   — both phases were timed by recipe certification or generated
+                 execution. The most trustworthy source.
     MANUAL     — a human set the values by hand (e.g., timing from an external
                  run log, or a retrospective estimate).
     ANALYTIC_NA — analytic-path model: no warmup or sampling phase exists
@@ -1680,6 +1679,7 @@ class Recipe:
         provenance.setdefault(
             "warmup_num_chains", copy.deepcopy(self.warmup_num_chains)
         )
+        provenance.setdefault("init_strategy", copy.deepcopy(self.init_strategy))
         return replace(
             self,
             warmup_name="no_warmup",

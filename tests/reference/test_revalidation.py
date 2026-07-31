@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -189,7 +190,7 @@ class TestComputeStage1Verdict:
 class TestClassifyRecipePath:
     """Unit tests for classify_recipe_path."""
 
-    def _make_recipe(self, tmp_path, model: str, stem: str, content: dict) -> object:
+    def _make_recipe(self, tmp_path, model: str, stem: str, content: dict) -> Path:
         """Create a minimal recipe JSON at the expected catalog structure."""
         # Mimic catalog/<model>/recipes/<stem>.json layout
         model_dir = tmp_path / model
@@ -249,12 +250,16 @@ class TestClassifyRecipePath:
         assert classify_recipe_path(path) == "A"
 
     def test_path_b_no_cache_skip_warmup(self, tmp_path):
-        """nuts recipe without cached draws → path B."""
+        """A complete pinned NUTS recipe without cached draws uses path B."""
         model = "mvn_10"
         stem = "low__nuts__window_adaptation_diag_imm"
         recipe = {
             "gate_evidence": {"auto": {"verdict": "PASS"}},
             "base_method_name": "nuts",
+            "base_method_params": {
+                "step_size": 0.2,
+                "inverse_mass_matrix": [1.0],
+            },
             "calibration_budget": {"num_chains": 4},
         }
         path = self._make_recipe(tmp_path, model, stem, recipe)
@@ -264,7 +269,7 @@ class TestClassifyRecipePath:
         assert classify_recipe_path(path) == "B"
 
     def test_path_c_for_mclmc(self, tmp_path):
-        """mclmc recipe without cached draws → path C (full warmup required)."""
+        """MCLMC without complete stored geometry requires full warmup."""
         model = "mvn_10"
         stem = "low__mclmc__mclmc_tuning"
         recipe = {
@@ -277,20 +282,64 @@ class TestClassifyRecipePath:
 
         assert classify_recipe_path(path) == "C"
 
+    def test_path_b_for_pinned_mclmc(self, tmp_path):
+        """MCLMC with exact stored step/L/IMM uses generated pinned replay."""
+        model = "mvn_10"
+        stem = "low__mclmc__mclmc_tuning"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "mclmc",
+            "base_method_params": {
+                "step_size": 0.2,
+                "L": 1.5,
+                "inverse_mass_matrix": [1.0],
+            },
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        self._add_gt_files(tmp_path, model)
+
+        assert classify_recipe_path(path) == "B"
+
     def test_path_c_for_sidecar_imm(self, tmp_path):
-        """Recipe with sidecar IMM and no cache → path C."""
+        """A missing IMM sidecar cannot be treated as executable pinned geometry."""
         model = "mvn_10"
         stem = "low__nuts__low_rank_window_adaptation"
         recipe = {
             "gate_evidence": {"auto": {"verdict": "PASS"}},
             "base_method_name": "nuts",
-            "base_method_params": {"inverse_mass_matrix": "sidecar"},
+            "base_method_params": {
+                "step_size": 0.2,
+                "inverse_mass_matrix": "sidecar",
+            },
+            "inverse_mass_matrix_path": "mvn_10/recipes/missing.imm.npz",
             "calibration_budget": {"num_chains": 4},
         }
         path = self._make_recipe(tmp_path, model, stem, recipe)
         self._add_gt_files(tmp_path, model)
 
         assert classify_recipe_path(path) == "C"
+
+    def test_path_b_for_hydrated_sidecar_imm(self, tmp_path):
+        """A clone-local sidecar is executable pinned geometry."""
+        model = "mvn_10"
+        stem = "low__nuts__window_adaptation_dense_imm"
+        sidecar_name = f"{stem}.imm.npz"
+        recipe = {
+            "gate_evidence": {"auto": {"verdict": "PASS"}},
+            "base_method_name": "nuts",
+            "base_method_params": {
+                "step_size": 0.2,
+                "inverse_mass_matrix": "sidecar",
+            },
+            "inverse_mass_matrix_path": f"{model}/recipes/{sidecar_name}",
+            "calibration_budget": {"num_chains": 4},
+        }
+        path = self._make_recipe(tmp_path, model, stem, recipe)
+        (path.parent / sidecar_name).write_bytes(b"hydrated")
+        self._add_gt_files(tmp_path, model)
+
+        assert classify_recipe_path(path) == "B"
 
     def test_sk_for_vi_base_method(self, tmp_path):
         """VI base method → SK (W1 N/A)."""
@@ -424,14 +473,19 @@ class TestClassifyRecipePath:
         params (L=5→L=8) leaves the old _cache/<stem>.draws.npz on disk.
         Without the fix, classify_recipe_path returns "A" (loads stale draws →
         false FLIP). With the fix, the missing sidecar degrades out of path-A;
-        for a skip-warmup method (hmc) the regen classifier routes it to "B".
+        for an hmc method using pinned replay, the regen classifier routes it to
+        "B".
         """
         model = "german_credit"
         stem = "medium__hmc__window_adaptation_diag_imm"
         recipe = {
             "gate_evidence": {"auto": {"verdict": "PASS"}},
             "base_method_name": "hmc",
-            "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+            "base_method_params": {
+                "step_size": 0.2915,
+                "num_integration_steps": 8,
+                "inverse_mass_matrix": [1.0],
+            },
             "warmup_params": {"target_acceptance": 0.8},
             "calibration_budget": {"num_chains": 4},
         }
@@ -450,7 +504,11 @@ class TestClassifyRecipePath:
         recipe = {
             "gate_evidence": {"auto": {"verdict": "PASS"}},
             "base_method_name": "hmc",
-            "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+            "base_method_params": {
+                "step_size": 0.2915,
+                "num_integration_steps": 8,
+                "inverse_mass_matrix": [1.0],
+            },
             "warmup_params": {"target_acceptance": 0.8},
             "calibration_budget": {"num_chains": 4},
         }
@@ -467,7 +525,7 @@ class TestClassifyRecipePath:
                     "step_size": 0.2915,
                     "num_integration_steps": 8,
                     "target_acceptance": 0.8,
-                    "imm_l2_norm": None,
+                    "imm_l2_norm": 1.0,
                 }
             )
         )
@@ -481,7 +539,11 @@ class TestClassifyRecipePath:
         recipe = {
             "gate_evidence": {"auto": {"verdict": "PASS"}},
             "base_method_name": "hmc",
-            "base_method_params": {"step_size": 0.2915, "num_integration_steps": 8},
+            "base_method_params": {
+                "step_size": 0.2915,
+                "num_integration_steps": 8,
+                "inverse_mass_matrix": [1.0],
+            },
             "warmup_params": {"target_acceptance": 0.8},
             "calibration_budget": {"num_chains": 4},
         }
@@ -509,8 +571,8 @@ class TestClassifyRecipePath:
         """Stale MCLMC cache (no sidecar) → path C, not B.
 
         Fall-through design: degrading out of path-A routes the cell to its
-        method's fresh-draws path.  MCLMC needs a full warmup re-run, so a stale
-        MCLMC cache must reach path-C, never the skip-warmup path-B.
+        method's fresh-draws path. This fixture has no stored step/L/IMM, so it
+        must reach path-C rather than invent pinned geometry.
         """
         model = "mvn_10"
         stem = "low__mclmc__mclmc_tuning"
@@ -529,7 +591,8 @@ class TestClassifyRecipePath:
         """Stale Laplace cache (no sidecar) → SK, not B.
 
         A Laplace cell is MAP-init sensitive: without trustworthy draws it must
-        be skipped, never re-run skip-warmup.  A blanket "B" degradation would
+        be skipped, never run through the canonical pinned replay. A blanket
+        "B" degradation would
         wrongly regenerate it; the fall-through preserves the SK guard.
         """
         model = "mvn_10"
@@ -585,6 +648,8 @@ class TestGeneratedResampling:
     """Generated execution is used for both re-generation paths."""
 
     def _recipe(self):
+        from tuningfork.recipes import Effort
+
         @dataclass(frozen=True)
         class RecipeStub:
             warmup_name: str
@@ -594,6 +659,9 @@ class TestGeneratedResampling:
             base_method_params: dict
             tuning_seed: int = 0
             init_strategy: dict | None = None
+            model_name: str = "model"
+            effort: object = Effort.LOW
+            inverse_mass_matrix_path: str | None = None
 
             def normalize_pinned_replay(self):
                 from dataclasses import replace
@@ -653,14 +721,14 @@ class TestGeneratedResampling:
         configured, run_root, kwargs = calls[0]
         assert configured is not recipe
         assert configured.warmup_name == "no_warmup"
-        assert configured.tuning_seed == 17
+        assert configured.tuning_seed == recipe.tuning_seed
         assert configured.init_strategy["type"] == "reference_summary"
         assert configured.init_strategy["mean"] == {"x": [0.0]}
         assert configured.warmup_params == {}
         assert configured.warmups == [{"name": "no_warmup", "params": {}}]
         assert configured.base_method_params == recipe.base_method_params
         assert run_root == tmp_path / "model" / "_cache" / "generated_runs"
-        assert kwargs == {"num_samples": 3}
+        assert kwargs == {"num_samples": 3, "tuning_seed": 17}
         np.testing.assert_array_equal(draws["x"], np.ones((2, 3, 1)))
         assert n_div == 1
 
@@ -690,5 +758,6 @@ class TestGeneratedResampling:
             seed=23,
         )
 
-        assert calls[0][0].tuning_seed == 23
-        assert calls[0][1] == {"num_samples": 2}
+        assert calls[0][0] is recipe
+        assert calls[0][0].tuning_seed == 99
+        assert calls[0][1] == {"num_samples": 2, "tuning_seed": 23}

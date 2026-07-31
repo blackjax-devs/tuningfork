@@ -964,6 +964,7 @@ def test_normalize_pinned_replay_is_lossless_and_preserves_provenance() -> None:
         warmup_params={"n_warmup": 12},
         warmups=[{"name": "window_adaptation_diag_imm", "params": {"n_warmup": 12}}],
         warmup_num_chains=[1],
+        init_strategy={"type": "uniform", "low": -2.0, "high": 2.0},
         calibration_budget={
             "baked_from": {"warmup_name": "legacy_name", "custom": "keep"},
             "extra": {"evidence": True},
@@ -972,7 +973,12 @@ def test_normalize_pinned_replay_is_lossless_and_preserves_provenance() -> None:
         sample_quality=None,
         difficulty=None,
         instructions="",
+        notes="negative path retained",
+        workflow="attempt A failed; attempt B diverged",
         gate_evidence={"auto": {"verdict": "FAIL"}},
+        failure_diagnosis="legacy diagnosis",
+        attempted_configurations=[{"seed": 7, "verdict": "FAIL", "extra": "keep"}],
+        _extra_fields={"local_annotation": {"keep": True}},
         tuning_seed=0,
     )
     normalized = recipe.normalize_pinned_replay()
@@ -985,9 +991,19 @@ def test_normalize_pinned_replay_is_lossless_and_preserves_provenance() -> None:
     assert normalized.calibration_budget["baked_from"]["warmup_params"] == {
         "n_warmup": 12
     }
+    assert normalized.calibration_budget["baked_from"]["init_strategy"] == {
+        "type": "uniform",
+        "low": -2.0,
+        "high": 2.0,
+    }
     assert normalized.calibration_budget["extra"] == {"evidence": True}
     assert normalized.effort is Effort.FAILED
     assert normalized.gate_evidence == recipe.gate_evidence
+    assert normalized.notes == recipe.notes
+    assert normalized.workflow == recipe.workflow
+    assert normalized.failure_diagnosis == recipe.failure_diagnosis
+    assert normalized.attempted_configurations == recipe.attempted_configurations
+    assert normalized._extra_fields == recipe._extra_fields
 
 
 @pytest.mark.fast

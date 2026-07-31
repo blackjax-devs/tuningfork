@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Opt-in tap diagnostics for run_recipe_to_idata.
+"""Opt-in tap diagnostics for generated recipe execution.
 
 Enable by setting the ``TUNINGFORK_TAP_DIAGNOSTICS`` environment variable
 before running any recipe.  Default: **OFF** — with the variable unset, jaxtap
@@ -117,7 +117,7 @@ Bug 2 (``rewrite_while.cond_fn`` non-scalar cond return).  Both fixed in
 - Bug 2 (``rewrite_while.cond_fn``): non-scalar cond return — FIXED in 0.2.1.
 
 Never-crash invariant (permanent design, applies to UNKNOWN algorithms):
-``run_recipe_to_idata`` checks ``is_algorithm_tap_compatible`` before
+generated programs check ``is_algorithm_tap_compatible`` before
 entering ``tap_diagnostics_context``.  Unknown or future algorithms default
 to False (warn-and-skip rather than crash) until explicitly added to the
 allowlist.  This guard stays even after the 0.2.1 fix — it protects against
@@ -140,10 +140,9 @@ The artifact is created even when no alerts fire (records all sampled carry
 states and primitive-tap values).  At run-end, if any alerts were collected,
 ``logging.WARNING`` is emitted with a count and the artifact path.
 
-Speed paths (``_no_tap=True`` callers, e.g. the Speed-lite benchmark and all
-three timing paths in ``_benchmark_helpers.run_benchmark_cell``) are
-structurally gated and ignore the env var — zero tap overhead on any timed
-path regardless of the env var.
+Speed paths pass ``diagnostics=False`` to :func:`tuningfork.catalog.execute_recipe`;
+they are structurally gated and ignore the environment variable, so timed paths
+have zero tap overhead.
 """
 
 from __future__ import annotations
@@ -210,7 +209,7 @@ def is_tap_enabled() -> bool:
     "Non-off" means: non-empty and not ``"0"``.  Both ``"1"`` and an absolute
     path string are truthy; unset and ``"0"`` are falsy.
 
-    Called by ``run_recipe_to_idata`` to decide whether to enter the tap
+    Called by generated recipe programs to decide whether to enter the tap
     context.  With the variable unset or ``"0"``, returns False and zero
     jaxtap involvement.
     """

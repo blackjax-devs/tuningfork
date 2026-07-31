@@ -105,7 +105,14 @@ def resolve_execution_plan(
             else wp.get("num_chains", budget.get("num_chains", legacy_chain_default))
         ),
     )
-    tuning_seed = _seed("tuning_seed", getattr(recipe, "tuning_seed", 0))
+    tuning_seed = _seed(
+        "tuning_seed",
+        (
+            ov.tuning_seed
+            if ov.tuning_seed is not None
+            else getattr(recipe, "tuning_seed", 0)
+        ),
+    )
     seed = ov.sampler_seed if ov.sampler_seed is not None else tuning_seed + 1
     _seed("sampler_seed", seed)
     reinit_seed = ov.reinit_seed if ov.reinit_seed is not None else tuning_seed + 999

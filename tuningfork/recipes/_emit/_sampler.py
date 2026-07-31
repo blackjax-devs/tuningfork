@@ -90,6 +90,93 @@ def _is_numeric_tree(value: Any) -> bool:
     return False
 
 
+def _is_sidecar_sentinel(value: Any) -> bool:
+    return isinstance(value, str) and value == "sidecar"
+
+
+def _validate_low_rank_marker(
+    value: Any,
+) -> tuple[list[Any], list[list[Any]], list[Any]]:
+    """Validate and unpack the JSON-safe low-rank IMM marker."""
+    if not isinstance(value, dict) or set(value) != {"type", "sigma", "U", "lam"}:
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: expected exactly type, "
+            "sigma, U, lam"
+        )
+    if value["type"] != "low_rank_inverse_mass_matrix":
+        raise ValueError(f"Unsupported inverse mass marker type: {value['type']!r}")
+    sigma, basis, lam = value["sigma"], value["U"], value["lam"]
+    if (
+        not isinstance(sigma, list)
+        or not isinstance(basis, list)
+        or not isinstance(lam, list)
+    ):
+        raise ValueError("Malformed low-rank inverse mass marker: arrays must be lists")
+    if not all(isinstance(row, list) for row in basis):
+        raise ValueError("Malformed low-rank inverse mass marker: U must be a matrix")
+    if not sigma or not basis or not lam:
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: arrays must be non-empty"
+        )
+    if len(basis) != len(sigma) or len(basis[0]) != len(lam):
+        raise ValueError("Malformed low-rank inverse mass marker: inconsistent shapes")
+    if len(lam) > len(sigma):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: rank exceeds dimension"
+        )
+    if any(len(row) != len(lam) for row in basis):
+        raise ValueError("Malformed low-rank inverse mass marker: inconsistent U rows")
+    import math
+    import numbers
+
+    def valid_scalar(x: Any) -> bool:
+        return (
+            isinstance(x, numbers.Real)
+            and not isinstance(x, bool)
+            and math.isfinite(float(x))
+        )
+
+    if not all(valid_scalar(x) and x > 0 for x in sigma + lam):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: sigma and lam must be "
+            "positive finite numbers"
+        )
+    if not all(valid_scalar(x) for row in basis for x in row):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: U must contain finite real numbers"
+        )
+    import numpy as np
+
+    gram = np.asarray(basis, dtype=float).T @ np.asarray(basis, dtype=float)
+    if not np.allclose(gram, np.eye(len(lam)), rtol=1e-5, atol=1e-6):
+        raise ValueError(
+            "Malformed low-rank inverse mass marker: U columns must be orthonormal"
+        )
+    return sigma, basis, lam
+
+
+def _emit_imm_assignment(lines: list[str], target: str, value: Any) -> None:
+    """Emit a strict inline IMM assignment, including low-rank markers."""
+    if isinstance(value, dict):
+        sigma, basis, lam = _validate_low_rank_marker(value)
+        lines.append(
+            "from blackjax.mcmc.metrics import LowRankInverseMassMatrix "
+            "as _LowRankInverseMassMatrix"
+        )
+        lines.append(f"{target} = _LowRankInverseMassMatrix(")
+        lines.append(f"    sigma=jnp.asarray({sigma!r}),")
+        lines.append(f"    U=jnp.asarray({basis!r}),")
+        lines.append(f"    lam=jnp.asarray({lam!r}),")
+        lines.append(")")
+    elif _is_numeric_tree(value):
+        lines.append(f"{target} = jnp.asarray({value!r})")
+    else:
+        raise ValueError(
+            "No-warmup replay requires a numeric inverse mass matrix or a "
+            "valid low-rank marker"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -133,6 +220,10 @@ def emit_sampler(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             body = _emit_mala(base_method, ctx)
         elif name == "mclmc":
             body = _emit_mclmc(base_method, ctx)
+        elif name == "adjusted_mclmc":
+            body = _emit_adjusted_mclmc(base_method, ctx)
+        elif name == "adjusted_mclmc_dynamic":
+            body = _emit_adjusted_mclmc(base_method, ctx)
         else:
             # HMC family: nuts, hmc, mhmc, rmhmc, dynamic_hmc, dmhmc, ghmc, barker
             body = _emit_hmc_family(base_method, ctx)
@@ -199,7 +290,8 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     _bm_imm = ctx.get("bm_inverse_mass_matrix")
     _is_baked_replay = bool(ctx.get("is_baked_replay", False))
     if _is_baked_replay and (
-        not _is_numeric_tree(_bm_step_size) or not _is_numeric_tree(_bm_imm)
+        not _is_numeric_tree(_bm_step_size)
+        or (not _is_numeric_tree(_bm_imm) and not isinstance(_bm_imm, dict))
     ):
         raise ValueError(
             "No-warmup replay requires numeric inline step_size and "
@@ -207,10 +299,10 @@ def _emit_hmc_family(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
             "refusing to use a sidecar sentinel or invent sampler tuning."
         )
     a(f"_default_step_size = {_bm_step_size!r}")
-    if not _is_numeric_tree(_bm_imm):
+    if _bm_imm is None or (_is_sidecar_sentinel(_bm_imm) and not _is_baked_replay):
         a("_default_imm = jnp.ones(_n_params)")
     else:
-        a(f"_default_imm = jnp.asarray({_bm_imm!r})")
+        _emit_imm_assignment(lines, "_default_imm", _bm_imm)
 
     # num_integration_steps: recipe-pinned HP for hmc/mhmc/rmhmc.
     if has_nis:
@@ -555,6 +647,13 @@ def _emit_rwm(_base_method: BaseMethod, ctx: dict[str, Any]) -> str:
         "    return unravel(flat + jax.random.normal(rng_key, shape=flat.shape) * _default_step_size)"
     )
     a("")
+    a("def _state_init(position, rng_key):")
+    a("    return blackjax.mclmc(")
+    a("        logdensity_fn,")
+    a("        step_size=_default_step_size,")
+    a("        inverse_mass_matrix=_default_imm,")
+    a("        L=_default_L,")
+    a("    ).init(position, rng_key)")
     a("")
     a("try:")
     a("    _state_post_warmup")
@@ -900,6 +999,18 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     """
     lines: list[str] = []
     a = lines.append
+    step = ctx.get("bm_step_size")
+    trajectory_length = ctx.get("bm_L")
+    imm = ctx.get("bm_inverse_mass_matrix")
+    baked = bool(ctx.get("is_baked_replay", False))
+    if baked and (
+        not _is_numeric_tree(step)
+        or not _is_numeric_tree(trajectory_length)
+        or (not _is_numeric_tree(imm) and not isinstance(imm, dict))
+    ):
+        raise ValueError(
+            "No-warmup mclmc replay requires numeric step_size, L, and IMM"
+        )
 
     a("# === SAMPLER: mclmc ===")
     a("# kernel_builder(step_size, imm, L) wraps blackjax.mclmc.")
@@ -911,6 +1022,15 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a(
         "import blackjax.mcmc.mclmc  # noqa: F401 (needed for init; sampler uses blackjax.mclmc)"
     )
+    a("from jax.flatten_util import ravel_pytree as _ravel_pytree")
+    a("_flat_init, _ = _ravel_pytree(init_position)")
+    a("_n_params = int(_flat_init.shape[0])")
+    a(f"_default_step_size = {step if step is not None else 1.0!r}")
+    a(f"_default_L = {trajectory_length if trajectory_length is not None else 1.0!r}")
+    if imm is None or (_is_sidecar_sentinel(imm) and not baked):
+        a("_default_imm = jnp.ones(_n_params)")
+    else:
+        _emit_imm_assignment(lines, "_default_imm", imm)
     a("")
     a("")
     a("def kernel_builder(step_size, imm, L=None):")
@@ -919,21 +1039,110 @@ def _emit_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
     a("        logdensity_fn,")
     a("        step_size=step_size,")
     a("        inverse_mass_matrix=imm,")
-    a("        L=L if L is not None else 1.0,")
+    a("        L=L if L is not None else _default_L,")
     a("    ).step")
     a("")
+    a("")
+    a("def _state_init(position, rng_key):")
+    a("    return blackjax.mclmc(")
+    a("        logdensity_fn, step_size=_default_step_size,")
+    a("        inverse_mass_matrix=_default_imm, L=_default_L")
+    a("    ).init(position, rng_key)")
     a("")
     a("try:")
     a("    _state_post_warmup")
     a("except NameError:")
-    a("    # no_warmup path: init from init_position with a fixed key.")
+    a("    # no_warmup path: init from init_position with the per-chain key.")
     a("    _warmup_init_is_single_chain = True")
-    a("    _no_warmup_init_key = jax.random.key(0)")
-    a("    _state_post_warmup = blackjax.mclmc(")
-    a("        logdensity_fn,")
-    a("        step_size=1.0,")
-    a("        inverse_mass_matrix=1.0,")
-    a("        L=1.0,")
-    a("    ).init(init_position, _no_warmup_init_key)")
+    a("    _state_post_warmup = _state_init(init_position, jax.random.key(0))")
 
+    return "\n".join(lines)
+
+
+def _emit_adjusted_mclmc(base_method: BaseMethod, ctx: dict[str, Any]) -> str:
+    """Emit static adjusted-MCLMC sampler with recipe-pinned L support."""
+    dynamic = base_method.name == "adjusted_mclmc_dynamic"
+    lines: list[str] = []
+    a = lines.append
+    step = ctx.get("bm_step_size", 1.0)
+    L = ctx.get("bm_L", 1.0)
+    imm = ctx.get("bm_inverse_mass_matrix")
+    baked = bool(ctx.get("is_baked_replay", False))
+    if baked and (
+        not _is_numeric_tree(step)
+        or not _is_numeric_tree(L)
+        or (imm is not None and not _is_numeric_tree(imm) and not isinstance(imm, dict))
+    ):
+        raise ValueError(
+            "No-warmup adjusted_mclmc replay requires numeric step_size, L, and IMM"
+        )
+    a("# === SAMPLER: adjusted_mclmc ===")
+    if dynamic:
+        a(
+            "from blackjax.mcmc.adjusted_mclmc_dynamic import make_random_trajectory_length_fn"
+        )
+        a("_steps_fn = make_random_trajectory_length_fn(True)")
+    a("from jax.flatten_util import ravel_pytree as _ravel_pytree")
+    a("_flat_init, _ = _ravel_pytree(init_position)")
+    a("_n_params = int(_flat_init.shape[0])")
+    a(f"_default_step_size = {step!r}")
+    a(f"_default_L = {L!r}")
+    if imm is None or (imm == "sidecar" and not baked):
+        a("_default_imm = jnp.ones(_n_params)")
+    else:
+        _emit_imm_assignment(lines, "_default_imm", imm)
+    a("")
+    a("def kernel_builder(step_size, imm, L=None):")
+    a("    _L = _default_L if L is None else L")
+    if dynamic:
+        a("    _trajectory_parameter = jnp.maximum(1.0, _L / step_size)")
+    else:
+        a(
+            "    _trajectory_parameter = "
+            "jnp.maximum(1, jnp.round(_L / step_size)).astype(jnp.int32)"
+        )
+    a(
+        "    return blackjax.adjusted_mclmc_dynamic("
+        if dynamic
+        else "    return blackjax.adjusted_mclmc("
+    )
+    a("        logdensity_fn, step_size=step_size,")
+    if dynamic:
+        a("        inverse_mass_matrix=imm, integration_steps_fn=_steps_fn,")
+        a("        integration_steps_params=(_trajectory_parameter,),")
+    else:
+        a("        inverse_mass_matrix=imm,")
+        a("        integration_steps_params=(_trajectory_parameter,),")
+    a("    ).step")
+    a("")
+    a("def _state_init(position, rng_key=None):  # noqa: ARG001")
+    if dynamic:
+        a(
+            "    return blackjax.adjusted_mclmc_dynamic.init(position, logdensity_fn, rng_key)"
+        )
+    else:
+        a("    return blackjax.adjusted_mclmc.init(position, logdensity_fn)")
+    a("")
+    a("try:")
+    a("    _state_post_warmup")
+    a("except NameError:")
+    a("    _warmup_init_is_single_chain = True")
+    if dynamic:
+        a("    _state_post_warmup = _state_init(init_position, jax.random.key(0))")
+    else:
+        a("    _state_post_warmup = _state_init(init_position)")
+    if dynamic:
+        a("")
+        a(
+            "def _state_reinit(step_size, inverse_mass_matrix, position, rng_key, L=None):"
+        )
+        a("    return blackjax.adjusted_mclmc_dynamic(")
+        a(
+            "        logdensity_fn, step_size=step_size, inverse_mass_matrix=inverse_mass_matrix,"
+        )
+        a("        integration_steps_fn=_steps_fn,")
+        a(
+            "        integration_steps_params=(jnp.maximum(1.0, (L if L is not None else _default_L) / step_size),),"
+        )
+        a("    ).init(position, rng_key)")
     return "\n".join(lines)

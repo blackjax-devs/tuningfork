@@ -75,6 +75,7 @@ def _thaw(value: Any) -> Any:
 
 @dataclass(frozen=True)
 class ExecutionOverrides:
+    tuning_seed: int | None = None
     sampler_seed: int | None = None
     num_samples: int | None = None
     num_chains: int | None = None

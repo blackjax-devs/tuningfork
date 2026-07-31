@@ -194,7 +194,7 @@ make benchmark-pr
 - **D5 budget cap**: select < 180 s, exec ≤ 240 s per cell.
 - **n_samples=500**: minimum for reliable GT z-score at threshold=2.0.
 - **GT-correctness gate**: each benchmark asserts `max_abs_mean_z < 2.0` vs `reference/summary.json` AFTER the timed run. This makes the benchmark a *correctness regression test*, not just timing.
-- **Two modes**: `e2e` (full warmup+sample) and `calibrated` (skip_warmup=True, sample only). Families where skip_warmup raises (mclmc momentum init, laplace phi-space) are `e2e` only.
+- **Two modes**: `e2e` (full warmup+sample) and `calibrated` (generated execution using the canonical pinned no-warmup replay, sample only). MCLMC cells remain `e2e` where the benchmark is intended to measure tuning; Laplace cells are `e2e` because pinned replay still needs a phi-space initializer.
 - **GitHub Actions**: nightly runs full Tier 1+2; per-PR runs Tier 1 calibrated only. Results stored as artifacts (90-day retention) + trend tracking via `benchmark-action/github-action-benchmark`.
 
 ### Adding a new benchmark cell

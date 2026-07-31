@@ -97,6 +97,35 @@ def test_seed_zero_and_default_budget_fallbacks():
             resolve_execution_plan(recipe(), ExecutionOverrides(**{field: -1}))
 
 
+def test_tuning_seed_override_drives_derived_seeds_without_mutating_recipe():
+    r = recipe(tuning_seed=4)
+    p = resolve_execution_plan(r, ExecutionOverrides(tuning_seed=41))
+    assert (p.config.tuning_seed, p.config.sampler_seed, p.config.reinit_seed) == (
+        41,
+        42,
+        1040,
+    )
+    assert r.tuning_seed == 4
+
+
+@pytest.mark.parametrize("value", [True, -1])
+def test_tuning_seed_override_rejects_bool_and_negative(value):
+    with pytest.raises(ValueError):
+        resolve_execution_plan(recipe(), ExecutionOverrides(tuning_seed=value))
+
+
+def test_independent_seed_overrides_take_precedence_over_tuning_seed():
+    p = resolve_execution_plan(
+        recipe(),
+        ExecutionOverrides(tuning_seed=41, sampler_seed=7, reinit_seed=9),
+    )
+    assert (p.config.tuning_seed, p.config.sampler_seed, p.config.reinit_seed) == (
+        41,
+        7,
+        9,
+    )
+
+
 def test_window_warmup_accepts_explicit_single_chain_topology():
     assert (
         resolve_execution_plan(recipe(), ExecutionOverrides(warmup_num_chains=[1]))

@@ -32,7 +32,6 @@ import pytest
 
 # Not a blanket module-level pytestmark: the emit_low_recipe_for_cell tests
 # are phase-level gates (warmup + sampling + auto-gate, >10s) -> e2e; the
-# _reduce_and_broadcast_warmup_output unit test is pure array math (<100ms)
 # -> fast; the _build_shared_kwargs/_reinit_batched_state unit tests are
 # single JAX-compiled warmup calls (<5s) -> slow. Marked individually below.
 
@@ -160,65 +159,6 @@ def test_meads_recipe_pins_inverse_mass_matrix(tmp_path: Path) -> None:
         "MEADS recipe pinned a null inverse_mass_matrix -- the "
         "momentum_inverse_scale alias regressed."
     )
-
-
-@pytest.mark.fast
-def test_reduce_and_broadcast_key_name_aware_for_meads() -> None:
-    """HARD-KEEP regression guard for bug 5: reduce-broadcast is key-name-aware.
-
-    _reduce_and_broadcast_warmup_output (used by run_recipe_to_idata's
-    warmup_num_chains adapt-many/sample-few path) hardcoded
-    warmup_params["inverse_mass_matrix"] -- a KeyError on MEADS's
-    "momentum_inverse_scale" key. Fixed via an explicit imm_kwarg_name
-    parameter (callers pass base_method.imm_kwarg_name -- the single source
-    of truth on the BaseMethod descriptor, ghmc: "momentum_inverse_scale",
-    everything else: the default "inverse_mass_matrix") rather than sniffing
-    which key is present; reduce+broadcast happens under that key name.
-    """
-    import jax.numpy as jnp
-
-    from tuningfork.recipes._recipe_runner import _reduce_and_broadcast_warmup_output
-
-    # MEADS-shaped warmup_params: momentum_inverse_scale, not inverse_mass_matrix.
-    num_warmup_chains, num_sampling_chains, d = 16, 4, 5
-    warmup_state = {"position": jnp.zeros((num_warmup_chains, d))}
-    warmup_params = {
-        "step_size": jnp.linspace(0.1, 0.2, num_warmup_chains),
-        "momentum_inverse_scale": jnp.ones((num_warmup_chains, d)) * 2.0,
-        "alpha": jnp.full((num_warmup_chains,), 0.5),
-        "delta": jnp.full((num_warmup_chains,), 0.25),
-    }
-    broadcasted_state, broadcasted_params = _reduce_and_broadcast_warmup_output(
-        warmup_state,
-        warmup_params,
-        num_warmup_chains,
-        num_sampling_chains,
-        imm_kwarg_name="momentum_inverse_scale",
-    )
-    assert "momentum_inverse_scale" in broadcasted_params, (
-        "Expected the reduce step to preserve the momentum_inverse_scale key "
-        f"name; got keys: {list(broadcasted_params)}"
-    )
-    assert "inverse_mass_matrix" not in broadcasted_params, (
-        "reduce_and_broadcast should not invent an inverse_mass_matrix key "
-        "when told imm_kwarg_name=momentum_inverse_scale."
-    )
-    reduced_imm = jnp.asarray(broadcasted_params["momentum_inverse_scale"])
-    assert reduced_imm.shape == (num_sampling_chains, d)
-    assert bool(jnp.allclose(reduced_imm, 2.0))
-
-    # Sibling check: standard inverse_mass_matrix-keyed input still works via
-    # the default imm_kwarg_name (no regression for window_adaptation-style
-    # warmups, which don't pass imm_kwarg_name explicitly).
-    warmup_params_std = {
-        "step_size": jnp.linspace(0.1, 0.2, num_warmup_chains),
-        "inverse_mass_matrix": jnp.ones((num_warmup_chains, d)) * 3.0,
-    }
-    _, broadcasted_std = _reduce_and_broadcast_warmup_output(
-        warmup_state, warmup_params_std, num_warmup_chains, num_sampling_chains
-    )
-    assert "inverse_mass_matrix" in broadcasted_std
-    assert bool(jnp.allclose(jnp.asarray(broadcasted_std["inverse_mass_matrix"]), 3.0))
 
 
 @pytest.mark.slow

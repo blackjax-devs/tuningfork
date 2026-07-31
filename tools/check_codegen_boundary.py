@@ -188,13 +188,6 @@ TRANSITIONAL_DEBT_BASELINE: Counter[Hit] = Counter(
             "run_inference_algorithm",
         ): 1,
         ("recipes/_recipe_runner.py", "emit_low_recipe_for_cell", "runner"): 1,
-        ("recipes/_recipe_runner.py", "run_recipe_to_idata", "factory"): 1,
-        (
-            "recipes/_recipe_runner.py",
-            "run_recipe_to_idata",
-            "run_inference_algorithm",
-        ): 1,
-        ("recipes/_recipe_runner.py", "run_recipe_to_idata", "runner"): 1,
         ("recipes/_smc_runner.py", "emit_smc_recipe_for_cell", "factory"): 2,
         ("recipes/_smc_runner.py", "emit_smc_recipe_for_cell", "run_smc"): 1,
         ("recipes/emit_mclmc_lrd.py", "_run_cert_seed", "runner"): 1,

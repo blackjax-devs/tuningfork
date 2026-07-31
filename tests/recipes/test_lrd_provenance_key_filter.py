@@ -14,15 +14,13 @@
 """Regression tests for _RECIPE_PROVENANCE_KEYS filtering in _recipe_runner.
 
 Bug: LRD recipes store ``k_rank`` (and ``ncp_variant``) in
-``base_method_params`` as provenance metadata.  The resample path
-(``run_recipe_to_idata``) splatted these into ``blackjax.mclmc(...)``
-via ``_build_shared_kwargs``, causing::
+``base_method_params`` as provenance metadata. The certification path splatted
+these into ``blackjax.mclmc(...)`` via ``_build_shared_kwargs``, causing::
 
     TypeError: as_top_level_api() got an unexpected keyword argument 'k_rank'
 
 Fix: ``_RECIPE_PROVENANCE_KEYS`` is subtracted from the set forwarded to
-``_build_shared_kwargs`` and from the ``_skip_extra_kwargs`` comprehension
-in the ``skip_warmup`` path.
+``_build_shared_kwargs``.
 
 Affected recipes (all carry ``k_rank`` in ``base_method_params``):
 - ill_cond_50  low__mclmc_lrd__mclmc_lrd_tuning

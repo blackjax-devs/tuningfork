@@ -18,7 +18,7 @@ Runs via:
     make benchmark         # fast + e2e (full nightly suite)
 
 Each benchmark:
-  1. Runs a PASS recipe's sampler via ``run_recipe_to_idata``.
+  1. Runs a PASS recipe through standalone generated execution.
   2. Times the run with pytest-benchmark (1 round per cell).
   3. Asserts GT-correctness post-timing: ``max_abs_mean_z < 2.0``.
 
@@ -52,7 +52,7 @@ def test_recipe_perf(
     """Benchmark a recipe's sampler across 3 date-derived seeds.
 
     All 3 seeds run in one timed block (3 timing samples + 3 regression inputs).
-    JIT is warmed once by the session-scoped conftest fixture before any cell runs.
+    Each generated execution is an independent subprocess.
     Per-seed metrics are stored in ``benchmark.extra_info["per_seed_metrics"]``.
     GT-correctness (max_abs_mean_z < 4.0) is asserted for all seeds.
 

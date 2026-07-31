@@ -34,6 +34,7 @@ Per-model artifacts live under ``tuningfork/catalog/<model>/`` (post R2,
 from tuningfork.catalog._rerun_inference import (
     cached_idata_for_recipe,
     load_generated_idata,
+    prepare_pinned_replay,
     regenerate_idata,
 )
 from tuningfork.catalog._timing import compute_total_warmup_steps, format_timing_context
@@ -65,6 +66,7 @@ __all__ = [
     "cached_idata_for_recipe",
     "load_generated_idata",
     "regenerate_idata",
+    "prepare_pinned_replay",
     "samples_to_idata",
     # diagnostics
     "render_universal_summary",

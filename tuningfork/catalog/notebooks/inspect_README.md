@@ -227,8 +227,8 @@ tuningfork/
 
 ## Tap diagnostics (opt-in)
 
-Set ``TUNINGFORK_TAP_DIAGNOSTICS`` before calling ``run_recipe_to_idata``
-to activate runtime carry / primitive telemetry via
+Set ``TUNINGFORK_TAP_DIAGNOSTICS`` before launching a generated recipe
+execution to activate runtime carry / primitive telemetry via
 [jax-tap](https://github.com/arcueil/jax-tap).
 
 **Environment variable semantics**
@@ -252,8 +252,9 @@ Or inside a notebook:
 ```python
 import os
 os.environ["TUNINGFORK_TAP_DIAGNOSTICS"] = "1"  # or an absolute path
-from tuningfork.recipes._recipe_runner import run_recipe_to_idata
-idata = run_recipe_to_idata(recipe)  # tap-enabled
+from tuningfork.catalog import execute_recipe, load_generated_idata
+result = execute_recipe(recipe, "tuningfork/catalog/_cache/generated_runs", diagnostics=True)
+idata = load_generated_idata(result.artifact_path)  # tap-enabled
 ```
 
 **What is monitored**
@@ -292,7 +293,7 @@ At run-end, if any alerts fired, a ``WARNING``-level log line is emitted:
 **Speed paths are unaffected**
 
 Tap diagnostics are disabled in all speed-measurement code paths (Speed-lite
-benchmark, ``_no_tap=True`` callers) regardless of the env var.  Taps cost
+benchmarks pass ``diagnostics=False``) regardless of the env var.  Taps cost
 4–8 µs/iter and must never contaminate timing.
 
 **Default: OFF**

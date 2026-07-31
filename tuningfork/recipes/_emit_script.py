@@ -90,7 +90,14 @@ _WARMUP_TIMING_BLOCK_NO_WARMUP = (
 # Sentinel set of samplers that define _state_reinit (require state type change
 # after warmup). Resolved at emit time — no try/except NameError needed.
 _STATE_REINIT_SAMPLERS = frozenset(
-    {"dynamic_hmc", "dmhmc", "ghmc", "laplace_dhmc", "laplace_dmhmc"}
+    {
+        "dynamic_hmc",
+        "dmhmc",
+        "ghmc",
+        "adjusted_mclmc_dynamic",
+        "laplace_dhmc",
+        "laplace_dmhmc",
+    }
 )
 
 _REPLAY_HMC_SAMPLERS = frozenset(
@@ -103,6 +110,9 @@ _REPLAY_HMC_SAMPLERS = frozenset(
         "dmhmc",
         "ghmc",
         "barker",
+        "mclmc",
+        "adjusted_mclmc",
+        "adjusted_mclmc_dynamic",
     }
 )
 
@@ -270,6 +280,7 @@ def _build_inference_loop(
     has_per_chain_L: bool = False,
     no_warmup_step_size_expr: str = 'float(_adapted_params.get("step_size", 1.0))',
     no_warmup_imm_expr: str = "jnp.ones(_n_dims)",
+    no_warmup_L_expr: str = "1.0",
 ) -> str:
     """Build straight-line inference loop code with all branches resolved at emit time.
 
@@ -318,9 +329,14 @@ def _build_inference_loop(
         a(
             f"_batched_step_size = jnp.broadcast_to({no_warmup_step_size_expr}, (num_chains,))"
         )
+        a(f"_shared_imm = {no_warmup_imm_expr}")
         a(
-            f"_batched_imm = jnp.broadcast_to({no_warmup_imm_expr}, (num_chains,) + jnp.asarray({no_warmup_imm_expr}).shape)"
+            "_batched_imm = jax.tree.map("
+            "lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),"
+            " _shared_imm)"
         )
+        if has_per_chain_L:
+            a(f"_batched_L = jnp.broadcast_to({no_warmup_L_expr}, (num_chains,))")
         a(f"_init_keys = jax.random.split(jax.random.key({reinit_seed}), num_chains)")
         a("_state_post_warmup = jax.vmap(_state_init)(init_position, _init_keys)")
     elif warmup_init_is_single_chain:
@@ -355,12 +371,21 @@ def _build_inference_loop(
         if warmup_is_perchain and not warmup_init_is_prebatched:
             a('_batched_step_size = _adapted_params["step_size"]')
             a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-            a(
-                "_state_post_warmup = jax.vmap("
-                "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
-                ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
-                " _batched_imm)"
-            )
+            if has_per_chain_L:
+                a('_batched_L = _adapted_params["L"]')
+                a(
+                    "_state_post_warmup = jax.vmap("
+                    "lambda s, k, ss, imm, L: _state_reinit(ss, imm, s.position, k, L)"
+                    ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
+                    " _batched_imm, _batched_L)"
+                )
+            else:
+                a(
+                    "_state_post_warmup = jax.vmap("
+                    "lambda s, k, ss, imm: _state_reinit(ss, imm, s.position, k)"
+                    ")(_state_post_warmup, _reinit_keys, _batched_step_size,"
+                    " _batched_imm)"
+                )
         else:
             a(
                 "_state_post_warmup = jax.vmap("
@@ -378,9 +403,10 @@ def _build_inference_loop(
     if warmup_is_perchain and has_per_chain_L:
         # MCLMC per-chain warmup: each chain gets its own (step_size, imm, L).
         a("# Per-chain warmup (mclmc): each chain gets its own (step_size, imm, L).")
-        a('_batched_step_size = _adapted_params["step_size"]')
-        a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
-        a('_batched_L = _adapted_params["L"]')
+        if not warmup_init_is_prebatched:
+            a('_batched_step_size = _adapted_params["step_size"]')
+            a('_batched_imm = _adapted_params["inverse_mass_matrix"]')
+            a('_batched_L = _adapted_params["L"]')
         a("")
         a("def _step_one_chain(state, key, step_size, imm, L):")
         a("    return kernel_builder(step_size, imm, L)(key, state)")
@@ -453,6 +479,7 @@ def _load_template(relpath: str) -> Template:
 def emit_script(
     recipe: Recipe,
     *,
+    tuning_seed: int | None = None,
     num_samples: int | None = None,
     sampler_seed: int | None = None,
     reinit_seed: int | None = None,
@@ -474,6 +501,11 @@ def emit_script(
     ----------
     recipe : Recipe
         The recipe to emit. Loaded via :func:`tuningfork.catalog.load_recipe`.
+    tuning_seed : int, optional
+        Runtime override for the recipe tuning seed. The effective seed drives
+        warmup and defaults the sampler and reinitialization seeds to
+        ``tuning_seed + 1`` and ``tuning_seed + 999`` respectively. The input
+        recipe is never mutated.
     num_samples : int, optional
         Number of post-warmup samples to draw in the emitted inference loop.
         When ``None`` (default), reads ``recipe.calibration_budget["n_samples"]``
@@ -481,11 +513,11 @@ def emit_script(
         Pass an explicit integer to override (e.g. for a longer production run).
     sampler_seed : int, optional
         RNG seed for the post-warmup sampling. Defaults to
-        ``recipe.tuning_seed + 1`` so the emitted script is deterministic
-        given the recipe.
+        ``effective_tuning_seed + 1`` so the emitted script is deterministic
+        given the recipe and any runtime tuning-seed override.
     reinit_seed : int, optional
         RNG seed used when a sampler requires per-chain state reinitialization
-        after warmup. Defaults to ``recipe.tuning_seed + 999``.
+        after warmup. Defaults to ``effective_tuning_seed + 999``.
     num_chains : int, optional
         Number of chains for the vmap-scan inference loop. When ``None``,
         derived from the recipe: ``recipe.warmup_params.get("num_chains",
@@ -570,6 +602,7 @@ def emit_script(
     plan = resolve_execution_plan(
         recipe,
         ExecutionOverrides(
+            tuning_seed=tuning_seed,
             sampler_seed=sampler_seed,
             reinit_seed=reinit_seed,
             num_samples=num_samples,
@@ -745,9 +778,14 @@ def emit_script(
             "an identity inverse mass matrix."
         )
     if _is_baked_replay and recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
+        _required_replay_params = ["step_size", "inverse_mass_matrix"]
+        if recipe.base_method_name == "mclmc":
+            _required_replay_params.append("L")
+        if recipe.base_method_name in {"hmc", "mhmc", "rmhmc"}:
+            _required_replay_params.append("num_integration_steps")
         _missing = [
             key
-            for key in ("step_size", "inverse_mass_matrix")
+            for key in _required_replay_params
             if recipe.base_method_params.get(key) is None
         ]
         if _missing:
@@ -1036,6 +1074,7 @@ def emit_script(
             "fullrank_vi",
             "laplace_multiphase_warmup",
             "mclmc_tuning",
+            "adjusted_mclmc_tuning",
             "mclmc_lrd_tuning",
             "chees",
             "meads",
@@ -1093,6 +1132,8 @@ def emit_script(
             "meanfield_vi",
             "fullrank_vi",
             "mclmc",
+            "adjusted_mclmc",
+            "adjusted_mclmc_dynamic",
         }
     )
     if recipe.base_method_name in _EMIT_SAMPLER_NAMES:
@@ -1125,7 +1166,9 @@ def emit_script(
     # Specifically: multichain window_adaptation templates + VI warmups +
     # mclmc_tuning / mclmc_lrd_tuning (always multi-chain per-chain warmup).
     _VI_WARMUP_NAMES = frozenset({"meanfield_vi", "fullrank_vi"})
-    _MCLMC_WARMUP_NAMES = frozenset({"mclmc_tuning", "mclmc_lrd_tuning"})
+    _MCLMC_WARMUP_NAMES = frozenset(
+        {"mclmc_tuning", "mclmc_lrd_tuning", "adjusted_mclmc_tuning"}
+    )
     # Stage 2 (blackjax #964): must stay in lockstep with _is_wa_multichain
     # above — this flag decides how the INFERENCE LOOP interprets the warmup
     # output's shape (per-chain vs shared/scalar), so it can never disagree
@@ -1161,9 +1204,12 @@ def emit_script(
 
     _no_warmup_step_expr = 'float(_adapted_params.get("step_size", 1.0))'
     _no_warmup_imm_expr = "jnp.ones(_n_dims)"
+    _no_warmup_L_expr = "1.0"
     if recipe.base_method_name in _REPLAY_HMC_SAMPLERS:
         _no_warmup_step_expr = "_default_step_size"
         _no_warmup_imm_expr = "_default_imm"
+    if recipe.base_method_name == "mclmc":
+        _no_warmup_L_expr = "_default_L"
 
     # T1.4: emit timing block without try/except — no_warmup path omits
     # block_until_ready (state not yet set at this point in assembly).
@@ -1185,6 +1231,7 @@ def emit_script(
         has_per_chain_L=_resolved_has_per_chain_L,
         no_warmup_step_size_expr=_no_warmup_step_expr,
         no_warmup_imm_expr=_no_warmup_imm_expr,
+        no_warmup_L_expr=_no_warmup_L_expr,
     )
 
     diagnostics_body = emit_diagnostics(ctx)

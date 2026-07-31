@@ -58,7 +58,7 @@ def _restore_jax_x64():
     """Restore jax_enable_x64 after every test.
 
     Prevents in-process tests that call jax.config.update("jax_enable_x64", True)
-    (e.g. requires_x64 model recipes run via run_recipe_to_idata) from leaking
+    (e.g. requires_x64 model recipes) from leaking
     the x64 flag into subsequent tests.  Without this guard, jax.random.bits()
     returns uint64 in later tests, causing Optuna seed overflow (>2**32-1).
     """

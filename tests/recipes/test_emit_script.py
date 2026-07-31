@@ -98,6 +98,18 @@ def test_emit_script_returns_valid_python() -> None:
 
 
 @pytest.mark.fast
+def test_emit_script_tuning_seed_override_is_in_manifest_and_derived_config() -> None:
+    recipe_path = _CATALOG_ROOT / "eight_schools_ncp" / "groundtruth.json"
+    recipe = load_recipe(recipe_path)
+    original_seed = recipe.tuning_seed
+    script = emit_script(recipe, tuning_seed=123)
+    assert recipe.tuning_seed == original_seed
+    assert '"tuning_seed":123' in script
+    assert '"sampler_seed":124' in script
+    assert '"reinit_seed":1122' in script
+
+
+@pytest.mark.fast
 def test_emit_script_rmhmc_template_valid_python() -> None:
     """rmhmc sampler template produces syntactically valid Python and uses blackjax.rmhmc.
 
@@ -1075,7 +1087,11 @@ def test_legacy_baked_manifest_and_draws_basename_match() -> None:
         base_method_name="hmc",
         warmup_name="",
         effort=Effort.LOW,
-        base_method_params={"step_size": 0.1, "inverse_mass_matrix": [1.0]},
+        base_method_params={
+            "step_size": 0.1,
+            "inverse_mass_matrix": [1.0],
+            "num_integration_steps": 3,
+        },
         warmup_params={"n_warmup": 9},
         warmups=[],
         calibration_budget={
@@ -1556,117 +1572,6 @@ def test_emit_script_laplace_multiphase_executes(tmp_path: Path) -> None:
     assert (
         "n_divergences=" in result.stdout
     ), f"Expected 'n_divergences=' in stdout.\nstdout:\n{result.stdout}"
-
-
-# ---------------------------------------------------------------------------
-# run_recipe_to_idata multi-phase faithfulness (cached_idata_for_recipe path)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_run_recipe_to_idata_laplace_multiphase_uses_dense_imm() -> None:
-    """run_recipe_to_idata faithfully runs both warmup phases for a laplace multiphase recipe.
-
-    Verifies that the multi-phase runner path (used by cached_idata_for_recipe)
-    executes Phase 1 (diag IMM) followed by Phase 2 (dense IMM) and uses Phase 2's
-    adapted params for sampling — NOT Phase 1's diagonal IMM.
-
-    Uses a synthetic recipe with tiny n_warmup=5/maxiter=5 for speed (~30 s).
-
-    What is checked:
-    - run_recipe_to_idata returns valid InferenceData with posterior group.
-    - phi-space variables (log_lengthscale, log_kernel_scale, log_noise_scale) present.
-    - Sample shape is (1, 5) for num_chains=1, n_samples=5.
-    - No error from the dense-IMM window_adaptation call (would fail if Phase 2
-      were incorrectly routing through the diagonal-only path).
-
-    This is the fix verification for the pre-PR #63 unfaithfulness where
-    run_recipe_to_idata ignored recipe.warmups list and only ran warmups[0],
-    producing a diagonal IMM even when the recipe specifies dense.
-    """
-    from tuningfork.catalog._rerun_inference import (  # noqa: F401
-        cached_idata_for_recipe,
-    )
-    from tuningfork.recipes._base import Effort, Recipe
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata
-
-    # Synthetic multi-phase laplace_mhmc recipe — same structure as HIGH gp_regression
-    # but with tiny warmup budgets for CI speed.
-    synth_recipe = Recipe(
-        model_name="gp_regression",
-        base_method_name="laplace_mhmc",
-        warmup_name="window_adaptation_dense_imm",
-        effort=Effort.HIGH,
-        base_method_params={
-            "num_integration_steps": 2,
-            "step_size": 0.5,
-            "inverse_mass_matrix": [
-                [0.23, 0.07, 0.0],
-                [0.07, 0.03, 0.0],
-                [0.0, 0.0, 0.002],
-            ],
-            "maxiter": 5,
-        },
-        warmup_params={"n_warmup": 5, "num_chains": 1, "target_acceptance": 0.8},
-        warmups=[
-            {
-                "name": "window_adaptation_diag_imm",
-                "params": {
-                    "n_warmup": 5,
-                    "target_acceptance": 0.8,
-                    "num_integration_steps": 2,
-                    "maxiter": 5,
-                },
-            },
-            {
-                "name": "window_adaptation_dense_imm",
-                "params": {
-                    "n_warmup": 5,
-                    "target_acceptance": 0.8,
-                    "num_integration_steps": 2,
-                    "maxiter": 5,
-                    "initial_step_size_from_phase1": True,
-                },
-            },
-        ],
-        warmup_inner_kernel="laplace_hmc",
-        headline_metric=None,
-        sample_quality=None,
-        calibration_budget={"num_chains": 1},
-        difficulty=None,
-        instructions="",
-        tuning_seed=42,
-    )
-
-    # Direct call to run_recipe_to_idata (the function cached_idata_for_recipe wraps)
-    idata = run_recipe_to_idata(synth_recipe, n_samples=5)
-
-    # Returned InferenceData must have a posterior group
-    assert hasattr(idata, "posterior"), "InferenceData missing posterior group"
-
-    # phi-space variables must be present (gp_regression phi sites)
-    phi_sites = {"log_lengthscale", "log_kernel_scale", "log_noise_scale"}
-    posterior_vars = set(idata.posterior.data_vars)
-    assert phi_sites <= posterior_vars, (
-        f"Missing phi sites in posterior: {phi_sites - posterior_vars}\n"
-        "Expected gp_regression phi-space variables from laplace_mhmc sampling."
-    )
-
-    # Sample shape must be (num_chains=1, n_samples=5)
-    first_var = next(iter(idata.posterior.data_vars))
-    sample_shape = tuple(idata.posterior[first_var].shape[:2])
-    assert sample_shape == (1, 5), (
-        f"Expected sample shape (1, 5), got {sample_shape}.\n"
-        "Indicates either wrong num_chains/n_samples routing or idata assembly error."
-    )
-
-    # If we reach here without error, Phase 2's dense window_adaptation completed
-    # (blackjax.window_adaptation(..., is_mass_matrix_diagonal=False, ...) ran successfully)
-    # — proving the multi-phase loop executed Phase 2, not only Phase 1.
-    # A regression to the old single-phase path would skip Phase 2 entirely and
-    # produce a diagonal IMM, which would still succeed numerically but lose density.
-    # The dense IMM run is the discriminating evidence (no error = Phase 2 ran).
-    assert True, "Phase 2 dense-IMM warmup completed without error"
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ from benchmarks._benchmark_helpers import (
     _check_within_seed_determinism,
     _get_committed_metrics,
     _mean_metrics,
+    _run_generated,
     compute_max_abs_mean_z,
     get_nightly_seeds,
 )
@@ -36,6 +37,14 @@ pytestmark = pytest.mark.fast
 def test_z_threshold_is_4() -> None:
     """_Z_THRESHOLD must be 4.0 (mock showed 2.0 false-positives on hard geometries)."""
     assert _Z_THRESHOLD == 4.0
+
+
+def test_generated_benchmark_rejects_unknown_mode_and_model_mismatch() -> None:
+    recipe = type("RecipeStub", (), {"model_name": "mvn_10"})()
+    with pytest.raises(ValueError, match="benchmark mode"):
+        _run_generated(recipe, "mvn_10", "fresh", 1, 2)
+    with pytest.raises(ValueError, match="does not match"):
+        _run_generated(recipe, "other_model", "e2e", 1, 2)
 
 
 def test_compute_max_abs_mean_z_dict_orientation(tmp_path) -> None:
@@ -670,25 +679,16 @@ def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
         '"effort":"LOW","tuning_seed":20260601}'
     )
 
-    # Mock idata returned by run_recipe_to_idata
+    # Mock idata returned by generated execution.
     mock_idata = MagicMock()
     mock_idata.posterior.data_vars = []
     mock_idata.sample_stats.ds = {"diverging": MagicMock(values=np.zeros((4, 100)))}
 
     captured_seeds: list[int] = []
 
-    def mock_run_recipe(
-        recipe,
-        *,
-        skip_warmup,
-        n_samples,
-        force_resample_config,
-        _suppress_print,
-        _no_tap=False,
-    ):
-        if force_resample_config:
-            captured_seeds.append(force_resample_config.get("seed", -1))
-        return mock_idata
+    def mock_run_recipe(recipe, model_name, mode, seed, n_samples):
+        captured_seeds.append(seed)
+        return mock_idata, 1.0, 0.0
 
     mock_benchmark = MagicMock()
 
@@ -716,7 +716,7 @@ def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
         patch("benchmarks._benchmark_helpers._CATALOG_ROOT", catalog),
         patch("tuningfork.catalog.inspect.load_recipe", return_value=mock_recipe),
         patch(
-            "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
+            "benchmarks._benchmark_helpers._run_generated",
             side_effect=mock_run_recipe,
         ),
         patch(
@@ -893,9 +893,9 @@ def test_mean_metrics_sums_runtime_fields() -> None:
 
 
 def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
-    """run_benchmark_cell makes exactly 7 run_recipe_to_idata calls per cell.
+    """run_benchmark_cell makes exactly seven generated executions per cell.
 
-    7 = 1 compile-warmup (recipe's tuning_seed) + 3 date-seeds * 2 warm runs.
+    Seven means one drift probe plus three date-seeds times two runs.
     """
     from datetime import date
     from unittest.mock import MagicMock, patch
@@ -922,17 +922,9 @@ def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
 
     call_count = [0]
 
-    def mock_run_recipe(
-        recipe,
-        *,
-        skip_warmup,
-        n_samples,
-        force_resample_config,
-        _suppress_print,
-        _no_tap=False,
-    ):
+    def mock_run_recipe(recipe, model_name, mode, seed, n_samples):
         call_count[0] += 1
-        return mock_idata
+        return mock_idata, 1.0, 0.0
 
     mock_benchmark = MagicMock()
 
@@ -959,7 +951,7 @@ def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
         patch("benchmarks._benchmark_helpers._CATALOG_ROOT", catalog),
         patch("tuningfork.catalog.inspect.load_recipe", return_value=mock_recipe),
         patch(
-            "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
+            "benchmarks._benchmark_helpers._run_generated",
             side_effect=mock_run_recipe,
         ),
         patch(
@@ -971,12 +963,12 @@ def test_run_benchmark_cell_7_runs_per_cell(tmp_path) -> None:
             mock_benchmark,
             "mvn_10",
             "low__nuts.json",
-            "fresh",  # non-calibrated so force_resample_config is used for seeds
+            "e2e",
             run_date=date(2026, 6, 1),
         )
 
-    # 1 compile-warmup + 3 seeds * 2 = 7 total calls
-    assert call_count[0] == 7, f"Expected 7 run_recipe calls, got {call_count[0]}"
+    # One drift probe plus three seeds times two runs.
+    assert call_count[0] == 7, f"Expected 7 generated calls, got {call_count[0]}"
     # 3 seed entries in output
     assert len(per_seed) == 3
     # jax_drift must be stored in extra_info (run_nightly.py reads it from the JSON)
@@ -1026,7 +1018,7 @@ def test_run_benchmark_cell_per_seed_mean_of_2(tmp_path) -> None:
         "runtime_sample_s": 0.0,
         "correctness_passed": True,
     }
-    return_vals = [_metrics_a, _metrics_b] * 4  # enough for compile-warmup + 3x2
+    return_vals = [_metrics_a, _metrics_b] * 4  # enough for drift probe + 3x2
 
     mock_benchmark = MagicMock()
 
@@ -1045,8 +1037,8 @@ def test_run_benchmark_cell_per_seed_mean_of_2(tmp_path) -> None:
         patch("benchmarks._benchmark_helpers._CATALOG_ROOT", catalog),
         patch("tuningfork.catalog.inspect.load_recipe", return_value=mock_recipe),
         patch(
-            "tuningfork.recipes._recipe_runner.run_recipe_to_idata",
-            return_value=mock_idata,
+            "benchmarks._benchmark_helpers._run_generated",
+            return_value=(mock_idata, 1.0, 0.0),
         ),
         patch(
             "benchmarks._benchmark_helpers.extract_cell_metrics",

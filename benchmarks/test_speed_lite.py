@@ -20,8 +20,9 @@
 **How it works:**
   Each of 15 cells runs via ``benchmark.pedantic``::
 
-      warmup_rounds=1 → first run absorbs XLA JIT cold-start (discarded)
-      rounds=5        → 5 warm measurements → stable Mean / StdDev
+      each round launches a standalone generated program; child timings are used
+      when available and no cross-subprocess warm-JIT persistence is assumed.
+      rounds=5        → 5 independent cold measurements → Mean / StdDev
 
   Seed resolution (per-cell):
     ``PINNED_SEEDS.get(bench_id, SPEED_SEED)``
@@ -31,8 +32,8 @@
   anomalous on specific dates (see ``PINNED_SEEDS`` in config.py) use a pinned
   stable seed instead.
 
-  ``clear_xla_caches_between_cells`` (conftest) fires after each cell (bounded
-  memory); the 5 measured rounds within a cell all run warm (cache intact).
+  ``clear_xla_caches_between_cells`` (conftest) bounds parent-process memory.
+  The five measured generated-program rounds are independent subprocesses.
 
 **Workflow:**
   Triggered nightly (23:00 UTC) by ``speed_benchmark.yml`` (#139).
@@ -75,22 +76,21 @@ def test_speed_lite(
     recipe_file: str,
     mode: str,
 ) -> None:
-    """Measure steady-state wall-clock for one cell (5 warm rounds).
+    """Measure cold generated-program wall-clock for one cell (five rounds).
 
-    ``warmup_rounds=1`` discards the JIT compile; the 5 measured rounds run
-    warm.  Seed = ``PINNED_SEEDS.get(bench_id, SPEED_SEED)`` — pinned for
+    Each measured round runs in an independent subprocess. Seed =
+    ``PINNED_SEEDS.get(bench_id, SPEED_SEED)`` — pinned for
     dynamic cells with anomalous trajectory-length variance on specific dates,
     floating daily ``SPEED_SEED`` otherwise.  Separate from the seed-CI: no
     seed variation, no correctness assertion.
     """
+    from benchmarks._benchmark_helpers import _run_generated  # noqa: PLC0415
     from tuningfork.catalog.inspect import load_recipe  # noqa: PLC0415
-    from tuningfork.recipes._recipe_runner import run_recipe_to_idata  # noqa: PLC0415
 
     recipe_path = _CATALOG_ROOT / model_name / "recipes" / recipe_file
     if not recipe_path.exists():
         pytest.skip(f"Recipe not found on disk: {recipe_path}")
     recipe = load_recipe(recipe_path)
-    skip_warmup = mode == "calibrated"
 
     # Per-cell seed: use PINNED_SEEDS override for dynamic cells with
     # anomalous trajectory-length variance on specific dates; fall back to
@@ -99,16 +99,10 @@ def test_speed_lite(
     seed = PINNED_SEEDS.get(_bench_id(cell), SPEED_SEED)
 
     def run_once() -> None:
-        run_recipe_to_idata(
-            recipe,
-            skip_warmup=skip_warmup,
-            n_samples=_N_SAMPLES,
-            force_resample_config={"seed": seed, "n_samples": _N_SAMPLES},
-            _suppress_print=True,
-            _no_tap=True,  # structurally gates tap diagnostics from timing
-        )
+        _run_generated(recipe, model_name, mode, seed, _N_SAMPLES)
 
     # pedantic: exact control over rounds.
-    # warmup_rounds=1 → JIT compile absorbed (discarded from stats)
-    # rounds=5        → 5 warm measurements for trend comparison
-    benchmark.pedantic(run_once, rounds=5, warmup_rounds=1)
+    # Five independent generated-program measurements for trend comparison.
+    # A discarded subprocess cannot warm any measured subprocess, so there is
+    # no benchmark-level warmup round.
+    benchmark.pedantic(run_once, rounds=5, warmup_rounds=0)
