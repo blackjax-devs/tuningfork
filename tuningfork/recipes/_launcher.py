@@ -28,7 +28,7 @@ import sys
 import tempfile
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -119,7 +119,7 @@ class LaunchResult:
     manifest: ExecutionManifest
     receipt: ExecutionReceipt
     timings: ExecutionTimings | None
-    nonfinite_stat_counts: dict[str, int]
+    nonfinite_stat_counts: dict[str, int] = field(default_factory=dict)
 
 
 class GeneratedProgramError(RuntimeError):

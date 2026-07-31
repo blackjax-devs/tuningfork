@@ -175,7 +175,6 @@ def _launch(
         manifest=manifest,
         receipt=cast(Any, receipt),
         timings=(ExecutionTimings(0.1, 0.2, 0.3) if status == "success" else None),
-        nonfinite_stat_counts={},
     )
 
 
