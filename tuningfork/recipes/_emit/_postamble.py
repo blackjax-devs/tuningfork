@@ -163,7 +163,7 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     a("    _manifest = json.loads(EXECUTION_MANIFEST_JSON)")
     a("    _telemetry = {")
     a(
-        f"        'schema': {ctx.get('telemetry_schema', 'tuningfork.generated-run-telemetry.v1')!r},"
+        f"        'schema': {ctx.get('telemetry_schema', 'tuningfork.generated-run-telemetry.v2')!r},"
     )
     a("        'plan_hash': _manifest['plan_hash'],")
     a("        'executable_config_hash': _manifest['executable_config_hash'],")
@@ -178,6 +178,10 @@ def emit_postamble(ctx: dict[str, Any]) -> str:
     )
     a("        'warmup_grad_evals': _warmup_grad_evals,")
     a("        'warmup_grad_evals_reason': _warmup_grad_evals_reason,")
+    a(
+        "        'resolved_step_policy': "
+        f"_telemetry_json({ctx.get('telemetry_resolved_step_policy_expr', 'None')}),"
+    )
     a("    }")
     a(
         "    _telemetry_path = _manifest['normalized_plan']['telemetry_artifact_filename']"

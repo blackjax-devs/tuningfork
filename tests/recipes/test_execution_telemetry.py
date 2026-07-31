@@ -20,7 +20,11 @@ import pytest
 
 from tuningfork.recipes._execution_manifest import ExecutionManifest
 from tuningfork.recipes._execution_plan import ExecutionOverrides
-from tuningfork.recipes._execution_telemetry import TELEMETRY_SCHEMA, ExecutionTelemetry
+from tuningfork.recipes._execution_telemetry import (
+    LEGACY_TELEMETRY_SCHEMA,
+    TELEMETRY_SCHEMA,
+    ExecutionTelemetry,
+)
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 
 pytestmark = pytest.mark.fast
@@ -62,6 +66,7 @@ def _raw(manifest):
         "timing_seconds": {"warmup": 1.0, "sampling": 2.0, "total": 3.0},
         "warmup_grad_evals": None,
         "warmup_grad_evals_reason": "not available",
+        "resolved_step_policy": None,
     }
 
 
@@ -73,6 +78,50 @@ def test_round_trip_is_immutable():
     )
     with pytest.raises(TypeError):
         telemetry.geometry["x"] = 1  # type: ignore[index]
+
+
+def test_legacy_round_trip_defaults_resolved_policy_to_none():
+    manifest = _manifest()
+    raw = _raw(manifest)
+    raw["schema"] = LEGACY_TELEMETRY_SCHEMA
+    raw.pop("resolved_step_policy")
+    telemetry = ExecutionTelemetry.from_dict(raw, manifest)
+    assert telemetry.resolved_step_policy is None
+    assert "resolved_step_policy" not in telemetry.as_dict()
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {"kind": "uniform_int", "low": 1, "high": 10},
+        {"kind": "empirical", "values": [2, 4], "weights": [0.25, 0.75]},
+        {"kind": "poisson", "lam": 3.0, "low": 1, "high": None},
+        {"kind": "log_uniform_int", "low": 1, "high": 8},
+        {"kind": "pow2_choice", "options": [1, 4, 8]},
+    ],
+)
+def test_resolved_step_policy_round_trip(policy):
+    manifest = _manifest()
+    raw = _raw(manifest)
+    raw["resolved_step_policy"] = policy
+    telemetry = ExecutionTelemetry.from_dict(raw, manifest)
+    assert telemetry.as_dict()["resolved_step_policy"] == policy
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {"kind": "warmup_empirical"},
+        {"kind": "empirical", "values": [2, 4], "weights": [1.0, 1.0]},
+        {"kind": "uniform_int", "low": 10, "high": 1},
+    ],
+)
+def test_unresolved_or_invalid_step_policy_rejected(policy):
+    manifest = _manifest()
+    raw = _raw(manifest)
+    raw["resolved_step_policy"] = policy
+    with pytest.raises(ValueError):
+        ExecutionTelemetry.from_dict(raw, manifest)
 
 
 @pytest.mark.parametrize(

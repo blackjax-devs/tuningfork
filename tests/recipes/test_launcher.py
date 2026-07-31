@@ -101,7 +101,7 @@ def _manifest() -> ExecutionManifest:
 
 def _source(manifest: ExecutionManifest, body: str) -> str:
     telemetry = {
-        "schema": "tuningfork.generated-run-telemetry.v1",
+        "schema": "tuningfork.generated-run-telemetry.v2",
         "plan_hash": manifest.plan_hash,
         "executable_config_hash": manifest.executable_config_hash,
         "draws_artifact": manifest.normalized_plan["artifact_filename"],
@@ -113,6 +113,7 @@ def _source(manifest: ExecutionManifest, body: str) -> str:
         "timing_seconds": {"warmup": 0, "sampling": 0, "total": 0},
         "warmup_grad_evals": None,
         "warmup_grad_evals_reason": "test",
+        "resolved_step_policy": None,
     }
     return (
         f"EXECUTION_MANIFEST_JSON = {manifest.to_json()!r}\n"

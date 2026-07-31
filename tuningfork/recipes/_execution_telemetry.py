@@ -27,13 +27,14 @@ from typing import Any
 from ._execution_manifest import ExecutionManifest
 from ._execution_plan import canonical_json
 
-TELEMETRY_SCHEMA = "tuningfork.generated-run-telemetry.v1"
+LEGACY_TELEMETRY_SCHEMA = "tuningfork.generated-run-telemetry.v1"
+TELEMETRY_SCHEMA = "tuningfork.generated-run-telemetry.v2"
 _GEOMETRY_FIELDS = frozenset(
     {"step_size", "inverse_mass_matrix", "L", "alpha", "delta"}
 )
 _SCALAR_GEOMETRY_FIELDS = frozenset({"step_size", "L", "alpha", "delta"})
 _POSITIVE_GEOMETRY_FIELDS = frozenset({"step_size", "L"})
-_FIELDS = frozenset(
+_LEGACY_FIELDS = frozenset(
     {
         "schema",
         "plan_hash",
@@ -49,6 +50,7 @@ _FIELDS = frozenset(
         "warmup_grad_evals_reason",
     }
 )
+_FIELDS = _LEGACY_FIELDS | {"resolved_step_policy"}
 
 
 def _freeze(value: Any) -> Any:
@@ -176,6 +178,103 @@ def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _positive_int(name: str, value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"resolved_step_policy {name} must be a positive integer")
+    return value
+
+
+def _validate_resolved_step_policy(value: Any) -> dict[str, Any] | None:
+    """Validate the concrete integration-step distribution used by a run."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("resolved_step_policy must be a mapping or null")
+    kind = value.get("kind")
+    if kind == "uniform_int":
+        if set(value) != {"kind", "low", "high"}:
+            raise ValueError("uniform_int resolved_step_policy has invalid fields")
+        low = _positive_int("low", value["low"])
+        high = _positive_int("high", value["high"])
+        if low >= high:
+            raise ValueError("uniform_int resolved_step_policy requires low < high")
+    elif kind == "empirical":
+        if set(value) != {"kind", "values", "weights"}:
+            raise ValueError("empirical resolved_step_policy has invalid fields")
+        values, weights = value["values"], value["weights"]
+        if (
+            not isinstance(values, list)
+            or not isinstance(weights, list)
+            or not values
+            or len(values) != len(weights)
+        ):
+            raise ValueError(
+                "empirical resolved_step_policy requires equal non-empty arrays"
+            )
+        if any(
+            isinstance(item, bool) or not isinstance(item, int) or item <= 0
+            for item in values
+        ) or values != sorted(set(values)):
+            raise ValueError(
+                "empirical resolved_step_policy values must be sorted positive integers"
+            )
+        if any(
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(item)
+            or item < 0
+            for item in weights
+        ) or not math.isclose(sum(weights), 1.0, rel_tol=1e-9, abs_tol=1e-9):
+            raise ValueError(
+                "empirical resolved_step_policy weights must be normalized"
+            )
+    elif kind == "poisson":
+        if set(value) != {"kind", "lam", "low", "high"}:
+            raise ValueError("poisson resolved_step_policy has invalid fields")
+        lam = value["lam"]
+        if (
+            isinstance(lam, bool)
+            or not isinstance(lam, (int, float))
+            or not math.isfinite(lam)
+            or lam < 0
+        ):
+            raise ValueError(
+                "poisson resolved_step_policy lam must be finite and nonnegative"
+            )
+        low = _positive_int("low", value["low"])
+        high = value["high"]
+        if high is not None and _positive_int("high", high) <= low:
+            raise ValueError("poisson resolved_step_policy requires low < high")
+    elif kind == "log_uniform_int":
+        if set(value) != {"kind", "low", "high"}:
+            raise ValueError("log_uniform_int resolved_step_policy has invalid fields")
+        low = _positive_int("low", value["low"])
+        high = _positive_int("high", value["high"])
+        if low >= high:
+            raise ValueError("log_uniform_int resolved_step_policy requires low < high")
+    elif kind == "pow2_choice":
+        if set(value) != {"kind", "options"}:
+            raise ValueError("pow2_choice resolved_step_policy has invalid fields")
+        options = value["options"]
+        if (
+            not isinstance(options, list)
+            or not options
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, int)
+                or item <= 0
+                or item & (item - 1)
+                for item in options
+            )
+        ):
+            raise ValueError(
+                "pow2_choice resolved_step_policy requires positive powers of two"
+            )
+    else:
+        raise ValueError(f"unsupported resolved_step_policy kind: {kind!r}")
+    return value
+
+
 @dataclass(frozen=True)
 class ExecutionTelemetry:
     schema: str
@@ -190,6 +289,7 @@ class ExecutionTelemetry:
     timing_seconds: Mapping[str, float]
     warmup_grad_evals: int | None
     warmup_grad_evals_reason: str
+    resolved_step_policy: Mapping[str, Any] | None
 
     @classmethod
     def from_dict(
@@ -199,10 +299,17 @@ class ExecutionTelemetry:
             raise TypeError("manifest must be an ExecutionManifest")
         if not isinstance(data, Mapping):
             raise TypeError("telemetry data must be a mapping")
-        if set(data) != _FIELDS:
+        schema = data.get("schema")
+        expected_fields = (
+            _LEGACY_FIELDS if schema == LEGACY_TELEMETRY_SCHEMA else _FIELDS
+        )
+        if set(data) != expected_fields:
             raise ValueError("telemetry has unknown or missing fields")
         normalized = _json_value(dict(data))
-        if normalized["schema"] != TELEMETRY_SCHEMA:
+        if normalized["schema"] not in {
+            LEGACY_TELEMETRY_SCHEMA,
+            TELEMETRY_SCHEMA,
+        }:
             raise ValueError("unsupported telemetry schema")
         if (
             normalized["plan_hash"] != manifest.plan_hash
@@ -356,6 +463,9 @@ class ExecutionTelemetry:
             isinstance(count, bool) or not isinstance(count, int) or count < 0
         ):
             raise ValueError("warmup_grad_evals must be a nonnegative integer or null")
+        resolved_step_policy = _validate_resolved_step_policy(
+            normalized.get("resolved_step_policy")
+        )
         return cls(
             normalized["schema"],
             normalized["plan_hash"],
@@ -369,6 +479,7 @@ class ExecutionTelemetry:
             _freeze(timing),
             count,
             count_reason,
+            _freeze(resolved_step_policy),
         )
 
     @classmethod
@@ -404,10 +515,15 @@ class ExecutionTelemetry:
     from_path = read_path
 
     def as_dict(self) -> dict[str, Any]:
-        return json.loads(canonical_json({k: getattr(self, k) for k in _FIELDS}))
+        fields = _LEGACY_FIELDS if self.schema == LEGACY_TELEMETRY_SCHEMA else _FIELDS
+        return json.loads(canonical_json({k: getattr(self, k) for k in fields}))
 
     def to_json(self) -> str:
         return canonical_json(self.as_dict())
 
 
-__all__ = ["ExecutionTelemetry", "TELEMETRY_SCHEMA"]
+__all__ = [
+    "ExecutionTelemetry",
+    "LEGACY_TELEMETRY_SCHEMA",
+    "TELEMETRY_SCHEMA",
+]

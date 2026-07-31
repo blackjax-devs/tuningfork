@@ -49,7 +49,7 @@ def _as_float(spec: Mapping[str, Any], key: str) -> float:
 
 def _validate(spec: Mapping[str, Any] | None) -> tuple[str, dict[str, Any]]:
     if spec is None:
-        return "none", {}
+        return "uniform_int", {"low": 1, "high": 10}
     if not isinstance(spec, Mapping):
         raise ValueError("step_policy must be a mapping or None")
     kind = spec.get("kind")
@@ -84,9 +84,17 @@ def _validate(spec: Mapping[str, Any] | None) -> tuple[str, dict[str, Any]]:
             raise ValueError("empirical values must be sorted and distinct")
         if any(not math.isfinite(weight) or weight < 0 for weight in weights):
             raise ValueError("empirical weights must be finite and non-negative")
-        if sum(weights) <= 0:
+        weight_sum = sum(weights)
+        if weight_sum <= 0:
             raise ValueError("empirical weights must have positive sum")
-        return kind, {"values": values, "weights": weights}
+        return kind, {
+            "values": values,
+            "weights": [weight / weight_sum for weight in weights],
+        }
+    if kind == "warmup_empirical":
+        if len(spec) != 1:
+            raise ValueError("warmup_empirical step_policy accepts only kind")
+        return kind, {}
     if kind == "poisson":
         lam = _as_float(spec, "lam")
         if lam < 0:
@@ -131,13 +139,40 @@ def emit_step_policy(spec: Mapping[str, Any] | None) -> str:
     bound by its caller and has no dependency on tuningfork.
     """
     kind, values = _validate(spec)
-    if kind == "none":
+    if kind == "warmup_empirical":
+        return (
+            "\n".join(
+                [
+                    "_warmup_nis_raw = np.asarray(_warmup_info.info.num_integration_steps)",
+                    "if _warmup_nis_raw.size == 0:",
+                    "    raise ValueError('warmup_empirical requires non-empty warmup info')",
+                    "try:",
+                    "    _warmup_nis_float = _warmup_nis_raw.astype(np.float64, copy=False).reshape(-1)",
+                    "except (TypeError, ValueError, OverflowError) as _exc:",
+                    "    raise ValueError('warmup_empirical warmup info must be numeric') from _exc",
+                    "if (not np.all(np.isfinite(_warmup_nis_float)) or",
+                    "        np.any(_warmup_nis_float <= 0) or",
+                    "        np.any(_warmup_nis_float != np.floor(_warmup_nis_float))):",
+                    "    raise ValueError('warmup_empirical warmup info must contain positive integers')",
+                    "_warmup_nis_int = _warmup_nis_float.astype(np.int64)",
+                    "_step_policy_values_np, _step_policy_counts_np = np.unique(_warmup_nis_int, return_counts=True)",
+                    "_step_policy_weights_np = (_step_policy_counts_np / _warmup_nis_int.size).astype(np.float64)",
+                    "_resolved_step_policy = {'kind': 'empirical', 'values': _step_policy_values_np.tolist(), 'weights': _step_policy_weights_np.tolist()}",
+                    "_step_policy_values = jnp.asarray(_step_policy_values_np, dtype=jnp.int32)",
+                    "_step_policy_weights = jnp.asarray(_step_policy_weights_np, dtype=jnp.float32)",
+                    "_step_policy_cdf = jnp.cumsum(_step_policy_weights)",
+                    "def _integration_steps_fn(key):",
+                    "    u = jax.random.uniform(key)",
+                    "    idx = jnp.searchsorted(_step_policy_cdf, u, side='right')",
+                    "    idx = jnp.clip(idx, 0, _step_policy_values.shape[0] - 1)",
+                    "    return _step_policy_values[idx]",
+                ]
+            )
+            + "\n"
+        )
+    if kind == "uniform_int":
         lines = [
-            "def _integration_steps_fn(key):",
-            "    return jax.random.randint(key, (), 1, 10)",
-        ]
-    elif kind == "uniform_int":
-        lines = [
+            f"_resolved_step_policy = {{'kind': 'uniform_int', 'low': {values['low']!r}, 'high': {values['high']!r}}}",
             "def _integration_steps_fn(key):",
             f"    return jax.random.randint(key, (), {values['low']}, {values['high']})",
         ]
@@ -147,6 +182,7 @@ def emit_step_policy(spec: Mapping[str, Any] | None) -> str:
             f"_step_policy_weights = jnp.array({values['weights']!r}, dtype=jnp.float32)",
             "_step_policy_weights = _step_policy_weights / jnp.sum(_step_policy_weights)",
             "_step_policy_cdf = jnp.cumsum(_step_policy_weights)",
+            f"_resolved_step_policy = {{'kind': 'empirical', 'values': {values['values']!r}, 'weights': {values['weights']!r}}}",
             "def _integration_steps_fn(key):",
             "    u = jax.random.uniform(key)",
             "    idx = jnp.searchsorted(_step_policy_cdf, u, side='right')",
@@ -157,6 +193,7 @@ def emit_step_policy(spec: Mapping[str, Any] | None) -> str:
         lines = [
             f"_step_policy_lam = {values['lam']!r}",
             f"_step_policy_low = {values['low']!r}",
+            f"_resolved_step_policy = {{'kind': 'poisson', 'lam': {values['lam']!r}, 'low': {values['low']!r}, 'high': {values['high']!r}}}",
         ]
         if values["high"] is None:
             lines += [
@@ -186,6 +223,7 @@ def emit_step_policy(spec: Mapping[str, Any] | None) -> str:
         lines = [
             f"_step_policy_log_low = {math.log(values['low'])!r}",
             f"_step_policy_log_high = {math.log(values['high'])!r}",
+            f"_resolved_step_policy = {{'kind': 'log_uniform_int', 'low': {values['low']!r}, 'high': {values['high']!r}}}",
             "def _integration_steps_fn(key):",
             "    u = jax.random.uniform(key, minval=_step_policy_log_low, maxval=_step_policy_log_high)",
             "    sample = jnp.round(jnp.exp(u)).astype(jnp.int32)",
@@ -194,6 +232,7 @@ def emit_step_policy(spec: Mapping[str, Any] | None) -> str:
     else:
         lines = [
             f"_step_policy_options = jnp.array({values['options']!r}, dtype=jnp.int32)",
+            f"_resolved_step_policy = {{'kind': 'pow2_choice', 'options': {values['options']!r}}}",
             "def _integration_steps_fn(key):",
             "    return jax.random.choice(key, _step_policy_options)",
         ]

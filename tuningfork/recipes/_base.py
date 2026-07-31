@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field, fields, replace
 from enum import Enum
 from pathlib import Path
@@ -59,6 +61,34 @@ __all__ = [
     "RecipeFailedError",
     "validate_warmup_num_chains",
 ]
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Durably replace *path* without exposing a partial recipe document."""
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 class Effort(str, Enum):
@@ -876,7 +906,7 @@ class Recipe:
                         if k != "inverse_mass_matrix"
                     },
                 )
-        target.write_text(json.dumps(d, indent=2, default=str) + "\n")
+        _atomic_write_text(target, json.dumps(d, indent=2, default=str) + "\n")
         return target
 
     @classmethod

@@ -88,7 +88,7 @@ def _telemetry(
     manifest = _manifest()
     return ExecutionTelemetry.from_dict(
         {
-            "schema": "tuningfork.generated-run-telemetry.v1",
+            "schema": "tuningfork.generated-run-telemetry.v2",
             "plan_hash": manifest.plan_hash,
             "executable_config_hash": manifest.executable_config_hash,
             "draws_artifact": "draws.npz",
@@ -100,6 +100,7 @@ def _telemetry(
             "timing_seconds": {"warmup": 1.0, "sampling": 2.0, "total": 3.0},
             "warmup_grad_evals": 4,
             "warmup_grad_evals_reason": "exact",
+            "resolved_step_policy": None,
         },
         manifest,
     )

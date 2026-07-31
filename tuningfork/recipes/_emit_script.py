@@ -60,6 +60,7 @@ from tuningfork.recipes._emit import (
 )
 from tuningfork.recipes._execution_manifest import ExecutionManifest
 from tuningfork.recipes._execution_plan import ExecutionOverrides
+from tuningfork.recipes._execution_telemetry import TELEMETRY_SCHEMA
 from tuningfork.recipes._resolve_execution_plan import resolve_execution_plan
 from tuningfork.recipes._sample_stats import SAMPLE_STAT_PREFIX, sample_stat_fields
 
@@ -643,7 +644,10 @@ def emit_script(
         )
     else:
         ctx["fixed_num_integration_steps"] = None
-    ctx["telemetry_schema"] = "tuningfork.generated-run-telemetry.v1"
+    ctx["telemetry_schema"] = TELEMETRY_SCHEMA
+    ctx["telemetry_resolved_step_policy_expr"] = (
+        "_resolved_step_policy" if step_policy_body is not None else "None"
+    )
     _telemetry_geometry: dict[str, str] = {}
     _telemetry_geometry_reason: str | None = None
     _telemetry_geometry_source = "unavailable"
