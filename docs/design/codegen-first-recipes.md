@@ -23,7 +23,7 @@ recipe intent
     → evaluate against diagnostics and ground-truth samples
     → append the attempt and gate evidence to the recipe
     → stamp the recipe PASS or FAIL
-    → assign an easy / medium / hard title from the recorded effort
+    → assign a LOW / MEDIUM / HIGH effort title from the recorded effort
 ```
 
 The generated program must faithfully implement the recipe. A sampling
@@ -84,7 +84,7 @@ and updates. Within that document, the following concepts are distinct.
 
 - the current filename or title;
 - PASS or FAIL;
-- easy, medium, or hard;
+- LOW, MEDIUM, or HIGH;
 - machine or dependency versions; or
 - which attempt is currently selected.
 
@@ -155,19 +155,22 @@ orthogonal:
 - lifecycle stage: `DRAFT`, `GENERATED`, `SAMPLED`, `EVALUATED`, or `CURATED`;
 - attempt verdict: `NOT_RUN`, `PASS`, `REVIEW`, `FAIL`, or `ERROR`;
 - final certification stamp: `PASS` or `FAIL`; and
-- effort title: `easy`, `medium`, or `hard`.
+- effort title: `LOW`, `MEDIUM`, or `HIGH`.
+
+Amended 2026-07-31: effort tier naming stays LOW/MEDIUM/HIGH per maintainer
+decision; the easy/medium/hard rename proposed during review was dropped.
 
 `REVIEW` must be resolved before a final certification stamp is written. An
 override records its actor, reason, timestamp, and the exact attempt and gate
 evidence it addresses. It never deletes or rewrites the automatic verdict.
 
 `FAILED` is an outcome, not an effort level. `GROUNDTRUTH` is a recipe purpose,
-not an effort level. The target schema must stop encoding either concept as an
-easy/medium/hard tier.
+not an effort level. The target schema must stop encoding either concept as a
+LOW/MEDIUM/HIGH effort tier.
 
 ### Effort title
 
-The curation step assigns `easy`, `medium`, or `hard` from recorded production
+The curation step assigns `LOW`, `MEDIUM`, or `HIGH` from recorded production
 effort. The label describes how difficult the configuration was to discover; it
 does not describe posterior quality, robustness, or expected user runtime.
 
@@ -182,9 +185,6 @@ The title must cite a versioned rubric and effort evidence such as:
 A curation agent may propose or write the title, but schema validation constrains
 the label and requires its provenance. Titles and effort labels are presentation
 metadata; they never participate in recipe identity.
-
-The existing low/medium/high records map naturally to easy/medium/hard during
-migration, but their original values and wording must be retained as provenance.
 
 ## Codegen architecture
 
