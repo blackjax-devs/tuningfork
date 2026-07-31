@@ -110,11 +110,33 @@ def test_receipt_rejects_invalid_fields(field, value):
         _receipt(**{field: value})
 
 
-def test_receipt_rejects_tampering():
+def test_receipt_rejects_artifact_path_mismatch():
+    # Swaps the artifact_path basename — caught by the basename check in
+    # _validate_fields() (not by payload_hash).  Kept as a distinct test
+    # to document what that validation catches.
     data = _receipt().as_dict()
     data["artifact_path"] = "runs/run-1/other.npz"
     with pytest.raises(ValueError):
         ExecutionReceipt.from_dict(data)
+
+
+def test_receipt_rejects_payload_hash_tampering():
+    # Tampers source_sha256 — a field covered by payload_hash but NOT
+    # by the basename check — so only the hash comparison catches this.
+    # Discriminating test: if the v2 payload_hash check is disabled,
+    # this test must fail (red).
+    data = _receipt().as_dict()
+    data["source_sha256"] = "b" * 64  # was "a" * 64; change invalidates hash
+    with pytest.raises(ValueError, match="payload_hash"):
+        ExecutionReceipt.from_dict(data)
+
+    # Also tamper the artifact_path DIRECTORY while preserving the basename —
+    # basename check passes; only the payload_hash catches the directory swap.
+    data2 = _receipt().as_dict()
+    original_path = data2["artifact_path"]
+    data2["artifact_path"] = "runs/other-dir/" + original_path.split("/")[-1]
+    with pytest.raises(ValueError, match="payload_hash"):
+        ExecutionReceipt.from_dict(data2)
 
 
 def test_v2_binds_telemetry_path_and_digest():
