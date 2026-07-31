@@ -66,7 +66,7 @@ def _stages(recipe: Recipe) -> list[dict[str, Any]]:
 
 def resolve_execution_plan(
     recipe: Recipe, overrides: ExecutionOverrides | None = None
-) -> ExecutionPlan:
+) -> ExecutionPlan[ExecutableConfigurationSnapshot]:
     """Resolve defaults and overrides, rejecting ambiguous executable values."""
     # Legacy baked recipes blanked warmup_name/warmups.  Normalize once at the
     # plan boundary so stage counts, manifests, and emitted source agree.

@@ -22,7 +22,7 @@ import ntpath
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Generic, Protocol, TypeVar
 
 EXECUTION_CONFIG_HASH_DOMAIN = "tuningfork.execution-config.v1\0"
 EXECUTION_PLAN_HASH_DOMAIN = "tuningfork.execution-plan.v2\0"
@@ -214,9 +214,25 @@ class ExecutableConfigurationSnapshot:
         return execution_config_hash(self.as_dict())
 
 
+class ExecutionConfiguration(Protocol):
+    """Structural contract shared by family-specific execution configs."""
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the strict JSON representation used for plan identity."""
+        raise NotImplementedError
+
+    @property
+    def config_hash(self) -> str:
+        """Return the canonical executable-configuration digest."""
+        raise NotImplementedError
+
+
+ConfigurationT = TypeVar("ConfigurationT", bound=ExecutionConfiguration)
+
+
 @dataclass(frozen=True)
-class ExecutionPlan:
-    config: ExecutableConfigurationSnapshot
+class ExecutionPlan(Generic[ConfigurationT]):
+    config: ConfigurationT
     recipe_ref: str
     artifact_filename: str
     telemetry_artifact_filename: str
@@ -237,11 +253,11 @@ class ExecutionPlan:
     @classmethod
     def build(
         cls,
-        config: ExecutableConfigurationSnapshot,
+        config: ConfigurationT,
         recipe_ref: str,
         artifact_filename: str,
         telemetry_artifact_filename: str | None = None,
-    ) -> ExecutionPlan:
+    ) -> ExecutionPlan[ConfigurationT]:
         artifact_filename = _v2_artifact_basename(
             artifact_filename, "artifact_filename"
         )
@@ -273,6 +289,7 @@ __all__ = [
     "ExecutionOverrides",
     "WarmupStagePlan",
     "ExecutableConfigurationSnapshot",
+    "ExecutionConfiguration",
     "ExecutionPlan",
     "canonical_json",
     "execution_config_hash",

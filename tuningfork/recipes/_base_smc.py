@@ -158,6 +158,9 @@ class SMCRecipe:
     )
     calibration_budget: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    workflow: str = ""
+    failure_diagnosis: str | None = None
+    attempted_configurations: list[Any] = field(default_factory=list)
 
     # ---- provenance ----
     tuningfork_version: str = field(default_factory=_get_tuningfork_version)
@@ -200,6 +203,7 @@ class SMCRecipe:
         for name in (
             "parameter_update_strategy",
             "notes",
+            "workflow",
             "tuningfork_version",
             "blackjax_version",
             "jax_version",
@@ -218,6 +222,12 @@ class SMCRecipe:
                 raise ValueError("headline_metric must be finite")
         if not isinstance(self._extra_fields, dict):
             raise TypeError("_extra_fields must be a mapping")
+        if self.failure_diagnosis is not None and not isinstance(
+            self.failure_diagnosis, str
+        ):
+            raise TypeError("failure_diagnosis must be a string or None")
+        if not isinstance(self.attempted_configurations, list):
+            raise TypeError("attempted_configurations must be a list")
 
     # ---- derived ----
     @property

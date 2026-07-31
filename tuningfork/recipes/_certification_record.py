@@ -29,10 +29,12 @@ from tuningfork.recipes._attempt_evidence import (
 )
 from tuningfork.recipes._base import Recipe
 from tuningfork.recipes._launcher import LaunchResult
+from tuningfork.recipes._legacy_evidence import (
+    encode_legacy_value,
+    legacy_encoding_metadata,
+)
 
 _VERDICTS = frozenset({"NOT_RUN", "PASS", "REVIEW", "FAIL", "ERROR"})
-_LEGACY_VIEW_ENCODING_SCHEMA = "tuningfork.legacy-current-view.v1"
-_LEGACY_NONFINITE_TAG = "\u0000tuningfork_legacy_current_view_nonfinite_float"
 _INTENT_FIELDS = frozenset(
     {
         "model_name",
@@ -98,40 +100,6 @@ def _legacy_current_view(recipe: Recipe) -> dict[str, Any]:
     return copy.deepcopy(view)
 
 
-def _encode_legacy_value(value: Any) -> tuple[Any, bool]:
-    """Make historical non-finite floats safe for the strict attempt envelope.
-
-    The NUL-prefixed key is reserved by the encoding metadata below, so tagged
-    objects cannot be confused with ordinary recipe values by a reader that
-    understands this versioned representation.
-    """
-    if isinstance(value, float):
-        if value != value:
-            return {_LEGACY_NONFINITE_TAG: "nan"}, True
-        if value == float("inf"):
-            return {_LEGACY_NONFINITE_TAG: "+inf"}, True
-        if value == float("-inf"):
-            return {_LEGACY_NONFINITE_TAG: "-inf"}, True
-        return value, False
-    if isinstance(value, Mapping):
-        encoded: dict[str, Any] = {}
-        changed = False
-        for key, item in value.items():
-            encoded_item, item_changed = _encode_legacy_value(item)
-            encoded[key] = encoded_item
-            changed = changed or item_changed
-        return encoded, changed
-    if isinstance(value, list):
-        encoded_items = []
-        changed = False
-        for item in value:
-            encoded_item, item_changed = _encode_legacy_value(item)
-            encoded_items.append(encoded_item)
-            changed = changed or item_changed
-        return encoded_items, changed
-    return value, False
-
-
 def _legacy_verdict(recipe: Recipe) -> str:
     gate = recipe.gate_evidence
     auto = gate.get("auto") if isinstance(gate, Mapping) else None
@@ -180,42 +148,32 @@ def import_legacy_current_view(
         "workflow": recipe.workflow,
         "notes": recipe.notes,
     }
-    legacy_view, has_nonfinite = _encode_legacy_value(_legacy_current_view(recipe))
+    legacy_view, has_nonfinite = encode_legacy_value(_legacy_current_view(recipe))
     metrics = {
         "headline_metric": recipe.headline_metric,
         "sample_quality": copy.deepcopy(recipe.sample_quality),
         "calibration_budget": copy.deepcopy(recipe.calibration_budget),
         "legacy_current_view": legacy_view,
     }
-    metrics, metrics_nonfinite = _encode_legacy_value(metrics)
+    metrics, metrics_nonfinite = encode_legacy_value(metrics)
     has_nonfinite = has_nonfinite or metrics_nonfinite
     if has_nonfinite:
-        metrics["legacy_current_view_encoding"] = {
-            "schema": _LEGACY_VIEW_ENCODING_SCHEMA,
-            "kind": "strict-json-tagged-nonfinite-float",
-            "tag_key": _LEGACY_NONFINITE_TAG,
-            "values": ["nan", "+inf", "-inf"],
-        }
-    intent_snapshot, intent_nonfinite = _encode_legacy_value(_intent_snapshot(recipe))
-    ground_truth_snapshot, ground_truth_nonfinite = _encode_legacy_value(
+        metrics["legacy_current_view_encoding"] = legacy_encoding_metadata()
+    intent_snapshot, intent_nonfinite = encode_legacy_value(_intent_snapshot(recipe))
+    ground_truth_snapshot, ground_truth_nonfinite = encode_legacy_value(
         copy.deepcopy(ground_truth)
     )
-    gate_snapshot, gate_nonfinite = _encode_legacy_value(
+    gate_snapshot, gate_nonfinite = encode_legacy_value(
         copy.deepcopy(recipe.gate_evidence)
     )
-    failure_snapshot, failure_nonfinite = _encode_legacy_value(failure)
+    failure_snapshot, failure_nonfinite = encode_legacy_value(failure)
     if (
         intent_nonfinite
         or ground_truth_nonfinite
         or gate_nonfinite
         or failure_nonfinite
     ) and "legacy_current_view_encoding" not in metrics:
-        metrics["legacy_current_view_encoding"] = {
-            "schema": _LEGACY_VIEW_ENCODING_SCHEMA,
-            "kind": "strict-json-tagged-nonfinite-float",
-            "tag_key": _LEGACY_NONFINITE_TAG,
-            "values": ["nan", "+inf", "-inf"],
-        }
+        metrics["legacy_current_view_encoding"] = legacy_encoding_metadata()
     attempt = build_attempt_record(
         attempt_id="legacy-current-view",
         rationale="Snapshot of the pre-refactor current recipe view",

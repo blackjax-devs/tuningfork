@@ -19,7 +19,7 @@ import copy
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from tuningfork._machine_info import get_machine_info
 from tuningfork.catalog.emit import execute_recipe
@@ -31,6 +31,7 @@ from tuningfork.recipes._certification_intent import (
     build_certification_intent,
 )
 from tuningfork.recipes._certification_record import append_certification_attempt
+from tuningfork.recipes._execution_telemetry import ExecutionTelemetry
 from tuningfork.recipes._generated_certification import (
     GeneratedEvaluation,
     evaluate_generated_run,
@@ -515,7 +516,7 @@ def emit_low_recipe_for_cell(
         evaluation = evaluate_generated_run(
             intent.recipe,
             run_data,
-            result.telemetry,
+            cast(ExecutionTelemetry, result.telemetry),
             reference,
             n_chunks=n_chunks,
             allowed_sites=allowed_sites,

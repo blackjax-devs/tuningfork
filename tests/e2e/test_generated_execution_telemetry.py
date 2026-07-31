@@ -21,6 +21,7 @@ import pytest
 
 from tuningfork.catalog import execute_recipe
 from tuningfork.recipes import Effort, Recipe
+from tuningfork.recipes._execution_telemetry import ExecutionTelemetry
 
 pytestmark = pytest.mark.e2e
 
@@ -53,7 +54,7 @@ def test_window_adaptation_emits_exact_bound_telemetry(tmp_path) -> None:
     )
 
     telemetry = result.telemetry
-    assert telemetry is not None
+    assert isinstance(telemetry, ExecutionTelemetry)
     assert telemetry.plan_hash == result.manifest.plan_hash
     assert telemetry.geometry_source == "adapted"
     assert telemetry.geometry_scope == "per_chain"

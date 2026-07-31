@@ -40,6 +40,7 @@ from ._execution_plan import canonical_json
 from ._execution_receipt import ExecutionReceipt
 from ._execution_telemetry import ExecutionTelemetry
 from ._sample_stats import SAMPLE_STAT_PREFIX
+from ._smc_execution_telemetry import SMCExecutionTelemetry
 
 _PROGRAM_FILENAME = "program.py"
 _STDOUT_FILENAME = "stdout.log"
@@ -114,7 +115,7 @@ class LaunchResult:
     artifact_sha256: str | None
     telemetry_path: Path | None
     telemetry_sha256: str | None
-    telemetry: ExecutionTelemetry | None
+    telemetry: ExecutionTelemetry | SMCExecutionTelemetry | None
     manifest: ExecutionManifest
     receipt: ExecutionReceipt
     timings: ExecutionTimings | None
@@ -312,6 +313,11 @@ def _append_error(error: str | None, detail: str) -> str:
 
 
 def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
+    if manifest.executable_config.get("execution_family") == "smc":
+        from ._generated_smc import load_generated_smc_artifact
+
+        load_generated_smc_artifact(path, manifest)
+        return _sha256_file(path)
     artifact_sha256 = _sha256_file(path)
     with np.load(path, allow_pickle=False) as archive:
         files = list(archive.files)
@@ -355,6 +361,14 @@ def _validate_artifact(path: Path, manifest: ExecutionManifest) -> str:
     return artifact_sha256
 
 
+def _read_telemetry(
+    path: Path, manifest: ExecutionManifest
+) -> ExecutionTelemetry | SMCExecutionTelemetry:
+    if manifest.executable_config.get("execution_family") != "smc":
+        return ExecutionTelemetry.read_path(path, manifest)
+    return SMCExecutionTelemetry.read_path(path, manifest)
+
+
 def _write_receipt(receipt: ExecutionReceipt, path: Path) -> None:
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}-", suffix=".tmp", dir=path.parent
@@ -391,7 +405,7 @@ def _finish_attempt(
     artifact_sha256: str | None,
     telemetry_path: Path | None,
     telemetry_sha256: str | None,
-    telemetry: ExecutionTelemetry | None,
+    telemetry: ExecutionTelemetry | SMCExecutionTelemetry | None,
     manifest: ExecutionManifest,
     started_at: str,
     command: tuple[str, ...],
@@ -562,7 +576,7 @@ def launch_generated_program(
     timed_out = False
     error: str | None = None
     timings: ExecutionTimings | None = None
-    telemetry: ExecutionTelemetry | None = None
+    telemetry: ExecutionTelemetry | SMCExecutionTelemetry | None = None
     telemetry_sha256: str | None = None
     with (
         tempfile.TemporaryFile() as stdout_stream,
@@ -818,7 +832,7 @@ def launch_generated_program(
         error = _append_error(error, "manifest-declared telemetry is missing")
     else:
         try:
-            telemetry = ExecutionTelemetry.read_path(telemetry_path, manifest)
+            telemetry = _read_telemetry(telemetry_path, manifest)
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             error = _append_error(error, f"invalid execution telemetry: {exc}")
 
@@ -855,6 +869,7 @@ def launch_generated_program(
 
 __all__ = [
     "ExecutionTimings",
+    "SMCExecutionTelemetry",
     "GeneratedProgramError",
     "LaunchResult",
     "launch_generated_program",
