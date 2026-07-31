@@ -32,6 +32,9 @@ Catalog layout:  ``catalog/<model>/recipes/smc__<method>__<inner>.json``
 """
 
 import json
+import math
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -168,6 +171,54 @@ class SMCRecipe:
         default_factory=dict, repr=False, compare=False
     )
 
+    def __post_init__(self) -> None:
+        """Reject malformed plans before they can reach an execution runner."""
+        for name in ("model_name", "smc_method_name", "inner_method_name"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{name} must be a non-empty string")
+        for name in ("num_particles", "max_steps", "seed"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{name} must be an integer")
+            if name == "seed" and value < 0:
+                raise ValueError("seed must be non-negative")
+            if name != "seed" and value <= 0:
+                raise ValueError(f"{name} must be positive")
+        for name in (
+            "smc_params",
+            "parameter_update_strategy_kwargs",
+            "gate_evidence",
+            "calibration_budget",
+        ):
+            if not isinstance(getattr(self, name), dict):
+                raise TypeError(f"{name} must be a mapping")
+        for name in ("inner_params_init", "inner_params_final"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, dict):
+                raise TypeError(f"{name} must be a mapping or None")
+        for name in (
+            "parameter_update_strategy",
+            "notes",
+            "tuningfork_version",
+            "blackjax_version",
+            "jax_version",
+            "timestamp_utc",
+        ):
+            if not isinstance(getattr(self, name), str):
+                raise TypeError(f"{name} must be a string")
+        if self.headline_metric is not None:
+            if isinstance(self.headline_metric, bool) or not isinstance(
+                self.headline_metric, (int, float)
+            ):
+                raise TypeError("headline_metric must be a number or None")
+            if isinstance(self.headline_metric, float) and not math.isfinite(
+                self.headline_metric
+            ):
+                raise ValueError("headline_metric must be finite")
+        if not isinstance(self._extra_fields, dict):
+            raise TypeError("_extra_fields must be a mapping")
+
     # ---- derived ----
     @property
     def verdict(self) -> str:
@@ -202,11 +253,27 @@ class SMCRecipe:
             stem = f"{stem}__{filename_tag}"
         target = target_dir / f"{stem}.json"
 
-        d = self._to_dict()
-        target.write_text(json.dumps(d, indent=2, default=str) + "\n")
+        d = self.to_dict()
+        # Serialize completely before touching the destination.  In particular,
+        # ``allow_nan=False`` prevents Python's non-standard NaN/Infinity output.
+        payload = json.dumps(d, indent=2, allow_nan=False) + "\n"
+        fd, temporary = tempfile.mkstemp(
+            dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
         return target
 
-    def _to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Render as a JSON-safe dict."""
         import dataclasses
 
@@ -222,6 +289,10 @@ class SMCRecipe:
             d[key] = value
         return d
 
+    # Kept for callers that used the former private helper.
+    def _to_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
     @classmethod
     def load(cls, path: Path) -> "SMCRecipe":
         """Load an SMCRecipe from a JSON file written by ``save``.
@@ -231,6 +302,8 @@ class SMCRecipe:
         import dataclasses
 
         raw = json.loads(Path(path).read_text())
+        if not isinstance(raw, dict):
+            raise TypeError("SMCRecipe JSON must contain an object")
         known = {f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")}
         extras = {k: v for k, v in raw.items() if k not in known}
         values = {k: v for k, v in raw.items() if k in known}
