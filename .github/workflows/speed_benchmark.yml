@@ -4,7 +4,9 @@ name: Speed-lite benchmark
 # Measures per-sampler-family wall-clock regression via rolling trend.
 #
 # Design:
-#   SPEED_LITE_CELLS × 5 warm rounds (warmup_rounds=1 absorbs JIT compile).
+#   SPEED_LITE_CELLS × 5 independent cold generated-program measurements.
+#   Each measurement includes the receipt-backed execution lifecycle; no
+#   cross-subprocess JIT cache is assumed.
 #   Cell count owned by config.py (_SPEED_LITE_BENCH_IDS); this file is count-agnostic.
 #   Fixed/pinned seed per dynamic cell (see PINNED_SEEDS in config.py) →
 #   cross-run trend comparison valid without seed-induced trajectory variance.
@@ -12,7 +14,7 @@ name: Speed-lite benchmark
 #   permission issue that blocked our first attempt).
 #   Alert threshold: 200% — fail-on-alert: true (nightly red = regression signal).
 #
-# Runtime: ~42 min estimated on CI (15 cells × 5 warm rounds; warm rounds cheap post-JIT).
+# Runtime: about 20 minutes observed on CI (13 cells × 5 cold measurements).
 # Timeout: 90 min (generous headroom for slow CI runners).
 
 on:
@@ -44,9 +46,9 @@ jobs:
           path: ./cache
           # Unique key ensures save always writes (avoids cache-hit no-op).
           # restore-keys picks up the most recent run on this OS.
-          key: speed-benchmark-${{ runner.os }}-${{ github.run_id }}
+          key: speed-benchmark-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            speed-benchmark-${{ runner.os }}-
+            speed-benchmark-v2-${{ runner.os }}-
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
@@ -67,9 +69,10 @@ jobs:
           uv pip install --no-deps "git+https://github.com/blackjax-devs/blackjax@main" --python 3.13
           uv run --python 3.13 python -c "import blackjax; print('blackjax:', blackjax.__version__)"
 
-      - name: Run speed-lite benchmarks (5 warm rounds each)
-        # pedantic(warmup_rounds=1, rounds=5): warmup round discards JIT compile;
-        # 5 measured rounds give stable Mean/StdDev for trend comparison.
+      - name: Run speed-lite benchmarks (5 cold rounds each)
+        # pedantic(warmup_rounds=0, rounds=5): each measurement launches an
+        # independent generated program, so a discarded parent-process warmup
+        # cannot warm the measured child process.
         # clear_xla_caches_between_cells fixture frees XLA cache after each cell.
         run: |
           mkdir -p benchmark_results_dir
@@ -118,7 +121,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ./cache
-          key: speed-benchmark-${{ runner.os }}-${{ github.run_id }}
+          key: speed-benchmark-v2-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload benchmark results artifact
         if: always()
