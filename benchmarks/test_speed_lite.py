@@ -18,10 +18,11 @@
   speed-lite (nightly)  → performance regression (wall-clock trend, actions/cache)
 
 **How it works:**
-  Each of 15 cells runs via ``benchmark.pedantic``::
+  Each of 13 cells runs via ``benchmark.pedantic``::
 
-      each round launches a standalone generated program; child timings are used
-      when available and no cross-subprocess warm-JIT persistence is assumed.
+      each round launches a standalone generated program through the
+      receipt-backed lifecycle; no cross-subprocess warm-JIT persistence is
+      assumed.
       rounds=5        → 5 independent cold measurements → Mean / StdDev
 
   Seed resolution (per-cell):
