@@ -33,14 +33,15 @@
 # That is deliberate: a second independently declared manifest would be one
 # more thing to drift.
 #
-# THE THREE SELECTED CASES all launch the generated joint program:
-#   * payload_matches_the_direct_public_call — launches it and compares the
-#     persisted metric, step size and paid gradient count against a direct
-#     public call, at a warmup length that actually succeeds.
-#   * joint_run_with_per_chain_init_strategy_executes — the same, with
+# THE THREE SELECTED CASES are TWO generated-program executions plus one
+# static check — not three executions:
+#   * payload_matches_the_direct_public_call — LAUNCHES the generated joint
+#     program and compares the persisted metric, step size and paid gradient
+#     count against a direct public call, at a warmup length that succeeds.
+#   * joint_run_with_per_chain_init_strategy_executes — LAUNCHES it too, with
 #     dispersed per-chain starts.
-#   * dual_topology_warmups_are_declared_ensemble_friendly — fast tripwire on
-#     the two lists that must not drift.
+#   * dual_topology_warmups_are_declared_ensemble_friendly — a fast static
+#     tripwire on two lists that must not drift. It launches nothing.
 # W=1 portability and the released-blackjax capability-error path stay in
 # test-e2e, which covers tests/recipes/** under its own path filter and runs
 # against the ordinary bench sync those cases document themselves as needing.
@@ -135,9 +136,14 @@ jobs:
       # imports blackjax in a fresh process from a foreign cwd and asserts it
       # resolves inside the pinned checkout; the pytest process asserts its own
       # blackjax resolves there too; and the tests assert the generated program
-      # ran under that same interpreter. A sys.path[0] shadow specific to the
-      # child's work directory is the residual, and the verify step's
-      # foreign-cwd import is what covers it.
+      # ran under that same interpreter.
+      #
+      # RESIDUAL, not covered: the verify step's probe runs from a temporary
+      # directory, NOT from the generated program's own work directory. A
+      # sys.path[0] shadow specific to that directory would therefore escape
+      # every check here. Nothing places an importable `blackjax` there today —
+      # the launcher writes only the program and its artifacts — but this is an
+      # untested assumption, not a verified one.
       - name: Required cases (selected joint generated-program cases)
         env:
           JAX_PLATFORM_NAME: cpu
