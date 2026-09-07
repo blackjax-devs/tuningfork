@@ -160,13 +160,42 @@ def _validate_low_rank(
         for x in lam
     ):
         raise ValueError("low-rank lam must be finite and positive")
-    for i in range(rank):
-        for j in range(rank):
+    # Orthonormality constrains the ACTIVE subspace only, keyed on lam.
+    #
+    # A column with lam[j] == 1 exactly is neutral: (lam[j] - 1) is exactly 0,
+    # so it drops out of U(diag(lam)-I)U^T whatever its values or overlap, and
+    # blackjax's _low_rank_matvec applies the same (s - 1) factor for every
+    # scale it is called with (lam, sqrt(lam), 1/sqrt(lam)), so a neutral
+    # column is inert in the kinetic energy, the momentum sampler and the
+    # U-turn check alike. The public meta-adaptation controller publishes such
+    # columns: rank-zero is a full-width U of zeros with lam all 1, and the
+    # T-branch is a unit-norm slow direction beside inert columns drawn from a
+    # different basis that are NOT mutually orthogonal.
+    #
+    # Active columns must be orthonormal because that is what makes the
+    # factorised and assembled readings agree: logdet reduces to
+    # 2*sum(log sigma) + sum(log lam) only then. A non-orthonormal active basis
+    # denotes a different covariance than its own parameters claim, which is
+    # reason enough to reject it.
+    #
+    # lam is compared EXACTLY. Neutrality is structural, not a numerical
+    # near-miss, so a near-one lam is ACTIVE and a zero or near-zero active
+    # column fails on its own norm. Every other guard above -- finite and
+    # positive sigma and lam, finite numeric U, dimension and shape agreement
+    # -- is unchanged and applies to every column.
+    #
+    # The same rule lives in _emit/_sampler._validate_low_rank_marker and in
+    # catalog/_rerun_inference; all three must move together.
+    active = [j for j in range(rank) if lam[j] != 1.0]
+    for i in active:
+        for j in active:
             dot = sum(U[r][i] * U[r][j] for r in range(rows))
             if not math.isclose(
                 dot, 1.0 if i == j else 0.0, rel_tol=1e-6, abs_tol=1e-6
             ):
-                raise ValueError("low-rank U columns must be orthonormal")
+                raise ValueError(
+                    "low-rank active (lam != 1) U columns must be orthonormal"
+                )
 
 
 def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

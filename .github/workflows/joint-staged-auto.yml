@@ -1,0 +1,178 @@
+# Joint staged-auto integration — pinned-upstream BlackJAX.
+#
+# WHY THIS JOB EXISTS
+# The joint staged-adaptation controller is reached through
+# `blackjax.staged_adaptation(metric="auto", n_chains=W)`. `n_chains` is in NO
+# published BlackJAX release — absent from 1.6.1 and 1.6.2, the latest on PyPI.
+# The ordinary `uv sync --group bench` therefore CANNOT execute the joint path,
+# and every other workflow here would silently skip it. This job is the only
+# place the joint topology actually runs.
+#
+# WHAT IT DELIBERATELY DOES NOT DO
+#   * It does not modify pyproject.toml or uv.lock. The declared install
+#     contract is unchanged: BlackJAX is declared in `[dependency-groups] bench`
+#     as `blackjax[progress]>=1.6.1` and lock-resolved to 1.6.1. Consumers are
+#     unaffected by this job.
+#   * It adds no user-facing VCS extra. The pin lives here and nowhere else.
+#   * It never tracks a floating branch. The SHA below is immutable.
+#
+# The pin is TEMPORARY. It is retired once a BlackJAX release actually contains
+# the capability — tracked by first observing such a release, not by assuming a
+# version number or date. At that point the `bench` floor is revisited and this
+# workflow is deleted.
+#
+# A SKIPPED CASE IS A FAILING GATE HERE, for the cases this job selects.
+# TUNINGFORK_REQUIRE_JOINT_CONTROLLER=1 turns a missing capability into a
+# collection error rather than a quiet skip, and the junit assertion catches
+# "collected but not run".
+#
+# What this does NOT do: it cannot detect a joint test added to the module but
+# not listed below, nor one removed from the list. The expected count is
+# derived from the same array that selects the cases, so it is self-referential
+# by construction. It verifies that the SELECTED cases executed — nothing more.
+# That is deliberate: a second independently declared manifest would be one
+# more thing to drift.
+#
+# THE THREE SELECTED CASES are TWO generated-program executions plus one
+# static check — not three executions:
+#   * payload_matches_the_direct_public_call — LAUNCHES the generated joint
+#     program and compares the persisted metric, step size and paid gradient
+#     count against a direct public call, at a warmup length that succeeds.
+#   * joint_run_with_per_chain_init_strategy_executes — LAUNCHES it too, with
+#     dispersed per-chain starts.
+#   * dual_topology_warmups_are_declared_ensemble_friendly — a fast static
+#     tripwire on two lists that must not drift. It launches nothing.
+# W=1 portability and the released-blackjax capability-error path stay in
+# test-e2e, which covers tests/recipes/** under its own path filter and runs
+# against the ordinary bench sync those cases document themselves as needing.
+
+name: joint-staged-auto
+
+# Path-filtered, matching the convention test-e2e.yml states explicitly: a full
+# uv sync, a second upstream checkout, an editable install and several JAX
+# subprocesses should not run on a docs-only PR.
+on:
+  pull_request:
+    paths:
+      - "tuningfork/recipes/**"
+      - "tuningfork/warmup/**"
+      - "tuningfork/catalog/**"
+      - "tests/recipes/**"
+      - ".github/workflows/joint-staged-auto.yml"
+      - ".github/scripts/**"
+  workflow_dispatch:
+
+# Default read-only token; no secrets are used and nothing is published.
+# Deliberately NOT pull_request_target: this job checks out and executes PR
+# code, so it must run without write access to the base repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BLACKJAX_PINNED_SHA: 9e128d20635e46ffbc57ff9fb344cfe3e95d89a3
+  BLACKJAX_PINNED_PATH: ${{ github.workspace }}/.ci-blackjax-pinned
+  # Job-level so a step added later cannot re-sync and silently reinstall the
+  # released blackjax over the pinned overlay. The `uv sync` step below runs
+  # before the overlay exists and passes its group explicitly, so it is
+  # unaffected.
+  UV_NO_SYNC: "1"
+
+jobs:
+  joint-staged-auto:
+    name: joint-staged-auto (pinned upstream)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      # The normal bench environment, unmodified — same resolution every other
+      # workflow gets. The pinned overlay is applied on top of it below, so all
+      # other dependency constraints (notably the jax>=0.11,<0.12 cap that the
+      # certified catalog depends on) stay exactly as resolved here.
+      - name: Sync the normal bench environment
+        run: uv sync --group bench
+
+      - name: Check out pinned BlackJAX
+        uses: actions/checkout@v4
+        with:
+          repository: blackjax-devs/blackjax
+          ref: ${{ env.BLACKJAX_PINNED_SHA }}
+          path: .ci-blackjax-pinned
+          persist-credentials: false
+
+      # --no-deps is load-bearing: it overlays ONLY the BlackJAX module and
+      # lets nothing in BlackJAX's own metadata re-resolve the environment's
+      # other pins.
+      - name: Overlay pinned BlackJAX (no dependency resolution)
+        run: uv pip install --no-deps -e "$BLACKJAX_PINNED_PATH"
+
+      # Provenance, not version strings. Asserts the imported module resolves
+      # inside the pinned checkout, that checkout's HEAD equals the pinned SHA,
+      # and that staged_adaptation actually accepts n_chains.
+      - name: Verify pinned provenance and n_chains capability
+        run: uv run --no-sync python .github/scripts/verify_joint_controller_env.py
+
+      # Generated programs are launched with the venv interpreter directly,
+      # never through uv, so they cannot trigger a re-sync of their own.
+      #
+      # Child identity: the production launcher does NOT probe it — that was
+      # withdrawn as out of scope. What holds instead: the verify step above
+      # imports blackjax in a fresh process from a foreign cwd and asserts it
+      # resolves inside the pinned checkout; the pytest process asserts its own
+      # blackjax resolves there too; and the tests assert the generated program
+      # ran under that same interpreter.
+      #
+      # RESIDUAL, not covered: the verify step's probe runs from a temporary
+      # directory, NOT from the generated program's own work directory. A
+      # sys.path[0] shadow specific to that directory would therefore escape
+      # every check here. Nothing places an importable `blackjax` there today —
+      # the launcher writes only the program and its artifacts — but this is an
+      # untested assumption, not a verified one.
+      - name: Required cases (selected joint generated-program cases)
+        env:
+          JAX_PLATFORM_NAME: cpu
+          TUNINGFORK_REQUIRE_JOINT_CONTROLLER: "1"
+        run: |
+          # Count derived from this list so the two cannot disagree. This is
+          # self-referential: it does not detect a case that was never added
+          # here. See the header.
+          MODULE=tests/recipes/test_staged_adaptation_auto_codegen.py
+          ids=(
+            "$MODULE::test_generated_program_payload_matches_the_direct_public_call"
+            "$MODULE::test_joint_run_with_per_chain_init_strategy_executes"
+            "$MODULE::test_dual_topology_warmups_are_declared_ensemble_friendly"
+          )
+          echo "REQUIRED_CASE_COUNT=${#ids[@]}" >> "$GITHUB_ENV"
+          uv run --no-sync pytest "${ids[@]}" \
+            -p no:cacheprovider \
+            -n 0 \
+            -q \
+            --junitxml=joint-gate.xml
+
+      - name: Assert every required case executed
+        if: always()
+        run: python3 .github/scripts/assert_joint_gate_executed.py joint-gate.xml "$REQUIRED_CASE_COUNT"
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: joint-staged-auto-gate
+          path: joint-gate.xml
+          if-no-files-found: warn

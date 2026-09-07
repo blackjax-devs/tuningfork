@@ -176,13 +176,25 @@ def prepare_pinned_replay(recipe: Recipe, *, catalog_root: Path | str) -> Recipe
                     raise ValueError("sigma/U/lam contain non-finite values")
                 if np.any(sigma <= 0) or np.any(lam <= 0):
                     raise ValueError("sigma and lam must be strictly positive")
-                if not np.allclose(
-                    basis.T @ basis,
-                    np.eye(lam.shape[0]),
-                    rtol=1e-5,
-                    atol=1e-6,
-                ):
-                    raise ValueError("U columns must be orthonormal")
+                # Active subspace only, keyed on lam -- kept in step with
+                # _execution_telemetry._validate_low_rank and
+                # _emit/_sampler._validate_low_rank_marker. Columns with
+                # lam == 1 are inert in diag(s)(I + U(diag(lam)-I)U^T)diag(s),
+                # and the public controller publishes such columns, so a
+                # whole-U check would make a validly recorded joint attempt
+                # unreplayable.
+                active_cols = np.flatnonzero(lam != 1.0)
+                if active_cols.size:
+                    active_basis = basis[:, active_cols]
+                    if not np.allclose(
+                        active_basis.T @ active_basis,
+                        np.eye(active_cols.size),
+                        rtol=1e-5,
+                        atol=1e-6,
+                    ):
+                        raise ValueError(
+                            "active (lam != 1) U columns must be orthonormal"
+                        )
                 inline_imm = {
                     "type": "low_rank_inverse_mass_matrix",
                     "sigma": sigma.tolist(),

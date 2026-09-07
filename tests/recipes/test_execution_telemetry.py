@@ -329,3 +329,193 @@ def test_fixed_rejects_unknown_fields():
 
     with pytest.raises(ValueError, match="unsupported fields"):
         ExecutionTelemetry.from_dict(raw, manifest)
+
+
+# ---------------------------------------------------------------------------
+# Low-rank marker: inert (zero) columns vs deployed columns
+# ---------------------------------------------------------------------------
+
+
+def _low_rank(U, lam, sigma=(1.0, 1.0, 1.0)) -> dict:
+    return {
+        "type": "low_rank_inverse_mass_matrix",
+        "sigma": list(sigma),
+        "U": [list(row) for row in U],
+        "lam": list(lam),
+    }
+
+
+def _assemble(marker: dict):
+    """Assemble diag(s)(I + U(diag(lam)-I)U^T)diag(s) from the factorised form."""
+    import numpy as np
+
+    sigma = np.asarray(marker["sigma"], dtype=float)
+    U = np.asarray(marker["U"], dtype=float)
+    lam = np.asarray(marker["lam"], dtype=float)
+    D = np.diag(sigma)
+    return D @ (np.eye(len(sigma)) + U @ np.diag(lam - 1.0) @ U.T) @ D
+
+
+# ---------------------------------------------------------------------------
+# Low-rank marker: the active subspace is what must be orthonormal
+#
+# A column with lam == 1 exactly is neutral -- (lam-1) annihilates it in
+# diag(s)(I + U(diag(lam)-I)U^T)diag(s) -- so its orientation is unconstrained.
+# The public meta-adaptation controller publishes exactly such columns.
+# ---------------------------------------------------------------------------
+
+_T_BRANCH_SIGMA = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+_T_BRANCH_LAM = [11.917022705078125, 1.0, 1.0]
+_T_BRANCH_U = [
+    [-0.9999057650566101, 0.1612187623977661, -0.7918498516082764],
+    [-0.004917052574455738, 0.07621265947818756, -0.20642785727977753],
+    [0.009963085874915123, 0.2536298632621765, -0.3456045389175415],
+    [0.003090420039370656, -0.8545103669166565, -0.08089739084243774],
+    [0.0064711919985711575, -0.16315369307994843, 0.06057322397828102],
+    [-0.0036927468609064817, 0.3834904134273529, 0.4480012059211731],
+]
+
+
+def _t_branch_marker() -> dict:
+    return _low_rank(_T_BRANCH_U, _T_BRANCH_LAM, _T_BRANCH_SIGMA)
+
+
+def _malformed_marker() -> dict:
+    """The counterexample worth rejecting: a second ACTIVE, non-orthogonal column.
+
+    Differs from the captured payload only in lam[1], which promotes an
+    overlapping column into the active subspace and breaks the determinant
+    identity.
+    """
+    return _low_rank(_T_BRANCH_U, [_T_BRANCH_LAM[0], 2.5, 1.0], _T_BRANCH_SIGMA)
+
+
+def test_captured_payload_has_the_properties_a_whole_u_rule_gets_wrong() -> None:
+    """Pin the capture, so the fixture cannot drift into something trivial."""
+    import numpy as np
+
+    U = np.asarray(_T_BRANCH_U)
+    np.testing.assert_allclose(np.linalg.norm(U, axis=0), np.ones(3), atol=1e-5)
+    np.testing.assert_allclose(
+        np.abs(U.T @ U - np.eye(3)).max(), 0.7878345847129822, rtol=1e-6, atol=1e-6
+    )
+    assert sum(1 for value in _T_BRANCH_LAM if value != 1.0) == 1
+
+
+def test_captured_payload_is_a_valid_metric() -> None:
+    """If it is SPD and matches the logdet identity, rejecting it is our bug."""
+    import numpy as np
+
+    dense = _assemble(_t_branch_marker())
+    np.testing.assert_allclose(dense, dense.T, atol=1e-6)
+    assert float(np.linalg.eigvalsh(dense).min()) > 0.0
+    np.testing.assert_allclose(
+        float(np.linalg.slogdet(dense)[1]),
+        2.0 * float(np.sum(np.log(_T_BRANCH_SIGMA)))
+        + float(np.sum(np.log(_T_BRANCH_LAM))),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_malformed_active_subspace_breaks_the_logdet_identity() -> None:
+    """Why the active check cannot be relaxed, shown rather than asserted."""
+    import numpy as np
+
+    marker = _malformed_marker()
+    dense_logdet = float(np.linalg.slogdet(_assemble(marker))[1])
+    closed_form = 2.0 * float(np.sum(np.log(_T_BRANCH_SIGMA))) + float(
+        np.sum(np.log(marker["lam"]))
+    )
+    assert abs(dense_logdet - closed_form) > 1e-3
+
+
+def test_all_three_consumers_accept_the_capture_and_reject_the_malformed() -> None:
+    """One fixture through every consumer of this representation.
+
+    These three drifted apart once already: telemetry accepted a payload the
+    sampler-emit and pinned-replay guards rejected, so a joint attempt could be
+    recorded and then never replayed.
+    """
+    import numpy as np
+
+    from tuningfork.recipes._emit._sampler import _validate_low_rank_marker
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    captured, malformed = _t_branch_marker(), _malformed_marker()
+
+    _validate_low_rank(captured)
+    _validate_low_rank_marker(captured)
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(malformed)
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank_marker(malformed)
+
+    # The pinned-replay guard applies the same rule to numpy arrays.
+    def _replay_guard_accepts(marker: dict) -> bool:
+        basis = np.asarray(marker["U"])
+        lam = np.asarray(marker["lam"])
+        active = np.flatnonzero(lam != 1.0)
+        if not active.size:
+            return True
+        columns = basis[:, active]
+        return bool(
+            np.allclose(columns.T @ columns, np.eye(active.size), rtol=1e-5, atol=1e-6)
+        )
+
+    assert _replay_guard_accepts(captured)
+    assert not _replay_guard_accepts(malformed)
+
+
+def test_rank_zero_payload_is_the_same_rule_degenerately() -> None:
+    """metric="auto" pre-escalation: full-width U of zeros, lam all 1."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    _validate_low_rank(_low_rank([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [1.0, 1.0]))
+
+
+def test_neutrality_is_exact_and_zero_active_columns_fail() -> None:
+    """A near-one lam is ACTIVE; an active column must still be orthonormal."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    zeros = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(_low_rank(zeros, [1.0 + 1e-9, 1.0]))
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(_low_rank(zeros, [2.0, 1.0]))
+
+
+def test_neutral_columns_do_not_affect_the_assembled_matrix() -> None:
+    """Why neutral columns are exempt: they are invisible to the metric."""
+    import numpy as np
+
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    base = _low_rank([[1.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [2.0, 1.0])
+    perturbed = _low_rank([[1.0, 7.0], [0.0, -3.5], [0.0, 0.25]], [2.0, 1.0])
+    np.testing.assert_allclose(_assemble(base), _assemble(perturbed))
+    _validate_low_rank(base)
+    _validate_low_rank(perturbed)
+
+
+def test_existing_finite_positive_and_dimension_checks_are_unchanged() -> None:
+    """The exemption must not have widened any other guard."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    zeros = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
+    for lam, match in (
+        ([1.0, 0.0], "lam must be finite and positive"),
+        ([1.0, -1.0], "lam must be finite and positive"),
+        ([1.0, float("inf")], "lam must be finite and positive"),
+        ([1.0], "U/lam shapes do not match"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            _validate_low_rank(_low_rank(zeros, lam))
+    with pytest.raises(ValueError, match="U must be finite numeric"):
+        _validate_low_rank(
+            _low_rank([[0.0, float("nan")], [0.0, 0.0], [0.0, 0.0]], [1.0, 1.0])
+        )
+    with pytest.raises(ValueError, match="sigma must be finite and positive"):
+        _validate_low_rank(_low_rank(zeros, [1.0, 1.0], sigma=(1.0, 0.0, 1.0)))
+    with pytest.raises(ValueError, match="sigma dimension or rank"):
+        _validate_low_rank(_low_rank(zeros, [1.0, 1.0], sigma=(1.0, 1.0)))

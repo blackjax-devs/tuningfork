@@ -266,8 +266,11 @@ def _build_inference_loop(
         a("_n_dims = int(_il_flat.shape[0])")
         a(f"_shared_imm = {no_warmup_imm_expr}")
     elif not warmup_is_perchain:
-        # Single-chain warmup → scalar shared params
-        a("# Single-chain warmup: adapted params are scalar / un-batched.")
+        # Warmup published shared params → scalar step size + one shared metric.
+        # Either a W=1 warmup or a joint multi-chain controller
+        # (staged_adaptation_auto), which adapts W chains but publishes one
+        # (step_size, inverse_mass_matrix) for all of them.
+        a("# Warmup published shared adapted params: scalar / un-batched.")
         a('_shared_step_size = _adapted_params["step_size"]')
         a('_shared_imm = _adapted_params["inverse_mass_matrix"]')
 
@@ -346,7 +349,7 @@ def _build_inference_loop(
             " _batched_imm)"
         )
     else:
-        a("# Single-chain warmup: shared step_size + IMM across all chains.")
+        a("# Shared adapted params: one step_size + one IMM across all chains.")
         a("_kernel_step = kernel_builder(_shared_step_size, _shared_imm)")
         a("")
         a("def _vmapped_step(rng_key, states):")
@@ -980,6 +983,27 @@ def emit_script(
     # Other values were rejected while resolving the executable plan.
     _warmup_W0 = _wnc_emit[0]
     _uses_shared_window_warmup = _warmup_W0 == 1 and num_chains > 1
+
+    # staged_adaptation_auto: W selects the controller's n_chains directly.
+    # W=S runs the joint controller over all sampling chains; W=1 runs the
+    # single-chain controller and the emitter broadcasts.  Either way the
+    # controller publishes shared adapted parameters, so _warmup_is_perchain
+    # stays False below and no per-chain vmap flag applies here.
+    if recipe.warmup_name == "staged_adaptation_auto":
+        ctx["_staged_auto_n_chains"] = _warmup_W0
+        _sa_budget = recipe.warmup_params.get("max_grad_budget")
+        if _sa_budget is None:
+            raise ValueError(
+                "staged_adaptation_auto recipe is missing 'max_grad_budget' in "
+                "warmup_params. blackjax.staged_adaptation raises without it "
+                "under metric='auto'; add max_grad_budget=<int> to the recipe's "
+                "warmup_params before calling emit_script."
+            )
+        if isinstance(_sa_budget, bool) or not isinstance(_sa_budget, int):
+            raise ValueError(
+                "staged_adaptation_auto warmup_params['max_grad_budget'] must be "
+                f"an int; got {_sa_budget!r}."
+            )
 
     # Resolve the sampler descriptor once for warmup and sampler emission.
     _bm_entry = BASE_METHODS[recipe.base_method_name]

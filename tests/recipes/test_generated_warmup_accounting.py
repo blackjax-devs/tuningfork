@@ -53,6 +53,8 @@ def _ctx(**extra: object) -> dict[str, object]:
         "wp1_name": "phase2",
         "wp1_target": 0.8,
         "wp1_n_warmup": 5,
+        "wp_max_grad_budget": 20_000,
+        "_staged_auto_n_chains": 2,
     }
     ctx.update(extra)
     return ctx
@@ -84,6 +86,7 @@ def test_every_registered_warmup_has_generated_implementation() -> None:
             "nuts",
             "_warmup_info.info.num_integration_steps",
         ),
+        ("staged_adaptation_auto", "nuts", "_warmup_grad_evals = int(jnp.sum"),
         ("mclmc_tuning", "mclmc", "_warmup_grad_evals = int(jnp.sum"),
         ("adjusted_mclmc_tuning", "adjusted_mclmc", "_warmup_grad_evals = int(jnp.sum"),
         (
