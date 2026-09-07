@@ -52,6 +52,15 @@ from tuningfork.catalog.emit import (
     emit_smc_script,
     execute_recipe,
 )
+from tuningfork.catalog.expectands import (
+    CostAccounting,
+    ExpectandDiagnostics,
+    ExpectandReport,
+    ReportComparison,
+    compare_reports,
+    expectand_report,
+    expectand_traces,
+)
 from tuningfork.catalog.inspect import list_recipes, load_recipe, summarize_recipe
 from tuningfork.catalog.render import load_chain_stats, load_idata, load_samples
 
@@ -73,6 +82,14 @@ __all__ = [
     "render_universal_summary",
     "render_gradient_mh",
     "plot_recipe_diagnostics",
+    # expectands
+    "expectand_traces",
+    "expectand_report",
+    "compare_reports",
+    "ExpectandReport",
+    "ExpectandDiagnostics",
+    "ReportComparison",
+    "CostAccounting",
     # timing
     "compute_total_warmup_steps",
     "format_timing_context",
