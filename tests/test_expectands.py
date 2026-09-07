@@ -558,7 +558,7 @@ def test_comparison_reports_backend_mismatch_and_unmatched_expectands(draws):
     comparison = compare_reports(baseline, candidate)
 
     assert comparison.backend_mismatch == ("blackjax", "arviz")
-    assert comparison.only_in_candidate == ("theta_1",)
+    assert comparison.only_in_candidate == (("theta_1", None),)
     assert comparison.only_in_baseline == ()
 
 
@@ -1308,7 +1308,9 @@ def test_an_incomplete_counter_is_never_normalised_per_gradient():
     row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
 
     assert row.per_transition_grad_eval is None
-    assert any("UNESTABLISHED" in b for b in row.cost_blocked_by)
+    assert any(
+        "not used as a per-gradient denominator" in b for b in row.cost_blocked_by
+    )
     assert comparison.cost_normalised_available is False
     # Independently complete measures are not suppressed.
     assert row.per_second is not None
@@ -1345,10 +1347,14 @@ def test_a_convention_derived_subtotal_is_not_a_per_gradient_denominator():
     row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
 
     assert row.per_transition_grad_eval is None
-    assert any("UNESTABLISHED" in b for b in row.cost_blocked_by)
+    assert any(
+        "not used as a per-gradient denominator" in b for b in row.cost_blocked_by
+    )
     assert comparison.cost_normalised_available is False
-    # Reported, not suppressed: the count and its convention survive.
+    # Reported, not suppressed: the count, its convention and the marker that
+    # records how it was obtained all survive on the exclusions.
     assert any("counts gradients as:" in e for e in comparison.excluded_grad_work)
+    assert any("UNESTABLISHED" in e for e in comparison.excluded_grad_work)
     # Wall time and the uncosted ratio are untouched.
     assert row.per_second is not None
     assert row.ratio is not None
