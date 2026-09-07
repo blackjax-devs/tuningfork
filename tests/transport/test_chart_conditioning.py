@@ -26,6 +26,11 @@ the implementation degrades at any particular clock.  An earlier version did,
 which would have made a correctness improvement fail the suite — a test that
 pins today's rounding behaviour blocks tomorrow's repair.
 
+Nor is the residual a certificate.  It detects error in the clock component and
+is blind to anything leaving ``h . z`` intact, so a small value says nothing
+about the accuracy of the score or the log-Jacobian.  Those are covered by the
+algebra tests against an independent reference, not by this diagnostic.
+
 Two limits, both established by review rather than assumed:
 
 * the severity is a property of the **(chart, target) pair**, not the chart.  An

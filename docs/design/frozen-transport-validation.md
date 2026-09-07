@@ -142,12 +142,19 @@ difference of two such terms. So the **clock coordinate** loses accuracy with th
 clock while the rest of the flow stays at dtype precision. Two consequences, both
 established by independent review rather than asserted here:
 
-**The residual is a runtime diagnostic.** The unit-clock-rate identity says
-`h . z` equals `t` exactly, so `|h . z - t|` measures the damage directly. It is
-one dot product over quantities `forward` already computes. An earlier version of
-this document said a useful guard "has to be derived from the chart parameters
-rather than inferred from the returned values". That was wrong: it cannot be a
-*finiteness* check, but it need not come from the parameters either.
+**The residual is a runtime diagnostic, and only that.** The unit-clock-rate
+identity says `h . z` equals `t` exactly, so `|h . z - t|` is an `O(d)`
+observation of one specific failure — computable from quantities `forward`
+already has. An earlier version of this document said a useful guard "has to be
+derived from the chart parameters rather than inferred from the returned
+values"; that was wrong, since this residual is inferred from returned values.
+
+But it is a **detector, not a certificate**. A small residual does not certify
+that the score or the log-Jacobian is accurate, and it does not catch every
+silent error: it is sensitive to error in the clock component and blind to
+anything that leaves `h . z` intact. Treating a clean residual as evidence of a
+correct chart would repeat, in the other direction, the mistake this document
+already made once.
 
 **A projection repairs it, and is not shipped.** `z <- z + h (t - h . z)`
 displaces by exactly the residual, so it is a no-op on a correct value and exact
