@@ -329,3 +329,148 @@ def test_fixed_rejects_unknown_fields():
 
     with pytest.raises(ValueError, match="unsupported fields"):
         ExecutionTelemetry.from_dict(raw, manifest)
+
+
+# ---------------------------------------------------------------------------
+# Low-rank marker: inert (zero) columns vs deployed columns
+# ---------------------------------------------------------------------------
+
+
+def _low_rank(U, lam, sigma=(1.0, 1.0, 1.0)) -> dict:
+    return {
+        "type": "low_rank_inverse_mass_matrix",
+        "sigma": list(sigma),
+        "U": [list(row) for row in U],
+        "lam": list(lam),
+    }
+
+
+def test_deployed_low_rank_columns_must_still_be_orthonormal() -> None:
+    """The existing invariant is unchanged wherever a column is deployed."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    # Unit-norm but not mutually orthogonal.
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(_low_rank([[1.0, 1.0], [0.0, 0.0], [0.0, 0.0]], [2.0, 3.0]))
+    # Orthogonal but not unit-norm.
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(_low_rank([[2.0, 0.0], [0.0, 2.0], [0.0, 0.0]], [2.0, 3.0]))
+    # Genuinely orthonormal deployed columns are accepted.
+    _validate_low_rank(_low_rank([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]], [2.0, 3.0]))
+
+
+def test_rank_zero_metric_with_inert_zero_columns_is_accepted() -> None:
+    """metric="auto" publishes full-width U of zeros with lam=1 at rank zero.
+
+    The metric is diag(s)(I + U(diag(lam)-I)U^T)diag(s), so with lam=1 the
+    correction term vanishes identically and the metric is exactly diagonal --
+    a controller outcome, not a malformed payload.  Demanding orthonormality of
+    columns that contribute nothing would reject a correct diagonal metric.
+    """
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    _validate_low_rank(_low_rank([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [1.0, 1.0]))
+
+
+def test_partially_deployed_low_rank_mixes_inert_and_orthonormal_columns() -> None:
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    _validate_low_rank(_low_rank([[1.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [2.0, 1.0]))
+    # The deployed column is still held to the invariant.
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(_low_rank([[2.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [2.0, 1.0]))
+
+
+def test_inactive_column_must_carry_lam_exactly_one() -> None:
+    """The reason is the representation contract, not the assembled matrix.
+
+    ``U=0`` zeroes the correction term whatever ``lam`` holds, so the explicit
+    matrix is identical either way -- this is NOT a degeneracy or SPD argument.
+    What breaks is the factorised reading: the spectral, log-determinant and
+    inverse helpers consume ``lam[j]`` as the eigenvalue paired with basis
+    column ``U[:, j]``, so an inactive column carrying ``lam != 1`` makes those
+    helpers disagree with the matrix the same payload denotes.
+    """
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    with pytest.raises(ValueError, match="lam exactly 1"):
+        _validate_low_rank(_low_rank([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [2.0, 1.0]))
+
+
+@pytest.mark.parametrize(
+    "lam0",
+    [
+        1.0 + 1e-9,
+        1.0 - 1e-9,
+        0.9999999,
+        1.0000001,
+    ],
+)
+def test_near_one_lam_on_an_inactive_column_is_still_rejected(lam0: float) -> None:
+    """Inactivity is structural, so the comparison is exact, not tolerant.
+
+    A near-one lam on a directionless column is exactly the inconsistency the
+    check exists to catch, so a tolerance would defeat it.  These values all
+    pass ``math.isclose(lam, 1.0)`` and must still be rejected.
+    """
+    import math
+
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    assert math.isclose(lam0, 1.0, rel_tol=1e-6, abs_tol=1e-6), "control is near one"
+    with pytest.raises(ValueError, match="lam exactly 1"):
+        _validate_low_rank(_low_rank([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [lam0, 1.0]))
+
+
+def test_near_zero_column_is_active_and_held_to_orthonormality() -> None:
+    """Only EXACT zeros are inactive; a tiny non-zero column is a real column."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(
+            _low_rank([[1e-300, 0.0], [0.0, 1.0], [0.0, 0.0]], [1.0, 2.0])
+        )
+
+
+def test_mixed_inactive_and_active_columns_in_both_orders() -> None:
+    """Column position must not affect the rule."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    # active first, inactive second
+    _validate_low_rank(_low_rank([[1.0, 0.0], [0.0, 0.0], [0.0, 0.0]], [3.0, 1.0]))
+    # inactive first, active second
+    _validate_low_rank(_low_rank([[0.0, 0.0], [0.0, 1.0], [0.0, 0.0]], [1.0, 3.0]))
+    # two active, one inactive, active pair mutually orthonormal
+    _validate_low_rank(
+        _low_rank([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]], [2.0, 3.0, 1.0])
+    )
+    # the same shape with the active pair NOT orthogonal is still rejected
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(
+            _low_rank(
+                [[1.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [2.0, 3.0, 1.0]
+            )
+        )
+
+
+def test_existing_finite_positive_and_dimension_checks_are_unchanged() -> None:
+    """The exemption must not have widened any other guard."""
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    zeros = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
+    with pytest.raises(ValueError, match="lam must be finite and positive"):
+        _validate_low_rank(_low_rank(zeros, [1.0, 0.0]))
+    with pytest.raises(ValueError, match="lam must be finite and positive"):
+        _validate_low_rank(_low_rank(zeros, [1.0, -1.0]))
+    with pytest.raises(ValueError, match="lam must be finite and positive"):
+        _validate_low_rank(_low_rank(zeros, [1.0, float("inf")]))
+    with pytest.raises(ValueError, match="U must be finite numeric"):
+        _validate_low_rank(
+            _low_rank([[0.0, float("nan")], [0.0, 0.0], [0.0, 0.0]], [1.0, 1.0])
+        )
+    with pytest.raises(ValueError, match="sigma must be finite and positive"):
+        _validate_low_rank(_low_rank(zeros, [1.0, 1.0], sigma=(1.0, 0.0, 1.0)))
+    with pytest.raises(ValueError, match="U/lam shapes do not match"):
+        _validate_low_rank(_low_rank(zeros, [1.0]))
+    with pytest.raises(ValueError, match="sigma dimension or rank"):
+        _validate_low_rank(_low_rank(zeros, [1.0, 1.0], sigma=(1.0, 1.0)))

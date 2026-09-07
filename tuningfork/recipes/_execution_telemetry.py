@@ -160,8 +160,41 @@ def _validate_low_rank(
         for x in lam
     ):
         raise ValueError("low-rank lam must be finite and positive")
-    for i in range(rank):
-        for j in range(rank):
+    # Orthonormality is a property of ACTIVE basis columns.  A column of exact
+    # zeros carries no direction, so the constraint is not meaningful for it:
+    # in diag(s)(I + U(diag(lam)-I)U^T)diag(s) that column contributes nothing
+    # to the correction term.  The meta-adaptation controller (metric="auto")
+    # publishes exactly this at deployed rank zero -- a full-width U of zeros
+    # with lam all 1 -- which is a controller outcome, not a malformed payload.
+    # Requiring orthonormality of directionless columns rejected it, so no
+    # joint recipe could record evidence at rank zero.
+    #
+    # An inactive column must still carry lam exactly 1.  The reason is the
+    # REPRESENTATION CONTRACT, not the explicit matrix: U=0 zeroes the
+    # correction term whatever lam holds, so the assembled matrix is unchanged
+    # either way.  But this payload is the factorised form, and the spectral,
+    # log-determinant and inverse helpers that consume it read lam[j] as the
+    # eigenvalue paired with basis column U[:, j].  An inactive column carrying
+    # lam != 1 breaks that pairing and makes those helpers disagree with the
+    # matrix the same payload denotes.  Rejecting it keeps the two readings
+    # consistent.
+    #
+    # Both comparisons here are EXACT.  Inactivity is a structural property of
+    # the published representation, not a numerical near-miss: a near-one lam
+    # on a directionless column is precisely the inconsistency being screened
+    # for, so a tolerance would defeat the check.
+    zero_cols = {j for j in range(rank) if all(U[r][j] == 0.0 for r in range(rows))}
+    for j in sorted(zero_cols):
+        if lam[j] != 1.0:
+            raise ValueError(
+                "low-rank inactive (all-zero) U column must carry lam exactly 1; "
+                f"column {j} has lam={lam[j]!r}, which breaks the pairing between "
+                "lam and its basis column that the factorised representation's "
+                "spectral/logdet/inverse helpers rely on"
+            )
+    deployed = [j for j in range(rank) if j not in zero_cols]
+    for i in deployed:
+        for j in deployed:
             dot = sum(U[r][i] * U[r][j] for r in range(rows))
             if not math.isclose(
                 dot, 1.0 if i == j else 0.0, rel_tol=1e-6, abs_tol=1e-6

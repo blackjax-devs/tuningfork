@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import inspect
 import json
+import os
 from dataclasses import replace
 
 import pytest
@@ -48,20 +49,47 @@ WARMUP = "staged_adaptation_auto"
 # 1.6.2, so the runtime half of this module is capability-gated while the
 # descriptor / plan / emission half runs everywhere.
 _HAS_N_CHAINS = False
+_BLACKJAX_ORIGIN = "<import failed>"
 try:  # pragma: no cover - import guard, not a branch under test
     import blackjax as _blackjax
 
     _HAS_N_CHAINS = (
         "n_chains" in inspect.signature(_blackjax.staged_adaptation).parameters
     )
+    _BLACKJAX_ORIGIN = f"{_blackjax.__version__} from {_blackjax.__file__}"
 except Exception:  # pragma: no cover - blackjax always present in this suite
     _HAS_N_CHAINS = False
+
+# The dedicated pinned-upstream CI job sets this.  There, a skipped or
+# uncollected joint case is a FAILING gate, not an acceptable outcome, so the
+# capability shortfall is raised at import (a collection error) rather than
+# quietly degrading to a skip.  Capability is probed on the actual signature,
+# never on the version string.
+_REQUIRE_JOINT = os.environ.get("TUNINGFORK_REQUIRE_JOINT_CONTROLLER", "0") not in {
+    "",
+    "0",
+}
+if _REQUIRE_JOINT and not _HAS_N_CHAINS:  # pragma: no cover - CI gate path
+    raise RuntimeError(
+        "TUNINGFORK_REQUIRE_JOINT_CONTROLLER is set, but the imported "
+        "blackjax.staged_adaptation does not accept n_chains. Imported "
+        f"blackjax: {_BLACKJAX_ORIGIN}. The pinned-upstream overlay did not "
+        "take effect, or a re-sync restored the released package."
+    )
 
 requires_joint_controller = pytest.mark.skipif(
     not _HAS_N_CHAINS,
     reason=(
         "installed blackjax.staged_adaptation does not accept n_chains "
         "(multi-chain metric='auto' controller)"
+    ),
+)
+
+requires_released_without_n_chains = pytest.mark.skipif(
+    _HAS_N_CHAINS,
+    reason=(
+        "installed blackjax.staged_adaptation accepts n_chains; the "
+        "capability-error path is only reachable on a released blackjax"
     ),
 )
 
@@ -375,3 +403,151 @@ def test_short_warmup_degenerates_the_controller_schedule() -> None:
 
     assert _step_size(40) > 100.0, "short-warmup runaway no longer reproduces"
     assert 0.1 < _step_size(200) < 10.0
+
+
+# ---------------------------------------------------------------------------
+# Executed generated-program coverage
+#
+# These run the emitted standalone program in a subprocess, which is also the
+# only end-to-end evidence that the child interpreter imported the same
+# blackjax the test process did: the joint program carries its own capability
+# guard, so a successful joint run proves the capability was present in the
+# subprocess, not merely in the collector.
+# ---------------------------------------------------------------------------
+
+
+def _telemetry_geometry(result) -> tuple[str, dict]:
+    payload = json.loads(result.telemetry_path.read_text())
+    return payload["geometry_scope"], payload["geometry"]
+
+
+@requires_joint_controller
+@pytest.mark.e2e
+def test_small_joint_run_executes_and_samples_cleanly(tmp_path) -> None:
+    """A joint run at an adequate n_warmup, executed end to end.
+
+    Complements the pinned short-warmup runaway case: the controller is not
+    merely reproducible, it produces a usable shared step size and a clean
+    sample when the warmup is long enough for its schedule.
+    """
+    from tuningfork.catalog import execute_recipe
+
+    result = execute_recipe(
+        _recipe(num_chains=6, n_warmup=200, max_grad_budget=20_000),
+        tmp_path / "runs",
+        num_samples=20,
+        progress_bar=False,
+        timeout=600,
+    )
+    assert result.returncode == 0
+    assert result.artifact_path is not None
+
+    scope, geometry = _telemetry_geometry(result)
+    # The joint controller publishes ONE payload for all six chains.
+    assert scope == "shared"
+    step_size = geometry["step_size"]
+    assert isinstance(step_size, float)
+    assert 0.05 < step_size < 20.0, f"joint controller published {step_size}"
+    imm = geometry["inverse_mass_matrix"]
+    assert imm["type"] == "low_rank_inverse_mass_matrix"
+    # Shared scope forbids a batched marker; sigma must be a flat vector.
+    assert not isinstance(imm["sigma"][0], list)
+    assert len(imm["U"]) == len(imm["sigma"])
+    assert len(imm["U"][0]) == len(imm["lam"])
+
+    stdout = result.stdout_path.read_text()
+    assert "n_divergences=0" in stdout, stdout[-500:]
+
+
+@requires_joint_controller
+@pytest.mark.e2e
+def test_joint_run_with_per_chain_init_strategy_executes(tmp_path) -> None:
+    """Dispersed per-chain starts, executed -- not merely admitted by the plan.
+
+    The cross-chain gates in the controller are designed for dispersed starts,
+    so this pairing is the intended one.  Plan resolution admitting it is not
+    evidence that it runs: an earlier revision of this branch admitted it at
+    the plan layer while ``_ENSEMBLE_FRIENDLY_WARMUPS`` still rejected it, and
+    only executing the path exposed that.
+    """
+    from tuningfork.catalog import execute_recipe
+
+    recipe = replace(
+        _recipe(num_chains=6, n_warmup=200, max_grad_budget=20_000),
+        init_strategy={"type": "uniform_perchain", "low": -2.0, "high": 2.0},
+    )
+    result = execute_recipe(
+        recipe, tmp_path / "runs", num_samples=20, progress_bar=False, timeout=600
+    )
+    assert result.returncode == 0
+    assert result.manifest.executable_config["init_strategy"] == {
+        "type": "uniform_perchain",
+        "low": -2.0,
+        "high": 2.0,
+    }
+    source = result.source_path.read_text()
+    # Pre-batched positions feed the controller directly; no broadcast of one
+    # shared start, which would defeat the dispersion this strategy exists for.
+    assert "_init_positions = init_position" in source
+    assert "_init_position_is_prebatched = True" in source
+
+    scope, geometry = _telemetry_geometry(result)
+    assert scope == "shared"
+    assert 0.05 < geometry["step_size"] < 20.0
+    assert "n_divergences=0" in result.stdout_path.read_text()
+
+
+@pytest.mark.e2e
+def test_w1_generated_program_runs_on_any_supported_blackjax(tmp_path) -> None:
+    """W=1 portability: no n_chains kwarg, so no capability requirement.
+
+    This is deliberately NOT capability-gated -- it is the released-dependency
+    half of the coverage and must execute against the ordinary bench sync.
+    """
+    from tuningfork.catalog import execute_recipe
+
+    result = execute_recipe(
+        _recipe(num_chains=4, n_warmup=200, max_grad_budget=20_000),
+        tmp_path / "runs",
+        num_samples=20,
+        warmup_num_chains=[1],
+        progress_bar=False,
+        timeout=600,
+    )
+    assert result.returncode == 0
+    source = result.source_path.read_text()
+    assert "    n_chains=1," not in source
+    assert "_sa_inspect" not in source
+
+    scope, geometry = _telemetry_geometry(result)
+    assert scope == "shared"
+    assert 0.05 < geometry["step_size"] < 20.0
+    assert geometry["inverse_mass_matrix"]["type"] == "low_rank_inverse_mass_matrix"
+
+
+@requires_released_without_n_chains
+@pytest.mark.e2e
+def test_joint_program_fails_explicitly_without_the_capability(tmp_path) -> None:
+    """On a released blackjax the joint program must name the real reason.
+
+    Without the emitted guard, n_chains falls through ``**extra_parameters``
+    into the sampling kernel and surfaces as an unrelated TypeError after
+    tracing.
+    """
+    from tuningfork.catalog import execute_recipe
+    from tuningfork.recipes._launcher import GeneratedProgramError
+
+    with pytest.raises(GeneratedProgramError) as excinfo:
+        execute_recipe(
+            _recipe(num_chains=6, n_warmup=200, max_grad_budget=20_000),
+            tmp_path / "runs",
+            num_samples=5,
+            progress_bar=False,
+            timeout=600,
+        )
+    stderr = excinfo.value.result.stderr_path.read_text()
+    assert "staged_adaptation_auto with warmup_num_chains>1 requires a blackjax" in (
+        stderr
+    )
+    assert "accepts n_chains" in stderr
+    assert "TypeError" not in stderr

@@ -1,0 +1,130 @@
+# Joint staged-auto integration — pinned-upstream BlackJAX.
+#
+# WHY THIS JOB EXISTS
+# The joint staged-adaptation controller is reached through
+# `blackjax.staged_adaptation(metric="auto", n_chains=W)`. `n_chains` is in NO
+# published BlackJAX release — absent from 1.6.1 and 1.6.2, the latest on PyPI.
+# The ordinary `uv sync --group bench` therefore CANNOT execute the joint path,
+# and every other workflow here would silently skip it. This job is the only
+# place the joint topology actually runs.
+#
+# WHAT IT DELIBERATELY DOES NOT DO
+#   * It does not modify pyproject.toml or uv.lock. The declared install
+#     contract is unchanged: BlackJAX is declared in `[dependency-groups] bench`
+#     as `blackjax[progress]>=1.6.1` and lock-resolved to 1.6.1. Consumers are
+#     unaffected by this job.
+#   * It adds no user-facing VCS extra. The pin lives here and nowhere else.
+#   * It never tracks a floating branch. The SHA below is immutable.
+#
+# The pin is TEMPORARY. It is retired once a BlackJAX release actually contains
+# the capability — tracked by first observing such a release, not by assuming a
+# version number or date. At that point the `bench` floor is revisited and this
+# workflow is deleted.
+#
+# A SKIPPED CASE IS A FAILING GATE HERE. `TUNINGFORK_REQUIRE_JOINT_CONTROLLER=1`
+# turns a missing capability into a collection error rather than a quiet skip,
+# unresolvable node ids make pytest exit non-zero, and the junit assertion
+# catches "collected but not run". A green run means the joint cases executed.
+
+name: joint-staged-auto
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Default read-only token; no secrets are used and nothing is published.
+# Deliberately NOT pull_request_target: this job checks out and executes PR
+# code, so it must run without write access to the base repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BLACKJAX_PINNED_SHA: 9e128d20635e46ffbc57ff9fb344cfe3e95d89a3
+  BLACKJAX_PINNED_PATH: ${{ github.workspace }}/.ci-blackjax-pinned
+
+jobs:
+  joint-staged-auto:
+    name: joint-staged-auto (pinned upstream)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      # The normal bench environment, unmodified — same resolution every other
+      # workflow gets. The pinned overlay is applied on top of it below, so all
+      # other dependency constraints (notably the jax>=0.11,<0.12 cap that the
+      # certified catalog depends on) stay exactly as resolved here.
+      - name: Sync the normal bench environment
+        run: uv sync --group bench
+
+      - name: Check out pinned BlackJAX
+        uses: actions/checkout@v4
+        with:
+          repository: blackjax-devs/blackjax
+          ref: ${{ env.BLACKJAX_PINNED_SHA }}
+          path: .ci-blackjax-pinned
+          persist-credentials: false
+
+      # --no-deps is load-bearing: it overlays ONLY the BlackJAX module and
+      # lets nothing in BlackJAX's own metadata re-resolve the environment's
+      # other pins.
+      - name: Overlay pinned BlackJAX (no dependency resolution)
+        run: uv pip install --no-deps -e "$BLACKJAX_PINNED_PATH"
+
+      # Provenance, not version strings. Asserts the imported module resolves
+      # inside the pinned checkout, that checkout's HEAD equals the pinned SHA,
+      # and that staged_adaptation actually accepts n_chains.
+      - name: Verify pinned provenance and n_chains capability
+        env:
+          UV_NO_SYNC: "1"
+        run: uv run --no-sync python .github/scripts/verify_joint_controller_env.py
+
+      # UV_NO_SYNC + --no-sync from here on: a re-sync would silently reinstall
+      # released BlackJAX over the overlay. Generated programs are launched with
+      # the venv interpreter directly (never through uv), and each joint program
+      # carries its own capability guard, so a successful joint run is itself
+      # proof the child process imported the pinned build.
+      - name: Required joint runtime cases
+        env:
+          JAX_PLATFORM_NAME: cpu
+          UV_NO_SYNC: "1"
+          TUNINGFORK_REQUIRE_JOINT_CONTROLLER: "1"
+        run: |
+          uv run --no-sync pytest \
+            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_generated_joint_warmup_matches_the_direct_public_call" \
+            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_short_warmup_degenerates_the_controller_schedule" \
+            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_small_joint_run_executes_and_samples_cleanly" \
+            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_joint_run_with_per_chain_init_strategy_executes" \
+            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_w1_generated_program_runs_on_any_supported_blackjax" \
+            -p no:cacheprovider \
+            -n 0 \
+            -q \
+            --junitxml=joint-gate.xml
+
+      - name: Assert every required case executed
+        if: always()
+        run: python .github/scripts/assert_joint_gate_executed.py joint-gate.xml 5
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: joint-staged-auto-gate
+          path: joint-gate.xml
+          if-no-files-found: warn

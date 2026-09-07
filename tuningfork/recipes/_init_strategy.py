@@ -25,6 +25,11 @@ _ENSEMBLE_FRIENDLY_WARMUPS = frozenset(
         "window_adaptation_diag_imm",
         "window_adaptation_dense_imm",
         "window_adaptation_low_rank_imm",
+        # The joint staged-auto controller is the most ensemble-shaped warmup
+        # in the registry: it consumes one position per warmup chain and its
+        # cross-chain gates are designed for dispersed starts, so per-chain
+        # initialisation is the intended pairing rather than an exception.
+        "staged_adaptation_auto",
         "mclmc_tuning",
         "mclmc_lrd_tuning",
         "adjusted_mclmc_tuning",
