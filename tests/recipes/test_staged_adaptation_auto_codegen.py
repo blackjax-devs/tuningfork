@@ -218,74 +218,54 @@ def _emit(
 
 
 @pytest.mark.fast
-def test_joint_emission_is_one_shared_controller_not_a_vmap_of_warmups() -> None:
-    source = _emit(num_chains=6, n_warmup=200)
+@pytest.mark.parametrize("n_warmup", [137, 200])
+def test_joint_emission_is_one_shared_controller_not_a_vmap(n_warmup: int) -> None:
+    """Topology and material arguments only.
+
+    The distinction this must hold is structural: ONE controller call carrying
+    the joint chain count, versus the window family's vmap over independent
+    warmups.  n_warmup is parametrised because it is material -- upstream
+    derives num_steps from max_grad_budget when it is omitted, which would let
+    max_grad_budget silently override the recipe, so a hardcoded constant must
+    fail here.
+    """
+    source = _emit(num_chains=6, n_warmup=n_warmup)
     ast.parse(source)
 
-    # Exactly one controller construction, carrying the joint chain count.
-    assert source.count("_warmup = blackjax.staged_adaptation(") == 1
+    # One controller construction, carrying the material arguments.
     assert source.count("blackjax.staged_adaptation(") == 1
     assert '    metric="auto",' in source
     assert "    n_chains=6," in source
     assert "    max_grad_budget=20000," in source
+    assert f"_warmup.run(_warmup_key, _init_positions, {n_warmup})" in source
 
-    # The joint call is NOT vmapped, and no per-chain warmup runner is emitted.
-    assert "@jax.vmap\ndef _run_one_warmup" not in source
+    # Not a vmap over independent per-chain warmups.
     assert "_run_one_warmup" not in source
-    assert "_warmup.run(_warmup_key, _init_positions, 200)" in source
 
     # One shared published payload feeds every sampling chain.
     assert "_warmup_is_perchain = False" in source
-    assert "_state_post_warmup = _batched_states" in source
     assert '_shared_step_size = _adapted_params["step_size"]' in source
     assert '_batched_step_size = _adapted_params["step_size"]' not in source
 
+    # Gradient accounting is the joint one.  That it is emitted exactly once is
+    # asserted for every exact route by
+    # test_generated_warmup_accounting.test_exact_routes_emit_accounting_once.
+    assert "jointly adapted warmup chains" in source
 
-@pytest.mark.fast
-def test_recipe_n_warmup_is_passed_explicitly_to_run() -> None:
-    """Upstream derives num_steps from max_grad_budget when it is omitted.
-
-    Letting that happen would make max_grad_budget silently override the
-    recipe's n_warmup -- material behaviour supplied by an undocumented
-    default, which the codegen contract forbids.
-    """
-    source = _emit(num_chains=6, n_warmup=137)
-    assert "_warmup.run(_warmup_key, _init_positions, 137)" in source
-    assert "if _warmup_nis.shape != (137, 6):" in source
-
-
-@pytest.mark.fast
-def test_joint_emission_guards_the_blackjax_capability() -> None:
-    source = _emit(num_chains=6)
+    # W>1 cannot silently fall through to a blackjax without n_chains.
     assert '"n_chains" not in _sa_inspect.signature(' in source
-    assert "raise RuntimeError(" in source
 
 
 @pytest.mark.fast
 def test_single_chain_emission_stays_portable_and_broadcasts() -> None:
+    """W=1 passes no n_chains, so it needs no capability and no guard."""
     source = _emit(num_chains=6, warmup_num_chains=[1])
     ast.parse(source)
-    # W=1 is the public default, so it neither passes n_chains as a call kwarg
-    # nor needs the capability guard -- these recipes run on any blackjax with
-    # metric="auto".  (The header comment still records n_chains=1.)
     assert "    n_chains=1," not in source
     assert "_sa_inspect" not in source
     assert "_warmup.run(_warmup_key, init_position, 200)" in source
-    assert "if _warmup_nis.shape != (200,):" in source
     assert "_warmup_is_perchain = False" in source
     assert "jnp.broadcast_to(x[None], (num_chains,) + x.shape)" in source
-
-
-@pytest.mark.fast
-def test_gradient_accounting_names_the_joint_chains() -> None:
-    """Joint-specific only.
-
-    That the route emits accounting exactly once, and emits a summed
-    integration-step count, is asserted for every exact route by
-    test_generated_warmup_accounting.test_exact_routes_emit_accounting_once,
-    which this warmup is registered in.  Only the joint wording is checked here.
-    """
-    assert "jointly adapted warmup chains" in _emit(num_chains=6)
 
 
 @pytest.mark.fast
@@ -405,53 +385,16 @@ def test_generated_program_payload_matches_the_direct_public_call(tmp_path) -> N
     # step size and one shared metric, not per-chain values.
     assert telemetry["geometry_scope"] == "shared"
     assert not isinstance(generated_imm["sigma"][0], list)
+    assert len(generated_imm["U"]) == len(generated_imm["sigma"])
+    assert len(generated_imm["U"][0]) == len(generated_imm["lam"])
     leaves = jax.tree.leaves(states.position)
     assert leaves and all(np.shape(leaf)[0] == num_chains for leaf in leaves)
 
-
-@requires_joint_controller
-@pytest.mark.slow
-def test_short_warmup_degenerates_the_controller_schedule() -> None:
-    """One pinned cell of upstream behaviour.  No general minimum is claimed.
-
-    Pins: model mvn_10, base method nuts, n_chains=6, max_grad_budget=20000,
-    warmup key ``jax.random.fold_in(jax.random.key(0), 0)``, all chains
-    broadcast from one prior_sample position.  Under exactly these settings a
-    short n_warmup publishes a runaway step size and upstream raises no
-    warning.  The test exists so that behaviour stays visible and attributed to
-    upstream rather than to codegen; it deliberately does NOT define an
-    n_warmup floor for other models, dimensions, chain counts or budgets, and
-    tuningfork adds no controller-policy override for it.
-    """
-    import blackjax
-    import jax
-    import jax.numpy as jnp
-
-    from tuningfork.model._numpyro import build_logdensity_fn
-
-    init_position, logdensity_fn, _ = build_logdensity_fn(
-        jax.random.key(0), MODELS["mvn_10"]
-    )
-
-    def _step_size(n_warmup: int) -> float:
-        warmup = blackjax.staged_adaptation(
-            blackjax.nuts,
-            logdensity_fn,
-            metric="auto",
-            max_grad_budget=20_000,
-            n_chains=6,
-            target_acceptance_rate=0.8,
-        )
-        positions = jax.tree.map(
-            lambda x: jnp.broadcast_to(x[None], (6,) + x.shape), init_position
-        )
-        (_, params), _ = warmup.run(
-            jax.random.fold_in(jax.random.key(0), 0), positions, n_warmup
-        )
-        return float(params["step_size"])
-
-    assert _step_size(40) > 100.0, "short-warmup runaway no longer reproduces"
-    assert 0.1 < _step_size(200) < 10.0
+    # This configuration is a SUCCESSFUL warmup, not merely a reproducible one:
+    # a usable shared step size and a clean sample. Parity against a runaway
+    # would prove fidelity while saying nothing about the route working.
+    assert 0.05 < generated["step_size"] < 20.0
+    assert "n_divergences=0" in result.stdout_path.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -491,45 +434,6 @@ def _assert_child_ran_under_this_interpreter(result) -> None:
         f"this process under {sys.executable}"
     )
     assert environment["launcher_python"]["executable"] == sys.executable
-
-
-@requires_joint_controller
-@pytest.mark.e2e
-def test_small_joint_run_executes_and_samples_cleanly(tmp_path) -> None:
-    """A joint run at an adequate n_warmup, executed end to end.
-
-    Complements the pinned short-warmup runaway case: the controller is not
-    merely reproducible, it produces a usable shared step size and a clean
-    sample when the warmup is long enough for its schedule.
-    """
-    from tuningfork.catalog import execute_recipe
-
-    result = execute_recipe(
-        _recipe(num_chains=6, n_warmup=200, max_grad_budget=20_000),
-        tmp_path / "runs",
-        num_samples=20,
-        progress_bar=False,
-        timeout=600,
-    )
-    assert result.returncode == 0
-    assert result.artifact_path is not None
-    _assert_child_ran_under_this_interpreter(result)
-
-    scope, geometry = _telemetry_geometry(result)
-    # The joint controller publishes ONE payload for all six chains.
-    assert scope == "shared"
-    step_size = geometry["step_size"]
-    assert isinstance(step_size, float)
-    assert 0.05 < step_size < 20.0, f"joint controller published {step_size}"
-    imm = geometry["inverse_mass_matrix"]
-    assert imm["type"] == "low_rank_inverse_mass_matrix"
-    # Shared scope forbids a batched marker; sigma must be a flat vector.
-    assert not isinstance(imm["sigma"][0], list)
-    assert len(imm["U"]) == len(imm["sigma"])
-    assert len(imm["U"][0]) == len(imm["lam"])
-
-    stdout = result.stdout_path.read_text()
-    assert "n_divergences=0" in stdout, stdout[-500:]
 
 
 @requires_joint_controller

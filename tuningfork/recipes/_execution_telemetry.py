@@ -160,58 +160,32 @@ def _validate_low_rank(
         for x in lam
     ):
         raise ValueError("low-rank lam must be finite and positive")
-    # Orthonormality constrains the ACTIVE subspace only, and activity is
-    # decided by lam, not by the column's values.
+    # Orthonormality constrains the ACTIVE subspace only, keyed on lam.
     #
-    # The metric is diag(s)(I + U(diag(lam)-I)U^T)diag(s).  For any column j
-    # with lam[j] == 1 the factor (lam[j]-1) is exactly 0, so that column drops
-    # out of the correction term entirely -- whatever its values, and whatever
-    # its overlap with the other columns.  A neutral column carries no
-    # direction the metric can see, so requiring it to be orthonormal, or to be
-    # zero, constrains something the representation does not use.
+    # A column with lam[j] == 1 exactly is neutral: (lam[j] - 1) is exactly 0,
+    # so it drops out of U(diag(lam)-I)U^T whatever its values or overlap, and
+    # blackjax's _low_rank_matvec applies the same (s - 1) factor for every
+    # scale it is called with (lam, sqrt(lam), 1/sqrt(lam)), so a neutral
+    # column is inert in the kinetic energy, the momentum sampler and the
+    # U-turn check alike. The public meta-adaptation controller publishes such
+    # columns: rank-zero is a full-width U of zeros with lam all 1, and the
+    # T-branch is a unit-norm slow direction beside inert columns drawn from a
+    # different basis that are NOT mutually orthogonal.
     #
-    # This is not hypothetical.  The public meta-adaptation controller's
-    # T-branch publishes exactly this shape: lam = [lam_slow, 1, 1, ...] with
-    # U = [e_dir | U_lr[:, 1:]], where the rank-1 slow direction and the Fisher
-    # low-rank tail come from DIFFERENT bases and are under no obligation to be
-    # mutually orthonormal.  Only column 0 is active there.  Its rank-zero
-    # payload -- a full-width U of zeros with lam all 1 -- is the degenerate
-    # case of the same rule.
+    # Active columns must be orthonormal because that is what makes the
+    # factorised and assembled readings agree: logdet reduces to
+    # 2*sum(log sigma) + sum(log lam) only then. A non-orthonormal active basis
+    # denotes a different covariance than its own parameters claim, which is
+    # reason enough to reject it.
     #
-    # The stronger reason neutrality is SAFE, not merely algebraically tidy:
-    # blackjax.mcmc.metrics._low_rank_matvec(y, U, s) computes
-    # y + U((s - 1) * (U^T y)), and it is called with THREE different scale
-    # vectors -- lam (kinetic energy and the U-turn check), sqrt(lam) (momentum
-    # sampling, M^{-1/2}) and 1/sqrt(lam) (M^{1/2}).  For lam[j] == 1 all three
-    # give s_j - 1 == 0 exactly, so a neutral column is inert in
-    # kinetic_energy, momentum_generator, is_turning AND every scale branch --
-    # not only in the assembled matrix.  That is what makes exempting it safe
-    # for the momentum sampler, which is the operation a bad basis would
-    # actually break.
+    # lam is compared EXACTLY. Neutrality is structural, not a numerical
+    # near-miss, so a near-one lam is ACTIVE and a zero or near-zero active
+    # column fails on its own norm. Every other guard above -- finite and
+    # positive sigma and lam, finite numeric U, dimension and shape agreement
+    # -- is unchanged and applies to every column.
     #
-    # And the converse, which is why the ACTIVE check cannot be relaxed: for
-    # active columns an SPD argument genuinely does apply.  If U_A is not
-    # orthonormal, I + U_A(Lambda_A - I)U_A^T is still symmetric but its
-    # eigenvalues are no longer lam_A, so besides breaking the logdet identity
-    # it can go INDEFINITE even with every lam > 0 -- two heavily overlapping
-    # active columns with lam < 1 can push the smallest eigenvalue negative.
-    # momentum_generator would then take 1/sqrt(lam) through a non-SPD operator
-    # and produce NaN momenta.
-    #
-    # Consequences that are deliberate rather than incidental:
-    #   * lam is compared EXACTLY.  A near-one lam is ACTIVE, so a column with
-    #     lam = 1 + 1e-9 must still be orthonormal; neutrality is a structural
-    #     property of the published representation, not a numerical near-miss.
-    #   * a zero or near-zero column with lam != 1 is active and fails the
-    #     orthonormality check on its own norm, which is the intended outcome.
-    #   * the active-subspace constraint is what makes the factorised reading
-    #     agree with the assembled matrix: with active columns orthonormal and
-    #     neutral ones contributing log(1) = 0, logdet reduces to
-    #     2*sum(log sigma) + sum(log lam).
-    #
-    # Every other guard above -- finite and positive sigma and lam, finite
-    # numeric U, dimension and shape agreement -- is unchanged and still
-    # applies to every column.
+    # The same rule lives in _emit/_sampler._validate_low_rank_marker and in
+    # catalog/_rerun_inference; all three must move together.
     active = [j for j in range(rank) if lam[j] != 1.0]
     for i in active:
         for j in active:

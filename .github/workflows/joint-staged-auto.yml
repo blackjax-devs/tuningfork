@@ -21,28 +21,29 @@
 # version number or date. At that point the `bench` floor is revisited and this
 # workflow is deleted.
 #
-# A SKIPPED CASE IS A FAILING GATE HERE. `TUNINGFORK_REQUIRE_JOINT_CONTROLLER=1`
-# turns a missing capability into a collection error rather than a quiet skip,
-# unresolvable node ids make pytest exit non-zero, and the junit assertion
-# catches "collected but not run".
+# A SKIPPED CASE IS A FAILING GATE HERE, for the cases this job selects.
+# TUNINGFORK_REQUIRE_JOINT_CONTROLLER=1 turns a missing capability into a
+# collection error rather than a quiet skip, and the junit assertion catches
+# "collected but not run".
 #
-# WHAT THE FIVE CASES COVER — they are not five equivalent things, and the
-# count alone should not be read as five joint runtime executions:
-#   * payload_matches_the_direct_public_call — launches the generated program
-#     AND compares its persisted payload against a direct public call. This is
-#     the semantic-fidelity gate.
-#   * small_joint_run_executes_and_samples_cleanly — launches the generated
-#     joint program; asserts a usable shared step size and a clean sample.
-#   * joint_run_with_per_chain_init_strategy_executes — launches the generated
-#     joint program with dispersed per-chain starts.
-#   * short_warmup_degenerates_the_controller_schedule — pure upstream
-#     behaviour, in-process, no tuningfork codegen involved. It pins a recorded
-#     observation so it stays visible; it gates nothing about emission.
-# So three of the four gate the generated joint path.
+# What this does NOT do: it cannot detect a joint test added to the module but
+# not listed below, nor one removed from the list. The expected count is
+# derived from the same array that selects the cases, so it is self-referential
+# by construction. It verifies that the SELECTED cases executed — nothing more.
+# That is deliberate: a second independently declared manifest would be one
+# more thing to drift.
 #
-# W=1 portability is deliberately NOT here. It documents itself as running
-# against the ordinary bench sync, which this job has overlaid, and test-e2e
-# already covers it under a path filter that includes tests/recipes/**.
+# THE THREE SELECTED CASES all launch the generated joint program:
+#   * payload_matches_the_direct_public_call — launches it and compares the
+#     persisted metric, step size and paid gradient count against a direct
+#     public call, at a warmup length that actually succeeds.
+#   * joint_run_with_per_chain_init_strategy_executes — the same, with
+#     dispersed per-chain starts.
+#   * dual_topology_warmups_are_declared_ensemble_friendly — fast tripwire on
+#     the two lists that must not drift.
+# W=1 portability and the released-blackjax capability-error path stay in
+# test-e2e, which covers tests/recipes/** under its own path filter and runs
+# against the ordinary bench sync those cases document themselves as needing.
 
 name: joint-staged-auto
 
@@ -129,26 +130,27 @@ jobs:
       # Generated programs are launched with the venv interpreter directly,
       # never through uv, so they cannot trigger a re-sync of their own.
       #
-      # Child identity is MEASURED, not inferred. The emitted capability guard
-      # only proves the child could call the joint controller — it does not say
-      # which build answered. So the launcher probes the child interpreter's own
-      # resolution into the execution receipt, and the joint tests assert the
-      # child resolved the SAME blackjax this job just pinned. Parent pinned to
-      # the SHA by the step above, plus child == parent, closes the chain.
-      - name: Required cases (3 joint generated-program, 1 portability, 1 upstream pin)
+      # Child identity: the production launcher does NOT probe it — that was
+      # withdrawn as out of scope. What holds instead: the verify step above
+      # imports blackjax in a fresh process from a foreign cwd and asserts it
+      # resolves inside the pinned checkout; the pytest process asserts its own
+      # blackjax resolves there too; and the tests assert the generated program
+      # ran under that same interpreter. A sys.path[0] shadow specific to the
+      # child's work directory is the residual, and the verify step's
+      # foreign-cwd import is what covers it.
+      - name: Required cases (selected joint generated-program cases)
         env:
           JAX_PLATFORM_NAME: cpu
           TUNINGFORK_REQUIRE_JOINT_CONTROLLER: "1"
         run: |
-          # The expected count is derived from this list, never typed twice --
-          # a case added here is gated automatically, and one removed cannot
-          # leave a stale literal behind.
+          # Count derived from this list so the two cannot disagree. This is
+          # self-referential: it does not detect a case that was never added
+          # here. See the header.
           MODULE=tests/recipes/test_staged_adaptation_auto_codegen.py
           ids=(
             "$MODULE::test_generated_program_payload_matches_the_direct_public_call"
-            "$MODULE::test_small_joint_run_executes_and_samples_cleanly"
             "$MODULE::test_joint_run_with_per_chain_init_strategy_executes"
-            "$MODULE::test_short_warmup_degenerates_the_controller_schedule"
+            "$MODULE::test_dual_topology_warmups_are_declared_ensemble_friendly"
           )
           echo "REQUIRED_CASE_COUNT=${#ids[@]}" >> "$GITHUB_ENV"
           uv run --no-sync pytest "${ids[@]}" \

@@ -252,93 +252,59 @@ WARMUPS: dict[str, Warmup] = {
         name="staged_adaptation_auto",
         compatible_methods=("nuts", "hmc", "mhmc"),
         default_hp_space=(
-            # A conservative v1 default and search restriction, not a
-            # calibration result.  default_value_for_space returns (low+high)//2
-            # for an "int" space, so declaring a range makes the implicit
-            # default a midpoint: a 20k-200k range would silently pick 110_000
-            # for every recipe built through build_certification_intent.  That
-            # is NOT evidence 110_000 is wrong -- nothing here tests it either
-            # way.  Pinning low==high keeps the implicit default equal to the
-            # value this descriptor's notes were observed at, and leaves the
-            # choice explicit: a recipe may set any max_grad_budget in
-            # warmup_params and that value is used verbatim, so this bound
-            # restricts only the automatic default, never the user.  Same shape
-            # as max_rank (low=high=10).  Widen when there is evidence to widen
-            # it with.
+            # Pinned low==high so the implicit default is a single explicit
+            # value rather than the (low+high)//2 midpoint default_value_for
+            # _space would otherwise compute. A conservative v1 search
+            # restriction, not a calibration result: a recipe may set any
+            # max_grad_budget in warmup_params and that value is used verbatim.
             HyperparamSpace("max_grad_budget", "int", low=20_000, high=20_000),
         ),
         notes=(
             "Joint staged adaptation via the unchanged public "
-            "blackjax.staged_adaptation(metric='auto') meta-adaptation "
-            "controller. Unlike window_adaptation_diag_imm -- which vmaps "
-            "num_chains INDEPENDENT window adaptations and returns per-chain "
-            "(step_size, IMM) -- this warmup issues ONE staged_adaptation call "
-            "with n_chains=warmup_num_chains. The controller pools positions "
-            "and gradients across chains inside a single scan, runs one "
-            "dual-averaging update per step on the MEAN acceptance rate, and "
-            "publishes ONE shared final step_size and ONE shared final "
-            "inverse_mass_matrix. Warmup chain topology is therefore joint, "
-            "not independent: warmup_num_chains=[W] selects n_chains=W and "
-            "W in {1, num_chains} is supported. "
-            "PAYLOAD: adapted step_size is a scalar and adapted "
-            "inverse_mass_matrix is a blackjax LowRankInverseMassMatrix "
-            "namedtuple (sigma (d,), U (d,k), lam (k,)) at every deployed rank "
-            "-- lam=1 reduces it to a diagonal metric, so rank zero is a "
+            "blackjax.staged_adaptation(metric='auto') controller. Unlike "
+            "window_adaptation_diag_imm -- which vmaps num_chains INDEPENDENT "
+            "window adaptations and returns per-chain (step_size, IMM) -- this "
+            "warmup issues ONE staged_adaptation call with "
+            "n_chains=warmup_num_chains. The controller pools positions and "
+            "gradients across chains in a single scan, runs one dual-averaging "
+            "update per step on the MEAN acceptance rate, and publishes ONE "
+            "shared final step_size and ONE shared final inverse_mass_matrix. "
+            "Topology is joint, not independent: warmup_num_chains=[W] selects "
+            "n_chains=W, and W in {1, num_chains} is supported. "
+            "PAYLOAD: step_size is scalar and inverse_mass_matrix is a blackjax "
+            "LowRankInverseMassMatrix (sigma, U, lam) at every deployed rank -- "
+            "lam=1 reduces it to a diagonal metric, so rank zero is a "
             "controller outcome, not an error. Generated telemetry records it "
             "with geometry_scope='shared' under the existing "
-            "'low_rank_inverse_mass_matrix' marker; no telemetry schema change. "
-            "REQUIRED warmup_params: max_grad_budget (upstream raises without "
-            "it under metric='auto'). Generation passes the recipe's n_warmup "
-            "to run() explicitly, so the recipe -- not max_grad_budget -- "
-            "determines the warmup step count; max_grad_budget still sizes the "
-            "controller's growing-window schedule and rank-detection floor. It "
-            "also sizes the metric-fitting ring buffer, jointly with n_chains: "
-            "upstream derives a per-chain buffer of B draws from "
-            "max_grad_budget and n_chains (B=166 for max_grad_budget=20000, "
-            "n_chains=6, d=10 on blackjax 1.6.3.dev25+g9e128d206). A slow "
-            "window longer than B overwrites its oldest draws and the "
-            "candidate metric is fitted on the most recent B, with nothing in "
-            "the public info stream reporting the loss -- so treat "
-            "max_grad_budget as a capacity choice, not only a cost cap, and do "
-            "not infer consumed support from window length. "
-            "Compatible with nuts, hmc and mhmc: each exposes per-step "
-            "num_integration_steps, which is the only gradient accounting this "
-            "warmup claims. barker runs upstream but reports no per-step "
-            "integration count, so its warmup gradient cost would be unknown "
-            "and it is not registered. mala, ghmc and dynamic_hmc are rejected "
-            "by the upstream kernel contract; rmhmc is excluded by upstream "
-            "documentation (its kernel takes mass_matrix, not "
-            "inverse_mass_matrix) even though the call does not raise. "
-            "REQUIRES a blackjax whose staged_adaptation accepts n_chains "
-            "(multi-chain metric='auto' controller). No PyPI release has it as "
-            "of blackjax 1.6.2; generation and the generated program both fail "
-            "explicitly rather than letting n_chains fall through to the "
-            "sampling kernel. Upstream warns below n_chains=6 (the "
-            "cross-chain collinearity and unimodality gates are unsafe at "
-            "M<6), so joint recipes should set num_chains>=6 even though "
-            "tuningfork's default is 4. With the default prior_sample "
-            "initialisation all W warmup chains start from the SAME position "
-            "and separate only through their per-chain keys; a per-chain "
-            "init_strategy (uniform_perchain / zero_perchain / "
-            "reference_summary) supplies genuinely dispersed starts and is "
-            "what the cross-chain gates are designed for. "
-            "SHORT-WARMUP OBSERVATION (bounded; no general minimum is claimed "
-            "or implied): metric='auto' resolves to a growing-window schedule "
-            "rather than Stan's fast-slow-fast one, so n_warmup interacts with "
-            "the schedule and not only with adaptation length. In one measured "
-            "cell -- model mvn_10, base method nuts, n_chains=6, "
-            "max_grad_budget=20000, tuning_seed 0 (warmup key "
-            "jax.random.fold_in(jax.random.key(0), 0)), all chains broadcast "
-            "from one prior_sample position, blackjax 1.6.3.dev25+g9e128d206 "
-            "-- n_warmup=40 published step_size approximately 5.6e3 and every "
-            "subsequent draw diverged, while n_warmup=200 and n_warmup=500 "
-            "published 0.84 and 0.88. Upstream raised no warning. The emitted "
-            "program and the direct public call agree on this, which is the "
-            "point: it is faithful generation of upstream behaviour, not a "
-            "codegen defect. This single cell does not establish a floor for "
-            "other models, dimensions, chain counts or budgets; inspect the "
-            "published step_size for any short-warmup cell rather than "
-            "generalising from it."
+            "'low_rank_inverse_mass_matrix' marker; no schema change. "
+            "REQUIRED warmup_params: max_grad_budget, which upstream demands "
+            "under metric='auto'. It sizes the controller's growing-window "
+            "schedule and, jointly with n_chains, the per-chain buffer the "
+            "metric is fitted on -- so it is a capacity choice, not only a cost "
+            "cap, and consumed support must not be inferred from window length. "
+            "Generation passes the recipe's n_warmup to run() explicitly, so "
+            "the recipe rather than max_grad_budget fixes the warmup length. "
+            "COMPATIBILITY: nuts, hmc and mhmc, each of which reports per-step "
+            "num_integration_steps -- the only warmup gradient cost this warmup "
+            "claims. barker runs upstream but reports no per-step count, so its "
+            "cost would be unknown and it is not registered; mala, ghmc and "
+            "dynamic_hmc are rejected by the upstream kernel contract; rmhmc "
+            "does not raise but upstream documents it as excluded. "
+            "CAPABILITY: requires a blackjax whose staged_adaptation accepts "
+            "n_chains. Generation and the generated program both refuse "
+            "explicitly rather than letting n_chains reach the sampling "
+            "kernel; W=1 passes no n_chains and stays portable. "
+            "CAUTIONS: upstream warns below n_chains=6, where its cross-chain "
+            "gates are unsafe. With the default prior_sample initialisation all "
+            "W chains start from the SAME position and separate only through "
+            "their keys; a per-chain init_strategy supplies the dispersed "
+            "starts the cross-chain gates are designed for. And metric='auto' "
+            "uses a growing-window schedule, so too short an n_warmup does not "
+            "merely under-adapt -- the published step_size can run away, with "
+            "no upstream warning. Inspect the published step_size before "
+            "trusting a short-warmup cell. Measured values behind these "
+            "cautions are recorded in the dated evidence rather than here, "
+            "since they are observations at particular pins, not constants."
         ),
     ),
     "window_adaptation_dense_imm": Warmup(
