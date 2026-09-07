@@ -160,46 +160,48 @@ def _validate_low_rank(
         for x in lam
     ):
         raise ValueError("low-rank lam must be finite and positive")
-    # Orthonormality is a property of ACTIVE basis columns.  A column of exact
-    # zeros carries no direction, so the constraint is not meaningful for it:
-    # in diag(s)(I + U(diag(lam)-I)U^T)diag(s) that column contributes nothing
-    # to the correction term.  The meta-adaptation controller (metric="auto")
-    # publishes exactly this at deployed rank zero -- a full-width U of zeros
-    # with lam all 1 -- which is a controller outcome, not a malformed payload.
-    # Requiring orthonormality of directionless columns rejected it, so no
-    # joint recipe could record evidence at rank zero.
+    # Orthonormality constrains the ACTIVE subspace only, and activity is
+    # decided by lam, not by the column's values.
     #
-    # An inactive column must still carry lam exactly 1.  The reason is the
-    # REPRESENTATION CONTRACT, not the explicit matrix: U=0 zeroes the
-    # correction term whatever lam holds, so the assembled matrix is unchanged
-    # either way.  But this payload is the factorised form, and the spectral,
-    # log-determinant and inverse helpers that consume it read lam[j] as the
-    # eigenvalue paired with basis column U[:, j].  An inactive column carrying
-    # lam != 1 breaks that pairing and makes those helpers disagree with the
-    # matrix the same payload denotes.  Rejecting it keeps the two readings
-    # consistent.
+    # The metric is diag(s)(I + U(diag(lam)-I)U^T)diag(s).  For any column j
+    # with lam[j] == 1 the factor (lam[j]-1) is exactly 0, so that column drops
+    # out of the correction term entirely -- whatever its values, and whatever
+    # its overlap with the other columns.  A neutral column carries no
+    # direction the metric can see, so requiring it to be orthonormal, or to be
+    # zero, constrains something the representation does not use.
     #
-    # Both comparisons here are EXACT.  Inactivity is a structural property of
-    # the published representation, not a numerical near-miss: a near-one lam
-    # on a directionless column is precisely the inconsistency being screened
-    # for, so a tolerance would defeat the check.
-    zero_cols = {j for j in range(rank) if all(U[r][j] == 0.0 for r in range(rows))}
-    for j in sorted(zero_cols):
-        if lam[j] != 1.0:
-            raise ValueError(
-                "low-rank inactive (all-zero) U column must carry lam exactly 1; "
-                f"column {j} has lam={lam[j]!r}, which breaks the pairing between "
-                "lam and its basis column that the factorised representation's "
-                "spectral/logdet/inverse helpers rely on"
-            )
-    deployed = [j for j in range(rank) if j not in zero_cols]
-    for i in deployed:
-        for j in deployed:
+    # This is not hypothetical.  The public meta-adaptation controller's
+    # T-branch publishes exactly this shape: lam = [lam_slow, 1, 1, ...] with
+    # U = [e_dir | U_lr[:, 1:]], where the rank-1 slow direction and the Fisher
+    # low-rank tail come from DIFFERENT bases and are under no obligation to be
+    # mutually orthonormal.  Only column 0 is active there.  Its rank-zero
+    # payload -- a full-width U of zeros with lam all 1 -- is the degenerate
+    # case of the same rule.
+    #
+    # Consequences that are deliberate rather than incidental:
+    #   * lam is compared EXACTLY.  A near-one lam is ACTIVE, so a column with
+    #     lam = 1 + 1e-9 must still be orthonormal; neutrality is a structural
+    #     property of the published representation, not a numerical near-miss.
+    #   * a zero or near-zero column with lam != 1 is active and fails the
+    #     orthonormality check on its own norm, which is the intended outcome.
+    #   * the active-subspace constraint is what makes the factorised reading
+    #     agree with the assembled matrix: with active columns orthonormal and
+    #     neutral ones contributing log(1) = 0, logdet reduces to
+    #     2*sum(log sigma) + sum(log lam).
+    #
+    # Every other guard above -- finite and positive sigma and lam, finite
+    # numeric U, dimension and shape agreement -- is unchanged and still
+    # applies to every column.
+    active = [j for j in range(rank) if lam[j] != 1.0]
+    for i in active:
+        for j in active:
             dot = sum(U[r][i] * U[r][j] for r in range(rows))
             if not math.isclose(
                 dot, 1.0 if i == j else 0.0, rel_tol=1e-6, abs_tol=1e-6
             ):
-                raise ValueError("low-rank U columns must be orthonormal")
+                raise ValueError(
+                    "low-rank active (lam != 1) U columns must be orthonormal"
+                )
 
 
 def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
