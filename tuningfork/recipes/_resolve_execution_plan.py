@@ -35,6 +35,21 @@ if TYPE_CHECKING:
     from ._base import Recipe
 
 
+# Warmups whose code generation implements BOTH emittable chain topologies:
+# W=1 (adapt once, broadcast) and W=S (one warmup input per sampling chain).
+# Membership is about topology support, not about what W=S means semantically --
+# for the window family W=S is S INDEPENDENT adaptations, while
+# staged_adaptation_auto runs one joint controller over the S chains and
+# publishes a single shared metric and step size.
+_DUAL_TOPOLOGY_WARMUPS = frozenset(
+    {
+        "window_adaptation_diag_imm",
+        "window_adaptation_dense_imm",
+        "window_adaptation_low_rank_imm",
+        "staged_adaptation_auto",
+    }
+)
+
 # Canonical recipe-runner protocol: 4 chains × 1000 draws for quick mode.
 _DEFAULT_NUM_CHAINS = 4
 
@@ -211,12 +226,6 @@ def resolve_execution_plan(
     # semantically -- for the window family W=S is S INDEPENDENT adaptations,
     # while staged_adaptation_auto runs one joint controller over the S chains
     # and publishes a single shared metric and step size.
-    dual_topology_warmups = {
-        "window_adaptation_diag_imm",
-        "window_adaptation_dense_imm",
-        "window_adaptation_low_rank_imm",
-        "staged_adaptation_auto",
-    }
     if nphases > 1:
         phase_names = tuple(stage["name"] for stage in stages)
         expected_laplace_phases = (
@@ -239,7 +248,7 @@ def resolve_execution_plan(
         w = ws[0]
         supported = (
             w in {1, chains}
-            if stages[0]["name"] in dual_topology_warmups
+            if stages[0]["name"] in _DUAL_TOPOLOGY_WARMUPS
             else w == chains
         )
         if not supported:
@@ -258,7 +267,7 @@ def resolve_execution_plan(
         # normalized pinned replay has no adaptation stage, but still needs
         # the same pre-batched (one row per sampling chain) contract.
         valid_topology = single_phase and (
-            stages[0]["name"] in dual_topology_warmups
+            stages[0]["name"] in _DUAL_TOPOLOGY_WARMUPS
             or (init_kind == "reference_summary" and stages[0]["name"] == "no_warmup")
         )
         if not valid_topology:

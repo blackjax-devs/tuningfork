@@ -277,10 +277,15 @@ def test_single_chain_emission_stays_portable_and_broadcasts() -> None:
 
 
 @pytest.mark.fast
-def test_gradient_accounting_is_summed_integration_steps() -> None:
-    source = _emit(num_chains=6)
-    assert "_warmup_grad_evals = int(jnp.sum(_warmup_nis))" in source
-    assert "jointly adapted warmup chains" in source
+def test_gradient_accounting_names_the_joint_chains() -> None:
+    """Joint-specific only.
+
+    That the route emits accounting exactly once, and emits a summed
+    integration-step count, is asserted for every exact route by
+    test_generated_warmup_accounting.test_exact_routes_emit_accounting_once,
+    which this warmup is registered in.  Only the joint wording is checked here.
+    """
+    assert "jointly adapted warmup chains" in _emit(num_chains=6)
 
 
 @pytest.mark.fast
@@ -624,3 +629,19 @@ def test_joint_program_fails_explicitly_without_the_capability(tmp_path) -> None
     )
     assert "accepts n_chains" in stderr
     assert "TypeError" not in stderr
+
+
+@pytest.mark.fast
+def test_dual_topology_warmups_are_declared_ensemble_friendly() -> None:
+    """The two lists must not drift apart.
+
+    A warmup that supports W=S consumes one initial position per warmup chain,
+    which is exactly what the per-chain init strategies produce.  This is the
+    direction that holds: every dual-topology warmup should be declared
+    ensemble-friendly, not the converse -- ``_ENSEMBLE_FRIENDLY_WARMUPS`` is
+    the broader list and is currently broader than plan resolution allows.
+    """
+    from tuningfork.recipes._init_strategy import _ENSEMBLE_FRIENDLY_WARMUPS
+    from tuningfork.recipes._resolve_execution_plan import _DUAL_TOPOLOGY_WARMUPS
+
+    assert _DUAL_TOPOLOGY_WARMUPS <= _ENSEMBLE_FRIENDLY_WARMUPS

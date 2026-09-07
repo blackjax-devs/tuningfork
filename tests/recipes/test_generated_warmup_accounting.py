@@ -86,6 +86,7 @@ def test_every_registered_warmup_has_generated_implementation() -> None:
             "nuts",
             "_warmup_info.info.num_integration_steps",
         ),
+        ("staged_adaptation_auto", "nuts", "_warmup_grad_evals = int(jnp.sum"),
         ("mclmc_tuning", "mclmc", "_warmup_grad_evals = int(jnp.sum"),
         ("adjusted_mclmc_tuning", "adjusted_mclmc", "_warmup_grad_evals = int(jnp.sum"),
         (

@@ -178,6 +178,26 @@ def _validate_low_rank(
     # payload -- a full-width U of zeros with lam all 1 -- is the degenerate
     # case of the same rule.
     #
+    # The stronger reason neutrality is SAFE, not merely algebraically tidy:
+    # blackjax.mcmc.metrics._low_rank_matvec(y, U, s) computes
+    # y + U((s - 1) * (U^T y)), and it is called with THREE different scale
+    # vectors -- lam (kinetic energy and the U-turn check), sqrt(lam) (momentum
+    # sampling, M^{-1/2}) and 1/sqrt(lam) (M^{1/2}).  For lam[j] == 1 all three
+    # give s_j - 1 == 0 exactly, so a neutral column is inert in
+    # kinetic_energy, momentum_generator, is_turning AND every scale branch --
+    # not only in the assembled matrix.  That is what makes exempting it safe
+    # for the momentum sampler, which is the operation a bad basis would
+    # actually break.
+    #
+    # And the converse, which is why the ACTIVE check cannot be relaxed: for
+    # active columns an SPD argument genuinely does apply.  If U_A is not
+    # orthonormal, I + U_A(Lambda_A - I)U_A^T is still symmetric but its
+    # eigenvalues are no longer lam_A, so besides breaking the logdet identity
+    # it can go INDEFINITE even with every lam > 0 -- two heavily overlapping
+    # active columns with lam < 1 can push the smallest eigenvalue negative.
+    # momentum_generator would then take 1/sqrt(lam) through a non-SPD operator
+    # and produce NaN momenta.
+    #
     # Consequences that are deliberate rather than incidental:
     #   * lam is compared EXACTLY.  A near-one lam is ACTIVE, so a column with
     #     lam = 1 + 1e-9 must still be orthonormal; neutrality is a structural

@@ -538,7 +538,15 @@ def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
         )
     else:
         if prebatched:
-            a("# W=1 controller consumes one un-batched position.")
+            # Reachable only at S=W=1: plan resolution requires W==S for a
+            # per-chain init strategy, so W=1 plus pre-batched positions means
+            # a single sampling chain.  The window family never reaches its
+            # analogue at all, because its shared-warmup route requires
+            # num_chains > 1.  Kept rather than routed through the joint branch
+            # so the degenerate single-chain case does not have to pass
+            # n_chains explicitly and drag the capability guard into what is
+            # otherwise a portable path.
+            a("# W=1 controller consumes one un-batched position (S=W=1 only).")
             a("_init_position_single = jax.tree.map(lambda x: x[0], init_position)")
             _pos = "_init_position_single"
         else:
