@@ -191,6 +191,7 @@ def sensitivity_run(tmp_path_factory):
             source=f"{label}__standalone",
         )
         out["arms"][label] = {
+            "geometry": result.telemetry.geometry,
             "draws": draws,
             "stats": stats,
             "derivation": derivation,
@@ -201,13 +202,34 @@ def sensitivity_run(tmp_path_factory):
 
 
 def test_both_arms_ran_the_same_frozen_geometry(sensitivity_run):
-    """The arms differ in trajectory length and in nothing else."""
-    for arm in sensitivity_run["arms"].values():
-        assert arm["draws"]["x"].shape == (N_CHAINS, N_DRAWS, 10)
+    """Each arm's PERSISTED geometry must equal the frozen payload it was given.
 
+    Checking only the draw shapes and the shared input would pass even if an arm
+    silently re-adapted, which is exactly the failure this example must exclude.
+    """
     frozen = sensitivity_run["frozen"]
     assert frozen["step_size"] > 0
     assert len(frozen["inverse_mass_matrix"]) == 10
+
+    for label, arm in sensitivity_run["arms"].items():
+        assert arm["draws"]["x"].shape == (N_CHAINS, N_DRAWS, 10)
+        geometry = arm["geometry"]
+        step = np.asarray(geometry["step_size"]).reshape(-1)
+        imm = np.asarray(geometry["inverse_mass_matrix"]).reshape(-1)
+        np.testing.assert_allclose(
+            step,
+            frozen["step_size"],
+            rtol=0,
+            atol=0,
+            err_msg=f"{label} did not run the frozen step size",
+        )
+        np.testing.assert_allclose(
+            imm,
+            np.asarray(frozen["inverse_mass_matrix"]),
+            rtol=0,
+            atol=0,
+            err_msg=f"{label} did not run the frozen inverse mass matrix",
+        )
 
 
 def test_trajectory_lengths_differ_exactly_as_the_recipes_declare(sensitivity_run):
@@ -222,9 +244,9 @@ def test_trajectory_lengths_differ_exactly_as_the_recipes_declare(sensitivity_ru
 
 def test_both_arms_report_the_same_expectands(sensitivity_run):
     labels = [
-        tuple(arm["report"].by_label()) for arm in sensitivity_run["arms"].values()
+        tuple(arm["report"].by_identity()) for arm in sensitivity_run["arms"].values()
     ]
-    assert labels[0] == labels[1] == ("x_0", "x_0_sq", "x_0x1")
+    assert labels[0] == labels[1] == (("x_0", None), ("x_0_sq", None), ("x_0x1", None))
 
 
 def test_every_expectand_is_defined_on_both_arms(sensitivity_run):

@@ -162,14 +162,19 @@ guarantee.
 
 ## A note on ties, and why the severity is keyed on cardinality
 
-Rank-normalised statistics depend on how a backend ranks tied values:
-`blackjax.diagnostics` assigns ordinal ranks, ArviZ averages them. Every report
-row discloses ties whenever any are present, and names the backend's behaviour.
+Rank-normalised statistics depend on how a backend ranks tied values, and
+implementations differ between backends and change between releases. Every
+report row discloses ties whenever any are present, together with the backend
+and its version, and advises a cross-check. It deliberately does **not** state
+how any named backend handles ties: pinning that in a product message would turn
+an upstream correctness fix into a failing assertion here, and the tests check
+delegation to each backend rather than a required disagreement between them.
 
 The *severity* of that disclosure — wording only — is keyed on how few distinct
-values a trace takes rather than on what share of it is tied. A small
-exploratory probe on a single 4 × 500 fixture, one seed, one arrangement and the
-pinned backend versions:
+values a trace takes rather than on what share of it is tied. The measurement
+below is **dated evidence from 2026-09-07**, not a standing claim about either
+library: a small exploratory probe on a single 4 × 500 fixture, one seed, one
+arrangement, at blackjax 1.6.1 and arviz 1.1.0.
 
 | distinct values | tie fraction | blackjax bulk ESS | ArviZ bulk ESS | ratio |
 |---|---|---|---|---|
@@ -180,12 +185,13 @@ pinned backend versions:
 | 5 | 0.998 | 60.7 | 1914.3 | 31.6 |
 | 2 | 0.999 | 11.8 | 1850.6 | 156.2 |
 
-A continuous chain with 89% of its values repeated by rejection holds still has
-essentially every value distinct, and the backends agree to 0.4%. A 2-valued
-indicator has a comparable tie fraction and the backends differ by two orders of
-magnitude. That is enough to show tie fraction alone is a poor severity signal,
-so `DEFAULT_TIE_BLOCK_THRESHOLD` keys on the mean tie block (`n_total /
-n_distinct`) instead.
+At those versions, a continuous chain with 89% of its values repeated by
+rejection holds still had essentially every value distinct and the two agreed to
+0.4%, while a 2-valued indicator with a comparable tie fraction differed by two
+orders of magnitude. That is enough to show tie fraction alone is a poor
+severity signal, so `DEFAULT_TIE_BLOCK_THRESHOLD` keys on the mean tie block
+(`n_total / n_distinct`) instead. It says nothing about which library is right,
+and a release that changes tie handling in either one supersedes the table.
 
 **This is not a calibration.** These are a handful of fixtures at one chain
 length, one temporal arrangement and one pair of backend versions. They do not
@@ -195,5 +201,6 @@ report records the backend *and its version* alongside the numbers.
 
 The threshold changes wording and nothing else. It is never a validity boundary
 and never a reliability certificate: a trace with a single repeated value is
-still disclosed, the affected backend is still named, and the tie fraction and
-mean tie block are reported numerically on every row regardless of severity.
+still disclosed, the backend and version that produced the numbers are still
+named, and the tie fraction and mean tie block are reported numerically on every
+row regardless of severity.

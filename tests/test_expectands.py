@@ -24,9 +24,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tuningfork.catalog.expectands import _STATISTICS as _STATS
 from tuningfork.catalog.expectands import (
     BACKENDS,
     CostAccounting,
+    ExpectandDiagnostics,
     ExpectandReport,
     compare_reports,
     expectand_report,
@@ -286,36 +288,54 @@ def test_repeated_values_are_flagged_with_a_backend_caveat():
     assert entry.mean_tie_block == pytest.approx(N_CHAINS * N_DRAWS / 2)
     assert entry.tie_severity == "material"
     assert any("few distinct values" in w for w in entry.warnings)
-    assert any("backend='arviz'" in w for w in entry.warnings)
+    assert any("cross-check" in w for w in entry.warnings)
 
 
 @pytest.mark.slow
-def test_backends_disagree_on_a_tied_trace_and_the_report_says_which():
-    """A tied indicator is exactly where the backend choice is load-bearing.
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_each_backend_is_delegated_to_and_named_with_its_version(backend):
+    """The report delegates; it does not reimplement, and it claims nothing.
 
-    Both numbers are reported under their own backend name; neither is
-    presented as the value.
+    Asserting a specific disagreement between two backends would pin upstream
+    behaviour, so an upstream correctness fix would fail this suite. What this
+    module actually promises is that every number came from the named backend at
+    the named version, and that ties are disclosed whoever produced them.
     """
     rng = np.random.default_rng(913)
     trace = (rng.random((N_CHAINS, N_DRAWS)) < 0.1).astype(float)
 
-    bj = _degenerate_report(trace, "blackjax").entries[0]
-    az = _degenerate_report(trace, "arviz").entries[0]
+    entry = _degenerate_report(trace, backend).entries[0]
 
-    assert bj.backend == "blackjax"
-    assert az.backend == "arviz"
-    # Rank-normalised statistics diverge by orders of magnitude on ties.
-    assert az.bulk_ess is not None and bj.bulk_ess is not None
-    assert az.bulk_ess > 10 * bj.bulk_ess
-    # The raw-mean ESS, which applies no rank normalisation, stays comparable.
-    assert bj.raw_mean_ess is not None and az.raw_mean_ess is not None
-    assert 0.5 < bj.raw_mean_ess / az.raw_mean_ess < 2.0
+    assert entry.backend == backend
+    assert entry.bulk_ess is not None and entry.bulk_ess > 0
+    assert entry.raw_mean_ess is not None and entry.raw_mean_ess > 0
+    # Ties are disclosed, and the disclosure names the backend and version
+    # rather than asserting how any backend ranks them.
+    disclosure = [w for w in entry.warnings if "tie fraction" in w]
+    assert disclosure
+    assert backend in disclosure[0]
+    assert "cross-check" in disclosure[0]
+
+
+@pytest.mark.slow
+def test_the_two_backends_are_independently_reported_never_merged(draws):
+    """Both are available and separately labelled; neither stands in for the other."""
+    reports = {
+        backend: expectand_report(draws, _moment_expectands(), backend=backend)
+        for backend in BACKENDS
+    }
+
+    assert {r.backend for r in reports.values()} == set(BACKENDS)
+    assert len({r.backend_version for r in reports.values()}) == len(BACKENDS)
+    for backend, report in reports.items():
+        for entry in report.entries:
+            assert entry.backend == backend
 
 
 @pytest.mark.slow
 def test_backends_agree_on_a_well_behaved_continuous_trace(draws):
-    bj = expectand_report(draws, _moment_expectands(), backend="blackjax").by_label()
-    az = expectand_report(draws, _moment_expectands(), backend="arviz").by_label()
+    bj = expectand_report(draws, _moment_expectands(), backend="blackjax").by_identity()
+    az = expectand_report(draws, _moment_expectands(), backend="arviz").by_identity()
 
     for label in bj:
         for statistic in ("bulk_ess", "tail_ess", "rank_rhat"):
@@ -371,7 +391,7 @@ def test_antithetic_first_moment_does_not_speak_for_the_squared_function():
         {"x": trace},
         {"x": lambda s: s["x"], "x_sq": lambda s: s["x"] ** 2},
     )
-    entries = report.by_label()
+    entries = {e.name: e for e in report.entries}
 
     assert entries["x"].raw_mean_ess > N_CHAINS * N_DRAWS
     assert entries["x_sq"].raw_mean_ess < entries["x"].raw_mean_ess / 10
@@ -411,11 +431,48 @@ def test_unknown_backend_is_rejected(draws):
 # --------------------------------------------------------------------------
 
 
-def _fake_report(label: str, scale: float, cost: CostAccounting) -> ExpectandReport:
-    rng = np.random.default_rng(11)
-    trace = rng.standard_normal((N_CHAINS, N_DRAWS)) * scale
-    return expectand_report(
-        {"x": trace}, {"x": lambda s: s["x"]}, cost=cost, label=label
+def _stub_report(
+    label: str,
+    cost: CostAccounting,
+    *,
+    bulk: float | None = 400.0,
+    raw: float | None = 380.0,
+    tail: float | None = 350.0,
+    rhat: float | None = 1.004,
+    backend: str = "blackjax",
+) -> ExpectandReport:
+    """A report with literal statistics and no sampler or backend involved.
+
+    The cost and comparison contracts are arithmetic over the numbers a report
+    carries; running a real ESS estimator over random draws to obtain them adds
+    no coverage of that arithmetic and makes the tests slow. Real-backend
+    behaviour is covered separately by the delegation tests.
+    """
+    entry = ExpectandDiagnostics(
+        name="x",
+        component=None,
+        backend=backend,
+        n_chains=N_CHAINS,
+        n_draws=N_DRAWS,
+        n_distinct=N_CHAINS * N_DRAWS,
+        tie_fraction=0.0,
+        mean_tie_block=1.0,
+        tie_severity="none",
+        degeneracy="none",
+        raw_mean_ess=raw,
+        bulk_ess=bulk,
+        tail_ess=tail,
+        rank_rhat=rhat,
+        undefined_reasons={} if bulk is not None else {s: "stub" for s in _STATS},
+    )
+    return ExpectandReport(
+        label=label,
+        backend=backend,
+        backend_version="0.0.0-test",
+        entries=(entry,),
+        cost=cost,
+        n_chains=N_CHAINS,
+        n_draws=N_DRAWS,
     )
 
 
@@ -430,10 +487,10 @@ _FULL_COST = CostAccounting(
 )
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_comparison_normalises_by_cost_only_when_both_sides_measured():
-    baseline = _fake_report("A", 1.0, _FULL_COST)
-    candidate = _fake_report("B", 2.0, _FULL_COST)
+    baseline = _stub_report("A", _FULL_COST)
+    candidate = _stub_report("B", _FULL_COST)
 
     comparison = compare_reports(baseline, candidate)
 
@@ -446,10 +503,10 @@ def test_comparison_normalises_by_cost_only_when_both_sides_measured():
     assert row.per_transition_grad_eval[1] == pytest.approx(row.candidate / 500.0)
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_comparison_refuses_cost_normalisation_when_a_cost_is_unknown():
-    baseline = _fake_report("A", 1.0, _FULL_COST)
-    candidate = _fake_report("B", 2.0, CostAccounting(source="test"))
+    baseline = _stub_report("A", _FULL_COST)
+    candidate = _stub_report("B", CostAccounting(source="test"))
 
     comparison = compare_reports(baseline, candidate)
 
@@ -464,23 +521,22 @@ def test_comparison_refuses_cost_normalisation_when_a_cost_is_unknown():
     assert row.ratio is not None
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_comparison_blocks_a_ratio_against_an_undefined_statistic():
-    cost = _FULL_COST
-    baseline = expectand_report(
-        {"x": np.full((N_CHAINS, N_DRAWS), 3.0)},
-        {"x": lambda s: s["x"]},
-        cost=cost,
-        label="A",
-    )
-    candidate = _fake_report("B", 1.0, cost)
+    baseline = _stub_report("A", _FULL_COST, bulk=None, raw=None, tail=None, rhat=None)
+    candidate = _stub_report("B", _FULL_COST)
 
     comparison = compare_reports(baseline, candidate)
     row = next(r for r in comparison.rows if r.statistic == "raw_mean_ess")
 
     assert row.baseline is None
     assert row.ratio is None
-    assert any("A.x.raw_mean_ess undefined" in b for b in row.ratio_blocked_by)
+    assert any("baseline x.raw_mean_ess undefined" in b for b in row.ratio_blocked_by)
+    # An undefined statistic must also explain the missing cost figures, not
+    # leave them as a bare None behind an empty blocker list.
+    assert row.per_second is None
+    assert row.per_transition_grad_eval is None
+    assert row.cost_blocked_by
 
 
 @pytest.mark.slow
@@ -505,7 +561,7 @@ def test_comparison_reports_backend_mismatch_and_unmatched_expectands(draws):
     assert comparison.only_in_baseline == ()
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_rank_rhat_is_carried_but_never_ratioed_or_cost_normalised():
     """R-hat is a convergence ratio judged against its own threshold.
 
@@ -513,8 +569,8 @@ def test_rank_rhat_is_carried_but_never_ratioed_or_cost_normalised():
     meaningless, so the comparison reports both values and withholds the
     derived figures.
     """
-    baseline = _fake_report("A", 1.0, _FULL_COST)
-    candidate = _fake_report("B", 2.0, _FULL_COST)
+    baseline = _stub_report("A", _FULL_COST)
+    candidate = _stub_report("B", _FULL_COST)
 
     comparison = compare_reports(baseline, candidate)
     row = next(r for r in comparison.rows if r.statistic == "rank_rhat")
@@ -857,8 +913,8 @@ def test_a_single_tie_is_still_disclosed_below_the_threshold():
     assert entry.tie_fraction == pytest.approx(1 / (N_CHAINS * N_DRAWS))
     disclosure = [w for w in entry.warnings if "repeated values" in w]
     assert disclosure, "a tie below the threshold must still be disclosed"
-    assert "ordinal ranks" in disclosure[0]
-    assert "backend='arviz'" in disclosure[0]
+    assert "cross-check" in disclosure[0]
+    assert entry.backend in disclosure[0]
 
 
 @pytest.mark.slow
@@ -873,7 +929,7 @@ def test_a_tie_free_trace_discloses_nothing():
     assert not any("repeated values" in w for w in entry.warnings)
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_comparison_carries_cost_views_and_gradient_exclusions():
     cost = CostAccounting(
         warmup_seconds=1.0,
@@ -886,9 +942,7 @@ def test_comparison_carries_cost_views_and_gradient_exclusions():
         view="standalone",
         excluded_grad_work=("initialization",),
     )
-    comparison = compare_reports(
-        _fake_report("A", 1.0, cost), _fake_report("B", 2.0, cost)
-    )
+    comparison = compare_reports(_stub_report("A", cost), _stub_report("B", cost))
 
     assert comparison.cost_views == ("standalone", "standalone")
     assert comparison.excluded_grad_work == ("initialization",)
@@ -973,7 +1027,7 @@ def test_an_empty_chain_or_draw_dimension_is_rejected_cleanly(shape):
         expectand_report({"x": np.zeros(shape)}, {"q": lambda s: s["x"]})
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_a_standalone_cost_is_never_normalised_against_a_combined_one():
     """Individually correct numbers that are meaningless side by side.
 
@@ -989,12 +1043,10 @@ def test_a_standalone_cost_is_never_normalised_against_a_combined_one():
         sampling_transition_grad_evals=400,
         compile_seconds=0.5,
     )
-    baseline = _fake_report(
-        "A", 1.0, CostAccounting(**fields, source="A", view="standalone")
+    baseline = _stub_report(
+        "A", CostAccounting(**fields, source="A", view="standalone")
     )
-    candidate = _fake_report(
-        "B", 2.0, CostAccounting(**fields, source="B", view="combined")
-    )
+    candidate = _stub_report("B", CostAccounting(**fields, source="B", view="combined"))
 
     comparison = compare_reports(baseline, candidate)
 
@@ -1008,11 +1060,11 @@ def test_a_standalone_cost_is_never_normalised_against_a_combined_one():
     assert row.ratio is not None
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_matching_cost_views_still_normalise():
     """The guard must not over-refuse the ordinary same-view comparison."""
-    baseline = _fake_report("A", 1.0, _FULL_COST)
-    candidate = _fake_report("B", 2.0, _FULL_COST)
+    baseline = _stub_report("A", _FULL_COST)
+    candidate = _stub_report("B", _FULL_COST)
 
     comparison = compare_reports(baseline, candidate)
 
@@ -1139,7 +1191,7 @@ def test_the_declared_convention_travels_with_every_derivation():
     assert not any("INEXACT" in item for item in derivation.excluded)
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_an_undercounting_sampler_carries_its_caveat_onto_the_comparison():
     """The caveat must reach the surface that computes the head-to-head number."""
     stats = {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), 1)}
@@ -1155,7 +1207,7 @@ def test_an_undercounting_sampler_carries_its_caveat_onto_the_comparison():
         excluded_grad_work=derivation.excluded,
     )
     comparison = compare_reports(
-        _fake_report("orbital", 1.0, cost), _fake_report("other", 2.0, cost)
+        _stub_report("orbital", cost), _stub_report("other", cost)
     )
 
     assert any("INEXACT" in item for item in comparison.excluded_grad_work)
@@ -1170,7 +1222,7 @@ def test_an_undercounting_sampler_carries_its_caveat_onto_the_comparison():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.slow
+@pytest.mark.fast
 def test_a_gradient_free_sampler_gets_an_explanation_not_a_bare_none():
     """`rwm` measures a true zero: known, and known to be unusable as a divisor."""
     free = CostAccounting(
@@ -1182,9 +1234,7 @@ def test_a_gradient_free_sampler_gets_an_explanation_not_a_bare_none():
         compile_seconds=0.0,
         source="rwm_arm",
     )
-    comparison = compare_reports(
-        _fake_report("A", 1.0, free), _fake_report("B", 2.0, free)
-    )
+    comparison = compare_reports(_stub_report("A", free), _stub_report("B", free))
     row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
 
     assert row.per_transition_grad_eval is None
@@ -1378,3 +1428,150 @@ def test_a_vi_arm_blocks_per_gradient_but_keeps_ess_and_wall_time(sampler):
     # Unaffected outputs survive.
     assert row.per_second is not None
     assert row.ratio is not None
+
+
+# --------------------------------------------------------------------------
+# Identity is (name, component) and arms are positional — never display text
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_two_reports_with_the_same_label_are_not_merged():
+    """`label` defaults to "unnamed", so a label collision is the DEFAULT path.
+
+    Keying the per-arm gradient totals by label let one arm silently overwrite
+    the other, publishing a denominator from the wrong arm with no blocker.
+    """
+
+    def cost(grads):
+        return CostAccounting(
+            warmup_seconds=1.0,
+            sampling_seconds=1.0,
+            total_seconds=2.0,
+            warmup_grad_evals=0,
+            sampling_transition_grad_evals=grads,
+            compile_seconds=0.0,
+            source=f"src{grads}",
+        )
+
+    # Both default to label "unnamed".
+    baseline = _stub_report("unnamed", cost(100))
+    candidate = _stub_report("unnamed", cost(10_000))
+
+    row = next(
+        r
+        for r in compare_reports(baseline, candidate).rows
+        if r.statistic == "bulk_ess"
+    )
+
+    assert row.per_transition_grad_eval == pytest.approx((400.0 / 100, 400.0 / 10_000))
+    assert row.per_transition_grad_eval[0] != row.per_transition_grad_eval[1]
+
+
+@pytest.mark.fast
+def test_a_zero_denominator_is_not_hidden_by_a_shared_label():
+    """The zero-gradient blocker reads the same per-arm totals."""
+
+    def cost(grads):
+        return CostAccounting(
+            warmup_seconds=1.0,
+            sampling_seconds=1.0,
+            total_seconds=2.0,
+            warmup_grad_evals=0,
+            sampling_transition_grad_evals=grads,
+            compile_seconds=0.0,
+            source=f"src{grads}",
+        )
+
+    comparison = compare_reports(
+        _stub_report("x", cost(0)), _stub_report("x", cost(500))
+    )
+
+    assert comparison.cost_normalised_available is False
+    assert any("zero gradient evaluations" in b for b in comparison.cost_blockers)
+
+
+@pytest.mark.fast
+def test_report_rows_use_fixed_keys_even_for_a_label_named_like_one():
+    """A label must never become a dict key."""
+    baseline = _stub_report("ratio", _FULL_COST)
+    candidate = _stub_report("ratio", _FULL_COST)
+
+    row = compare_reports(baseline, candidate).to_rows()[0]
+
+    assert row["baseline"] == 380.0 or row["baseline"] == 400.0
+    assert row["baseline_label"] == "ratio"
+    assert row["candidate_label"] == "ratio"
+    # The reserved key still means what it says.
+    assert row["ratio"] is None or isinstance(row["ratio"], float)
+
+
+@pytest.mark.fast
+def test_a_scalar_named_like_a_component_is_a_distinct_row():
+    """`x[0]` as a scalar name renders identically to component 0 of `x`."""
+    draws = {
+        "v": np.zeros((2, 4, 2)),
+        "s": np.ones((2, 4)),
+    }
+    report = expectand_report(
+        draws,
+        {"x": lambda d: d["v"], "x[0]": lambda d: d["s"]},
+    )
+
+    identities = set(report.by_identity())
+    assert ("x", 0) in identities
+    assert ("x[0]", None) in identities
+    assert len(report.entries) == 3
+    # Two entries render the same text; identity keeps them apart.
+    labels = [e.label for e in report.entries]
+    assert labels.count("x[0]") == 2
+    assert len(report.by_identity()) == 3
+
+
+# --------------------------------------------------------------------------
+# The counter contract is enforced at one boundary
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "stats, fragment",
+    [
+        ({"num_integration_steps": np.zeros((2, 3, 0))}, "zero transitions"),
+        ({"num_integration_steps": np.zeros((2, 0))}, "zero transitions"),
+        ({"num_integration_steps": np.asarray(3)}, "leading topology"),
+        ({"num_integration_steps": np.full((2, 5), 2.5)}, "non-integral"),
+        ({"num_integration_steps": np.full((2, 5), -1)}, "negative"),
+        ({"num_integration_steps": np.full((2, 5), np.nan)}, "non-finite"),
+    ],
+)
+def test_malformed_counter_inputs_are_refused_with_a_reason(stats, fragment):
+    derivation = sampling_grad_evals_from_chain_stats(stats, "hmc")
+
+    assert derivation.count is None, f"accepted {stats}"
+    assert fragment in derivation.reason
+
+
+@pytest.mark.fast
+def test_a_zero_length_event_axis_is_not_a_measured_zero():
+    """`(2, 3, 0)` has a non-empty leading topology but no data at all."""
+    derivation = sampling_grad_evals_from_chain_stats(
+        {"num_integration_steps": np.zeros((2, 3, 0))}, "mala"
+    )
+
+    assert derivation.count is None
+    assert "empty" in derivation.reason
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("recorded", ["abc", float("nan"), float("inf"), [1.0]])
+def test_an_unusable_wall_clock_is_refused_not_raised(recorded):
+    class FakeTelemetry:
+        timing_seconds = {"warmup": recorded, "sampling": 1.0, "total": 2.0}
+        warmup_grad_evals = 10
+        warmup_grad_evals_reason = "bound"
+
+    cost = CostAccounting.from_telemetry(FakeTelemetry())
+
+    assert cost.warmup_seconds is None
+    assert "unusable" in cost.reason_for("warmup_seconds")

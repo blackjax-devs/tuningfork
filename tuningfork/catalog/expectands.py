@@ -108,39 +108,38 @@ DEFAULT_BACKEND = "blackjax"
 #: ``blackjax.diagnostics.ess_tail``.
 _TAIL_PROB = (0.05, 0.95)
 
-#: Backends whose rank normalisation is order-dependent on tied values.
-_ORDINAL_RANK_BACKENDS = frozenset({"blackjax"})
-
 
 def _tie_disclosure(
-    tie_fraction: float, mean_tie_block: float, backend: str, material: bool
+    tie_fraction: float,
+    mean_tie_block: float,
+    backend: str,
+    version: str,
+    material: bool,
 ) -> str:
-    """Always disclose ties; raise the wording's severity when they are material.
+    """Disclose ties, the backend and its version; claim nothing about either.
 
-    Disclosure is not gated on the threshold.  A backend that ranks ties
-    ordinally is named whenever any tie is present, because the reader -- not a
-    fixed cut-off -- decides whether a rank statistic looks anomalous.
+    Rank-normalised statistics depend on how a backend ranks tied values, and
+    implementations differ and change between releases.  This states what is
+    measurable here -- the tie load, and which backend at which version produced
+    the numbers -- and advises a cross-check.  It deliberately does not assert
+    how any named backend handles ties: pinning that in a product message would
+    turn an upstream correctness fix into a failing assertion here.
     """
     share = (
         f"tie fraction {tie_fraction:.4g}, mean tie block {mean_tie_block:.4g} draws"
     )
-    if backend in _ORDINAL_RANK_BACKENDS:
-        backend_note = (
-            f"the {backend!r} backend assigns ordinal ranks to tied values while "
-            "ArviZ averages them, so rank-normalised statistics differ between "
-            "them here -- cross-check with backend='arviz'"
-        )
-    else:
-        backend_note = (
-            f"the {backend!r} backend averages tied ranks; a backend that ranks "
-            "ties ordinally would report different rank-normalised statistics"
-        )
+    caution = (
+        f"rank-normalised statistics can depend on how a backend ranks tied "
+        f"values, and implementations differ between backends and between "
+        f"releases; these numbers come from {backend} {version} -- cross-check "
+        f"with another backend before relying on a rank statistic here"
+    )
     if material:
         return (
             "expectand takes few distinct values, the regime where rank "
-            f"normalisation diverges between backends ({share}); {backend_note}"
+            f"normalisation is most backend-sensitive ({share}); {caution}"
         )
-    return f"expectand has repeated values ({share}); {backend_note}"
+    return f"expectand has repeated values ({share}); {caution}"
 
 
 # Statistic names in report order.  ``raw_mean_ess`` is deliberately first and
@@ -517,10 +516,11 @@ class CostAccounting:
             if recorded is None:
                 unknown[component] = "telemetry did not record this wall clock"
             elif _opt_float(recorded) is None:
-                # Recorded, but not a usable number.  Saying "not recorded"
+                # Recorded, but not usable as a number.  Saying "not recorded"
                 # here would be a wrong-but-plausible explanation.
                 unknown[component] = (
-                    f"telemetry recorded a non-finite wall clock ({recorded!r})"
+                    f"telemetry recorded an unusable wall clock ({recorded!r}); "
+                    "it is not a finite number"
                 )
 
         derivation = sampling_transition_grad_evals
@@ -617,6 +617,25 @@ class GradEvalDerivation:
     never empty for a successful derivation: per-step transition statistics
     cannot see initialization or any controller/adaptation internals, so this
     is a subtotal of the sampling phase and must not be reported as a total.
+
+    What this derivation is, exactly
+    --------------------------------
+    It **reproduces the sampler's declared counting convention** against the
+    recorded per-step statistics.  That is the whole of the claim.  It does not
+    verify that the convention matches the integrator's actual gradient work,
+    and it cannot: the convention is the only statement of intent available.
+
+    A convention can therefore be wrong without anything here noticing.  One is
+    reported to be -- ``rmhmc`` declares ``info.num_integration_steps`` while
+    its ``implicit_midpoint`` integrator runs a fixed-point iteration costing
+    several gradients per step (reported by review, not confirmed in this
+    repository).  Such a count is neither detected nor withheld, because
+    detecting it would mean re-deriving each integrator's true cost here, which
+    is a second implementation of the thing the descriptor exists to state.
+
+    So: a returned count is a faithful reading of what the sampler says it
+    costs, never a verified measurement of what it cost.  Treat it as declared
+    work, and read ``excluded`` before dividing anything by it.
     """
 
     count: int | None
@@ -809,12 +828,15 @@ def sampling_grad_evals_from_chain_stats(
                 "lane and transition (thinned, truncated, or partial)"
             ),
         )
-    n_transitions = int(np.prod(shape[:2])) if len(shape) >= 2 else int(shape[0])
-    if n_transitions == 0:
-        # F5: an empty per-step record is a MISSING measurement, not a run that
-        # executed zero transitions.  A real sampling phase always has at least
-        # one, so reporting 0 here would invert this module's own rule that an
-        # unmeasured cost is never written as a zero.
+    if len(shape) < 2:
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"per-step statistics have shape {shape}; a (chain, draw) "
+                "leading topology is required to count transitions"
+            ),
+        )
+    if any(dim == 0 for dim in shape):
         return GradEvalDerivation(
             None,
             reason=(
@@ -823,6 +845,7 @@ def sampling_grad_evals_from_chain_stats(
                 "zero"
             ),
         )
+    n_transitions = int(shape[0]) * int(shape[1])
 
     class _StepStats:
         """Attribute view over the persisted arrays, for grad_count_per_step."""
@@ -846,27 +869,45 @@ def sampling_grad_evals_from_chain_stats(
             reason=f"could not evaluate the {base_method_name} grad count: {exc}",
         )
 
+    # One boundary for the counter contract: the callable must return either a
+    # scalar (a constant per transition) or exactly one finite, non-negative,
+    # integral count per recorded transition.  Anything else is refused rather
+    # than coerced -- `int()` on a float array silently truncates, and an
+    # unexpected shape silently changes what is being summed.
     if counts.ndim == 0:
-        # Constant-cost samplers declare one value per step; scale by the number
-        # of recorded transitions, mirroring tuningfork.metrics.grad_counter.
-        total = int(counts) * n_transitions
+        per_transition = counts.reshape(1)
         used: tuple[str, ...] = ()
-    elif counts.shape[:2] != shape[:2]:
+    elif counts.shape == shape[:2]:
+        per_transition = counts.reshape(-1)
+        used = tuple(sorted(arrays))
+    else:
         return GradEvalDerivation(
             None,
             reason=(
-                f"{base_method_name} produced a per-step count of shape "
-                f"{counts.shape}, which does not cover the {shape[:2]} recorded "
-                "transitions"
+                f"{base_method_name} produced a count of shape {counts.shape}; "
+                f"a scalar or exactly one value per recorded transition "
+                f"{shape[:2]} is required"
             ),
         )
-    else:
-        total = int(counts.sum())
-        used = tuple(sorted(arrays))
-    if total < 0:
+    if not np.all(np.isfinite(per_transition)):
+        return GradEvalDerivation(
+            None,
+            reason=f"{base_method_name} produced a non-finite gradient count",
+        )
+    if np.any(per_transition < 0):
         return GradEvalDerivation(
             None, reason=f"{base_method_name} produced a negative gradient count"
         )
+    if np.any(per_transition != np.rint(per_transition)):
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"{base_method_name} produced a non-integral gradient count; "
+                "rounding it would silently change the recorded cost"
+            ),
+        )
+    exact = np.rint(per_transition).astype(np.int64)
+    total = int(exact[0]) * n_transitions if counts.ndim == 0 else int(exact.sum())
     return GradEvalDerivation(
         count=total,
         basis=f"{method.grad_count_convention} summed over {n_transitions} "
@@ -877,12 +918,19 @@ def sampling_grad_evals_from_chain_stats(
 
 
 def _opt_float(value: Any) -> float | None:
-    if value is None:
+    """A finite float, or ``None`` for anything that is not usable as one.
+
+    Refuses rather than raises: this is the boundary that decides whether a
+    recorded value is usable, and a value that cannot be read as a number is
+    exactly the case it exists to catch.
+    """
+    if value is None or isinstance(value, bool):
         return None
-    out = float(value)
-    if not np.isfinite(out):
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
         return None
-    return out
+    return out if np.isfinite(out) else None
 
 
 # ---------------------------------------------------------------------------
@@ -917,8 +965,22 @@ class ExpectandDiagnostics:
     warnings: tuple[str, ...] = ()
 
     @property
+    def identity(self) -> tuple[str, int | None]:
+        """The key that identifies this row.
+
+        ``(name, component)``, never a rendered string.  A scalar expectand
+        called ``"x[0]"`` and component 0 of a vector called ``"x"`` render
+        identically but are different rows, so display text must not be used as
+        an identity anywhere.
+        """
+        return (self.name, self.component)
+
+    @property
     def label(self) -> str:
-        """``name`` for a scalar expectand, ``name[i]`` for a vector component."""
+        """Display only -- ``name``, or ``name[i]`` for a vector component.
+
+        Not unique: see :attr:`identity`, which is.
+        """
         return self.name if self.component is None else f"{self.name}[{self.component}]"
 
     @property
@@ -1035,7 +1097,11 @@ def _component_diagnostics(
         warns = (
             *warns,
             _tie_disclosure(
-                tie_fraction, mean_tie_block, backend, severity == "material"
+                tie_fraction,
+                mean_tie_block,
+                backend,
+                _backend_version(backend),
+                severity == "material",
             ),
         )
 
@@ -1150,9 +1216,13 @@ class ExpectandReport:
     n_chains: int
     n_draws: int
 
-    def by_label(self) -> dict[str, ExpectandDiagnostics]:
-        """Entries keyed by :attr:`ExpectandDiagnostics.label`."""
-        return {entry.label: entry for entry in self.entries}
+    def by_identity(self) -> dict[tuple[str, int | None], ExpectandDiagnostics]:
+        """Entries keyed by :attr:`ExpectandDiagnostics.identity`.
+
+        Keyed on ``(name, component)`` rather than the rendered label, which is
+        not unique.
+        """
+        return {entry.identity: entry for entry in self.entries}
 
     def to_rows(self) -> list[dict[str, Any]]:
         """Flat, JSON-friendly rows -- one per expectand component."""
@@ -1326,6 +1396,8 @@ class ComparisonRow:
     """One expectand compared across two reports."""
 
     expectand: str
+    expectand_name: str
+    expectand_component: int | None
     statistic: str
     baseline: float | None
     candidate: float | None
@@ -1346,8 +1418,8 @@ class ReportComparison:
     cost_blockers: tuple[str, ...]
     cost_views: tuple[str, str] = ("as_measured", "as_measured")
     excluded_grad_work: tuple[str, ...] = ()
-    only_in_baseline: tuple[str, ...] = ()
-    only_in_candidate: tuple[str, ...] = ()
+    only_in_baseline: tuple[tuple[str, int | None], ...] = ()
+    only_in_candidate: tuple[tuple[str, int | None], ...] = ()
     backend_mismatch: tuple[str, str] | None = None
 
     @property
@@ -1360,12 +1432,24 @@ class ReportComparison:
         return not self.cost_blockers
 
     def to_rows(self) -> list[dict[str, Any]]:
+        """Flat rows with a fixed key set.
+
+        The arm values live under the stable keys ``"baseline"`` and
+        ``"candidate"``; the report labels ride along as metadata.  Using the
+        labels as keys would collide whenever two reports share a label -- the
+        default is ``"unnamed"`` for both -- and a label such as ``"ratio"``
+        would overwrite a reserved key.
+        """
         return [
             {
                 "expectand": row.expectand,
+                "expectand_name": row.expectand_name,
+                "expectand_component": row.expectand_component,
                 "statistic": row.statistic,
-                self.baseline_label: row.baseline,
-                self.candidate_label: row.candidate,
+                "baseline": row.baseline,
+                "candidate": row.candidate,
+                "baseline_label": self.baseline_label,
+                "candidate_label": self.candidate_label,
                 "ratio": row.ratio,
                 "ratio_blocked_by": list(row.ratio_blocked_by),
                 "per_second": list(row.per_second) if row.per_second else None,
@@ -1424,9 +1508,13 @@ def compare_reports(
     if unknown_statistics:
         raise KeyError(f"unknown statistics: {unknown_statistics}")
 
-    base_map = baseline.by_label()
-    cand_map = candidate.by_label()
-    shared = [label for label in base_map if label in cand_map]
+    base_map = baseline.by_identity()
+    cand_map = candidate.by_identity()
+    shared = [key for key in base_map if key in cand_map]
+    # Arms are addressed positionally throughout.  Keying anything by the
+    # display label silently merges two arms whenever the labels are equal --
+    # and they both default to "unnamed".
+    arms = (baseline, candidate)
 
     # A standalone cost and a combined cost answer different questions, so
     # dividing an ESS by each and comparing the results is meaningless even
@@ -1435,19 +1523,17 @@ def compare_reports(
     view_blockers: tuple[str, ...] = ()
     if baseline.cost.view != candidate.cost.view:
         view_blockers = (
-            f"cost views differ ({baseline.label}={baseline.cost.view}, "
-            f"{candidate.label}={candidate.cost.view}); a cost-normalised "
+            f"cost views differ (baseline={baseline.cost.view}, "
+            f"candidate={candidate.cost.view}); a cost-normalised "
             "comparison requires both sides costed under the same view",
         )
     seconds_blockers = view_blockers + tuple(
-        f"{report.label}.total_seconds ({report.cost.reason_for('total_seconds')})"
-        for report in (baseline, candidate)
+        f"{report.label!r} (arm {index}) total_seconds "
+        f"({report.cost.reason_for('total_seconds')})"
+        for index, report in enumerate(arms)
         if report.cost.total_seconds is None
     )
-    grads = {
-        report.label: _transition_grad_evals(report.cost)
-        for report in (baseline, candidate)
-    }
+    grads = tuple(_transition_grad_evals(report.cost) for report in arms)
     # A count that its own sampler declares a lower bound is not gradient work
     # in the same unit as an exact count.  Disclosing that in prose while still
     # publishing the ratio would leave an invalid number on the page, so the
@@ -1455,45 +1541,48 @@ def compare_reports(
     # unaffected -- it is measured independently of any counting convention --
     # and so are the uncosted ESS ratios.
     incomplete_grad_blockers = tuple(
-        f"{report.label} counts gradients with a convention its own sampler "
-        "declares incomplete, so it is not comparable, per gradient, with an "
-        "exact count; the declared convention and basis are retained for "
-        "reproducibility"
-        for report in (baseline, candidate)
+        f"{report.label!r} (arm {index}) counts gradients with a convention its "
+        "own sampler declares incomplete, so it is not comparable, per "
+        "gradient, with an exact count; the declared convention and basis are "
+        "retained for reproducibility"
+        for index, report in enumerate(arms)
         if _counts_incomplete_gradients(report.cost)
     )
     zero_grad_blockers = tuple(
-        f"{report.label} recorded zero gradient evaluations (a gradient-free "
+        f"{report.label!r} (arm {index}) recorded zero gradient evaluations (a gradient-free "
         "sampler, or a run with no recorded transitions); ESS per gradient "
         "evaluation is undefined against a zero denominator"
-        for report in (baseline, candidate)
-        if grads[report.label] == 0
+        for index, (report, total) in enumerate(zip(arms, grads))
+        if total == 0
     )
     zero_seconds_blockers = tuple(
-        f"{report.label} recorded a zero total wall clock; ESS per second is "
-        "undefined against a zero denominator"
-        for report in (baseline, candidate)
+        f"{report.label!r} (arm {index}) recorded a zero total wall clock; ESS "
+        "per second is undefined against a zero denominator"
+        for index, report in enumerate(arms)
         if report.cost.total_seconds == 0.0
     )
     grad_blockers = view_blockers + tuple(
-        f"{report.label}.{component} ({report.cost.reason_for(component)})"
-        for report in (baseline, candidate)
+        f"{report.label!r} (arm {index}) {component} "
+        f"({report.cost.reason_for(component)})"
+        for index, report in enumerate(arms)
         for component in ("warmup_grad_evals", "sampling_transition_grad_evals")
         if getattr(report.cost, component) is None
     )
 
     rows: list[ComparisonRow] = []
-    for label in shared:
+    for key in shared:
+        name, component = key
+        label = base_map[key].label
         for statistic in statistics:
-            base_val = base_map[label].value(statistic)
-            cand_val = cand_map[label].value(statistic)
+            base_val = base_map[key].value(statistic)
+            cand_val = cand_map[key].value(statistic)
             is_rate = statistic in _RATE_STATISTICS
             blocked: tuple[str, ...] = ()
             ratio: float | None = None
             if base_val is None:
-                blocked += (f"{baseline.label}.{label}.{statistic} undefined",)
+                blocked += (f"baseline {label}.{statistic} undefined",)
             if cand_val is None:
-                blocked += (f"{candidate.label}.{label}.{statistic} undefined",)
+                blocked += (f"candidate {label}.{statistic} undefined",)
             if not is_rate:
                 blocked += (
                     f"{statistic} is a convergence ratio, not a rate; a ratio "
@@ -1503,7 +1592,7 @@ def compare_reports(
             if not blocked:
                 assert base_val is not None and cand_val is not None
                 if base_val == 0.0:
-                    blocked += (f"{baseline.label}.{label}.{statistic} is zero",)
+                    blocked += (f"baseline {label}.{statistic} is zero",)
                 else:
                     ratio = cand_val / base_val
 
@@ -1514,7 +1603,17 @@ def compare_reports(
                 cost_blocked += (
                     f"{statistic} is not a rate; cost normalisation does not " "apply",
                 )
-            elif base_val is not None and cand_val is not None:
+            elif base_val is None or cand_val is None:
+                # The statistic itself is undefined on one side, so no cost
+                # figure can be produced.  Say so, rather than leaving a bare
+                # None behind an empty blocker list.
+                cost_blocked += tuple(
+                    b for b in blocked if b.endswith("undefined")
+                ) or (
+                    f"{statistic} is undefined on at least one side, so no "
+                    "cost-normalised figure can be computed",
+                )
+            else:
                 if seconds_blockers:
                     cost_blocked += seconds_blockers
                 elif zero_seconds_blockers:
@@ -1536,12 +1635,14 @@ def compare_reports(
                     cost_blocked += zero_grad_blockers
                 else:
                     per_grad = (
-                        _safe_div(base_val, grads[baseline.label]),
-                        _safe_div(cand_val, grads[candidate.label]),
+                        _safe_div(base_val, grads[0]),
+                        _safe_div(cand_val, grads[1]),
                     )
             rows.append(
                 ComparisonRow(
                     expectand=label,
+                    expectand_name=name,
+                    expectand_component=component,
                     statistic=statistic,
                     baseline=base_val,
                     candidate=cand_val,
@@ -1572,8 +1673,8 @@ def compare_reports(
                 baseline.cost.excluded_grad_work + candidate.cost.excluded_grad_work
             )
         ),
-        only_in_baseline=tuple(key for key in base_map if key not in cand_map),
-        only_in_candidate=tuple(key for key in cand_map if key not in base_map),
+        only_in_baseline=tuple(k for k in base_map if k not in cand_map),
+        only_in_candidate=tuple(k for k in cand_map if k not in base_map),
         backend_mismatch=(
             None
             if baseline.backend == candidate.backend
