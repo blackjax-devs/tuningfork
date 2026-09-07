@@ -37,10 +37,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tuningfork.catalog import execute_recipe
-from tuningfork.catalog.expectands import (
+from tuningfork.catalog import (
     CostAccounting,
     compare_reports,
+    execute_recipe,
     expectand_report,
     sampling_grad_evals_from_chain_stats,
 )

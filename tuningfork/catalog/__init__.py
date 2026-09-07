@@ -53,13 +53,17 @@ from tuningfork.catalog.emit import (
     execute_recipe,
 )
 from tuningfork.catalog.expectands import (
+    BACKENDS,
+    ComparisonRow,
     CostAccounting,
     ExpectandDiagnostics,
     ExpectandReport,
+    GradEvalDerivation,
     ReportComparison,
     compare_reports,
     expectand_report,
     expectand_traces,
+    sampling_grad_evals_from_chain_stats,
 )
 from tuningfork.catalog.inspect import list_recipes, load_recipe, summarize_recipe
 from tuningfork.catalog.render import load_chain_stats, load_idata, load_samples
@@ -86,10 +90,14 @@ __all__ = [
     "expectand_traces",
     "expectand_report",
     "compare_reports",
-    "ExpectandReport",
-    "ExpectandDiagnostics",
-    "ReportComparison",
+    "sampling_grad_evals_from_chain_stats",
+    "BACKENDS",
     "CostAccounting",
+    "GradEvalDerivation",
+    "ExpectandDiagnostics",
+    "ExpectandReport",
+    "ComparisonRow",
+    "ReportComparison",
     # timing
     "compute_total_warmup_steps",
     "format_timing_context",

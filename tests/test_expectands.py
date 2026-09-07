@@ -115,7 +115,7 @@ def test_trace_validation(draws, bad, match):
 def test_mismatched_draw_topology_is_rejected(draws):
     mixed = dict(draws)
     mixed["other"] = np.zeros((N_CHAINS, N_DRAWS + 1))
-    with pytest.raises(ValueError, match="same \\(n_chains, n_draws\\) topology"):
+    with pytest.raises(ValueError, match="same leading \\(chain, draw\\) topology"):
         expectand_traces(mixed, {"theta_0": lambda s: s["theta"][..., 0]})
 
 
@@ -962,3 +962,111 @@ def test_the_report_records_the_backend_and_its_version(draws):
     assert report.backend_version and report.backend_version != "unknown"
     assert report.backend_version in report.to_text()
     assert report.to_rows()[0]["backend_version"] == report.backend_version
+
+
+# --------------------------------------------------------------------------
+# Public surface and shared validation
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_every_declared_export_is_reachable_from_the_catalog_package():
+    """One public surface, declared once.
+
+    A name in ``expectands.__all__`` that the package does not re-export forces
+    callers to reach into the private module -- which is how
+    ``sampling_grad_evals_from_chain_stats`` came to be imported by path.
+    """
+    import tuningfork.catalog as catalog
+    import tuningfork.catalog.expectands as expectands
+
+    for name in expectands.__all__:
+        assert hasattr(catalog, name), f"{name} is not importable from the package"
+        assert name in catalog.__all__, f"{name} is missing from catalog.__all__"
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("shape", [(4, 0), (0, 10)])
+def test_an_empty_chain_or_draw_dimension_is_rejected_cleanly(shape):
+    """A degenerate topology must raise, not crash inside the classifier.
+
+    ``expectand_traces`` delegates to the same topology validator as
+    ``samples_to_idata`` so this invariant has one definition.
+    """
+    with pytest.raises(ValueError, match="non-empty"):
+        expectand_report({"x": np.zeros(shape)}, {"q": lambda s: s["x"]})
+
+
+@pytest.mark.slow
+def test_a_standalone_cost_is_never_normalised_against_a_combined_one():
+    """Individually correct numbers that are meaningless side by side.
+
+    A standalone cost charges a shared warmup to the arm; a combined cost
+    charges it once across the experiment. Dividing an ESS by each and
+    comparing the quotients answers no question, so it is withheld.
+    """
+    fields = dict(
+        warmup_seconds=1.0,
+        sampling_seconds=4.0,
+        total_seconds=5.0,
+        warmup_grad_evals=100,
+        sampling_transition_grad_evals=400,
+        compile_seconds=0.5,
+    )
+    baseline = _fake_report(
+        "A", 1.0, CostAccounting(**fields, source="A", view="standalone")
+    )
+    candidate = _fake_report(
+        "B", 2.0, CostAccounting(**fields, source="B", view="combined")
+    )
+
+    comparison = compare_reports(baseline, candidate)
+
+    assert comparison.cost_views == ("standalone", "combined")
+    assert comparison.cost_normalised_available is False
+    assert any("cost views differ" in b for b in comparison.cost_blockers)
+    row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+    assert row.per_second is None
+    assert row.per_transition_grad_eval is None
+    # The uncosted ESS ratio does not depend on the cost view, so it survives.
+    assert row.ratio is not None
+
+
+@pytest.mark.slow
+def test_matching_cost_views_still_normalise():
+    """The guard must not over-refuse the ordinary same-view comparison."""
+    baseline = _fake_report("A", 1.0, _FULL_COST)
+    candidate = _fake_report("B", 2.0, _FULL_COST)
+
+    comparison = compare_reports(baseline, candidate)
+
+    assert comparison.cost_views == ("as_measured", "as_measured")
+    assert comparison.cost_normalised_available is True
+
+
+@pytest.mark.fast
+def test_two_telemetry_costs_sharing_the_default_name_are_refused_with_a_remedy():
+    """`from_telemetry` always labels its result the same, so combining two
+    un-relabelled results must refuse rather than silently double-count."""
+
+    class FakeTelemetry:
+        timing_seconds = {"warmup": 1.0, "sampling": 2.0, "total": 4.0}
+        warmup_grad_evals = 100
+        warmup_grad_evals_reason = "bound"
+
+    first = CostAccounting.from_telemetry(FakeTelemetry())
+    second = CostAccounting.from_telemetry(FakeTelemetry())
+    assert first.source == second.source == "execution_telemetry"
+
+    with pytest.raises(ValueError, match="relabel"):
+        CostAccounting.combine(
+            [first, second], view="combined", phases_are_disjoint_sequential=True
+        )
+
+    # Naming them distinctly is the documented remedy, and it works.
+    combined = CostAccounting.combine(
+        [first.relabel("warmup_arm"), second.relabel("sampling_arm")],
+        view="combined",
+        phases_are_disjoint_sequential=True,
+    )
+    assert combined.warmup_grad_evals == 200

@@ -80,11 +80,12 @@ from typing import Any
 
 import numpy as np
 
+from tuningfork.catalog.diagnostics import _validate_draw_topology
+
 __all__ = [
     "BACKENDS",
-    "DEFAULT_BACKEND",
-    "DEFAULT_TIE_BLOCK_THRESHOLD",
     "CostAccounting",
+    "GradEvalDerivation",
     "ExpectandDiagnostics",
     "ExpectandReport",
     "ComparisonRow",
@@ -93,7 +94,6 @@ __all__ = [
     "expectand_report",
     "compare_reports",
     "sampling_grad_evals_from_chain_stats",
-    "GradEvalDerivation",
 ]
 
 #: Diagnostics backends this module can dispatch to.  ``"blackjax"`` matches the
@@ -222,6 +222,8 @@ def expectand_traces(
     for name, value in samples.items():
         arr = np.asarray(value)
         if arr.ndim < 2:
+            # Checked here rather than in the shared validator only so the
+            # message can name the offending array.
             raise ValueError(
                 f"draw array {name!r} has shape {arr.shape}; multi-chain layout "
                 "(n_chains, n_draws, *event) is required"
@@ -232,13 +234,10 @@ def expectand_traces(
         view.flags.writeable = False
         arrays[name] = view
 
+    # Single source of truth for "one lossless chain/draw topology", shared with
+    # samples_to_idata: agreement across arrays and both dimensions non-empty.
+    _validate_draw_topology(arrays, 1, is_multichain=True)
     topology = next(iter(arrays.values())).shape[:2]
-    mismatched = {n: a.shape[:2] for n, a in arrays.items() if a.shape[:2] != topology}
-    if mismatched:
-        raise ValueError(
-            "all draw arrays must share the same (n_chains, n_draws) topology; "
-            f"expected {topology}, got {mismatched}"
-        )
 
     traces: dict[str, np.ndarray] = {}
     for name, fn in expectands.items():
@@ -415,7 +414,11 @@ class CostAccounting:
                 "cannot combine: "
                 + ", ".join(duplicated)
                 + " appears in more than one contributor, so its cost would be "
-                "charged twice; combine the parts that do not already include it"
+                "charged twice. If these really are the same paid work, combine "
+                "only the parts that do not already include it; if they are "
+                "different runs that share a default source name (from_telemetry "
+                "always labels its result 'execution_telemetry'), give each one a "
+                "distinct name with relabel() first"
             )
 
         values: dict[str, Any] = {}
@@ -1301,7 +1304,18 @@ def compare_reports(
     cand_map = candidate.by_label()
     shared = [label for label in base_map if label in cand_map]
 
-    seconds_blockers = tuple(
+    # A standalone cost and a combined cost answer different questions, so
+    # dividing an ESS by each and comparing the results is meaningless even
+    # though both numbers are individually correct.  Withhold, do not warn and
+    # compute anyway.
+    view_blockers: tuple[str, ...] = ()
+    if baseline.cost.view != candidate.cost.view:
+        view_blockers = (
+            f"cost views differ ({baseline.label}={baseline.cost.view}, "
+            f"{candidate.label}={candidate.cost.view}); a cost-normalised "
+            "comparison requires both sides costed under the same view",
+        )
+    seconds_blockers = view_blockers + tuple(
         f"{report.label}.total_seconds ({report.cost.reason_for('total_seconds')})"
         for report in (baseline, candidate)
         if report.cost.total_seconds is None
@@ -1310,7 +1324,7 @@ def compare_reports(
         report.label: _transition_grad_evals(report.cost)
         for report in (baseline, candidate)
     }
-    grad_blockers = tuple(
+    grad_blockers = view_blockers + tuple(
         f"{report.label}.{component} ({report.cost.reason_for(component)})"
         for report in (baseline, candidate)
         for component in ("warmup_grad_evals", "sampling_transition_grad_evals")
