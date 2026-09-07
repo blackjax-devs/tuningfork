@@ -299,7 +299,13 @@ def make_chart(
             off = float(
                 jnp.max(jnp.abs(gram - jnp.eye(gram.shape[0], dtype=gram.dtype)))
             )
-            if off > 1e-8:
+            # Scale with dtype and rank. A genuinely orthonormal float32 basis
+            # carries Gram error ~sqrt(d)*eps32 (measured 1.19e-07 for d=6,
+            # rank 3), which a fixed absolute bound rejects as invalid. Real
+            # violations are O(0.1), orders above this.
+            eps = float(jnp.finfo(lr_basis.dtype).eps)
+            tol = 64.0 * eps * max(gram.shape[0], 1)
+            if off > tol:
                 raise ValueError(
                     "spectrally active lr_basis columns (lam != 1) must be "
                     f"orthonormal; max |U^T U - I| = {off:.3e} on the active set. "
