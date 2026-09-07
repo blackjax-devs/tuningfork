@@ -27,15 +27,25 @@ quantities people conflate:
 3. the resulting **clock/section score structure** of the transformed density.
 
 For the funnel these are respectively ``-t/9``, ``~0``, and an exactly Gaussian
-clock independent of the section.  A non-zero raw residual is therefore *not*
-a defect: the transformed clock score being ``-kappa t + beta`` with constant
-``kappa > 0`` integrates to ``log pi_chart(t,s) = -kappa t^2/2 + beta t + C(s)``,
-which is precisely the useful structure.  A residual of exactly zero would mean
-a flat, improper clock instead.
+clock independent of the section.  A non-zero raw residual is therefore *not* a
+defect.
+
+The factorisation is an **analytic** statement with a premise that these finite
+evaluations corroborate but do not prove: if, on the full real line in ``t`` and
+on a global Cartesian chart with global support, ``d/dt log pi_chart = -kappa t +
+beta`` holds identically with ``kappa`` constant and positive, then integrating
+gives ``-kappa t^2/2 + beta t + C(s)`` — a Gaussian clock independent of the
+section.  Under exactly those conditions ``kappa <= 0`` fails to normalise, which
+is the sense in which a zero residual means a flat, improper clock; on a bounded
+clock domain that does not follow, and nothing here forbids such domains.
+
+For the *supplied* chart tested below the premise is discharged by the algebra and
+the evaluations corroborate it.  For a *learned* chart it would remain open.
 
 What these tests do NOT establish: that any fitted chart satisfies the identity
-away from its training support, that a fitted ``kappa`` is positive, or that any
-of this improves mixing.  Those are separate questions and none is tested here.
+away from its training support, that a fitted ``kappa`` is constant or positive,
+or that any of this improves mixing.  Those are separate questions and none is
+tested here.
 """
 
 import jax

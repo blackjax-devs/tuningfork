@@ -46,23 +46,46 @@ that violates them has a wrong log-Jacobian and a broken inverse.
 For a chart field `V`, the quantity `grad(log pi) . V + div V` is exactly the
 clock derivative of the transformed density, `d/dt log pi_chart`.
 
-It is tempting to want that residual to be zero — an exact symmetry. That is the
-wrong target. If instead the transformed density satisfies
+It is tempting to want that residual to be zero — an exact symmetry. That is not
+the useful target. The useful structure is a factorisation, and it follows from a
+premise that must be stated in full:
 
-```
-d/dt log pi_chart(t, s) = -kappa * t + beta
-```
+> **Analytic statement.** Suppose that on the **full real line** in `t`, and on a
+> **global Cartesian chart with global support**, the transformed density
+> satisfies
+>
+> ```
+> d/dt log pi_chart(t, s) = -kappa * t + beta
+> ```
+>
+> identically, with `kappa` a **constant** independent of `t` and `s`, and
+> `kappa > 0`. Then integrating in `t` gives
+>
+> ```
+> log pi_chart(t, s) = -kappa t^2 / 2 + beta t + C(s)
+> ```
+>
+> so the clock is Gaussian with precision `kappa`, independent of the section.
 
-globally, with constant `kappa > 0` and no dependence on the section `s`, then
-integrating gives
+Three conditions carry the conclusion and none is cosmetic: the identity must hold
+**globally in `t`**, `kappa` must be **constant**, and the chart must be a global
+Cartesian one with global support. Under those conditions — and only under them —
+`kappa <= 0` fails to normalise, which is the sense in which a zero residual
+corresponds to an improper (flat) clock. On a **bounded or otherwise restricted
+clock domain** that conclusion does not apply: a non-positive `kappa` can be
+perfectly normalisable there. Nothing here is a general prohibition on other
+domains; it is a statement about this premise.
 
-```
-log pi_chart(t, s) = -kappa t^2 / 2 + beta t + C(s)
-```
-
-— an exactly Gaussian clock, independent of the section. That factorisation is
-the useful structure. A residual of exactly zero would instead correspond to a
-flat, improper clock.
+**Analytic premise versus numerical corroboration.** Evaluating the identity at
+finitely many points does **not** establish it. For a *supplied* chart whose
+parameters are known — the case tested here — the identity can be verified
+symbolically and the finite evaluations merely corroborate the algebra. For a
+*learned* chart it is an open empirical question: a fit that matches on its
+training support says nothing about the full line, says nothing about whether
+`kappa` is genuinely constant off that support, and does not guarantee
+`kappa > 0`. A learned chart with `kappa <= 0`, or with `kappa` drifting in `s`,
+would not factorise at all. The tests below corroborate the supplied case; they
+do not and cannot discharge the premise for a fitted one.
 
 Neal's funnel is the worked example, and `test_chart_refuters.py` pins all three
 of the quantities that are easy to conflate:
@@ -79,9 +102,9 @@ The tests check the decisive discriminator directly: the mixed partial
 
 **Limits, stated plainly.** A small residual measured on a fitter's training
 support proves none of the following: that the identity holds off that support;
-that a fitted `kappa` is positive (a non-positive `kappa` is an improper clock);
-that the chart is numerically valid; or that any of it improves mixing. Those
-are separate questions and this artifact tests none of them.
+that a fitted `kappa` is constant; that a fitted `kappa` is positive; that the
+chart is numerically valid; or that any of it improves mixing. Those are separate
+questions and this artifact tests none of them.
 
 ## Validation tiers
 
