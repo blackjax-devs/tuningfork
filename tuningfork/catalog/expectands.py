@@ -332,11 +332,8 @@ class CostAccounting:
         point carried both the trust contract and a typo-shaped hole: two arms
         sharing a misspelled view compare as though they matched.
 
-        Deliberately nothing else is validated here.  Rejecting negative or
-        non-finite costs at construction would refuse a caller who legitimately
-        measured something this module did not anticipate -- a total need not
-        equal warmup plus sampling, for instance -- and over-refusal is its own
-        failure mode.
+        This hook validates ``view`` and nothing else; every other component is
+        handled exactly as before.
         """
         if self.view not in self.VIEWS:
             raise ValueError(
@@ -1341,10 +1338,19 @@ class ExpectandReport:
             # sees `sampling_transition_grad_evals` as a bare number and
             # receives no part of the eligibility contract -- the whole of which
             # is otherwise enforced only in `compare_reports`.
-            lines.append(
-                "  the gradient subtotal above is NOT total gradient work, and "
-                "is not used as a per-gradient denominator:"
-            )
+            #
+            # The two statements are separate because they are separate facts.
+            # Every listed exclusion means the subtotal is not total gradient
+            # work.  Only some subtotals are additionally barred from serving as
+            # a denominator, and that is decided by the same helper
+            # `compare_reports` uses -- not by whether exclusions exist at all.
+            # An explicit caller cost carrying an ordinary exclusion such as
+            # "initialization" is still eligible, and saying otherwise here
+            # would contradict the ratio the comparison actually publishes.
+            headline = "  the gradient subtotal above is NOT total gradient work"
+            if _counts_ineligible_gradients(self.cost):
+                headline += ", and is not used as a per-gradient denominator"
+            lines.append(headline + ":")
             for item in self.cost.excluded_grad_work:
                 lines.append(f"    - {item}")
         return "\n".join(lines)

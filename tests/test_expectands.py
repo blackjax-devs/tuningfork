@@ -1667,6 +1667,43 @@ def test_a_report_with_no_exclusions_adds_no_disclosure_block():
 
 
 @pytest.mark.fast
+def test_an_eligible_cost_is_not_described_as_barred_from_being_a_denominator():
+    """Two separate facts, reported separately.
+
+    An explicit caller cost may carry an ordinary exclusion — initialization is
+    outside any per-step record — and still be eligible as a denominator. Saying
+    it is not used as one would contradict the ratio `compare_reports` actually
+    publishes for it, so the second clause is conditioned on the same helper the
+    comparison uses.
+    """
+    cost = CostAccounting(
+        warmup_seconds=1.0,
+        sampling_seconds=4.0,
+        total_seconds=5.0,
+        warmup_grad_evals=100,
+        sampling_transition_grad_evals=400,
+        compile_seconds=0.5,
+        source="explicit",
+        excluded_grad_work=("initialization",),
+    )
+    text = _stub_report("solo", cost).to_text()
+
+    # The subtotal is still disclosed as incomplete, and the exclusion listed.
+    assert "NOT total gradient work" in text
+    assert "- initialization" in text
+    # But it is NOT described as barred, because it is not.
+    assert "not used as a per-gradient denominator" not in text
+
+    # And the comparison agrees: this cost does produce the ratio.
+    row = next(
+        r
+        for r in compare_reports(_stub_report("A", cost), _stub_report("B", cost)).rows
+        if r.statistic == "bulk_ess"
+    )
+    assert row.per_transition_grad_eval is not None
+
+
+@pytest.mark.fast
 @pytest.mark.parametrize("view", ["as_measured", "standalone", "combined"])
 def test_every_declared_view_constructs(view):
     CostAccounting(source="x", view=view)
