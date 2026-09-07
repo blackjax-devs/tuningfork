@@ -309,29 +309,15 @@ def test_non_integer_max_grad_budget_fails_at_generation_time() -> None:
 @requires_joint_controller
 @pytest.mark.e2e
 def test_generated_program_payload_matches_the_direct_public_call(tmp_path) -> None:
-    """Execute the generated program and compare it to the direct public call.
+    """Compare generated warmup payloads with the direct public call.
 
-    The generated program is run through the real launcher, and the telemetry
-    it persisted is compared against a direct ``blackjax.staged_adaptation``
-    call under identical seeds and settings: published step size, published
-    shared low-rank metric, and summed warmup gradient count.  Both sides must
-    be produced here -- a check that only inspects emitted source, or only
-    asserts properties of the public result, compares nothing.
-
-    SCOPE, deliberately narrow. This measures WARMUP-PAYLOAD fidelity: what
-    the generated program published versus what the public call published. It
-    is NOT measured sampling-phase fidelity -- that the sampler then consumes
-    the published metric rests on the emission assertion in
-    test_joint_emission_is_one_shared_controller_not_a_vmap, not on a
-    measurement here. Do not describe this test as end-to-end sampling parity.
-    It is also not a convergence claim: one model, one seed, no replication.
-
-    ON THE EXACT EQUALITY BELOW. Both sides run the same JAX ops with the same
-    seeds on CPU, so equality is deterministic in practice and has held across
-    processes. It is empirical, not guaranteed. If it ever fails, CLASSIFY the
-    failure before touching the assertion -- a genuine payload divergence and a
-    last-bit XLA difference are different defects, and only the second would
-    justify a tolerance. Loosening equality first would hide the first case.
+    This measures only warmup-payload fidelity (step size, shared low-rank
+    metric, and gradient count). Sampling metric consumption is checked by the
+    emission assertion, not this runtime measurement; this is not sampling
+    parity or convergence evidence. Equality is empirical, not guaranteed, for
+    one model and seed with identical CPU choreography; classify any failure
+    before changing it, since genuine divergence differs from a last-bit
+    execution difference.
     """
     import blackjax
     import jax

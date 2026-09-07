@@ -324,16 +324,10 @@ class CostAccounting:
     def __post_init__(self) -> None:
         """Validate ``view`` only.
 
-        ``view`` decides whether two costs may be compared at all, and the
-        direct constructor is the only way to build the explicit accounting that
-        is eligible as a per-gradient denominator -- ``combine`` cannot produce
-        ``as_measured``, and ``from_telemetry``/``from_recipe`` either mark their
-        output ineligible or leave it unmeasured.  So the one unvalidated entry
-        point carried both the trust contract and a typo-shaped hole: two arms
-        sharing a misspelled view compare as though they matched.
-
-        This hook validates ``view`` and nothing else; every other component is
-        handled exactly as before.
+        ``view`` controls whether two costs may be compared.  The direct
+        constructor is also the explicit caller-supplied cost path; helper-built
+        accountings preserve their measured/unknown fields as documented below.
+        Validate only this selector here; component validation remains unchanged.
         """
         if self.view not in self.VIEWS:
             raise ValueError(
@@ -680,61 +674,32 @@ _EXCLUDED_FROM_TRANSITION_COUNT = (
 _INCOMPLETE_COUNT_MARKER = "declares this per-step count INEXACT"
 
 #: Exact phrase marking a subtotal obtained by reproducing a sampler's declared
-#: counting convention.  Such a count is a declared-count diagnostic: its
-#: correspondence to the integrator's actual gradient work is unestablished, and
-#: at least one convention is reported to understate it several-fold.  Written by
-#: :func:`_declared_exclusions` and read back by :func:`compare_reports`, which
-#: withholds per-gradient normalisation for it through the same path that
-#: withholds a declared-inexact count.
-#:
-#: A cost the CALLER supplies directly does not carry this marker.  That is an
-#: explicit trust contract: the caller states the subtotal and its basis and
-#: takes responsibility for it, rather than the module inferring eligibility.
+#: convention.  Reports retain the diagnostic but withhold its per-gradient
+#: denominator because correspondence to actual gradient work is unestablished.
+#: Explicit caller-supplied costs do not carry this marker: their stated basis is
+#: an explicit trust contract rather than an inferred eligibility decision.
 _CONVENTION_DERIVED_MARKER = (
     "was obtained by reproducing a declared counting convention, whose "
     "correspondence to actual gradient work is UNESTABLISHED"
 )
 
-#: Words by which a ``BaseMethod``'s ``grad_count_convention`` declares itself
-#: inexact.  Read from the descriptor's own text rather than from a list of
-#: sampler names, so a newly declared inexact convention is caught without
-#: editing this module.
-#:
-#: Only ``grad_count_convention`` is scanned, never ``notes``.  Free-text notes
-#: use these words for unrelated reasons -- ``irmh`` describes a proposal
-#: "fitted from a VI / Pathfinder / Laplace approximation" and
-#: ``mgrad_gaussian`` a "first-order approximation to the log-likelihood",
-#: neither of which says anything about its gradient count, and both of which
-#: are exact counters.  Flagging them would withhold a legitimate comparison.
-#:
-#: The cost of that narrowing, stated plainly: an inexactness documented only in
-#: prose is NOT detected by this marker.  ``meanfield_vi`` and ``fullrank_vi``
-#: declare the convention ``"1"`` and explain in their notes that it describes
-#: the optimisation phase; that is invisible here, so they are handled instead
-#: by an explicit family refusal in
-#: :func:`sampling_grad_evals_from_chain_stats`.
-#:
-#: This mechanism discloses what a convention explicitly declares -- it is not a
-#: completeness certificate for any descriptor, and other conventions may
-#: undercount without saying so in these words.  A structured contract on
-#: ``BaseMethod`` is the robust fix and belongs in a separate change.
+#: Words by which ``grad_count_convention`` declares an inexact count.  Only that
+#: field is scanned: notes contain unrelated uses of "approximation".  Therefore
+#: prose-only inexactness (including VI's optimisation-only convention) is not
+#: discovered here; VI is refused explicitly by the family check.  This is
+#: disclosure of declared limitations, not a completeness certificate; a
+#: structured descriptor contract would be the robust fix.
 _APPROXIMATION_MARKERS = ("lower bound", "approxim")
 
 
 def _declared_exclusions(base_method_name: str, method: Any) -> tuple[str, ...]:
     """Per-sampler exclusions, including any caveat the sampler itself declares.
 
-    Several samplers declare a ``grad_count_per_step`` that their own
-    ``grad_count_convention`` calls a lower bound -- ``orbital_hmc`` counts 1
-    where the kernel evaluates a whole orbit, and the ``laplace_*`` family
-    excludes line-search gradients.  Such a count is not the same unit as an
-    exact one, and for a lower bound the error is asymmetric: it flatters the
-    sampler that undercounts.  Carrying the convention verbatim, and naming it
-    as declared-inexact when it says so, keeps that visible everywhere the
-    exclusions travel -- including the comparison, which withholds per-gradient
-    efficiency rather than publishing a ratio between different units.
-
-    See :data:`_APPROXIMATION_MARKERS` for what this does and does not detect.
+    Lower-bound conventions (for example orbital and Laplace variants) are not
+    interchangeable with exact counts and are disclosed as such.  The convention
+    is carried into reports, where per-gradient normalisation is withheld for
+    these cases.  See :data:`_APPROXIMATION_MARKERS` for the intentionally narrow
+    text-based detection and its limitations.
     """
     convention = str(getattr(method, "grad_count_convention", "") or "")
     exclusions: tuple[str, ...] = (
@@ -1041,7 +1006,7 @@ def _mean_tie_block(n_total: int, n_distinct: int) -> float:
     return n_total / n_distinct
 
 
-def _tie_severity(mean_tie_block: float, n_distinct: int, threshold: float) -> str:
+def _tie_severity(mean_tie_block: float, threshold: float) -> str:
     """``"none"`` / ``"minor"`` / ``"material"`` -- display severity only.
 
     This grades how loudly ties are reported.  It is never a validity boundary:
@@ -1085,7 +1050,7 @@ def _component_diagnostics(
     total = trace_cs.size
     tie_fraction = 0.0 if total == 0 else 1.0 - n_distinct / total
     mean_tie_block = _mean_tie_block(total, n_distinct)
-    severity = _tie_severity(mean_tie_block, n_distinct, tie_block_threshold)
+    severity = _tie_severity(mean_tie_block, tie_block_threshold)
 
     def undefined(reason: str, degeneracy: str) -> ExpectandDiagnostics:
         return ExpectandDiagnostics(
@@ -1334,19 +1299,10 @@ class ExpectandReport:
         for note in self.cost.notes:
             lines.append(f"  note: {note}")
         if self.cost.excluded_grad_work:
-            # Without this, a reader who prints one report and never compares
-            # sees `sampling_transition_grad_evals` as a bare number and
-            # receives no part of the eligibility contract -- the whole of which
-            # is otherwise enforced only in `compare_reports`.
-            #
-            # The two statements are separate because they are separate facts.
-            # Every listed exclusion means the subtotal is not total gradient
-            # work.  Only some subtotals are additionally barred from serving as
-            # a denominator, and that is decided by the same helper
-            # `compare_reports` uses -- not by whether exclusions exist at all.
-            # An explicit caller cost carrying an ordinary exclusion such as
-            # "initialization" is still eligible, and saying otherwise here
-            # would contradict the ratio the comparison actually publishes.
+            # Disclose both facts: exclusions mean this is a subtotal, while
+            # only the same helper used by compare_reports decides denominator
+            # eligibility.  Ordinary exclusions on explicit caller costs remain
+            # eligible.
             headline = "  the gradient subtotal above is NOT total gradient work"
             if _counts_ineligible_gradients(self.cost):
                 headline += ", and is not used as a per-gradient denominator"
@@ -1534,44 +1490,23 @@ def compare_reports(
 ) -> ReportComparison:
     """Compare two reports, refusing any comparison a missing cost would fake.
 
-    ESS ratios are produced only where both sides are defined; a ratio blocked
-    by an undefined statistic names the side that is undefined.  Cost-normalised
-    figures (ESS per second, ESS per gradient evaluation) are produced only when
-    both reports measured the corresponding cost; otherwise the row names the
-    blocking components and reports ``None``.  A missing cost is never treated
-    as zero, and no compile-time estimate is subtracted from either side.
+    ESS ratios require both values to be defined.  ESS-per-second and
+    ESS-per-transition-gradient figures additionally require the corresponding
+    measured costs; missing costs remain ``None`` with named blockers, never zero,
+    and compile time is not estimated or subtracted.  ``rank_rhat`` is carried
+    side by side but is neither ratioed nor cost-normalised: it is a convergence
+    ratio judged against its own threshold, so only :data:`_RATE_STATISTICS`
+    divide by a cost.
 
-    ``rank_rhat`` is carried side by side but is neither ratioed nor
-    cost-normalised: it is a convergence ratio judged against its own threshold,
-    so "R-hat per second" and "candidate R-hat over baseline R-hat" are both
-    meaningless.  Only the ESS statistics in :data:`_RATE_STATISTICS` divide by a
-    cost.
-
-    Per-gradient efficiency is withheld entirely when either side's gradient
-    subtotal was obtained by reproducing a sampler's declared counting
-    convention.  Such a count is a declared-count *diagnostic*: what a
-    descriptor says a step costs is not an established measurement of what the
-    integrator evaluated, and at least one convention is reported to understate
-    it several-fold.  It is reported, with its convention and basis, and it is
-    not used as a denominator.
-
-    A cost the caller supplies directly IS eligible.  That is an explicit trust
-    contract: the caller states the subtotal and the basis on which it is
-    justified -- for fixed- and randomised-length HMC, for instance, the summed
-    recorded integration steps -- and takes responsibility for it, rather than
-    the module inferring eligibility from a descriptor.  There is no flag that
-    marks a derived count trusted.
-
-    Wall-clock normalisation and the uncosted ESS ratios are unaffected either
-    way, since neither depends on a counting convention.
-
-    The gradient denominator is ``warmup_grad_evals`` plus
-    ``sampling_transition_grad_evals`` -- recorded transition work only.  It
-    omits whatever each side's ``excluded_grad_work`` names, so ESS per
-    transition gradient evaluation *overstates* efficiency; the union of both
-    sides' exclusions is carried on the result.  ``cost_views`` records whether
-    each side was costed as measured, standalone, or combined, since a
-    standalone and a combined figure are not comparable.
+    A transition count obtained by reproducing a sampler's declared convention is
+    a diagnostic, not an established measurement of integrator work, and is
+    withheld as a gradient denominator while its convention and basis remain
+    visible.  An explicit caller-supplied subtotal is eligible under the caller's
+    stated trust contract.  The denominator is warmup plus recorded transition
+    work, excluding the listed ``excluded_grad_work``; it is not total-work
+    efficiency.  Counting-convention eligibility does not affect wall-time
+    normalisation or uncosted ESS ratios.  ``cost_views`` records measured,
+    standalone, or combined accounting; unlike-for-like views are not compared.
     """
     unknown_statistics = [s for s in statistics if s not in _STATISTICS]
     if unknown_statistics:

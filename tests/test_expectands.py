@@ -13,10 +13,8 @@
 # limitations under the License.
 """Deterministic tests for opt-in named-expectand reports.
 
-Every fixture is seeded or literal, so each assertion is reproducible without
-running a sampler.  Tests that only exercise trace evaluation, degeneracy
-classification, cost accounting or comparison logic are ``fast``; tests that
-call a diagnostics backend are ``slow`` because those paths trace JAX.
+Fixtures are seeded or literal; backend calls are marked ``slow`` and all other
+trace, degeneracy, cost, and comparison checks are ``fast``.
 """
 
 from __future__ import annotations
@@ -441,13 +439,7 @@ def _stub_report(
     rhat: float | None = 1.004,
     backend: str = "blackjax",
 ) -> ExpectandReport:
-    """A report with literal statistics and no sampler or backend involved.
-
-    The cost and comparison contracts are arithmetic over the numbers a report
-    carries; running a real ESS estimator over random draws to obtain them adds
-    no coverage of that arithmetic and makes the tests slow. Real-backend
-    behaviour is covered separately by the delegation tests.
-    """
+    """A literal report for arithmetic checks, without a sampler or backend."""
     entry = ExpectandDiagnostics(
         name="x",
         component=None,

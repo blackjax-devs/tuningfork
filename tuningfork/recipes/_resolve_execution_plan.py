@@ -220,12 +220,6 @@ def resolve_execution_plan(
     # Reject the rest before any source rendering, rather than silently choosing
     # the single-chain path.
     is_laplace = recipe.base_method_name.startswith("laplace_")
-    # Warmups whose code generation implements BOTH emittable chain topologies:
-    # W=1 (adapt once, broadcast) and W=S (one warmup input per sampling chain).
-    # Membership is about topology support, not about what W=S means
-    # semantically -- for the window family W=S is S INDEPENDENT adaptations,
-    # while staged_adaptation_auto runs one joint controller over the S chains
-    # and publishes a single shared metric and step size.
     if nphases > 1:
         phase_names = tuple(stage["name"] for stage in stages)
         expected_laplace_phases = (
