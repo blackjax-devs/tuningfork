@@ -1320,23 +1320,61 @@ def test_unrelated_prose_does_not_make_an_exact_counter_look_inexact():
 
 
 @pytest.mark.fast
-def test_an_inexactness_declared_only_in_prose_is_not_detected():
-    """The blind spot, asserted rather than left implicit.
+@pytest.mark.parametrize("sampler", ["meanfield_vi", "fullrank_vi"])
+def test_the_vi_family_gradient_subtotal_is_refused_not_reported(sampler):
+    """A known-inexact count must not stay eligible for a per-gradient figure.
 
-    ``meanfield_vi`` declares the convention ``"1"`` and explains only in its
-    notes that this over-counts the sampling phase. The marker reads the
-    convention, so this is invisible to it -- which is why the absence of the
-    marker is documented as no certificate of completeness.
+    The VI family declares the convention ``"1"`` and explains, in its notes,
+    that this describes the optimisation phase — at sample time no gradient is
+    evaluated. The convention marker cannot see a declaration that sits outside
+    ``grad_count_convention``, so the family is refused explicitly instead,
+    using the descriptor's own ``family`` rather than a duplicated cost table.
     """
     from tuningfork.base_method import BASE_METHODS
 
-    method = BASE_METHODS["meanfield_vi"]
-    assert "approxim" in str(method.notes).lower()
+    method = BASE_METHODS[sampler]
+    assert method.family == "vi", "registry no longer matches the premise"
     assert "approxim" not in str(method.grad_count_convention).lower()
 
     derivation = sampling_grad_evals_from_chain_stats(
-        {"num_integration_steps": np.full((2, 5), 1)}, "meanfield_vi"
+        {"num_integration_steps": np.full((2, 5), 1)}, sampler
     )
-    assert not any("INEXACT" in item for item in derivation.excluded)
-    # The convention itself is still carried, so a reader can judge it.
-    assert any("meanfield_vi counts gradients as:" in i for i in derivation.excluded)
+
+    assert derivation.count is None
+    assert "not supported" in derivation.reason
+    # The declared convention is preserved in the refusal, not discarded.
+    assert str(method.grad_count_convention) in derivation.reason
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("sampler", ["meanfield_vi", "fullrank_vi"])
+def test_a_vi_arm_blocks_per_gradient_but_keeps_ess_and_wall_time(sampler):
+    """The refusal must propagate to the comparison without suppressing the rest."""
+    rng = np.random.default_rng(3)
+    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+
+    class FakeTelemetry:
+        timing_seconds = {"warmup": 1.0, "sampling": 1.0, "total": 2.0}
+        warmup_grad_evals = 0
+        warmup_grad_evals_reason = "no_warmup"
+
+    def report(label, name):
+        derivation = sampling_grad_evals_from_chain_stats(
+            {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), 1)}, name
+        )
+        cost = CostAccounting.from_telemetry(
+            FakeTelemetry(), sampling_transition_grad_evals=derivation
+        ).relabel(label)
+        return expectand_report(
+            {"x": trace}, {"x": lambda s: s["x"]}, cost=cost, label=label
+        )
+
+    comparison = compare_reports(report("vi", sampler), report("nuts", "nuts"))
+    row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+
+    assert row.per_transition_grad_eval is None
+    assert comparison.cost_normalised_available is False
+    assert any("not supported" in b for b in comparison.cost_blockers)
+    # Unaffected outputs survive.
+    assert row.per_second is not None
+    assert row.ratio is not None

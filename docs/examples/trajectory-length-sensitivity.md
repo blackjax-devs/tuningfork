@@ -139,13 +139,26 @@ This detection reads each sampler's `grad_count_convention` and nothing else.
 Notes are free text and use words like "approximation" for unrelated reasons —
 `irmh` describes a proposal fitted from a Laplace approximation, `mgrad_gaussian`
 a first-order approximation to the log-likelihood — and both count exactly, so
-scanning notes would withhold legitimate comparisons. The cost of that narrowing
-is real and worth stating: an inexactness documented *only* in prose is not
-detected. `meanfield_vi` and `fullrank_vi` declare the convention `"1"` and
-explain in their notes that this over-counts the sampling phase; the mechanism
-does not see it. **The absence of a flag is not a certificate that a count is
-complete.** A structured contract on the sampler descriptor would give that
-guarantee; this does not.
+scanning notes would withhold legitimate comparisons.
+
+The VI family is handled separately, because its inexactness is declared outside
+that field. `meanfield_vi` and `fullrank_vi` declare the convention `"1"` and
+explain in their notes that it describes the *optimisation* phase — at sample
+time no gradient is evaluated at all. A sampling-gradient subtotal is therefore
+not a meaningful quantity for them, and the derivation is refused outright
+rather than reported, discriminated by the descriptor's existing `family` field
+rather than by a duplicated cost table. The declared convention is preserved in
+the refusal reason.
+
+**The absence of a flag is still not a certificate that a count is complete.**
+The marker sees what a convention explicitly declares; a convention that
+undercounts without saying so in those words is not detected, and at least one
+does. `rmhmc` declares `info.num_integration_steps` while its integrator runs a
+fixed-point iteration whose true cost is several gradients per step — reported
+by review, not independently confirmed here, and left unflagged. A structured
+contract on the sampler descriptor is what would make this sound; the mechanism
+described above is disclosure of declared limitations, not a completeness
+guarantee.
 
 ## A note on ties, and why the severity is keyed on cardinality
 

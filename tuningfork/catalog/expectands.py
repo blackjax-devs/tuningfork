@@ -652,12 +652,16 @@ _INCOMPLETE_COUNT_MARKER = "declares this per-step count INEXACT"
 #: are exact counters.  Flagging them would withhold a legitimate comparison.
 #:
 #: The cost of that narrowing, stated plainly: an inexactness documented only in
-#: prose is NOT detected.  ``meanfield_vi`` and ``fullrank_vi`` declare the
-#: convention ``"1"`` and explain in their notes that this over-counts the
-#: sampling phase; that is invisible here.  This mechanism discloses what a
-#: convention explicitly declares -- it is not a completeness certificate for
-#: any descriptor.  A structured contract on ``BaseMethod`` is the robust fix
-#: and belongs in a separate change.
+#: prose is NOT detected by this marker.  ``meanfield_vi`` and ``fullrank_vi``
+#: declare the convention ``"1"`` and explain in their notes that it describes
+#: the optimisation phase; that is invisible here, so they are handled instead
+#: by an explicit family refusal in
+#: :func:`sampling_grad_evals_from_chain_stats`.
+#:
+#: This mechanism discloses what a convention explicitly declares -- it is not a
+#: completeness certificate for any descriptor, and other conventions may
+#: undercount without saying so in these words.  A structured contract on
+#: ``BaseMethod`` is the robust fix and belongs in a separate change.
 _APPROXIMATION_MARKERS = ("lower bound", "approxim")
 
 
@@ -707,8 +711,9 @@ def sampling_grad_evals_from_chain_stats(
     per-step record covers every proposal the sampler paid for, not only the
     accepted ones.
 
-    The derivation is refused, with a reason, when the recorded statistics do
-    not justify it: an unknown sampler, a descriptor needing a field that was
+    The derivation is refused for the VI family, whose declared count describes
+    an optimisation phase rather than sampling transitions.  It is also refused,
+    with a reason, when the recorded statistics do not justify it: an unknown sampler, a descriptor needing a field that was
     not persisted, ragged or empty statistics, or -- when
     ``expected_topology`` is given -- a per-step record that does not cover
     every chain and every draw, which is what a thinned or truncated record
@@ -748,6 +753,26 @@ def sampling_grad_evals_from_chain_stats(
     if method is None:
         return GradEvalDerivation(
             None, reason=f"unknown base method: {base_method_name!r}"
+        )
+    # Known exception, refused rather than reported.  The VI family declares the
+    # per-step convention "1", and its own notes explain that this describes the
+    # OPTIMISATION phase -- at sample time no gradient is evaluated at all, so
+    # the count over-counts sampling.  That inexactness is declared outside
+    # `grad_count_convention`, so the marker cannot see it, and a known-inexact
+    # count must not stay eligible for an unqualified per-gradient figure merely
+    # because the declaration sits in the wrong field.  Discriminated by the
+    # descriptor's existing `family`, not by a duplicated cost table, and the
+    # declared convention is preserved in the reason.
+    if getattr(method, "family", None) == "vi":
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"{base_method_name} is a VI-family method whose declared count "
+                f"({method.grad_count_convention}) describes the optimisation "
+                "phase, not sampling transitions; a sampling-gradient subtotal "
+                "is not supported for it, so per-gradient efficiency is not "
+                "computed"
+            ),
         )
     counter = getattr(method, "grad_count_per_step", None)
     if counter is None:
