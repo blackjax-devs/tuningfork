@@ -210,6 +210,13 @@ def resolve_execution_plan(
         "window_adaptation_dense_imm",
         "window_adaptation_low_rank_imm",
     }
+    # staged_adaptation_auto is not a window adaptation, but it shares the two
+    # emittable warmup chain topologies: W=1 runs the single-chain controller
+    # and broadcasts, W=S runs the joint controller over all S chains.  Unlike
+    # the window family, W=S does NOT mean S independent adaptations -- one
+    # controller pools the S chains and publishes one shared metric/step size.
+    joint_controller_names = {"staged_adaptation_auto"}
+    per_chain_init_names = window_names | joint_controller_names
     if nphases > 1:
         phase_names = tuple(stage["name"] for stage in stages)
         expected_laplace_phases = (
@@ -231,7 +238,9 @@ def resolve_execution_plan(
     elif stages[0]["name"] != "no_warmup":
         w = ws[0]
         supported = (
-            w in {1, chains} if stages[0]["name"] in window_names else w == chains
+            w in {1, chains}
+            if stages[0]["name"] in per_chain_init_names
+            else w == chains
         )
         if not supported:
             raise NotImplementedError(
@@ -249,13 +258,14 @@ def resolve_execution_plan(
         # normalized pinned replay has no adaptation stage, but still needs
         # the same pre-batched (one row per sampling chain) contract.
         valid_topology = single_phase and (
-            stages[0]["name"] in window_names
+            stages[0]["name"] in per_chain_init_names
             or (init_kind == "reference_summary" and stages[0]["name"] == "no_warmup")
         )
         if not valid_topology:
             raise ValueError(
                 f"init_strategy type={init_kind!r} requires a single-phase "
-                "window-adaptation or no-warmup topology with W=S; got "
+                "window-adaptation, staged_adaptation_auto, or no-warmup "
+                "topology with W=S; got "
                 f"stages={tuple(stage['name'] for stage in stages)!r}, "
                 f"W={tuple(ws)!r}, S={chains}"
             )

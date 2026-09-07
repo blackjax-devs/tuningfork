@@ -248,6 +248,77 @@ WARMUPS: dict[str, Warmup] = {
             "compatible with mclmc (microcanonical geometry)."
         ),
     ),
+    "staged_adaptation_auto": Warmup(
+        name="staged_adaptation_auto",
+        compatible_methods=("nuts", "hmc", "mhmc"),
+        default_hp_space=(
+            HyperparamSpace("max_grad_budget", "int", low=20_000, high=200_000),
+        ),
+        notes=(
+            "Joint staged adaptation via the unchanged public "
+            "blackjax.staged_adaptation(metric='auto') meta-adaptation "
+            "controller. Unlike window_adaptation_diag_imm -- which vmaps "
+            "num_chains INDEPENDENT window adaptations and returns per-chain "
+            "(step_size, IMM) -- this warmup issues ONE staged_adaptation call "
+            "with n_chains=warmup_num_chains. The controller pools positions "
+            "and gradients across chains inside a single scan, runs one "
+            "dual-averaging update per step on the MEAN acceptance rate, and "
+            "publishes ONE shared final step_size and ONE shared final "
+            "inverse_mass_matrix. Warmup chain topology is therefore joint, "
+            "not independent: warmup_num_chains=[W] selects n_chains=W and "
+            "W in {1, num_chains} is supported. "
+            "PAYLOAD: adapted step_size is a scalar and adapted "
+            "inverse_mass_matrix is a blackjax LowRankInverseMassMatrix "
+            "namedtuple (sigma (d,), U (d,k), lam (k,)) at every deployed rank "
+            "-- lam=1 reduces it to a diagonal metric, so rank zero is a "
+            "controller outcome, not an error. Generated telemetry records it "
+            "with geometry_scope='shared' under the existing "
+            "'low_rank_inverse_mass_matrix' marker; no telemetry schema change. "
+            "REQUIRED warmup_params: max_grad_budget (upstream raises without "
+            "it under metric='auto'). Generation passes the recipe's n_warmup "
+            "to run() explicitly, so the recipe -- not max_grad_budget -- "
+            "determines the warmup step count; max_grad_budget still sizes the "
+            "controller's growing-window schedule and rank-detection floor. "
+            "Compatible with nuts, hmc and mhmc: each exposes per-step "
+            "num_integration_steps, which is the only gradient accounting this "
+            "warmup claims. barker runs upstream but reports no per-step "
+            "integration count, so its warmup gradient cost would be unknown "
+            "and it is not registered. mala, ghmc and dynamic_hmc are rejected "
+            "by the upstream kernel contract; rmhmc is excluded by upstream "
+            "documentation (its kernel takes mass_matrix, not "
+            "inverse_mass_matrix) even though the call does not raise. "
+            "REQUIRES a blackjax whose staged_adaptation accepts n_chains "
+            "(multi-chain metric='auto' controller). No PyPI release has it as "
+            "of blackjax 1.6.2; generation and the generated program both fail "
+            "explicitly rather than letting n_chains fall through to the "
+            "sampling kernel. Upstream warns below n_chains=6 (the "
+            "cross-chain collinearity and unimodality gates are unsafe at "
+            "M<6), so joint recipes should set num_chains>=6 even though "
+            "tuningfork's default is 4. With the default prior_sample "
+            "initialisation all W warmup chains start from the SAME position "
+            "and separate only through their per-chain keys; a per-chain "
+            "init_strategy (uniform_perchain / zero_perchain / "
+            "reference_summary) supplies genuinely dispersed starts and is "
+            "what the cross-chain gates are designed for. "
+            "SHORT-WARMUP OBSERVATION (bounded; no general minimum is claimed "
+            "or implied): metric='auto' resolves to a growing-window schedule "
+            "rather than Stan's fast-slow-fast one, so n_warmup interacts with "
+            "the schedule and not only with adaptation length. In one measured "
+            "cell -- model mvn_10, base method nuts, n_chains=6, "
+            "max_grad_budget=20000, tuning_seed 0 (warmup key "
+            "jax.random.fold_in(jax.random.key(0), 0)), all chains broadcast "
+            "from one prior_sample position, blackjax 1.6.3.dev25+g9e128d206 "
+            "-- n_warmup=40 published step_size approximately 5.6e3 and every "
+            "subsequent draw diverged, while n_warmup=200 and n_warmup=500 "
+            "published 0.84 and 0.88. Upstream raised no warning. The emitted "
+            "program and the direct public call agree on this, which is the "
+            "point: it is faithful generation of upstream behaviour, not a "
+            "codegen defect. This single cell does not establish a floor for "
+            "other models, dimensions, chain counts or budgets; inspect the "
+            "published step_size for any short-warmup cell rather than "
+            "generalising from it."
+        ),
+    ),
     "window_adaptation_dense_imm": Warmup(
         name="window_adaptation_dense_imm",
         compatible_methods=(

@@ -29,6 +29,11 @@ Warmup groupings
   single-chain vs multichain variant, controlled by ``_multichain`` flag.
 - **Pathfinder pair** (``pathfinder``, ``multipathfinder``):
   single-path vs multi-path variant, controlled by ``_multi`` flag.
+- **staged_adaptation_auto**: joint staged adaptation.  One
+  ``blackjax.staged_adaptation(metric="auto")`` call adapts all W warmup
+  chains through a shared controller and publishes one shared
+  ``(step_size, inverse_mass_matrix)`` -- not a vmap over W independent
+  warmups.  W comes from ``ctx["_staged_auto_n_chains"]``.
 - **multipathfinder_window_adaptation**: composition warmup (stage 1 MPF + stage 2 WA).
 - **vi_warmup**: VI-based IMM + init-positions + adapted step_size; unified
   meanfield/fullrank variant (resolved via ctx keys populated by _emit_script.py).
@@ -50,6 +55,7 @@ EMITTABLE_WARMUP_NAMES = frozenset(
         "window_adaptation_diag_imm",
         "window_adaptation_dense_imm",
         "window_adaptation_low_rank_imm",
+        "staged_adaptation_auto",
         "pathfinder",
         "multipathfinder",
         "multipathfinder_window_adaptation",
@@ -102,6 +108,8 @@ def emit_warmup(warmup_name: str, base_method: BaseMethod, ctx: dict[str, Any]) 
         # multichain flag is in ctx — determined by _emit_script.py before calling here.
         _multichain = ctx.get("_warmup_is_multichain", False)
         body = _emit_window_adaptation(warmup_name, ctx, multichain=_multichain)
+    elif warmup_name == "staged_adaptation_auto":
+        body = _emit_staged_adaptation_auto(ctx)
     elif warmup_name == "pathfinder":
         body = _emit_pathfinder(ctx, multi=False)
     elif warmup_name == "multipathfinder":
@@ -405,6 +413,176 @@ def _emit_window_adaptation(
             "# _warmup_is_perchain=False: adapted params are scalar / un-batched (shared across chains)."
         )
         a("_warmup_is_perchain = False")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# staged_adaptation_auto (joint meta-adaptation controller)
+# ---------------------------------------------------------------------------
+
+
+def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
+    """Emit the joint ``staged_adaptation(metric="auto")`` warmup.
+
+    The distinguishing property against the window-adaptation family is the
+    chain topology.  ``window_adaptation_diag_imm`` at W=S emits
+    ``jax.vmap`` over S *independent* ``window_adaptation.run`` calls and
+    returns per-chain adapted parameters.  This warmup emits exactly one
+    ``blackjax.staged_adaptation(..., n_chains=W)`` call: upstream pools the W
+    chains' positions and gradients inside a single ``lax.scan``, runs one
+    dual-averaging update per step on the mean acceptance rate, and returns a
+    scalar ``step_size`` plus one shared ``LowRankInverseMassMatrix``.
+
+    ``num_steps`` is passed to ``run()`` explicitly.  Upstream would otherwise
+    derive it from ``max_grad_budget``, which would silently override the
+    recipe's ``n_warmup`` -- material behaviour that must come from the plan.
+
+    Parameters
+    ----------
+    ctx : dict
+        Substitution context.  Required keys:
+
+        - ``target_acceptance_rate``, ``n_warmup``, ``tuning_seed``
+        - ``warmup_algorithm``: ``blackjax.nuts`` / ``blackjax.hmc`` / ...
+        - ``warmup_extra_kwargs``: ``", k=v"``-form kernel kwargs (or "")
+        - ``num_chains``: sampling chain count S
+        - ``_staged_auto_n_chains``: warmup chain count W, in ``{1, S}``
+        - ``staged_auto_max_grad_budget``: required upstream under
+          ``metric="auto"``
+        - ``warmup_progress_bar``: bool
+        - ``init_position_is_prebatched``: bool
+    """
+    lines: list[str] = []
+    a = lines.append
+
+    algorithm = ctx["warmup_algorithm"]
+    target_acceptance_rate = ctx["target_acceptance_rate"]
+    n_warmup = ctx["n_warmup"]
+    tuning_seed = ctx["tuning_seed"]
+    extra_kwargs = ctx.get("warmup_extra_kwargs", "")
+    max_grad_budget = ctx["staged_auto_max_grad_budget"]
+    warmup_progress_bar = ctx["warmup_progress_bar"]
+    prebatched = ctx.get("init_position_is_prebatched", False)
+    n_chains = ctx["_staged_auto_n_chains"]
+    joint = n_chains > 1
+
+    a(
+        f"# === WARMUP: staged_adaptation_auto (target_acceptance_rate="
+        f"{target_acceptance_rate}, n_warmup={n_warmup}, n_chains={n_chains}) ==="
+    )
+    if joint:
+        a(
+            f"# Joint controller: ONE staged_adaptation call adapts all {n_chains} warmup"
+        )
+        a("# chains together.  Upstream pools their positions and gradients inside a")
+        a("# single scan and runs one dual-averaging update per step on the MEAN")
+        a("# acceptance rate, so the published step_size and inverse_mass_matrix are")
+        a("# SHARED across chains.  This is deliberately not jax.vmap over independent")
+        a("# warmups -- that topology is window_adaptation_diag_imm.")
+    else:
+        a("# Single-chain controller (warmup_num_chains=[1]): adapt once, then")
+        a("# broadcast the state so scan(vmap(kernel)) maps over sampling chains")
+        a("# sharing the same adapted (step_size, inverse_mass_matrix).")
+    a("# n_warmup is passed to run() explicitly: without it upstream derives the")
+    a("# step count from max_grad_budget and the recipe's n_warmup is ignored.")
+    if joint:
+        a("import inspect as _sa_inspect")
+        a("")
+        a(
+            'if "n_chains" not in _sa_inspect.signature('
+            "blackjax.staged_adaptation).parameters:"
+        )
+        a("    raise RuntimeError(")
+        a(
+            '        "staged_adaptation_auto with warmup_num_chains>1 requires a blackjax "'
+        )
+        a('        "whose staged_adaptation() accepts n_chains (the multi-chain "')
+        a(
+            "        f\"metric='auto' controller); installed blackjax {blackjax.__version__} \""
+        )
+        a('        "does not."')
+        a("    )")
+    a("_warmup = blackjax.staged_adaptation(")
+    a(f"    {algorithm},")
+    a("    logdensity_fn,")
+    a('    metric="auto",')
+    a(f"    max_grad_budget={max_grad_budget!r},")
+    if joint:
+        a(f"    n_chains={n_chains},")
+    a(f"    target_acceptance_rate={target_acceptance_rate}{extra_kwargs},")
+    a(")")
+    a(f"_warmup_key = jax.random.fold_in(jax.random.key({tuning_seed}), 0)")
+
+    if joint:
+        if prebatched:
+            a("# Initial positions are already batched at generation time.")
+            a("_init_positions = init_position")
+        else:
+            a(
+                f"# Replicate init_position to ({n_chains}, ...) for the joint controller."
+            )
+            a("# NOTE: prior_sample gives every warmup chain the SAME start; they")
+            a("# separate only through per-chain keys.  Use a per-chain")
+            a("# init_strategy for genuinely dispersed starts.")
+            a("_init_positions = jax.tree.map(")
+            a(
+                f"    lambda x: jnp.broadcast_to(x[None], ({n_chains},) + x.shape),"
+                " init_position"
+            )
+            a(")")
+        _run = (
+            "(_batched_states, _adapted_params), _warmup_info = _warmup.run("
+            f"_warmup_key, _init_positions, {n_warmup})"
+        )
+    else:
+        if prebatched:
+            a("# W=1 controller consumes one un-batched position.")
+            a("_init_position_single = jax.tree.map(lambda x: x[0], init_position)")
+            _pos = "_init_position_single"
+        else:
+            _pos = "init_position"
+        _run = (
+            "(_single_state, _adapted_params), _warmup_info = _warmup.run("
+            f"_warmup_key, {_pos}, {n_warmup})"
+        )
+
+    if warmup_progress_bar:
+        a('with blackjax.progress_bar(label="warmup"):')
+        a(f"    {_run}")
+    else:
+        a(_run)
+
+    a("_warmup_nis = jnp.asarray(_warmup_info.info.num_integration_steps)")
+    _expected = f"({n_warmup}, {n_chains})" if joint else f"({n_warmup},)"
+    a(f"if _warmup_nis.shape != {_expected}:")
+    a(
+        "    raise ValueError('staged_adaptation gradient accounting no longer "
+        "reports one integration-step count per warmup draw per adapted chain')"
+    )
+    a("_warmup_grad_evals = int(jnp.sum(_warmup_nis))")
+    _reason = (
+        "staged_adaptation(metric='auto'): summed per-step num_integration_steps "
+        f"across the {n_chains} jointly adapted warmup chains"
+        if joint
+        else "staged_adaptation(metric='auto'): summed per-step "
+        "num_integration_steps for one chain"
+    )
+    a(f"_warmup_grad_evals_reason = {_reason!r}")
+    a("# _warmup_is_perchain=False: the controller publishes ONE shared" " (step_size,")
+    a("# inverse_mass_matrix) regardless of how many chains were adapted" " jointly.")
+    a("_warmup_is_perchain = False")
+    if joint:
+        a("# The joint controller already returns one warmup state per chain.")
+        a("_state_post_warmup = _batched_states")
+    else:
+        a(
+            "# Broadcast the single adapted state to (num_chains,) for scan(vmap(kernel))."
+        )
+        a("_state_post_warmup = jax.tree.map(")
+        a("    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape),")
+        a("    _single_state,")
+        a(")")
 
     return "\n".join(lines)
 

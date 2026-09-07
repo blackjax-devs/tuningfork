@@ -447,7 +447,9 @@ def test_reference_summary_rejects_non_window_non_replay_topology(
             "source_sha256": "a" * 64,
         },
     )
-    with pytest.raises(ValueError, match="window-adaptation or no-warmup"):
+    with pytest.raises(
+        ValueError, match="window-adaptation, staged_adaptation_auto, or no-warmup"
+    ):
         resolve_execution_plan(r)
 
 
@@ -459,7 +461,9 @@ def test_perchain_initialization_rejects_no_warmup_topology(init_kind) -> None:
         warmups=[{"name": "no_warmup", "params": {}}],
         init_strategy={"type": init_kind, "low": -1.0, "high": 1.0},
     )
-    with pytest.raises(ValueError, match="window-adaptation or no-warmup"):
+    with pytest.raises(
+        ValueError, match="window-adaptation, staged_adaptation_auto, or no-warmup"
+    ):
         resolve_execution_plan(r)
 
 

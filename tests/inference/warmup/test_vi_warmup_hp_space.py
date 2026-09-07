@@ -63,6 +63,9 @@ def test_other_warmups_have_empty_hp_space() -> None:
       in PR recert-irt2pl-hmc-inner-nuts (2026-06-05).
     - adjusted_mclmc_trajectory_tuning: declares its pilot budget and trajectory
       grid so experiments modify recipe configuration rather than generated code.
+    - staged_adaptation_auto: declares max_grad_budget, which upstream requires
+      under metric="auto" and which sizes the controller's growing-window
+      schedule, so it must live in warmup_params rather than generated code.
 
     All other non-VI warmups fall back to the Warmup dataclass default (empty tuple).
     """
@@ -74,6 +77,7 @@ def test_other_warmups_have_empty_hp_space() -> None:
         "fullrank_vi",
         "window_adaptation_low_rank_imm",
         "adjusted_mclmc_trajectory_tuning",
+        "staged_adaptation_auto",
     }
     for name, entry in WARMUPS.items():
         if name in _known_non_empty_hp_space:

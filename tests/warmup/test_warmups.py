@@ -10,6 +10,7 @@ EXPECTED_NAMES = {
     "window_adaptation_diag_imm",
     "window_adaptation_dense_imm",
     "window_adaptation_low_rank_imm",
+    "staged_adaptation_auto",
     "mclmc_tuning",
     "mclmc_lrd_tuning",
     "adjusted_mclmc_tuning",
