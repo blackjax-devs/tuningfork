@@ -283,6 +283,7 @@ def test_repeated_values_are_flagged_with_a_backend_caveat():
     assert entry.degeneracy == "none"
     assert entry.n_distinct == 2
     assert entry.tie_fraction > 0.99
+    assert entry.mean_tie_block == pytest.approx(N_CHAINS * N_DRAWS / 2)
     assert entry.tie_severity == "material"
     assert any("few distinct values" in w for w in entry.warnings)
     assert any("backend='arviz'" in w for w in entry.warnings)
@@ -531,22 +532,6 @@ def test_rank_rhat_is_carried_but_never_ratioed_or_cost_normalised():
 
 
 @pytest.mark.slow
-def test_sparse_ties_do_not_raise_the_backend_caveat():
-    """A handful of repeated states is normal after MCMC rejections.
-
-    The caveat is a display threshold; ``tie_fraction`` is reported either way.
-    """
-    rng = np.random.default_rng(77)
-    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
-    trace[0, 5] = trace[0, 4]  # one repeated state out of 800
-
-    entry = _degenerate_report(trace).entries[0]
-
-    assert entry.tie_fraction == pytest.approx(1 / (N_CHAINS * N_DRAWS))
-    assert entry.tie_severity == "minor"
-
-
-@pytest.mark.slow
 def test_tie_block_threshold_is_explicit():
     rng = np.random.default_rng(77)
     trace = rng.standard_normal((N_CHAINS, N_DRAWS))
@@ -715,7 +700,7 @@ def test_combined_view_charges_a_shared_warmup_once_standalone_charges_it_twice(
 @pytest.mark.fast
 @pytest.mark.parametrize("view", ["as_measured", "nonsense"])
 def test_combine_rejects_a_view_it_cannot_produce(view):
-    with pytest.raises(ValueError, match="standalone"):
+    with pytest.raises(ValueError, match="view must be one of"):
         CostAccounting.combine(
             [_shared_warmup_cost(), _frozen_arm_cost("a", 1.0, 1)],
             view=view,
@@ -802,14 +787,18 @@ def test_transition_grads_refuse_empty_or_unknown_inputs():
 
 
 @pytest.mark.fast
-def test_zero_recorded_transitions_is_a_known_zero():
+def test_an_empty_transition_record_is_missing_not_a_measured_zero():
+    """A real sampling phase always has at least one transition.
+
+    Reporting 0 here would invert the module's own rule that an unmeasured cost
+    is never written as a zero.
+    """
     derivation = sampling_grad_evals_from_chain_stats(
         {"num_integration_steps": np.zeros((2, 0))}, "hmc"
     )
 
-    assert derivation.count == 0
-    assert derivation.reason == ""
-    assert derivation.excluded
+    assert derivation.count is None
+    assert "missing measurement rather than a measured zero" in derivation.reason
 
 
 @pytest.mark.fast
@@ -870,19 +859,6 @@ def test_a_single_tie_is_still_disclosed_below_the_threshold():
     assert disclosure, "a tie below the threshold must still be disclosed"
     assert "ordinal ranks" in disclosure[0]
     assert "backend='arviz'" in disclosure[0]
-
-
-@pytest.mark.slow
-def test_material_ties_raise_the_severity_not_the_existence_of_disclosure():
-    rng = np.random.default_rng(913)
-    trace = (rng.random((N_CHAINS, N_DRAWS)) < 0.1).astype(float)
-
-    entry = _degenerate_report(trace, "blackjax").entries[0]
-
-    assert entry.n_distinct == 2
-    assert entry.mean_tie_block == pytest.approx(N_CHAINS * N_DRAWS / 2)
-    assert entry.tie_severity == "material"
-    assert any("few distinct values" in w for w in entry.warnings)
 
 
 @pytest.mark.slow
@@ -1111,3 +1087,136 @@ def test_the_derivation_agrees_with_the_generator_layer_grad_counter(sampler):
     )
 
     assert derived.count == reference
+
+
+# --------------------------------------------------------------------------
+# A sampler that declares its own count incomplete must say so downstream
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_every_sampler_declaring_an_incomplete_count_is_disclosed_as_such():
+    """Read the registry, not a hardcoded list.
+
+    ``orbital_hmc`` counts 1 gradient where the kernel evaluates a whole orbit,
+    and the ``laplace_*`` family excludes line-search gradients. Dividing an ESS
+    by such a count overstates that sampler's efficiency, and always in its own
+    favour, so the exclusion list must carry the caveat wherever it travels.
+    """
+    from tuningfork.base_method import BASE_METHODS
+
+    stats = {
+        "num_integration_steps": np.full((2, 5), 3),
+        "lbfgs_iter_num": np.ones((2, 5)),
+    }
+    declared_incomplete = {
+        name
+        for name, method in BASE_METHODS.items()
+        if any(
+            marker in f"{method.grad_count_convention} {method.notes}".lower()
+            for marker in ("lower bound", "approxim")
+        )
+    }
+    assert (
+        "orbital_hmc" in declared_incomplete
+    ), "registry no longer matches the premise"
+
+    for name in declared_incomplete:
+        derivation = sampling_grad_evals_from_chain_stats(stats, name)
+        if derivation.count is None:
+            continue  # refused for an unrelated reason; nothing to disclose
+        assert any(
+            "INCOMPLETE" in item for item in derivation.excluded
+        ), f"{name} undercounts without disclosing it"
+
+
+@pytest.mark.fast
+def test_the_declared_convention_travels_with_every_derivation():
+    derivation = sampling_grad_evals_from_chain_stats(
+        {"num_integration_steps": np.full((2, 5), 3)}, "nuts"
+    )
+
+    assert any("nuts counts gradients as:" in item for item in derivation.excluded)
+    # nuts declares an exact convention, so no incompleteness claim is made.
+    assert not any("INCOMPLETE" in item for item in derivation.excluded)
+
+
+@pytest.mark.slow
+def test_an_undercounting_sampler_carries_its_caveat_onto_the_comparison():
+    """The caveat must reach the surface that computes the head-to-head number."""
+    stats = {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), 1)}
+    derivation = sampling_grad_evals_from_chain_stats(stats, "orbital_hmc")
+    cost = CostAccounting(
+        warmup_seconds=1.0,
+        sampling_seconds=1.0,
+        total_seconds=2.0,
+        warmup_grad_evals=0,
+        sampling_transition_grad_evals=derivation.count,
+        compile_seconds=0.0,
+        source="orbital",
+        excluded_grad_work=derivation.excluded,
+    )
+    comparison = compare_reports(
+        _fake_report("orbital", 1.0, cost), _fake_report("other", 2.0, cost)
+    )
+
+    assert any("INCOMPLETE" in item for item in comparison.excluded_grad_work)
+    # And a caller rendering the table can see it.
+    row = comparison.to_rows()[0]
+    assert any("INCOMPLETE" in item for item in row["excluded_grad_work"])
+    assert row["cost_views"] == list(comparison.cost_views)
+
+
+# --------------------------------------------------------------------------
+# Zero denominators are explained, not silently None
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_a_gradient_free_sampler_gets_an_explanation_not_a_bare_none():
+    """`rwm` measures a true zero: known, and known to be unusable as a divisor."""
+    free = CostAccounting(
+        warmup_seconds=1.0,
+        sampling_seconds=1.0,
+        total_seconds=2.0,
+        warmup_grad_evals=0,
+        sampling_transition_grad_evals=0,
+        compile_seconds=0.0,
+        source="rwm_arm",
+    )
+    comparison = compare_reports(
+        _fake_report("A", 1.0, free), _fake_report("B", 2.0, free)
+    )
+    row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+
+    assert row.per_transition_grad_eval is None
+    assert any("zero denominator" in b for b in row.cost_blocked_by)
+    assert comparison.cost_normalised_available is False
+
+
+@pytest.mark.fast
+def test_a_non_finite_wall_clock_is_named_rather_than_called_unrecorded():
+    class FakeTelemetry:
+        timing_seconds = {"warmup": float("nan"), "sampling": 1.0, "total": 2.0}
+        warmup_grad_evals = 10
+        warmup_grad_evals_reason = "bound"
+
+    cost = CostAccounting.from_telemetry(FakeTelemetry())
+
+    assert cost.warmup_seconds is None
+    assert "non-finite" in cost.reason_for("warmup_seconds")
+    assert "did not record" not in cost.reason_for("warmup_seconds")
+
+
+@pytest.mark.fast
+def test_combine_rejects_the_one_view_it_cannot_produce():
+    """`as_measured` describes a single execution, not a sum."""
+    assert "as_measured" in CostAccounting.VIEWS
+    assert "as_measured" not in CostAccounting.COMBINABLE_VIEWS
+
+    with pytest.raises(ValueError, match="as_measured"):
+        CostAccounting.combine(
+            [_shared_warmup_cost(), _frozen_arm_cost("a", 1.0, 1)],
+            view="as_measured",
+            phases_are_disjoint_sequential=True,
+        )

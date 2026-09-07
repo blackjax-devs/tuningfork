@@ -45,6 +45,7 @@ from tuningfork.catalog import (
     sampling_grad_evals_from_chain_stats,
 )
 from tuningfork.recipes import Effort, Recipe
+from tuningfork.recipes._sample_stats import SAMPLE_STAT_PREFIX
 
 pytestmark = pytest.mark.e2e
 
@@ -87,10 +88,17 @@ def _recipe(sampler, warmup, base_params, warmup_params, budget, step_policy=Non
 
 def _split_artifact(path):
     """Return ``(draws, chain_stats)`` from a generated ``.npz`` artifact."""
+    n = len(SAMPLE_STAT_PREFIX)
     with np.load(str(path), allow_pickle=False) as archive:
-        draws = {k: np.asarray(archive[k]) for k in archive.files if k[:4] != "_ss_"}
+        draws = {
+            k: np.asarray(archive[k])
+            for k in archive.files
+            if not k.startswith(SAMPLE_STAT_PREFIX)
+        }
         stats = {
-            k[4:]: np.asarray(archive[k]) for k in archive.files if k[:4] == "_ss_"
+            k[n:]: np.asarray(archive[k])
+            for k in archive.files
+            if k.startswith(SAMPLE_STAT_PREFIX)
         }
     return draws, stats
 

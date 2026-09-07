@@ -322,8 +322,12 @@ class CostAccounting:
     #: Components that are counts.  Additive whether or not phases overlap.
     _COUNT_COMPONENTS = ("warmup_grad_evals", "sampling_transition_grad_evals")
 
-    #: Accounting views :meth:`combine` can produce.
+    #: Every accounting view.  ``"as_measured"`` is not producible by
+    #: :meth:`combine` -- it describes a single execution, not a sum.
     VIEWS = ("as_measured", "standalone", "combined")
+
+    #: The views :meth:`combine` can produce.
+    COMBINABLE_VIEWS = ("standalone", "combined")
 
     @property
     def unknown_components(self) -> tuple[str, ...]:
@@ -401,8 +405,12 @@ class CostAccounting:
         costs = tuple(costs)
         if len(costs) < 2:
             raise ValueError("combine needs at least two accountings")
-        if view not in ("standalone", "combined"):
-            raise ValueError('view must be "standalone" or "combined"')
+        if view not in cls.COMBINABLE_VIEWS:
+            raise ValueError(
+                "view must be one of "
+                + " or ".join(repr(v) for v in cls.COMBINABLE_VIEWS)
+                + f"; got {view!r}"
+            )
 
         seen: dict[str, int] = {}
         for cost in costs:
@@ -505,8 +513,15 @@ class CostAccounting:
             ("sampling", "sampling_seconds"),
             ("total", "total_seconds"),
         ):
-            if timing.get(key) is None:
+            recorded = timing.get(key)
+            if recorded is None:
                 unknown[component] = "telemetry did not record this wall clock"
+            elif _opt_float(recorded) is None:
+                # Recorded, but not a usable number.  Saying "not recorded"
+                # here would be a wrong-but-plausible explanation.
+                unknown[component] = (
+                    f"telemetry recorded a non-finite wall clock ({recorded!r})"
+                )
 
         derivation = sampling_transition_grad_evals
         transitions = derivation.count if derivation is not None else None
@@ -612,11 +627,49 @@ class GradEvalDerivation:
 
 
 #: Gradient work that per-step transition statistics structurally cannot see.
+#: True of every sampler, whatever its counting convention.
 _EXCLUDED_FROM_TRANSITION_COUNT = (
     "initialization (kernel.init and any per-chain state re-init)",
     "controller/adaptation internals not emitted as per-step statistics",
     "any gradient work outside the recorded sampling transitions",
 )
+
+#: Words by which a ``BaseMethod`` declares its own per-step count incomplete.
+#: Read from the descriptor's own text rather than from a list of sampler names,
+#: so a newly added approximate convention is disclosed without editing this
+#: module.  A convention that understates its cost without saying so in these
+#: terms would still be missed -- an explicit flag on ``BaseMethod`` would close
+#: that, and is the robust fix.
+_APPROXIMATION_MARKERS = ("lower bound", "approxim")
+
+
+def _declared_exclusions(base_method_name: str, method: Any) -> tuple[str, ...]:
+    """Per-sampler exclusions, including any caveat the sampler itself declares.
+
+    Several samplers declare a ``grad_count_per_step`` that their own
+    ``grad_count_convention`` calls a lower bound -- ``orbital_hmc`` counts 1
+    where the kernel evaluates a whole orbit, and the ``laplace_*`` family
+    excludes line-search gradients.  Dividing an ESS by such a count overstates
+    that sampler's efficiency, and it does so asymmetrically: it always flatters
+    the sampler that undercounts.  Carrying the convention verbatim, and naming
+    it as declared-incomplete when it says so, keeps that visible everywhere the
+    exclusions travel -- including the comparison that computes the head-to-head
+    number.
+    """
+    convention = str(getattr(method, "grad_count_convention", "") or "")
+    notes = str(getattr(method, "notes", "") or "")
+    exclusions: tuple[str, ...] = (
+        *_EXCLUDED_FROM_TRANSITION_COUNT,
+        f"{base_method_name} counts gradients as: {convention}",
+    )
+    haystack = f"{convention} {notes}".lower()
+    if any(marker in haystack for marker in _APPROXIMATION_MARKERS):
+        exclusions += (
+            f"{base_method_name} declares this per-step count INCOMPLETE, so the "
+            "subtotal understates its true gradient cost and any efficiency "
+            "computed from it is an upper bound, not a measurement",
+        )
+    return exclusions
 
 
 def sampling_grad_evals_from_chain_stats(
@@ -657,6 +710,18 @@ def sampling_grad_evals_from_chain_stats(
     Returns
     -------
     GradEvalDerivation
+
+    Warning
+    -------
+    Nothing here binds ``base_method_name`` to the run that produced
+    ``chain_stats``.  Several samplers read the same per-step field under
+    different conventions, so naming the wrong one raises nothing and yields a
+    count that is plausible in shape, units and magnitude -- and every honesty
+    mechanism downstream (the exclusions, the basis string, the double-charge
+    guard) is conditioned on that name, so they will all corroborate the wrong
+    number.  ``expected_topology`` checks shape, never identity.  Always pass
+    the base method recorded by the run itself -- ``recipe.base_method_name``
+    for a generated execution -- never a hand-written string.
     """
     from tuningfork.base_method import BASE_METHODS
 
@@ -702,11 +767,17 @@ def sampling_grad_evals_from_chain_stats(
         )
     n_transitions = int(np.prod(shape[:2])) if len(shape) >= 2 else int(shape[0])
     if n_transitions == 0:
+        # F5: an empty per-step record is a MISSING measurement, not a run that
+        # executed zero transitions.  A real sampling phase always has at least
+        # one, so reporting 0 here would invert this module's own rule that an
+        # unmeasured cost is never written as a zero.
         return GradEvalDerivation(
-            0,
-            basis=f"{method.grad_count_convention} over zero recorded transitions",
-            source_fields=tuple(sorted(arrays)),
-            excluded=_EXCLUDED_FROM_TRANSITION_COUNT,
+            None,
+            reason=(
+                "per-step statistics contain zero transitions; the record is "
+                "empty, which is a missing measurement rather than a measured "
+                "zero"
+            ),
         )
 
     class _StepStats:
@@ -757,7 +828,7 @@ def sampling_grad_evals_from_chain_stats(
         basis=f"{method.grad_count_convention} summed over {n_transitions} "
         "recorded transitions, rejected transitions included",
         source_fields=used or tuple(sorted(arrays)),
-        excluded=_EXCLUDED_FROM_TRANSITION_COUNT,
+        excluded=_declared_exclusions(base_method_name, method),
     )
 
 
@@ -836,23 +907,23 @@ def _tie_severity(mean_tie_block: float, n_distinct: int, threshold: float) -> s
     return "material" if mean_tie_block >= threshold else "minor"
 
 
-def _classify(trace_cs: np.ndarray) -> tuple[str, int, tuple[str, ...]]:
-    """Return ``(degeneracy, n_constant_chains, warnings)`` for a ``(C, S)`` trace."""
+def _classify(trace_cs: np.ndarray) -> tuple[str, tuple[str, ...]]:
+    """Return ``(degeneracy, warnings)`` for a ``(C, S)`` trace."""
     per_chain_constant = np.array(
         [np.all(chain == chain[0]) for chain in trace_cs], dtype=bool
     )
     n_constant_chains = int(per_chain_constant.sum())
     if bool(np.all(trace_cs == trace_cs.flat[0])):
-        return "global_constant", n_constant_chains, ()
+        return "global_constant", ()
     if bool(per_chain_constant.all()):
-        return "per_chain_constant", n_constant_chains, ()
+        return "per_chain_constant", ()
     warnings: tuple[str, ...] = ()
     if n_constant_chains:
         warnings = (
             f"{n_constant_chains} of {trace_cs.shape[0]} chains are constant; "
             "reported values are dominated by the remaining chains",
         )
-    return "none", n_constant_chains, warnings
+    return "none", warnings
 
 
 def _component_diagnostics(
@@ -895,7 +966,7 @@ def _component_diagnostics(
             "non_finite",
         )
 
-    degeneracy, _, warns = _classify(trace_cs)
+    degeneracy, warns = _classify(trace_cs)
     if degeneracy == "global_constant":
         return undefined(
             "expectand is constant across every chain and draw; ESS and R-hat "
@@ -1034,12 +1105,6 @@ class ExpectandReport:
     cost: CostAccounting
     n_chains: int
     n_draws: int
-
-    def __iter__(self):
-        return iter(self.entries)
-
-    def __len__(self) -> int:
-        return len(self.entries)
 
     def by_label(self) -> dict[str, ExpectandDiagnostics]:
         """Entries keyed by :attr:`ExpectandDiagnostics.label`."""
@@ -1243,7 +1308,11 @@ class ReportComparison:
 
     @property
     def cost_normalised_available(self) -> bool:
-        """True only when both reports measured total wall and gradient counts."""
+        """True only when every cost-normalised figure could be produced.
+
+        False when a cost was unmeasured, when the two sides were costed under
+        different views, or when a denominator is a measured zero.
+        """
         return not self.cost_blockers
 
     def to_rows(self) -> list[dict[str, Any]]:
@@ -1262,6 +1331,8 @@ class ReportComparison:
                     else None
                 ),
                 "cost_blocked_by": list(row.cost_blocked_by),
+                "cost_views": list(self.cost_views),
+                "excluded_grad_work": list(self.excluded_grad_work),
             }
             for row in self.rows
         ]
@@ -1324,6 +1395,19 @@ def compare_reports(
         report.label: _transition_grad_evals(report.cost)
         for report in (baseline, candidate)
     }
+    zero_grad_blockers = tuple(
+        f"{report.label} recorded zero gradient evaluations (a gradient-free "
+        "sampler, or a run with no recorded transitions); ESS per gradient "
+        "evaluation is undefined against a zero denominator"
+        for report in (baseline, candidate)
+        if grads[report.label] == 0
+    )
+    zero_seconds_blockers = tuple(
+        f"{report.label} recorded a zero total wall clock; ESS per second is "
+        "undefined against a zero denominator"
+        for report in (baseline, candidate)
+        if report.cost.total_seconds == 0.0
+    )
     grad_blockers = view_blockers + tuple(
         f"{report.label}.{component} ({report.cost.reason_for(component)})"
         for report in (baseline, candidate)
@@ -1366,6 +1450,8 @@ def compare_reports(
             elif base_val is not None and cand_val is not None:
                 if seconds_blockers:
                     cost_blocked += seconds_blockers
+                elif zero_seconds_blockers:
+                    cost_blocked += zero_seconds_blockers
                 else:
                     per_second = (
                         _safe_div(base_val, baseline.cost.total_seconds),
@@ -1373,6 +1459,12 @@ def compare_reports(
                     )
                 if grad_blockers:
                     cost_blocked += grad_blockers
+                elif zero_grad_blockers:
+                    # Gradient-free samplers measure a true zero, so the
+                    # denominator is known and known to be unusable -- which is
+                    # not the same as unknown, and must not surface as a bare
+                    # None.
+                    cost_blocked += zero_grad_blockers
                 else:
                     per_grad = (
                         _safe_div(base_val, grads[baseline.label]),
@@ -1396,7 +1488,14 @@ def compare_reports(
         baseline_label=baseline.label,
         candidate_label=candidate.label,
         rows=tuple(rows),
-        cost_blockers=tuple(dict.fromkeys(seconds_blockers + grad_blockers)),
+        cost_blockers=tuple(
+            dict.fromkeys(
+                seconds_blockers
+                + grad_blockers
+                + zero_seconds_blockers
+                + zero_grad_blockers
+            )
+        ),
         cost_views=(baseline.cost.view, candidate.cost.view),
         excluded_grad_work=tuple(
             dict.fromkeys(
