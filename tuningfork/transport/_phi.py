@@ -20,49 +20,47 @@ The chart's flow needs the two entire functions
     \\varphi_2(x) = \\frac{e^x - 1 - x}{x^2},
 
 both analytic at the origin.  Evaluated directly they lose accuracy near
-``x = 0``: :math:`\\varphi_2` subtracts ``x`` from ``expm1(x) ~ x + x^2/2``, so
-its relative error grows like ``eps / |x|``.  Evaluated as a truncated Taylor
-series they lose accuracy for large ``|x|``.  A threshold picks between them.
+``x = 0``: :math:`\\varphi_2` subtracts ``x`` from ``expm1(x) ~ x + x^2/2``, so its
+relative error grows like ``eps / |x|``.  Evaluated as a truncated Taylor series
+they lose accuracy for large ``|x|``.  A per-dtype threshold picks between them.
 
-Threshold and order are **selected by measurement**, not by convention.
-``tests/transport/test_phi_precision.py`` re-derives the table below against a
-``float128`` oracle and asserts the constants here remain the better choice.
+Finite-precision domain and limitations
+---------------------------------------
+The threshold constants below were chosen by measurement, but the accuracy they
+achieve is **not** characterised here as a bound.  An earlier version of this
+module quoted per-dtype "measured floors"; those numbers were maxima over a
+sampled grid, and independent review found points exceeding them.  A maximum
+over any finite sample is a lower bound on the true worst case, and two coarse
+grids agreeing does not make either adequate — the honest diagnostic is that the
+worst case stops moving as the sampling is refined, which has not been
+established.  So:
 
-Worst relative error of :math:`\\varphi_2` (the binding one) over
-``1e-12 <= |x| <= 40``:
+* no floor, bound or guaranteed accuracy is claimed for ``phi`` at any dtype;
+* the tests assert only that the shipped implementation agrees with an
+  independent extended-precision oracle at named points, to tolerances that are
+  documented as test thresholds and not as properties of the function.
 
-Worst relative error over ``1e-11 <= |x| <= 30``, measured for the shipped
-implementation (10-term series) against a hybrid extended-precision oracle:
+Supported dtypes are **float32 and float64 only**.  Half precisions are refused
+rather than silently served: measurement showed the float64 threshold is the
+*worst* available choice for ``bfloat16`` (worst ``phi2`` relative error 6.5e-02
+at threshold 0.1 against 8.8e-03 at 1.0), so a silent fallback would be actively
+harmful rather than merely unsupported.
 
-=========  ===========  ===========
-threshold  float64      float32
-=========  ===========  ===========
-1e-4          2.54e-12      7.44e-04
-1e-3          2.10e-13      1.08e-04
-**0.1**   **3.77e-15**      4.16e-06
-**0.3**       7.84e-14  **8.77e-07**
-1.0           1.19e-08      8.77e-07
-1.5           1.13e-06      1.09e-06
-=========  ===========  ===========
-
-No single threshold is right for both.  float64 wants ``0.1``; at ``0.3`` it is
-already 20x worse, and at ``1.0`` seven orders worse.  float32 wants ``0.3``,
-where it reaches its intrinsic floor; at ``0.1`` it is 5x worse because the
-direct branch's ``eps/|x|`` cancellation dominates there.  The threshold is
-therefore selected per dtype.  The first two rows are the crossovers used by the
-earlier exploratory implementations (shown here at 10 terms so only the
-threshold varies);
-they are recorded for provenance only and no bitwise equivalence is claimed.
-
-Both the value and the derivative are measured, because the crossover is where
-the direct branch's cancellation is worst and AD inherits it:
-``tests/transport/test_phi_precision.py`` pins both.
+Both branches of the selection are evaluated under ``jnp.where``, so each is
+guarded against the other's regime: the direct branch's denominator is clamped
+away from zero, and the series branch's argument is clamped to zero outside its
+own range.  Without the second clamp the series' Horner recurrence overflows for
+large ``|x|`` and ``inf - inf`` poisons the *tangent* of the selected branch, so
+``jax.grad`` returns NaN at points where the value is exactly right.
 """
 
 import jax.numpy as jnp
 from jax import Array
 
 __all__ = ["SERIES_THRESHOLD", "SERIES_TERMS", "phi"]
+
+SUPPORTED_DTYPES = ("float32", "float64")
+"""Dtypes this module serves.  Anything else is refused, not approximated."""
 
 SERIES_THRESHOLD = {"float32": 0.3, "float64": 0.1}
 """Per-dtype ``|x|`` below which the Taylor series replaces the direct form.
@@ -79,40 +77,38 @@ SERIES_TERMS = 10
 
 
 def phi(x: Array) -> tuple[Array, Array]:
-    """Return ``(phi1(x), phi2(x))`` accurately for all finite ``x``.
+    """Return ``(phi1(x), phi2(x))`` for float32 or float64 ``x``.
 
-    Parameters
-    ----------
-    x
-        Argument, any shape.  The same rule is applied elementwise.
-
-    Returns
-    -------
-    A pair ``(phi1, phi2)`` with the shape and dtype of ``x``.
-
-    Notes
-    -----
-    Both branches are evaluated under ``jnp.where``, so the direct branch is
-    computed even where the series is selected.  The denominator is therefore
-    clamped away from zero: without that guard the unused branch produces
-    ``inf``/``nan`` whose *tangent* contaminates the selected branch under
-    ``jax.grad`` (a ``nan`` tangent multiplied by a zero cotangent is still
-    ``nan``).  The clamp is why ``phi`` is differentiable at ``x = 0``.
+    Raises
+    ------
+    TypeError
+        If ``x`` is not float32 or float64.  Half precisions are refused because
+        the shipped threshold is measurably the wrong choice for them.
     """
-    threshold = SERIES_THRESHOLD.get(jnp.result_type(x).name, 0.1)
+    name = jnp.result_type(x).name
+    if name not in SUPPORTED_DTYPES:
+        raise TypeError(
+            f"phi supports {SUPPORTED_DTYPES}, got {name!r}. Half precisions are "
+            "refused rather than served with a threshold measured for float64."
+        )
+    threshold = SERIES_THRESHOLD[name]
     small = jnp.abs(x) < threshold
-    safe = jnp.where(small, jnp.ones_like(x), x)
+
+    # Each branch is clamped out of the other's regime, because jnp.where
+    # evaluates both and a NaN/inf tangent in the unselected one contaminates
+    # the selected one's gradient.
+    safe_direct = jnp.where(small, jnp.ones_like(x), x)
+    safe_series = jnp.where(small, x, jnp.zeros_like(x))
 
     em1 = jnp.expm1(x)
-    direct1 = em1 / safe
-    direct2 = (em1 - x) / (safe * safe)
+    direct1 = em1 / safe_direct
+    direct2 = (em1 - x) / (safe_direct * safe_direct)
 
-    # Horner on  phi1 = sum_k x^k / (k+1)!  and  phi2 = sum_k x^k / (k+2)!
     series1 = jnp.zeros_like(x)
     series2 = jnp.zeros_like(x)
     for k in range(SERIES_TERMS - 1, -1, -1):
-        series1 = series1 * x + 1.0 / _factorial(k + 1)
-        series2 = series2 * x + 1.0 / _factorial(k + 2)
+        series1 = series1 * safe_series + 1.0 / _factorial(k + 1)
+        series2 = series2 * safe_series + 1.0 / _factorial(k + 2)
 
     return jnp.where(small, series1, direct1), jnp.where(small, series2, direct2)
 

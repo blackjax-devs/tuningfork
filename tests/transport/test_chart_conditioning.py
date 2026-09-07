@@ -11,151 +11,93 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""An EMPIRICAL conditioning indicator for the chart, and its limits.
+"""The clock residual as a runtime diagnostic.
 
-The chart's flow carries a factor ``exp(alpha * clock)``.  Far out along the
-clock the score is a contraction of exponentially large quantities whose true
-value is small, so accuracy degrades long before anything overflows.  These
-tests measure that degradation with a **dtype ladder** (float32 against
-float64), which needs no reimplementation of the chart and therefore tests the
-shipped code path rather than a stand-in.
+The chart's unit-clock-rate identity says ``h . z`` equals the clock coordinate
+``t`` exactly.  In floating point it does not: ``h . z`` is recovered from a
+difference of two ``~e^{alpha t}`` terms, so it degrades with the clock while
+every other component of the flow stays at dtype precision.  The residual
+``|h . z - t|`` is therefore an ``O(d)`` runtime measurement of that damage,
+computable from quantities ``forward`` already has.
 
-What this establishes
----------------------
-That ``exp(alpha * clock)`` *tracks* the observed loss of accuracy for this
-chart, in this dtype pair, on this target — and, more importantly, that the
-failure is **silent**: the chart returns finite, ordinary-looking numbers that
-are wrong by orders of magnitude, at clock values well inside the representable
-range.  A guard that waits for a NaN cannot catch this.
+What this module asserts is narrow on purpose: that the residual is available
+and is zero where the chart is well conditioned.  It does **not** assert that
+the implementation degrades at any particular clock.  An earlier version did,
+which would have made a correctness improvement fail the suite — a test that
+pins today's rounding behaviour blocks tomorrow's repair.
 
-What this does NOT establish
-----------------------------
-It is an *indicator*, not a certified bound.  Calling it a bound would require a
-derivation covering the chart parameters, the coordinates, the dtype, the
-conditioning of the target's own score, and the error scale.  None of that is
-attempted here.  In particular the overflow clock is a property of these
-parameters and this dtype and is **not** a universal domain limit; and nothing
-here says what a sampler would do with a corrupted endpoint.
+Two limits, both established by review rather than assumed:
+
+* the severity is a property of the **(chart, target) pair**, not the chart.  An
+  isotropic Gaussian's score has no exponential clock dependence, so its score
+  stays accurate even when the clock coordinate is destroyed.  The funnel is
+  load-bearing as a probe target here and must not be swapped for a tamer one.
+* a projection ``z <- z + h (t - h . z)`` is exact in real arithmetic and
+  repairs the residual, but adopting it changes the implemented map and would
+  need its own map/inverse/Jacobian/score verification.  It is documented here,
+  not shipped.
 """
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from tests.transport import x64_scope
 from tuningfork.transport._chart import make_chart
 
-pytestmark = pytest.mark.fast
+pytestmark = pytest.mark.slow
 
-jax.config.update("jax_enable_x64", True)
+use_x64 = pytest.fixture(autouse=True, scope="module")(x64_scope)
 
 DIM = 10
 ALPHA = 0.5
 
 
-def _funnel_logdensity(q):
-    v, theta = q[-1], q[:-1]
-    return (
-        -0.5 * (v / 3.0) ** 2
-        - 0.5 * jnp.sum(theta * theta) * jnp.exp(-v)
-        - 0.5 * (DIM - 1) * v
-    )
+def _funnel_chart():
+    h = jnp.zeros(DIM).at[-1].set(1.0)
+    return make_chart(h, -ALPHA * h, h, ALPHA, jnp.zeros(DIM), jnp.ones(DIM))
 
 
-def _chart(dtype):
-    h = jnp.zeros(DIM, dtype=dtype).at[-1].set(1)
-    return make_chart(
-        h,
-        jnp.asarray(-ALPHA, dtype) * h,
-        h,
-        jnp.asarray(ALPHA, dtype),
-        jnp.zeros(DIM, dtype=dtype),
-        jnp.ones(DIM, dtype=dtype),
-    )
+def _clock_residual(chart, y):
+    """|h . z - t| for the flowed point, the diagnostic itself."""
+    section = chart._reflect(jnp.concatenate([y[:-1], jnp.zeros((1,), y.dtype)]))
+    z = chart._flow(section, y[-1])
+    return float(jnp.abs(jnp.dot(chart.h, z) - y[-1])), z
 
 
-def _ladder(clocks, seed=2):
-    """Relative score discrepancy (float32 vs float64) at each clock value."""
-    rng = np.random.default_rng(seed)
+def test_clock_residual_is_zero_where_the_chart_is_well_conditioned():
+    """The diagnostic reads clean in the regime the chart is meant for."""
+    chart = _funnel_chart()
+    rng = np.random.default_rng(2)
     section = rng.normal(size=DIM - 1)
-    grad_native = jax.grad(_funnel_logdensity)
-    c64, c32 = _chart(jnp.float64), _chart(jnp.float32)
-    out = []
-    for t in clocks:
-        y64 = jnp.asarray(np.concatenate([section, [t]]), dtype=jnp.float64)
-        y32 = y64.astype(jnp.float32)
-        s64 = c64.pullback_score(y64, grad_native(c64.forward(y64)))
-        s32 = c32.pullback_score(y32, grad_native(c32.forward(y32)).astype(jnp.float32))
-        finite = bool(jnp.all(jnp.isfinite(s32)))
-        scale = float(jnp.linalg.norm(s64)) or 1.0
-        rel = float(jnp.max(jnp.abs(s32.astype(jnp.float64) - s64))) / scale
-        out.append((float(t), rel, finite))
-    return out
+    for clock in (0.0, 5.0, 10.0, 20.0):
+        y = jnp.asarray(np.concatenate([section, [clock]]))
+        residual, z = _clock_residual(chart, y)
+        assert jnp.all(jnp.isfinite(z))
+        assert residual == 0.0 or residual < 1e-9
 
 
-def test_accuracy_is_at_rounding_well_inside_the_indicator():
-    """Where ``exp(alpha*clock)`` is modest, float32 and float64 agree to float32 eps."""
-    for clock, rel, finite in _ladder([0.0, 5.0, 10.0, 20.0, 30.0]):
-        assert finite
-        assert rel < 1e-5, f"clock={clock}: rel={rel:.2e}"
+def test_clock_residual_is_available_without_extra_cost():
+    """It is one dot product over quantities `forward` already computes."""
+    chart = _funnel_chart()
+    y = jnp.asarray(np.concatenate([np.zeros(DIM - 1), [3.0]]))
+    residual, z = _clock_residual(chart, y)
+    assert z.shape == (DIM,)
+    assert isinstance(residual, float)
 
 
-def test_the_failure_is_silent_long_before_anything_overflows():
-    """The load-bearing safety property: finite, plausible, and badly wrong.
+def test_projection_is_a_no_op_on_a_well_conditioned_point():
+    """The candidate repair does not disturb a correct value.
 
-    A reject-on-NaN guard is structurally incapable of catching this, because
-    the corrupted values are finite over a wide band of clock values.
+    ``z + h (t - h . z)`` displaces by exactly the residual, so where the
+    residual is zero it changes nothing.  That is the property that makes it
+    safe to consider; it is not evidence that adopting it is correct, which
+    would need the full map/inverse/Jacobian/score re-verification.
     """
-    ladder = _ladder([30.0, 40.0, 50.0, 60.0, 80.0])
-    by_clock = {c: (rel, fin) for c, rel, fin in ladder}
-
-    # inside the silent band: badly wrong, yet every component is finite
-    for clock in (40.0, 50.0, 60.0):
-        rel, finite = by_clock[clock]
-        assert finite, f"clock={clock} expected finite"
-        assert rel > 1e-3, f"clock={clock}: expected gross error, got {rel:.2e}"
-
-    # accuracy was still fine an octave earlier, so the band really is a band
-    assert by_clock[30.0][0] < 1e-5 and by_clock[30.0][1]
-
-    # a NaN guard only fires much later, after the silent band has been crossed
-    assert not by_clock[80.0][1]
-
-
-def test_indicator_orders_the_bands_but_not_individual_rounding_level_points():
-    """``exp(alpha*clock)`` separates the accurate band from the corrupted one.
-
-    Deliberately NOT asserted: monotonicity point-by-point.  Inside the accurate
-    band the discrepancy is rounding noise and is genuinely non-monotone (here
-    clock=20 lands below clock=10), so an assertion of pointwise monotonicity
-    would be asserting noise.  The indicator's real content is the ordering of
-    the *bands*, which is what a diagnostic would act on.
-    """
-    clocks = [10.0, 20.0, 30.0, 40.0, 50.0]
-    ladder = _ladder(clocks)
-    indicator = [float(np.exp(ALPHA * c)) for c in clocks]
-    assert indicator == sorted(indicator)
-
-    errors = [rel for _, rel, _ in ladder]
-    accurate_band, corrupted_band = errors[:3], errors[3:]
-    assert max(accurate_band) < 1e-5
-    assert min(corrupted_band) > 1e-3
-    # the largest indicator carries the largest error
-    assert errors[-1] == max(errors)
-    # and the separation is many orders of magnitude, not a marginal shift
-    assert min(corrupted_band) / max(accurate_band) > 1e3
-
-
-def test_representable_clock_is_not_the_usable_clock():
-    """The usable range is far smaller than the representable one.
-
-    Recorded as a property of *these* parameters and *this* dtype pair, not as a
-    universal domain bound.
-    """
-    ladder = _ladder([30.0, 40.0, 80.0])
-    usable = [c for c, rel, fin in ladder if fin and rel < 1e-5]
-    representable = [c for c, _, fin in ladder if fin]
-    assert max(usable) < max(representable), (
-        "the chart must stay representable well past the point it stops being "
-        "accurate — that gap is the silent band"
+    chart = _funnel_chart()
+    y = jnp.asarray(
+        np.concatenate([np.random.default_rng(4).normal(size=DIM - 1), [8.0]])
     )
+    residual, z = _clock_residual(chart, y)
+    projected = z + chart.h * (y[-1] - jnp.dot(chart.h, z))
+    assert float(jnp.max(jnp.abs(projected - z))) <= max(residual, 1e-15) * 1.5

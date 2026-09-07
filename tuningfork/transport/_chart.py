@@ -61,6 +61,7 @@ chart has no fitting charge in a run that uses it, but it is **not free**:
 from typing import NamedTuple
 
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from tuningfork.transport._phi import phi
@@ -148,9 +149,16 @@ class Chart(NamedTuple):
         return jnp.concatenate([section[:-1], t[None]])
 
     def log_det(self, y: Array) -> Array:
-        """``log|det d forward / dy|``.  Exact, not a fitted surrogate."""
+        """``log|det d forward / dy|``.  Exact, not a fitted surrogate.
+
+        This is the log-**absolute** determinant, so a negative ``scale`` entry is
+        supported: it flips the map's orientation without changing the volume
+        element.  ``jnp.log(jnp.abs(...))`` rather than ``jnp.log(...)`` is what
+        makes that consistent — the earlier form returned NaN for a chart whose
+        forward, inverse and score were all exact.
+        """
         d = self.center.size
-        logdet_l = jnp.sum(jnp.log(self.scale))
+        logdet_l = jnp.sum(jnp.log(jnp.abs(self.scale)))
         if self.lr_basis.size:
             logdet_l = logdet_l + 0.5 * jnp.sum(jnp.log(self.lr_eigenvalues))
         return self.alpha * (d - 1) * y[-1] + logdet_l
@@ -201,31 +209,94 @@ def make_chart(
     lr_basis: Array | None = None,
     lr_eigenvalues: Array | None = None,
 ) -> Chart:
-    """Build a :class:`Chart`, projecting ``h``, ``c`` and ``a`` onto the constraints.
+    """Build a :class:`Chart`, enforcing the supported input contract.
 
-    The three structural constraints are imposed here rather than checked, so a
-    :class:`Chart` is correct by construction:
+    Two different things happen here and it is worth not conflating them, because
+    an earlier docstring claimed "correct by construction" for both.
 
-    * ``h`` is normalised;
-    * ``c`` is replaced by ``P c + h`` where ``P = I - h h^T``, giving ``h.c = 1``;
-    * ``a`` is replaced by ``P a - alpha h``, giving ``h.a = -alpha``.
+    **Projected** (any input is accepted and made to satisfy the constraint):
+    ``h`` is normalised, ``c`` becomes ``P c + h`` so ``h.c = 1``, and ``a``
+    becomes ``P a - alpha h`` so ``h.a = -alpha``, with ``P = I - h h^T``.
 
-    Supplying parameters that already satisfy the constraints leaves them
-    unchanged up to rounding.  Violating them is *not* an error the caller can
-    make: to test a constraint violation, mutate the returned :class:`Chart`.
+    **Required** (invalid input is refused, not repaired): ``h`` must be
+    non-zero; ``scale`` must be non-zero and the same size as ``center``;
+    ``lr_basis`` and ``lr_eigenvalues`` must be supplied together with matching
+    rank; ``lr_eigenvalues`` must be positive; and the **spectrally active**
+    columns of ``lr_basis`` — those with ``lam != 1`` — must be orthonormal.
+
+    The orthonormality requirement is scoped to active columns on purpose.
+    Columns with ``lam == 1`` contribute exactly zero to ``_lowrank`` at every
+    power and zero to the log-determinant, so they are unconstrained; requiring
+    them to be orthonormal would reject legitimate inputs.  Active columns need
+    orthonormality and not merely orthogonality: ``M_p M_{-p} = I`` reduces to
+    ``U^T U = I`` on the active index set, which unit norm is part of.
+
+    Raises
+    ------
+    ValueError
+        If any required condition above is violated.
     """
-    h = h / jnp.linalg.norm(h)
+    h = jnp.asarray(h)
+    if h.ndim != 1:
+        raise ValueError(f"h must be one-dimensional, got shape {h.shape}")
+    h_norm = jnp.linalg.norm(h)
+    if not bool(jnp.isfinite(h_norm)) or float(h_norm) == 0.0:
+        raise ValueError("h must be finite and non-zero; it defines the clock axis")
+    h = h / h_norm
+
+    center = jnp.asarray(center)
+    scale = jnp.asarray(scale)
+    if scale.shape != center.shape:
+        raise ValueError(f"scale shape {scale.shape} != center shape {center.shape}")
+    if not bool(jnp.all(jnp.isfinite(scale))) or bool(jnp.any(scale == 0)):
+        raise ValueError(
+            "scale must be finite and non-zero. Negative entries ARE supported: "
+            "log_det is a log-absolute determinant."
+        )
+
+    if (lr_basis is None) != (lr_eigenvalues is None):
+        raise ValueError(
+            "lr_basis and lr_eigenvalues must be supplied together or both omitted"
+        )
+
     alpha = jnp.asarray(alpha, dtype=h.dtype)
     project = lambda v: v - h * jnp.dot(h, v)  # noqa: E731
-    c = project(c) + h
-    a = project(a) - alpha * h
+    c = project(jnp.asarray(c)) + h
+    a = project(jnp.asarray(a)) - alpha * h
+
+    if lr_basis is None:
+        lr_basis = jnp.zeros((h.size, 0), dtype=h.dtype)
+        lr_eigenvalues = jnp.zeros((0,), dtype=h.dtype)
+    else:
+        lr_basis = jnp.asarray(lr_basis)
+        lr_eigenvalues = jnp.asarray(lr_eigenvalues)
+        if lr_basis.ndim != 2 or lr_basis.shape[0] != h.size:
+            raise ValueError(
+                f"lr_basis must have shape ({h.size}, rank), got {lr_basis.shape}"
+            )
+        if lr_eigenvalues.shape != (lr_basis.shape[1],):
+            raise ValueError(
+                f"lr_eigenvalues shape {lr_eigenvalues.shape} does not match "
+                f"lr_basis rank {lr_basis.shape[1]}"
+            )
+        if lr_basis.shape[1] and not bool(jnp.all(lr_eigenvalues > 0)):
+            raise ValueError("lr_eigenvalues must be strictly positive")
+        active = np.asarray(lr_eigenvalues != 1.0)
+        if active.any():
+            u_active = lr_basis[:, jnp.asarray(active)]
+            gram = u_active.T @ u_active
+            off = float(
+                jnp.max(jnp.abs(gram - jnp.eye(gram.shape[0], dtype=gram.dtype)))
+            )
+            if off > 1e-8:
+                raise ValueError(
+                    "spectrally active lr_basis columns (lam != 1) must be "
+                    f"orthonormal; max |U^T U - I| = {off:.3e} on the active set. "
+                    "Neutral columns (lam == 1) are unconstrained."
+                )
 
     # Householder taking h to +-e_{d-1}; sign keyed on h[-1] for stability.
     e = jnp.zeros_like(h).at[-1].set(jnp.where(h[-1] >= 0, 1.0, -1.0))
     u = h + e
     u = u / jnp.linalg.norm(u)
-
-    if lr_basis is None:
-        lr_basis = jnp.zeros((h.size, 0), dtype=h.dtype)
-        lr_eigenvalues = jnp.zeros((0,), dtype=h.dtype)
     return Chart(h, a, c, alpha, center, scale, u, lr_basis, lr_eigenvalues)

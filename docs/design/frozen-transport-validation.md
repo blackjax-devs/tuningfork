@@ -111,10 +111,10 @@ questions and this artifact tests none of them.
 | file | what it establishes |
 |---|---|
 | `test_chart_algebra.py` | structural identities, exact log-Jacobian against `slogdet(jacfwd)`, two-sided inverse, supplied score against a non-hooked reference, score pullback invertibility — diagonal and low-rank |
-| `test_chart_mutants.py` | seven wrong-chart mutants, each executed, with the exact gate pattern each triggers |
+| `test_chart_mutants.py` | finite-aware gates against a valid chart, a wrong log-determinant, a wrong score, non-finite providers, and an omitted-normalisation defect |
 | `test_chart_refuters.py` | identity, pure-linear, rotated, non-normal generator, and the exact-funnel structure above |
-| `test_phi_precision.py` | selects the `phi` crossover per dtype by measured value and derivative error |
-| `test_chart_conditioning.py` | empirical conditioning indicator and the silent-failure band |
+| `test_phi_precision.py` | checks values AND derivatives against an independent 60-digit oracle at named points: zero, small arguments, both sides of each crossover, and a large-argument cancellation |
+| `test_chart_conditioning.py` | records the clock residual as a runtime diagnostic; asserts availability, not a degradation threshold |
 
 Two methodological points that the tests encode rather than assume:
 
@@ -135,27 +135,57 @@ the score) and `M5` (drop the rank-one term from the field). Both pass the
 log-determinant and round-trip gates and are caught **only** by the independent
 score gate — which is why that gate is mandatory rather than a convenience.
 
-## Numerical range
+## Numerical range, and what is not claimed
 
-The flow carries a factor `exp(alpha * clock)`, so far along the clock the score
-contracts exponentially large quantities whose true value is small. Accuracy is
-lost well before anything overflows. Measured with a float32-vs-float64 ladder on
-the funnel chart, the score is accurate to float32 rounding up to
-`alpha * clock ~ 15`, is wrong by `O(1)` relative at `alpha * clock ~ 20` while
-every component is still **finite**, and only becomes non-finite around
-`alpha * clock ~ 40`.
+The flow carries a factor `exp(alpha * clock)`, and `h . z` is recovered from a
+difference of two such terms. So the **clock coordinate** loses accuracy with the
+clock while the rest of the flow stays at dtype precision. Two consequences, both
+established by independent review rather than asserted here:
 
-The practical consequence is that a reject-on-NaN guard cannot detect this
-failure: across a wide band the chart returns finite, ordinary-looking numbers
-that are wrong by orders of magnitude. A useful guard has to be derived from the
-chart parameters rather than inferred from the returned values.
+**The residual is a runtime diagnostic.** The unit-clock-rate identity says
+`h . z` equals `t` exactly, so `|h . z - t|` measures the damage directly. It is
+one dot product over quantities `forward` already computes. An earlier version of
+this document said a useful guard "has to be derived from the chart parameters
+rather than inferred from the returned values". That was wrong: it cannot be a
+*finiteness* check, but it need not come from the parameters either.
 
-`exp(alpha * clock)` is offered as an **empirical indicator** that orders the
-accurate band against the corrupted one. It is not a certified bound: that would
-need a derivation covering the chart parameters, the coordinates, the dtype, the
-conditioning of the target's own score, and the error scale. The overflow point
-quoted above is a property of these parameters and this dtype pair, not a
-universal domain limit.
+**A projection repairs it, and is not shipped.** `z <- z + h (t - h . z)`
+displaces by exactly the residual, so it is a no-op on a correct value and exact
+in real arithmetic. It is documented, not adopted: it changes the implemented
+forward map, so adopting it needs its own map / inverse / Jacobian / score
+verification across rotated `h`, non-normal generators and low-rank
+preconditioners. A good round trip alone cannot certify it.
+
+**Severity belongs to the (chart, target) pair, not the chart.** An isotropic
+Gaussian's score is `-q`, with no exponential clock dependence, so its score stays
+accurate even when the clock coordinate has been destroyed. The funnel is
+therefore load-bearing as the probe target in
+`test_chart_conditioning.py`, and swapping it for a tamer target would certify a
+chart whose clock coordinate is annihilated.
+
+**No conditioning bound is claimed**, and no "intrinsic" degradation: a removable
+cancellation is not a barrier. Nothing here is a certified bound, which would need
+a derivation covering the chart parameters, coordinates, dtype, the conditioning
+of the target's own score, and the error scale.
+
+## Supported inputs
+
+`make_chart` **projects** `h`, `c` and `a` onto the structural constraints, and
+**refuses** what it cannot repair: zero `h`; zero or mis-shaped `scale`; a
+low-rank basis supplied without eigenvalues or with mismatched rank;
+non-positive eigenvalues; and non-orthonormal **spectrally active** columns.
+
+Orthonormality is scoped to active columns (`lam != 1`) deliberately. Neutral
+columns contribute exactly zero to `_lowrank` at every power and zero to the
+log-determinant, so requiring them to be orthonormal would refuse legitimate
+inputs. Active columns need orthonormality, not merely orthogonality.
+
+`log_det` is a log-**absolute** determinant, so a negative `scale` entry is
+supported: it flips orientation without changing the volume element.
+
+`phi` serves **float32 and float64 only**. Half precisions raise rather than fall
+back, because the shipped crossover is measurably the *worst* available choice for
+them — a silent fallback would be actively harmful, not merely unsupported.
 
 ## Cost
 
@@ -169,5 +199,12 @@ fresh-cache costs visible.
 
 `CONVENTION_VERSION = "frozen-transport-chart/v1"` fixes the clock-last
 coordinate order, the reflector orientation keyed on `h[-1]`, and the per-dtype
-`phi` crossover. Earlier exploratory implementations used a clock-first order and a
+`phi` crossover.
+
+**v1 still names the shipped behaviour.** The repairs in this revision — the
+log-absolute determinant, the clamped series branch, the refused half precisions,
+the enforced input contract — change results only where the previous code
+returned NaN or served an unsupported dtype. None changes the map for a valid
+input. Adopting the clock projection *would* be a convention change, which is one
+reason it is documented rather than shipped. Earlier exploratory implementations used a clock-first order and a
 different reflector; **no bitwise equivalence with it is claimed or intended.**

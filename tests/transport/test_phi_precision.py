@@ -11,192 +11,138 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The ``phi`` crossover is SELECTED by measurement here, per dtype.
+"""``phi`` against an independent oracle, at named points, values and derivatives.
 
-Two earlier exploratory implementations used different crossovers (1e-4 with
-5 terms; 1e-3 with 6 terms).  Neither is adopted by vote.  This module measures value and
-derivative error against an extended-precision oracle in both supported dtypes
-and asserts the constants in :mod:`tuningfork.transport._phi` are the better
-choice — including the finding that **no single threshold serves both dtypes**.
+An earlier version of this module asserted per-dtype "measured floors" and ran a
+competition between the shipped crossover and historical ones.  Both are gone.
+The floors were maxima over a sampled grid and independent review found points
+exceeding them; a grid maximum is a lower bound on the worst case, so promoting
+one to a "floor" was wrong in kind, not by a factor.  And a regression suite is
+the wrong home for a threshold competition: it re-litigates a past decision on
+every run without protecting anything.
 
-Two measurement traps are handled explicitly, because falling into either
-produces a test that looks strict and asserts nothing real:
+What remains is a check that the shipped function agrees with an independent
+extended-precision oracle at points chosen because they fail *differently*:
+zero, small arguments in the series branch, **both sides of each supported
+crossover**, and a large-argument case where the direct branch cancels.  The
+tolerances below are test thresholds.  They are not claims about ``phi``.
 
-* **The oracle must be hybrid.**  Evaluating ``(e^x - 1 - x)/x^2`` in float128 at
-  ``|x| ~ 1e-11`` cancels to a relative error near ``1e-12`` — worse than the
-  float64 implementation under test.  Below ``|x| = 0.5`` the oracle therefore
-  uses its own extended-precision series.
-* **The comparison must use the shipped code path.**  A numpy stand-in disagrees
-  with the JAX implementation in float32 (different ``expm1``), and is flat
-  exactly where the real crossover matters.  :func:`_shipped_style` mirrors the
-  module's own ``jnp`` operations with a settable threshold.
+The oracle is built from ``decimal`` at 60 digits and shares no code path with
+the module: notably it does not use ``numpy.longdouble``, whose closed form
+cancels worse than float64 near the origin — which is why a longdouble oracle
+must be hybrid and why this one sidesteps the issue by carrying more digits.
 """
+
+from decimal import Decimal, getcontext
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tuningfork.transport._phi import SERIES_TERMS, SERIES_THRESHOLD, phi
+from tests.transport import x64_scope
+from tuningfork.transport._phi import SERIES_THRESHOLD, SUPPORTED_DTYPES, phi
 
-pytestmark = pytest.mark.fast
+pytestmark = pytest.mark.slow
 
-jax.config.update("jax_enable_x64", True)
+use_x64 = pytest.fixture(autouse=True, scope="module")(x64_scope)
 
-Q = np.longdouble
-_ORACLE_OK = np.finfo(Q).eps < 1e-18
-_ORACLE_SERIES_CUTOFF = 0.5
-_ORACLE_TERMS = 60
-
-PRIOR_CROSSOVERS = [(1e-4, "prior 1e-4"), (1e-3, "prior 1e-3")]
-
-
-def _factorial(n):
-    out = Q(1)
-    for i in range(2, n + 1):
-        out *= i
-    return out
-
-
-_INV_FACT = [Q(1) / _factorial(n) for n in range(_ORACLE_TERMS + 4)]
+getcontext().prec = 60
 
 
 def _oracle(x):
-    """``(phi1, phi2)`` in extended precision, series below the cutoff."""
-    xq = Q(x)
-    if abs(float(xq)) < _ORACLE_SERIES_CUTOFF:
-        p1 = p2 = Q(0)
-        for k in range(_ORACLE_TERMS - 1, -1, -1):
-            p1 = p1 * xq + _INV_FACT[k + 1]
-            p2 = p2 * xq + _INV_FACT[k + 2]
-        return p1, p2
-    e = np.expm1(xq)
-    return e / xq, (e - xq) / (xq * xq)
+    """(phi1, phi2, phi1', phi2') in 60-digit decimal, by series everywhere.
 
-
-def _oracle_derivative(x):
-    """``(phi1', phi2')`` in extended precision, same hybrid split."""
-    xq = Q(x)
-    if abs(float(xq)) < _ORACLE_SERIES_CUTOFF:
-        d1 = d2 = Q(0)
-        for k in range(_ORACLE_TERMS - 1, 0, -1):
-            d1 = d1 * xq + Q(k) * _INV_FACT[k + 1]
-            d2 = d2 * xq + Q(k) * _INV_FACT[k + 2]
-        return d1, d2
-    e = np.exp(xq)
-    em1 = np.expm1(xq)
-    return (e * (xq - 1) + 1) / (xq * xq), (em1 * xq - 2 * (em1 - xq)) / xq**3
-
-
-def _shipped_style(x, threshold, dtype):
-    """The module's own computation with a settable threshold, same jnp ops."""
-    x = jnp.asarray(x, dtype=dtype)
-    small = jnp.abs(x) < threshold
-    safe = jnp.where(small, jnp.ones_like(x), x)
-    em1 = jnp.expm1(x)
-    direct1, direct2 = em1 / safe, (em1 - x) / (safe * safe)
-    series1 = series2 = jnp.zeros_like(x)
-    for k in range(SERIES_TERMS - 1, -1, -1):
-        series1 = series1 * x + float(_INV_FACT[k + 1])
-        series2 = series2 * x + float(_INV_FACT[k + 2])
-    return jnp.where(small, series1, direct1), jnp.where(small, series2, direct2)
-
-
-def _grid():
-    xs = np.concatenate([np.geomspace(1e-11, 1e-1, 40), np.geomspace(1e-1, 30.0, 40)])
-    return np.concatenate([xs, -xs])
-
-
-def _worst(threshold, dtype):
-    worst = 0.0
-    for x in _grid():
-        o1, o2 = _oracle(x)
-        v1, v2 = _shipped_style(x, threshold, dtype)
-        worst = max(
-            worst,
-            float(abs(Q(float(v1)) - o1) / abs(o1)),
-            float(abs(Q(float(v2)) - o2) / abs(o2)),
-        )
-    return worst
-
-
-skip_no_oracle = pytest.mark.skipif(
-    not _ORACLE_OK, reason="numpy.longdouble is not extended precision"
-)
-
-
-@skip_no_oracle
-@pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=["float32", "float64"])
-def test_chosen_threshold_beats_both_prior_crossovers(dtype):
-    """The selection criterion, executed — not an appeal to precedent."""
-    chosen = SERIES_THRESHOLD[np.dtype(dtype).name]
-    got = {label: _worst(t, dtype) for t, label in PRIOR_CROSSOVERS}
-    got["chosen"] = _worst(chosen, dtype)
-    report = "  ".join(f"{k}={v:.2e}" for k, v in got.items())
-    for _, label in PRIOR_CROSSOVERS:
-        assert got["chosen"] < got[label], report
-
-
-@skip_no_oracle
-def test_no_single_threshold_serves_both_dtypes():
-    """Why the threshold is a per-dtype mapping and not one constant.
-
-    Each dtype is measurably worse at the other's optimum, so a single shared
-    constant would silently degrade one of them.
+    The series converges for every argument used here and avoids the
+    cancellation a closed form would suffer near zero.
     """
-    t32 = SERIES_THRESHOLD["float32"]
-    t64 = SERIES_THRESHOLD["float64"]
-    assert t32 != t64
-
-    f32_at_own, f32_at_other = _worst(t32, np.float32), _worst(t64, np.float32)
-    f64_at_own, f64_at_other = _worst(t64, np.float64), _worst(t32, np.float64)
-    assert f32_at_own < f32_at_other, f"float32 {f32_at_own:.2e} vs {f32_at_other:.2e}"
-    assert f64_at_own < f64_at_other, f"float64 {f64_at_own:.2e} vs {f64_at_other:.2e}"
-
-
-@skip_no_oracle
-@pytest.mark.parametrize(
-    ("dtype", "tol"),
-    [(np.float32, 1.5e-6), (np.float64, 1e-14)],
-    ids=["float32", "float64"],
-)
-def test_shipped_phi_value_error_is_at_its_measured_floor(dtype, tol):
-    """VALUE test of the actual shipped function.
-
-    Measured floors: float32 8.77e-07 (intrinsic), float64 3.77e-15.
-    """
-    worst1 = worst2 = 0.0
-    for x in _grid():
-        p1, p2 = phi(jnp.asarray(x, dtype=dtype))
-        o1, o2 = _oracle(x)
-        worst1 = max(worst1, float(abs(Q(float(p1)) - o1) / abs(o1)))
-        worst2 = max(worst2, float(abs(Q(float(p2)) - o2) / abs(o2)))
-    assert worst1 < tol, f"phi1 worst rel err {worst1:.2e}"
-    assert worst2 < tol, f"phi2 worst rel err {worst2:.2e}"
+    xd = Decimal(repr(float(x)))
+    p1 = p2 = d1 = d2 = Decimal(0)
+    fact = Decimal(1)
+    for k in range(0, 80):
+        if k:
+            fact *= k
+        f1 = fact * (k + 1)
+        f2 = fact * (k + 1) * (k + 2)
+        xk = xd**k
+        p1 += xk / f1
+        p2 += xk / f2
+        if k:
+            d1 += k * xd ** (k - 1) / f1
+            d2 += k * xd ** (k - 1) / f2
+    return p1, p2, d1, d2
 
 
-@skip_no_oracle
-def test_shipped_phi_derivative_error_is_at_its_measured_floor():
-    """DERIVATIVE test — the crossover must not introduce a gradient artefact.
+def _named_points(dtype):
+    """Points chosen to fail differently, not a mesh."""
+    t = SERIES_THRESHOLD[np.dtype(dtype).name]
+    return [
+        (0.0, "zero"),
+        (1e-8, "tiny: direct form would cancel"),
+        (-1e-8, "tiny negative"),
+        (t * 0.5, "series side of the crossover"),
+        (t * 0.99, "series side, at the crossover"),
+        (t * 1.01, "direct side, at the crossover"),
+        (-t * 1.01, "direct side, negative"),
+        (t * 3.0, "direct side, comfortably outside"),
+        (12.0, "large positive: direct form, no cancellation"),
+        (-12.0, "large negative: direct form cancels against x"),
+    ]
 
-    ``phi2'`` is the least accurate quantity in the module: just above the
-    crossover the direct branch already cancels ~1.5 digits in the value and AD
-    compounds it.  ``2.4e-13`` is the measured float64 floor, located at
-    ``x = -0.1``; the bound below is that floor, not slack.
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=SUPPORTED_DTYPES)
+def test_values_and_derivatives_agree_with_an_independent_oracle(dtype):
+    """Values AND derivatives, both dtypes, at each named point."""
+    tol = {np.float32: 2e-5, np.float64: 1e-11}[dtype]
+    d1 = jax.grad(lambda z: phi(z)[0])
+    d2 = jax.grad(lambda z: phi(z)[1])
+    for x, why in _named_points(dtype):
+        xa = jnp.asarray(x, dtype=dtype)
+        got = (phi(xa)[0], phi(xa)[1], d1(xa), d2(xa))
+        want = _oracle(x)
+        for value, expected, label in zip(
+            got, want, ("phi1", "phi2", "phi1'", "phi2'")
+        ):
+            assert jnp.isfinite(value), f"{label} not finite at {x} ({why})"
+            scale = max(abs(float(expected)), 1e-3)
+            err = abs(float(value) - float(expected)) / scale
+            assert err < tol, f"{label} rel err {err:.2e} at x={x} ({why})"
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=SUPPORTED_DTYPES)
+def test_gradients_stay_finite_where_the_value_is_finite(dtype):
+    """A finite value does not imply a finite gradient.
+
+    The series branch's Horner recurrence overflows for large ``|x|``, and under
+    ``jnp.where`` an ``inf - inf`` tangent in the *unselected* branch poisons the
+    selected one.  Clamping the series argument is what prevents it; without the
+    clamp these points return NaN gradients on an exactly correct value.
     """
     d1 = jax.grad(lambda z: phi(z)[0])
     d2 = jax.grad(lambda z: phi(z)[1])
-    worst1 = worst2 = 0.0
-    for x in _grid():
-        o1, o2 = _oracle_derivative(x)
-        worst1 = max(worst1, float(abs(Q(float(d1(x))) - o1) / abs(o1)))
-        worst2 = max(worst2, float(abs(Q(float(d2(x))) - o2) / abs(o2)))
-    assert worst1 < 1e-14, f"phi1' worst rel err {worst1:.2e}"
-    assert worst2 < 4e-13, f"phi2' worst rel err {worst2:.2e}"
+    big = {np.float32: [1e3, -1e3, 1e6, -1e6], np.float64: [1e6, -1e6, 1e30, -1e30]}[
+        dtype
+    ]
+    for x in big:
+        xa = jnp.asarray(x, dtype=dtype)
+        assert jnp.all(jnp.isfinite(jnp.asarray(phi(xa)))), f"value not finite at {x}"
+        assert jnp.isfinite(d1(xa)), f"phi1' not finite at {x}"
+        assert jnp.isfinite(d2(xa)), f"phi2' not finite at {x}"
 
 
-def test_phi_and_its_derivative_are_finite_at_the_origin():
-    """The unused direct branch must not poison the value or the tangent."""
+def test_unsupported_dtypes_are_refused():
+    """Half precisions are rejected, not served with a float64 threshold.
+
+    Measurement showed the float64 crossover is the *worst* available choice for
+    bfloat16, so a silent fallback would be actively harmful.
+    """
+    for dtype in (jnp.bfloat16, jnp.float16):
+        with pytest.raises(TypeError, match="supports"):
+            phi(jnp.asarray(0.5, dtype=dtype))
+
+
+def test_origin_is_exact_in_value_and_derivative():
+    """The clamped direct branch must not poison the series branch at x = 0."""
     p1, p2 = phi(jnp.asarray(0.0))
     assert float(p1) == 1.0 and float(p2) == 0.5
     assert abs(float(jax.grad(lambda z: phi(z)[0])(0.0)) - 0.5) < 1e-15
