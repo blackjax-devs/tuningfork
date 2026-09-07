@@ -318,7 +318,20 @@ def test_generated_program_payload_matches_the_direct_public_call(tmp_path) -> N
     be produced here -- a check that only inspects emitted source, or only
     asserts properties of the public result, compares nothing.
 
-    Semantic fidelity only.  This is not a convergence claim.
+    SCOPE, deliberately narrow. This measures WARMUP-PAYLOAD fidelity: what
+    the generated program published versus what the public call published. It
+    is NOT measured sampling-phase fidelity -- that the sampler then consumes
+    the published metric rests on the emission assertion in
+    test_joint_emission_is_one_shared_controller_not_a_vmap, not on a
+    measurement here. Do not describe this test as end-to-end sampling parity.
+    It is also not a convergence claim: one model, one seed, no replication.
+
+    ON THE EXACT EQUALITY BELOW. Both sides run the same JAX ops with the same
+    seeds on CPU, so equality is deterministic in practice and has held across
+    processes. It is empirical, not guaranteed. If it ever fails, CLASSIFY the
+    failure before touching the assertion -- a genuine payload divergence and a
+    last-bit XLA difference are different defects, and only the second would
+    justify a tolerance. Loosening equality first would hide the first case.
     """
     import blackjax
     import jax
