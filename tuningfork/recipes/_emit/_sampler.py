@@ -130,11 +130,24 @@ def _validate_low_rank_marker(
         )
     import numpy as np
 
-    gram = np.asarray(basis, dtype=float).T @ np.asarray(basis, dtype=float)
-    if not np.allclose(gram, np.eye(len(lam)), rtol=1e-5, atol=1e-6):
-        raise ValueError(
-            "Malformed low-rank inverse mass marker: U columns must be orthonormal"
-        )
+    # Orthonormality constrains the ACTIVE subspace only, keyed on lam -- the
+    # same rule as _execution_telemetry._validate_low_rank, and it must stay in
+    # step with it. A column with lam == 1 exactly contributes nothing to
+    # U(diag(lam)-I)U^T, so its orientation is unconstrained; the public
+    # meta-adaptation controller publishes exactly such columns (rank-zero: all
+    # zeros with lam all 1; T-branch: a unit-norm slow direction beside inert
+    # columns from a different basis that are NOT mutually orthogonal).
+    # Checking every column here would let a joint recipe record a passing
+    # attempt that could never be replayed.
+    active = [j for j, value in enumerate(lam) if value != 1.0]
+    if active:
+        columns = np.asarray(basis, dtype=float)[:, active]
+        gram = columns.T @ columns
+        if not np.allclose(gram, np.eye(len(active)), rtol=1e-5, atol=1e-6):
+            raise ValueError(
+                "Malformed low-rank inverse mass marker: active (lam != 1) U "
+                "columns must be orthonormal"
+            )
     return sigma, basis, lam
 
 

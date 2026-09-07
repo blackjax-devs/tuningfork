@@ -35,18 +35,29 @@
 #     joint program; asserts a usable shared step size and a clean sample.
 #   * joint_run_with_per_chain_init_strategy_executes — launches the generated
 #     joint program with dispersed per-chain starts.
-#   * w1_generated_program_runs_on_any_supported_blackjax — launches a
-#     generated program, but deliberately NOT joint (W=1 passes no n_chains).
-#     It guards portability, not the joint topology.
 #   * short_warmup_degenerates_the_controller_schedule — pure upstream
 #     behaviour, in-process, no tuningfork codegen involved. It pins a recorded
 #     observation so it stays visible; it gates nothing about emission.
-# So three of the five gate the generated joint path.
+# So three of the four gate the generated joint path.
+#
+# W=1 portability is deliberately NOT here. It documents itself as running
+# against the ordinary bench sync, which this job has overlaid, and test-e2e
+# already covers it under a path filter that includes tests/recipes/**.
 
 name: joint-staged-auto
 
+# Path-filtered, matching the convention test-e2e.yml states explicitly: a full
+# uv sync, a second upstream checkout, an editable install and several JAX
+# subprocesses should not run on a docs-only PR.
 on:
   pull_request:
+    paths:
+      - "tuningfork/recipes/**"
+      - "tuningfork/warmup/**"
+      - "tuningfork/catalog/**"
+      - "tests/recipes/**"
+      - ".github/workflows/joint-staged-auto.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
 
 # Default read-only token; no secrets are used and nothing is published.
@@ -62,6 +73,11 @@ concurrency:
 env:
   BLACKJAX_PINNED_SHA: 9e128d20635e46ffbc57ff9fb344cfe3e95d89a3
   BLACKJAX_PINNED_PATH: ${{ github.workspace }}/.ci-blackjax-pinned
+  # Job-level so a step added later cannot re-sync and silently reinstall the
+  # released blackjax over the pinned overlay. The `uv sync` step below runs
+  # before the overlay exists and passes its group explicitly, so it is
+  # unaffected.
+  UV_NO_SYNC: "1"
 
 jobs:
   joint-staged-auto:
@@ -108,13 +124,10 @@ jobs:
       # inside the pinned checkout, that checkout's HEAD equals the pinned SHA,
       # and that staged_adaptation actually accepts n_chains.
       - name: Verify pinned provenance and n_chains capability
-        env:
-          UV_NO_SYNC: "1"
         run: uv run --no-sync python .github/scripts/verify_joint_controller_env.py
 
-      # UV_NO_SYNC + --no-sync from here on: a re-sync would silently reinstall
-      # released BlackJAX over the overlay. Generated programs are launched with
-      # the venv interpreter directly, never through uv.
+      # Generated programs are launched with the venv interpreter directly,
+      # never through uv, so they cannot trigger a re-sync of their own.
       #
       # Child identity is MEASURED, not inferred. The emitted capability guard
       # only proves the child could call the joint controller — it does not say
@@ -125,15 +138,20 @@ jobs:
       - name: Required cases (3 joint generated-program, 1 portability, 1 upstream pin)
         env:
           JAX_PLATFORM_NAME: cpu
-          UV_NO_SYNC: "1"
           TUNINGFORK_REQUIRE_JOINT_CONTROLLER: "1"
         run: |
-          uv run --no-sync pytest \
-            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_generated_program_payload_matches_the_direct_public_call" \
-            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_short_warmup_degenerates_the_controller_schedule" \
-            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_small_joint_run_executes_and_samples_cleanly" \
-            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_joint_run_with_per_chain_init_strategy_executes" \
-            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_w1_generated_program_runs_on_any_supported_blackjax" \
+          # The expected count is derived from this list, never typed twice --
+          # a case added here is gated automatically, and one removed cannot
+          # leave a stale literal behind.
+          MODULE=tests/recipes/test_staged_adaptation_auto_codegen.py
+          ids=(
+            "$MODULE::test_generated_program_payload_matches_the_direct_public_call"
+            "$MODULE::test_small_joint_run_executes_and_samples_cleanly"
+            "$MODULE::test_joint_run_with_per_chain_init_strategy_executes"
+            "$MODULE::test_short_warmup_degenerates_the_controller_schedule"
+          )
+          echo "REQUIRED_CASE_COUNT=${#ids[@]}" >> "$GITHUB_ENV"
+          uv run --no-sync pytest "${ids[@]}" \
             -p no:cacheprovider \
             -n 0 \
             -q \
@@ -141,7 +159,7 @@ jobs:
 
       - name: Assert every required case executed
         if: always()
-        run: python .github/scripts/assert_joint_gate_executed.py joint-gate.xml 5
+        run: python3 .github/scripts/assert_joint_gate_executed.py joint-gate.xml "$REQUIRED_CASE_COUNT"
 
       - name: Upload gate report
         if: always()

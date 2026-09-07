@@ -490,3 +490,141 @@ def test_existing_finite_positive_and_dimension_checks_are_unchanged() -> None:
         _validate_low_rank(_low_rank(zeros, [1.0]))
     with pytest.raises(ValueError, match="sigma dimension or rank"):
         _validate_low_rank(_low_rank(zeros, [1.0, 1.0], sigma=(1.0, 1.0)))
+
+
+# ---------------------------------------------------------------------------
+# The real published T-branch payload
+#
+# CAPTURED output, not a shape reconstructed from source. Produced by the
+# deterministic in-tree core replay (no sampler) on blackjax branch
+# geodesic-learning-telemetry at pin d4c46cecfc9aa134540c18d9c5390e4bd979408d
+# (draft PR #1032):
+#
+#   core  = build_multi_chain_meta_core(40000, 8, telemetry=True,
+#                                       full_matrices=True)
+#   draws, grads = _make_mc_even_spread(8, 60, 6)
+#   state = _fill_mc_state(core.init(6), draws, grads)
+#   imm   = core.final(state).publication.deployed_full
+#
+# Outcome at that window: branch_fired_this_window=2 (T),
+# deployed_metric_route=2 (T). d=6, rank 3, float32 throughout.
+# sha256(U.tobytes() + lam.tobytes() + sigma.tobytes()) =
+#   3aec4b892c388dc5d23776886832604c78cb8575005e346610c10483b15cec87
+#
+# Full float32 repr, retyped from the capture rather than a rounded table, so
+# the fixture is byte-faithful. Literal arrays: this regression needs no
+# blackjax import and no compute.
+#
+# Its measured properties are exactly what the whole-U rule gets wrong: all
+# three columns are unit-norm, ||U'U - I||_max = 0.7878 so they are NOT
+# mutually orthogonal, and only one lam is non-unit. The dense reconstruction
+# is symmetric with min eigenvalue 1.0 -- SPD, a valid metric.
+# ---------------------------------------------------------------------------
+
+_T_BRANCH_SIGMA = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+_T_BRANCH_LAM = [11.917022705078125, 1.0, 1.0]
+_T_BRANCH_U = [
+    [-0.9999057650566101, 0.1612187623977661, -0.7918498516082764],
+    [-0.004917052574455738, 0.07621265947818756, -0.20642785727977753],
+    [0.009963085874915123, 0.2536298632621765, -0.3456045389175415],
+    [0.003090420039370656, -0.8545103669166565, -0.08089739084243774],
+    [0.0064711919985711575, -0.16315369307994843, 0.06057322397828102],
+    [-0.0036927468609064817, 0.3834904134273529, 0.4480012059211731],
+]
+
+
+def _t_branch_marker() -> dict:
+    return _low_rank(_T_BRANCH_U, _T_BRANCH_LAM, _T_BRANCH_SIGMA)
+
+
+def test_real_t_branch_payload_has_the_properties_that_break_a_whole_u_rule() -> None:
+    """Pin the captured payload's shape, so this fixture cannot drift silently."""
+    import numpy as np
+
+    U = np.asarray(_T_BRANCH_U)
+    gram = U.T @ U
+    np.testing.assert_allclose(np.linalg.norm(U, axis=0), np.ones(3), atol=1e-5)
+    # measured on the capture: ||U'U - I||_max = 0.7878345847129822
+    np.testing.assert_allclose(
+        np.abs(gram - np.eye(3)).max(), 0.7878345847129822, rtol=1e-6, atol=1e-6
+    )
+    assert sum(1 for value in _T_BRANCH_LAM if value != 1.0) == 1
+
+
+def test_real_t_branch_payload_is_accepted_by_the_telemetry_validator() -> None:
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    _validate_low_rank(_t_branch_marker())
+
+
+def test_real_t_branch_payload_is_spd_and_matches_the_logdet_identity() -> None:
+    """It is a correct metric, so rejecting it would be the validator's error."""
+    import numpy as np
+
+    dense = _assemble(_t_branch_marker())
+    np.testing.assert_allclose(dense, dense.T, atol=1e-6)
+    assert float(np.linalg.eigvalsh(dense).min()) > 0.0
+    np.testing.assert_allclose(
+        float(np.linalg.slogdet(dense)[1]),
+        2.0 * float(np.sum(np.log(_T_BRANCH_SIGMA)))
+        + float(np.sum(np.log(_T_BRANCH_LAM))),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_two_non_unit_lam_on_non_orthogonal_columns_is_still_rejected() -> None:
+    """The case genuinely worth rejecting: it breaks the determinant identity.
+
+    Making a second column active while leaving it non-orthogonal to the first
+    means logdet no longer reduces to 2*sum(log sigma) + sum(log lam), so the
+    factorised and assembled readings disagree.  The validator must catch this
+    even though the payload differs from the accepted one only in lam.
+    """
+    import numpy as np
+
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    malformed = _low_rank(_T_BRANCH_U, [11.917023, 2.5, 1.0], _T_BRANCH_SIGMA)
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank(malformed)
+
+    # Demonstrate WHY: the identity the accepted payload satisfies fails here.
+    dense_logdet = float(np.linalg.slogdet(_assemble(malformed))[1])
+    closed_form = 2.0 * float(np.sum(np.log(_T_BRANCH_SIGMA))) + float(
+        np.sum(np.log(malformed["lam"]))
+    )
+    assert abs(dense_logdet - closed_form) > 1e-3
+
+
+def test_all_three_low_rank_validators_agree_on_the_real_payload() -> None:
+    """The three copies of this rule must not drift apart.
+
+    Telemetry validated a joint attempt while the sampler-emit and pinned-replay
+    guards rejected the same payload, which recorded evidence that could never
+    be replayed.  This asserts all three accept the captured payload and all
+    three reject the malformed one.
+    """
+    import numpy as np
+
+    from tuningfork.catalog import _rerun_inference
+    from tuningfork.recipes._emit._sampler import _validate_low_rank_marker
+    from tuningfork.recipes._execution_telemetry import _validate_low_rank
+
+    marker = _t_branch_marker()
+    _validate_low_rank(marker)
+    _validate_low_rank_marker(marker)
+
+    basis = np.asarray(_T_BRANCH_U)
+    lam = np.asarray(_T_BRANCH_LAM)
+    active = np.flatnonzero(lam != 1.0)
+    active_basis = basis[:, active]
+    assert np.allclose(
+        active_basis.T @ active_basis, np.eye(active.size), rtol=1e-5, atol=1e-6
+    ), "the pinned-replay guard's active-subspace check must accept this"
+    assert hasattr(_rerun_inference, "prepare_pinned_replay")
+
+    with pytest.raises(ValueError, match="orthonormal"):
+        _validate_low_rank_marker(
+            _low_rank(_T_BRANCH_U, [11.917023, 2.5, 1.0], _T_BRANCH_SIGMA)
+        )

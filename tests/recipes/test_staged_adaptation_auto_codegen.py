@@ -50,6 +50,7 @@ WARMUP = "staged_adaptation_auto"
 # 1.6.2, so the runtime half of this module is capability-gated while the
 # descriptor / plan / emission half runs everywhere.
 _HAS_N_CHAINS = False
+_BLACKJAX_FILE = ""
 _BLACKJAX_ORIGIN = "<import failed>"
 try:  # pragma: no cover - import guard, not a branch under test
     import blackjax as _blackjax
@@ -57,7 +58,8 @@ try:  # pragma: no cover - import guard, not a branch under test
     _HAS_N_CHAINS = (
         "n_chains" in inspect.signature(_blackjax.staged_adaptation).parameters
     )
-    _BLACKJAX_ORIGIN = f"{_blackjax.__version__} from {_blackjax.__file__}"
+    _BLACKJAX_FILE = _blackjax.__file__
+    _BLACKJAX_ORIGIN = f"{_blackjax.__version__} from {_BLACKJAX_FILE}"
 except Exception:  # pragma: no cover - blackjax always present in this suite
     _HAS_N_CHAINS = False
 
@@ -77,6 +79,24 @@ if _REQUIRE_JOINT and not _HAS_N_CHAINS:  # pragma: no cover - CI gate path
         f"blackjax: {_BLACKJAX_ORIGIN}. The pinned-upstream overlay did not "
         "take effect, or a re-sync restored the released package."
     )
+
+# Tie THIS process's blackjax to the pin, in this process.  The CI verify step
+# pins its own interpreter, but that is a separate process; without this, the
+# in-test assertion that the child ran under this interpreter would chain to a
+# parent nothing here had pinned.  BLACKJAX_PINNED_PATH is a job-level env var,
+# so it is already visible to the pytest step; outside that job it is unset and
+# this check is inert.
+_PINNED_PATH = os.environ.get("BLACKJAX_PINNED_PATH")
+if _REQUIRE_JOINT and _PINNED_PATH:  # pragma: no cover - CI gate path
+    import pathlib as _pathlib
+
+    _pinned_root = _pathlib.Path(_PINNED_PATH).resolve()
+    _origin = _pathlib.Path(_BLACKJAX_FILE).resolve()
+    if _pinned_root not in _origin.parents:
+        raise RuntimeError(
+            f"this process imported blackjax from {_origin}, which is not under "
+            f"the pinned checkout {_pinned_root}"
+        )
 
 requires_joint_controller = pytest.mark.skipif(
     not _HAS_N_CHAINS,
@@ -436,7 +456,7 @@ def test_short_warmup_degenerates_the_controller_schedule() -> None:
 # launcher.  A successful joint run proves the child had the n_chains
 # CAPABILITY -- it does not by itself prove the child imported any particular
 # build, so identity is asserted separately from the execution receipt's
-# child-interpreter provenance.  See _assert_child_blackjax_is_the_parents.
+# child-interpreter provenance.  See _assert_child_ran_under_this_interpreter.
 # ---------------------------------------------------------------------------
 
 
