@@ -261,32 +261,33 @@ def test_float32_low_rank_chart_is_accepted():
     assert float(jnp.max(jnp.abs(chart.inverse(chart.forward(y)) - y))) < 1e-3
 
 
-def test_finite_basis_with_overflowing_gram_is_refused():
-    """The derived-quantity NaN path, which input finiteness cannot catch.
+def test_finite_but_overflowing_basis_is_refused():
+    """A basis whose entries are finite but whose Gram is not.
 
-    Every entry here is finite, so the ``lr_basis`` finiteness check passes.  But
-    an off-diagonal Gram entry is a signed sum: ``1e200 * 1e200`` overflows to
-    ``+inf`` and the mixed-sign partner to ``-inf``, and their sum is NaN, which
-    ``jnp.max`` propagates.  Written as ``off > tol`` the gate would accept this
-    basis, because ``NaN > tol`` is False.
+    Coverage limit, stated because it is easy to over-read.  This exercises
+    rejection of a finite-but-overflowing basis.  It does **not** guarantee
+    coverage of the NaN-only polarity path: on this backend the derived Gram
+    reduces to ``+inf``, and ``inf > tol`` is already True, so a gate written
+    with the unsafe polarity would reject this input too.  The polarity guard in
+    ``make_chart`` rests on the reasoning recorded beside it, not on this test.
 
-    Finiteness-before-comparison protects inputs and cannot protect a quantity
-    computed after they are cleared; the guard is the comparison's polarity.
+    The premise is asserted on the same dtype and backend the factory uses.
+    Whether the overflow reduces to ``inf`` or to ``NaN`` is not portable, so
+    only non-finiteness is required.
     """
     d = 4
-    basis = np.zeros((d, 2))
-    basis[0, 0] = 1e200
-    basis[1, 0] = 1e200
-    basis[0, 1] = 1e200
-    basis[1, 1] = -1e200
-    assert np.isfinite(basis).all(), "every entry must be finite"
-    # The overflow on this line is the premise, not an accident: it is how the
-    # NaN Gram entry is produced. pytest.ini turns warnings into errors, so it
-    # is suppressed here and ONLY here, around the one deliberately overflowing
-    # operation. The assertions either side of it are unchanged.
-    with np.errstate(over="ignore", invalid="ignore"):
-        gram = basis.T @ basis
-    assert np.isnan(gram).any(), "this basis must produce a NaN Gram entry"
+    raw = np.zeros((d, 2))
+    raw[0, 0] = 1e200
+    raw[1, 0] = 1e200
+    raw[0, 1] = 1e200
+    raw[1, 1] = -1e200
+    basis = jnp.asarray(raw)
+
+    assert bool(jnp.all(jnp.isfinite(basis))), "every entry must be finite"
+    gram = basis.T @ basis
+    assert not bool(
+        jnp.all(jnp.isfinite(gram))
+    ), "premise: derived Gram must be non-finite"
 
     h = jnp.zeros(d).at[-1].set(1.0)
     with pytest.raises(ValueError, match="orthonormal"):
@@ -297,6 +298,6 @@ def test_finite_basis_with_overflowing_gram_is_refused():
             0.2,
             jnp.zeros(d),
             jnp.ones(d),
-            jnp.asarray(basis),
+            basis,
             jnp.asarray([4.0, 0.25]),
         )
