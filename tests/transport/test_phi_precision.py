@@ -53,23 +53,27 @@ getcontext().prec = 60
 def _oracle(x):
     """(phi1, phi2, phi1', phi2') in 60-digit decimal, by series everywhere.
 
-    The series converges for every argument used here and avoids the
-    cancellation a closed form would suffer near zero.
+    Powers are accumulated iteratively rather than via ``**``.  ``Decimal(0) ** 0``
+    raises ``InvalidOperation``, so an exponent-based series errors at exactly the
+    point most worth testing.
     """
     xd = Decimal(repr(float(x)))
     p1 = p2 = d1 = d2 = Decimal(0)
-    fact = Decimal(1)
-    for k in range(0, 80):
+    x_pow = Decimal(1)  # x**k
+    x_prev = Decimal(0)  # x**(k-1), unused at k = 0
+    fact = Decimal(1)  # k!
+    for k in range(80):
         if k:
             fact *= k
-        f1 = fact * (k + 1)
-        f2 = fact * (k + 1) * (k + 2)
-        xk = xd**k
-        p1 += xk / f1
-        p2 += xk / f2
+        f1 = fact * (k + 1)  # (k+1)!
+        f2 = f1 * (k + 2)  # (k+2)!
+        p1 += x_pow / f1
+        p2 += x_pow / f2
         if k:
-            d1 += k * xd ** (k - 1) / f1
-            d2 += k * xd ** (k - 1) / f2
+            d1 += k * x_prev / f1
+            d2 += k * x_prev / f2
+        x_prev = x_pow
+        x_pow = x_pow * xd
     return p1, p2, d1, d2
 
 
