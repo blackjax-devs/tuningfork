@@ -115,6 +115,18 @@ _TIE_CAVEAT = (
 # deliberately separate from the three rank-normalised statistics.
 _STATISTICS = ("raw_mean_ess", "bulk_ess", "tail_ess", "rank_rhat")
 
+# Statistics that are counts of effective draws, and so divide meaningfully by a
+# cost.  ``rank_rhat`` is a convergence ratio, not a rate: neither "R-hat per
+# second" nor a ratio of two R-hats carries meaning, so both are withheld.
+_RATE_STATISTICS = ("raw_mean_ess", "bulk_ess", "tail_ess")
+
+#: Default tie fraction at or above which a row carries the backend caveat.
+#: A display threshold, not a correctness boundary -- ``tie_fraction`` is always
+#: reported numerically, whatever this is set to.  MCMC rejections leave a few
+#: repeated states in any chain; the rank-normalisation artefact this warns about
+#: only becomes material when a large share of the trace is tied.
+DEFAULT_TIE_CAVEAT_THRESHOLD = 0.01
+
 
 # ---------------------------------------------------------------------------
 # Named traces
@@ -305,7 +317,9 @@ class CostAccounting:
         budget = dict(getattr(recipe, "calibration_budget", None) or {})
         warmup = _opt_float(budget.get("warmup_wall_seconds"))
         sampling = _opt_float(budget.get("sampling_wall_seconds"))
-        total = warmup + sampling if warmup is not None and sampling is not None else None
+        total = (
+            warmup + sampling if warmup is not None and sampling is not None else None
+        )
 
         unknown: dict[str, str] = {
             "warmup_grad_evals": (
@@ -419,6 +433,7 @@ def _component_diagnostics(
     component: int | None,
     trace_cs: np.ndarray,
     backend: str,
+    tie_caveat_threshold: float = DEFAULT_TIE_CAVEAT_THRESHOLD,
 ) -> ExpectandDiagnostics:
     n_chains, n_draws = trace_cs.shape
     finite = bool(np.all(np.isfinite(trace_cs)))
@@ -466,13 +481,11 @@ def _component_diagnostics(
 
     stats = _backend_statistics(trace_cs, backend)
     undefined_reasons = {
-        stat: (
-            f"backend {backend!r} returned a non-finite value for this statistic"
-        )
+        stat: (f"backend {backend!r} returned a non-finite value for this statistic")
         for stat, val in stats.items()
         if val is None
     }
-    if tie_fraction > 0.0:
+    if tie_fraction >= tie_caveat_threshold:
         warns = (*warns, _TIE_CAVEAT)
 
     return ExpectandDiagnostics(
@@ -501,7 +514,9 @@ def _backend_statistics(trace_cs: np.ndarray, backend: str) -> dict[str, float |
         raw = _arviz_statistics(trace_cs)
     else:
         raise ValueError(f"backend must be one of {BACKENDS}, got {backend!r}")
-    return {k: (v if v is not None and np.isfinite(v) else None) for k, v in raw.items()}
+    return {
+        k: (v if v is not None and np.isfinite(v) else None) for k, v in raw.items()
+    }
 
 
 def _blackjax_statistics(trace_cs: np.ndarray) -> dict[str, float | None]:
@@ -630,7 +645,9 @@ class ExpectandReport:
         for component in CostAccounting.COMPONENTS:
             value = getattr(self.cost, component)
             if value is None:
-                lines.append(f"  {component}: unknown -- {self.cost.reason_for(component)}")
+                lines.append(
+                    f"  {component}: unknown -- {self.cost.reason_for(component)}"
+                )
             else:
                 lines.append(f"  {component}: {value}")
         for note in self.cost.notes:
@@ -651,6 +668,7 @@ def expectand_report(
     cost: CostAccounting | None = None,
     backend: str = DEFAULT_BACKEND,
     label: str = "unnamed",
+    tie_caveat_threshold: float = DEFAULT_TIE_CAVEAT_THRESHOLD,
 ) -> ExpectandReport:
     """Compose a named-expectand report from existing draws and diagnostics.
 
@@ -674,6 +692,11 @@ def expectand_report(
         unless x64 is enabled); the ArviZ backend computes in float64.
     label
         Name for this report, used when comparing two of them.
+    tie_caveat_threshold
+        Tie fraction at or above which a row carries the backend caveat.  A
+        display threshold only: ``tie_fraction`` is reported numerically on
+        every row regardless.  The default keeps the caveat off the handful of
+        repeated states any MCMC chain leaves behind after rejections.
 
     Returns
     -------
@@ -699,6 +722,7 @@ def expectand_report(
                     None if not event_shape else index,
                     flat[:, :, index],
                     backend,
+                    tie_caveat_threshold=tie_caveat_threshold,
                 )
             )
 
@@ -790,6 +814,12 @@ def compare_reports(
     both reports measured the corresponding cost; otherwise the row names the
     blocking components and reports ``None``.  A missing cost is never treated
     as zero, and no compile-time estimate is subtracted from either side.
+
+    ``rank_rhat`` is carried side by side but is neither ratioed nor
+    cost-normalised: it is a convergence ratio judged against its own threshold,
+    so "R-hat per second" and "candidate R-hat over baseline R-hat" are both
+    meaningless.  Only the ESS statistics in :data:`_RATE_STATISTICS` divide by a
+    cost.
     """
     unknown_statistics = [s for s in statistics if s not in _STATISTICS]
     if unknown_statistics:
@@ -805,8 +835,7 @@ def compare_reports(
         if report.cost.total_seconds is None
     )
     grads = {
-        report.label: _total_grad_evals(report.cost)
-        for report in (baseline, candidate)
+        report.label: _total_grad_evals(report.cost) for report in (baseline, candidate)
     }
     grad_blockers = tuple(
         f"{report.label}.{component} ({report.cost.reason_for(component)})"
@@ -820,12 +849,19 @@ def compare_reports(
         for statistic in statistics:
             base_val = base_map[label].value(statistic)
             cand_val = cand_map[label].value(statistic)
+            is_rate = statistic in _RATE_STATISTICS
             blocked: tuple[str, ...] = ()
             ratio: float | None = None
             if base_val is None:
                 blocked += (f"{baseline.label}.{label}.{statistic} undefined",)
             if cand_val is None:
                 blocked += (f"{candidate.label}.{label}.{statistic} undefined",)
+            if not is_rate:
+                blocked += (
+                    f"{statistic} is a convergence ratio, not a rate; a ratio "
+                    "of two values is not meaningful -- read each against its "
+                    "own threshold",
+                )
             if not blocked:
                 assert base_val is not None and cand_val is not None
                 if base_val == 0.0:
@@ -836,7 +872,11 @@ def compare_reports(
             per_second: tuple[float | None, float | None] | None = None
             per_grad: tuple[float | None, float | None] | None = None
             cost_blocked: tuple[str, ...] = ()
-            if not blocked:
+            if not is_rate:
+                cost_blocked += (
+                    f"{statistic} is not a rate; cost normalisation does not " "apply",
+                )
+            elif base_val is not None and cand_val is not None:
                 if seconds_blockers:
                     cost_blocked += seconds_blockers
                 else:
@@ -870,8 +910,8 @@ def compare_reports(
         candidate_label=candidate.label,
         rows=tuple(rows),
         cost_blockers=tuple(dict.fromkeys(seconds_blockers + grad_blockers)),
-        only_in_baseline=tuple(l for l in base_map if l not in cand_map),
-        only_in_candidate=tuple(l for l in cand_map if l not in base_map),
+        only_in_baseline=tuple(key for key in base_map if key not in cand_map),
+        only_in_candidate=tuple(key for key in cand_map if key not in base_map),
         backend_mismatch=(
             None
             if baseline.backend == candidate.backend

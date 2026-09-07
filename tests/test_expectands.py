@@ -131,9 +131,7 @@ def test_single_chain_draws_are_rejected():
 
 @pytest.mark.fast
 def test_default_cost_is_unknown_not_zero():
-    report = expectand_report(
-        {"theta": np.zeros((2, 4))}, {"c": lambda s: s["theta"]}
-    )
+    report = expectand_report({"theta": np.zeros((2, 4))}, {"c": lambda s: s["theta"]})
     cost = report.cost
     assert cost.is_fully_accounted is False
     assert set(cost.unknown_components) == set(CostAccounting.COMPONENTS)
@@ -157,9 +155,7 @@ def test_cost_from_telemetry_reads_only_existing_schema_fields():
     assert cost.warmup_grad_evals == 640
     # Not in the telemetry schema — must stay unknown, with a reason.
     assert cost.sampling_grad_evals is None
-    assert "warmup gradient evaluations only" in cost.reason_for(
-        "sampling_grad_evals"
-    )
+    assert "warmup gradient evaluations only" in cost.reason_for("sampling_grad_evals")
     assert cost.compile_seconds is None
     assert "not subtracted" in cost.reason_for("compile_seconds")
     assert "wall clocks include JIT compilation" in cost.notes
@@ -217,9 +213,7 @@ def test_cost_from_recipe_without_walls_stays_unknown():
 
 
 def _degenerate_report(trace: np.ndarray, backend: str = "blackjax") -> ExpectandReport:
-    return expectand_report(
-        {"raw": trace}, {"q": lambda s: s["raw"]}, backend=backend
-    )
+    return expectand_report({"raw": trace}, {"q": lambda s: s["raw"]}, backend=backend)
 
 
 @pytest.mark.fast
@@ -362,7 +356,9 @@ def test_antithetic_first_moment_does_not_speak_for_the_squared_function():
     first-moment number is what this report exists to prevent.
     """
     rng = np.random.default_rng(4)
-    magnitude = np.abs(np.cumsum(rng.standard_normal((N_CHAINS, N_DRAWS)), axis=1)) + 1.0
+    magnitude = (
+        np.abs(np.cumsum(rng.standard_normal((N_CHAINS, N_DRAWS)), axis=1)) + 1.0
+    )
     sign = np.where(np.arange(N_DRAWS) % 2 == 0, 1.0, -1.0)
     trace = magnitude * sign
 
@@ -502,3 +498,59 @@ def test_comparison_reports_backend_mismatch_and_unmatched_expectands(draws):
     assert comparison.backend_mismatch == ("blackjax", "arviz")
     assert comparison.only_in_candidate == ("theta_1",)
     assert comparison.only_in_baseline == ()
+
+
+@pytest.mark.slow
+def test_rank_rhat_is_carried_but_never_ratioed_or_cost_normalised():
+    """R-hat is a convergence ratio judged against its own threshold.
+
+    "R-hat per second" and "candidate R-hat over baseline R-hat" are both
+    meaningless, so the comparison reports both values and withholds the
+    derived figures.
+    """
+    baseline = _fake_report("A", 1.0, _FULL_COST)
+    candidate = _fake_report("B", 2.0, _FULL_COST)
+
+    comparison = compare_reports(baseline, candidate)
+    row = next(r for r in comparison.rows if r.statistic == "rank_rhat")
+
+    assert row.baseline is not None and row.candidate is not None
+    assert row.ratio is None
+    assert any("not a rate" in b for b in row.ratio_blocked_by)
+    assert row.per_second is None
+    assert row.per_grad_eval is None
+    assert any("cost normalisation does not apply" in b for b in row.cost_blocked_by)
+
+    # The ESS statistics on the same run are still normalised.
+    ess_row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+    assert ess_row.per_second is not None
+
+
+@pytest.mark.slow
+def test_sparse_ties_do_not_raise_the_backend_caveat():
+    """A handful of repeated states is normal after MCMC rejections.
+
+    The caveat is a display threshold; ``tie_fraction`` is reported either way.
+    """
+    rng = np.random.default_rng(77)
+    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+    trace[0, 5] = trace[0, 4]  # one repeated state out of 800
+
+    entry = _degenerate_report(trace).entries[0]
+
+    assert entry.tie_fraction == pytest.approx(1 / (N_CHAINS * N_DRAWS))
+    assert not any("repeated values" in w for w in entry.warnings)
+
+
+@pytest.mark.slow
+def test_tie_caveat_threshold_is_explicit():
+    rng = np.random.default_rng(77)
+    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+    trace[0, 5] = trace[0, 4]
+
+    loud = expectand_report(
+        {"raw": trace}, {"q": lambda s: s["raw"]}, tie_caveat_threshold=0.0
+    ).entries[0]
+
+    assert any("repeated values" in w for w in loud.warnings)
+    assert loud.tie_fraction == pytest.approx(1 / (N_CHAINS * N_DRAWS))
