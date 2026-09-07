@@ -1070,3 +1070,44 @@ def test_two_telemetry_costs_sharing_the_default_name_are_refused_with_a_remedy(
         phases_are_disjoint_sequential=True,
     )
     assert combined.warmup_grad_evals == 200
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "sampler", ["hmc", "nuts", "dynamic_hmc", "mala", "rwm", "barker", "mclmc"]
+)
+def test_the_derivation_agrees_with_the_generator_layer_grad_counter(sampler):
+    """Pin the catalog derivation against ``metrics.grad_counter``.
+
+    The two implementations are deliberately separate: ``total_grad_evals``
+    vmaps a JAX callable over an info NamedTuple for the headline metric, while
+    this module reads persisted numpy arrays and must be able to *refuse* with a
+    reason. But they must never disagree numerically, or the catalog would
+    report a different gradient cost than the headline metric computes from the
+    same run. This covers variable-count (hmc/nuts/dynamic_hmc), constant-count
+    (mala/barker/mclmc) and zero-gradient (rwm) conventions.
+    """
+    import collections
+
+    from tuningfork.base_method import BASE_METHODS
+    from tuningfork.metrics.grad_counter import total_grad_evals
+
+    rng = np.random.default_rng(0)
+    chains, draws = 4, 50
+    fields = {
+        "num_integration_steps": rng.integers(1, 9, size=(chains, draws)),
+        "energy": rng.standard_normal((chains, draws)),
+        "is_divergent": np.zeros((chains, draws), bool),
+        "acceptance_rate": rng.random((chains, draws)),
+    }
+    info_type = collections.namedtuple("Info", list(fields))
+    reference = total_grad_evals(
+        info_type(**{k: np.asarray(v) for k, v in fields.items()}),
+        BASE_METHODS[sampler].grad_count_per_step,
+    )
+
+    derived = sampling_grad_evals_from_chain_stats(
+        fields, sampler, expected_topology=(chains, draws)
+    )
+
+    assert derived.count == reference
