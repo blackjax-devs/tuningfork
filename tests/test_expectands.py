@@ -511,7 +511,8 @@ def test_comparison_refuses_cost_normalisation_when_a_cost_is_unknown():
     comparison = compare_reports(baseline, candidate)
 
     assert comparison.cost_normalised_available is False
-    assert any("B.total_seconds" in b for b in comparison.cost_blockers)
+    # Blockers identify the arm positionally; the label rides along as text.
+    assert any("total_seconds" in b and "arm 1" in b for b in comparison.cost_blockers)
     row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
     assert row.per_second is None
     assert row.per_transition_grad_eval is None
@@ -1252,8 +1253,9 @@ def test_a_non_finite_wall_clock_is_named_rather_than_called_unrecorded():
     cost = CostAccounting.from_telemetry(FakeTelemetry())
 
     assert cost.warmup_seconds is None
-    assert "non-finite" in cost.reason_for("warmup_seconds")
-    assert "did not record" not in cost.reason_for("warmup_seconds")
+    reason = cost.reason_for("warmup_seconds")
+    assert "not a finite number" in reason
+    assert "did not record" not in reason
 
 
 @pytest.mark.fast
