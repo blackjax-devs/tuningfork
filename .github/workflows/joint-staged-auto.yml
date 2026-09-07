@@ -26,9 +26,8 @@
 # unresolvable node ids make pytest exit non-zero, and the junit assertion
 # catches "collected but not run".
 #
-# WHAT THE FIVE CASES ACTUALLY COVER — they are not five equivalent things, and
-# an earlier version of this file overstated them as five joint runtime
-# executions:
+# WHAT THE FIVE CASES COVER — they are not five equivalent things, and the
+# count alone should not be read as five joint runtime executions:
 #   * payload_matches_the_direct_public_call — launches the generated program
 #     AND compares its persisted payload against a direct public call. This is
 #     the semantic-fidelity gate.

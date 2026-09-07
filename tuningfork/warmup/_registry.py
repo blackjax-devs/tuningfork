@@ -252,14 +252,19 @@ WARMUPS: dict[str, Warmup] = {
         name="staged_adaptation_auto",
         compatible_methods=("nuts", "hmc", "mhmc"),
         default_hp_space=(
-            # Pinned low==high so the deterministic default is the value that is
-            # actually exercised.  default_value_for_space returns (low+high)//2
-            # for an "int" space, so a 20k-200k range would make every recipe
-            # built through build_certification_intent pick 110_000 -- a third
-            # value, never measured, and not the one this descriptor's buffer
-            # and runaway notes are calibrated against.  Same reason max_rank is
-            # declared low=high=10.  Widen only alongside evidence at the wider
-            # values.
+            # A conservative v1 default and search restriction, not a
+            # calibration result.  default_value_for_space returns (low+high)//2
+            # for an "int" space, so declaring a range makes the implicit
+            # default a midpoint: a 20k-200k range would silently pick 110_000
+            # for every recipe built through build_certification_intent.  That
+            # is NOT evidence 110_000 is wrong -- nothing here tests it either
+            # way.  Pinning low==high keeps the implicit default equal to the
+            # value this descriptor's notes were observed at, and leaves the
+            # choice explicit: a recipe may set any max_grad_budget in
+            # warmup_params and that value is used verbatim, so this bound
+            # restricts only the automatic default, never the user.  Same shape
+            # as max_rank (low=high=10).  Widen when there is evidence to widen
+            # it with.
             HyperparamSpace("max_grad_budget", "int", low=20_000, high=20_000),
         ),
         notes=(
