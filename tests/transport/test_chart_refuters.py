@@ -280,7 +280,12 @@ def test_finite_basis_with_overflowing_gram_is_refused():
     basis[0, 1] = 1e200
     basis[1, 1] = -1e200
     assert np.isfinite(basis).all(), "every entry must be finite"
-    gram = basis.T @ basis
+    # The overflow on this line is the premise, not an accident: it is how the
+    # NaN Gram entry is produced. pytest.ini turns warnings into errors, so it
+    # is suppressed here and ONLY here, around the one deliberately overflowing
+    # operation. The assertions either side of it are unchanged.
+    with np.errstate(over="ignore", invalid="ignore"):
+        gram = basis.T @ basis
     assert np.isnan(gram).any(), "this basis must produce a NaN Gram entry"
 
     h = jnp.zeros(d).at[-1].set(1.0)
