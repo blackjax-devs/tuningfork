@@ -1220,3 +1220,80 @@ def test_combine_rejects_the_one_view_it_cannot_produce():
             view="as_measured",
             phases_are_disjoint_sequential=True,
         )
+
+
+@pytest.mark.slow
+def test_an_incomplete_counter_is_never_normalised_per_gradient():
+    """Disclosure is not enough — the ratio itself is withheld.
+
+    An `orbital_hmc` count and a `nuts` count are not the same unit, so their
+    per-gradient ratio is not a comparison however it is annotated. Wall-clock
+    normalisation is measured independently of any counting convention and
+    survives, as do the uncosted ESS ratios.
+    """
+    rng = np.random.default_rng(3)
+    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+
+    def report(label, sampler, per_step):
+        derivation = sampling_grad_evals_from_chain_stats(
+            {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), per_step)}, sampler
+        )
+        cost = CostAccounting(
+            warmup_seconds=1.0,
+            sampling_seconds=1.0,
+            total_seconds=2.0,
+            warmup_grad_evals=0,
+            sampling_transition_grad_evals=derivation.count,
+            compile_seconds=0.0,
+            source=label,
+            excluded_grad_work=derivation.excluded,
+        )
+        return expectand_report(
+            {"x": trace}, {"x": lambda s: s["x"]}, cost=cost, label=label
+        )
+
+    comparison = compare_reports(
+        report("orbital", "orbital_hmc", 1), report("nuts", "nuts", 7)
+    )
+    row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+
+    assert row.per_transition_grad_eval is None
+    assert any("declares incomplete" in b for b in row.cost_blocked_by)
+    assert comparison.cost_normalised_available is False
+    # Independently complete measures are not suppressed.
+    assert row.per_second is not None
+    assert row.ratio is not None
+    # The declared convention stays available for reproducibility.
+    assert any("counts gradients as:" in e for e in comparison.excluded_grad_work)
+
+
+@pytest.mark.slow
+def test_two_exact_counters_are_still_normalised_per_gradient():
+    """The withholding must not become a blanket refusal."""
+    rng = np.random.default_rng(3)
+    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+    derivation = sampling_grad_evals_from_chain_stats(
+        {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), 7)}, "nuts"
+    )
+
+    def report(label):
+        cost = CostAccounting(
+            warmup_seconds=1.0,
+            sampling_seconds=1.0,
+            total_seconds=2.0,
+            warmup_grad_evals=0,
+            sampling_transition_grad_evals=derivation.count,
+            compile_seconds=0.0,
+            source=label,
+            excluded_grad_work=derivation.excluded,
+        )
+        return expectand_report(
+            {"x": trace}, {"x": lambda s: s["x"]}, cost=cost, label=label
+        )
+
+    row = next(
+        r
+        for r in compare_reports(report("a"), report("b")).rows
+        if r.statistic == "bulk_ess"
+    )
+    assert row.per_transition_grad_eval is not None

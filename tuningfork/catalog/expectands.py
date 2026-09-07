@@ -634,6 +634,11 @@ _EXCLUDED_FROM_TRANSITION_COUNT = (
     "any gradient work outside the recorded sampling transitions",
 )
 
+#: Exact phrase marking a subtotal whose per-step counter is declared
+#: incomplete.  Written by :func:`_declared_exclusions` and read back by
+#: :func:`compare_reports`, so the two cannot drift.
+_INCOMPLETE_COUNT_MARKER = "declares this per-step count INCOMPLETE"
+
 #: Words by which a ``BaseMethod`` declares its own per-step count incomplete.
 #: Read from the descriptor's own text rather than from a list of sampler names,
 #: so a newly added approximate convention is disclosed without editing this
@@ -665,9 +670,9 @@ def _declared_exclusions(base_method_name: str, method: Any) -> tuple[str, ...]:
     haystack = f"{convention} {notes}".lower()
     if any(marker in haystack for marker in _APPROXIMATION_MARKERS):
         exclusions += (
-            f"{base_method_name} declares this per-step count INCOMPLETE, so the "
-            "subtotal understates its true gradient cost and any efficiency "
-            "computed from it is an upper bound, not a measurement",
+            f"{base_method_name} {_INCOMPLETE_COUNT_MARKER}, so the subtotal "
+            "understates its true gradient cost; per-gradient efficiency is not "
+            "computed against it",
         )
     return exclusions
 
@@ -1359,6 +1364,15 @@ def compare_reports(
     meaningless.  Only the ESS statistics in :data:`_RATE_STATISTICS` divide by a
     cost.
 
+    Per-gradient efficiency is withheld entirely when either side's gradient
+    subtotal comes from a counting convention its own sampler declares
+    incomplete: an ``orbital_hmc`` count and a ``nuts`` count are not the same
+    unit, so their ratio is not a comparison however it is annotated.  Wall-clock
+    normalisation and the uncosted ESS ratios are unaffected, and the declared
+    convention and basis are retained for reproducibility.  Note the converse
+    does not hold -- the absence of that marker reflects only what a descriptor
+    explicitly declares, and is not a certificate that its count is complete.
+
     The gradient denominator is ``warmup_grad_evals`` plus
     ``sampling_transition_grad_evals`` -- recorded transition work only.  It
     omits whatever each side's ``excluded_grad_work`` names, so ESS per
@@ -1395,6 +1409,20 @@ def compare_reports(
         report.label: _transition_grad_evals(report.cost)
         for report in (baseline, candidate)
     }
+    # A count that its own sampler declares a lower bound is not gradient work
+    # in the same unit as an exact count.  Disclosing that in prose while still
+    # publishing the ratio would leave an invalid number on the page, so the
+    # per-gradient comparison is withheld outright.  Wall-clock normalisation is
+    # unaffected -- it is measured independently of any counting convention --
+    # and so are the uncosted ESS ratios.
+    incomplete_grad_blockers = tuple(
+        f"{report.label} counts gradients with a convention its own sampler "
+        "declares incomplete, so it is not comparable, per gradient, with an "
+        "exact count; the declared convention and basis are retained for "
+        "reproducibility"
+        for report in (baseline, candidate)
+        if _counts_incomplete_gradients(report.cost)
+    )
     zero_grad_blockers = tuple(
         f"{report.label} recorded zero gradient evaluations (a gradient-free "
         "sampler, or a run with no recorded transitions); ESS per gradient "
@@ -1459,6 +1487,8 @@ def compare_reports(
                     )
                 if grad_blockers:
                     cost_blocked += grad_blockers
+                elif incomplete_grad_blockers:
+                    cost_blocked += incomplete_grad_blockers
                 elif zero_grad_blockers:
                     # Gradient-free samplers measure a true zero, so the
                     # denominator is known and known to be unusable -- which is
@@ -1492,6 +1522,7 @@ def compare_reports(
             dict.fromkeys(
                 seconds_blockers
                 + grad_blockers
+                + incomplete_grad_blockers
                 + zero_seconds_blockers
                 + zero_grad_blockers
             )
@@ -1510,6 +1541,11 @@ def compare_reports(
             else (baseline.backend, candidate.backend)
         ),
     )
+
+
+def _counts_incomplete_gradients(cost: CostAccounting) -> bool:
+    """Whether this accounting's gradient subtotal is a declared undercount."""
+    return any(_INCOMPLETE_COUNT_MARKER in item for item in cost.excluded_grad_work)
 
 
 def _transition_grad_evals(cost: CostAccounting) -> int | None:
