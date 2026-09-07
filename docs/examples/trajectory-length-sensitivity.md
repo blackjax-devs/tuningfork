@@ -114,9 +114,38 @@ question, not something to approximate here.
 The gradient denominator is warmup plus **sampling transition** gradients,
 recovered from the persisted per-step statistics via each sampler's own declared
 `grad_count_per_step` contract, rejected transitions included. It is a subtotal:
-it cannot see initialization or controller internals, and every comparison
-carries that exclusion list, because ESS divided by a subtotal overstates
-efficiency.
+it cannot see initialization or controller internals, so every comparison
+carries that exclusion list, and ESS divided by it is an upper bound on
+efficiency rather than a measurement of it.
+
+Both arms here use exact counting conventions, so the per-gradient comparison is
+produced. That is not always the case. Some samplers declare a
+`grad_count_convention` that is explicitly inexact — `orbital_hmc` counts one
+gradient per step where the kernel evaluates a whole orbit of `period ∈ [2, 20]`
+positions, and the four `laplace_*` methods exclude line-search gradients. Such
+a count is **not the same unit** as an exact one, so when either side of a
+comparison uses one, `compare_reports` withholds the per-gradient figure
+entirely rather than publishing a ratio with a caveat attached. Without that
+rule, comparing `orbital_hmc` against `nuts` on identical draws reports the
+orbital arm as 7.0× more efficient per gradient, which is an artifact of the
+undercount and nothing else.
+
+What is *not* withheld: wall-clock normalisation, which is measured rather than
+counted and so does not depend on any convention; the uncosted ESS ratios; and
+the declared convention and basis strings, which stay with the report so the run
+remains reproducible and a reader can judge the count themselves.
+
+This detection reads each sampler's `grad_count_convention` and nothing else.
+Notes are free text and use words like "approximation" for unrelated reasons —
+`irmh` describes a proposal fitted from a Laplace approximation, `mgrad_gaussian`
+a first-order approximation to the log-likelihood — and both count exactly, so
+scanning notes would withhold legitimate comparisons. The cost of that narrowing
+is real and worth stating: an inexactness documented *only* in prose is not
+detected. `meanfield_vi` and `fullrank_vi` declare the convention `"1"` and
+explain in their notes that this over-counts the sampling phase; the mechanism
+does not see it. **The absence of a flag is not a certificate that a count is
+complete.** A structured contract on the sampler descriptor would give that
+guarantee; this does not.
 
 ## A note on ties, and why the severity is keyed on cardinality
 
