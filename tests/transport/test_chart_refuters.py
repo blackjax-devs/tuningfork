@@ -241,6 +241,42 @@ def test_non_finite_low_rank_inputs_are_refused():
         make_chart(h, **ok, lr_basis=basis, lr_eigenvalues=jnp.asarray([jnp.inf, 0.25]))
 
 
+def test_finite_basis_with_overflowing_gram_is_refused():
+    """The derived-quantity NaN path, which input finiteness cannot catch.
+
+    Every entry here is finite, so the ``lr_basis`` finiteness check passes.  But
+    an off-diagonal Gram entry is a signed sum: ``1e200 * 1e200`` overflows to
+    ``+inf`` and the mixed-sign partner to ``-inf``, and their sum is NaN, which
+    ``jnp.max`` propagates.  Written as ``off > tol`` the gate would accept this
+    basis, because ``NaN > tol`` is False.
+
+    Finiteness-before-comparison protects inputs and cannot protect a quantity
+    computed after they are cleared; the guard is the comparison's polarity.
+    """
+    d = 4
+    basis = np.zeros((d, 2))
+    basis[0, 0] = 1e200
+    basis[1, 0] = 1e200
+    basis[0, 1] = 1e200
+    basis[1, 1] = -1e200
+    assert np.isfinite(basis).all(), "every entry must be finite"
+    gram = basis.T @ basis
+    assert np.isnan(gram).any(), "this basis must produce a NaN Gram entry"
+
+    h = jnp.zeros(d).at[-1].set(1.0)
+    with pytest.raises(ValueError, match="orthonormal"):
+        make_chart(
+            h,
+            jnp.zeros(d),
+            h,
+            0.2,
+            jnp.zeros(d),
+            jnp.ones(d),
+            jnp.asarray(basis),
+            jnp.asarray([4.0, 0.25]),
+        )
+
+
 def test_declared_shapes_are_enforced():
     """Broadcasting would otherwise build a chart outside the declared family."""
     d = 5

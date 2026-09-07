@@ -41,10 +41,12 @@ established.  So:
   documented as test thresholds and not as properties of the function.
 
 Supported dtypes are **float32 and float64 only**.  Half precisions are refused
-rather than silently served: measurement showed the float64 threshold is the
-*worst* available choice for ``bfloat16`` (worst ``phi2`` relative error 6.5e-02
-at threshold 0.1 against 8.8e-03 at 1.0), so a silent fallback would be actively
-harmful rather than merely unsupported.
+rather than silently served.  The reason is directional rather than quantitative:
+a coarser dtype wants a *larger* crossover, so falling back to the float64
+constant moves in the wrong direction and a silent fallback would be worse than
+no support at all.  Sampled measurements pointed the same way, but they are not
+quoted here as bounds — the same sampling caveat applies to them as to
+everything else in this module.
 
 Both branches of the selection are evaluated under ``jnp.where``, so each is
 guarded against the other's regime: the direct branch's denominator is clamped
@@ -68,11 +70,12 @@ SERIES_THRESHOLD = {"float32": 0.3, "float64": 0.1}
 
     No accuracy is claimed for either branch; see the module docstring.
 
-The optimum is dtype-dependent and the two dtypes disagree by an order of
-magnitude, so a single constant is measurably wrong for one of them.  The
-direct branch's error falls like ``eps / |x|`` while the series' truncation
-error grows like ``x**SERIES_TERMS``; the crossover therefore sits where the
-machine epsilon puts it.
+The two branches' errors move in opposite directions in ``|x|`` — the direct
+form's like ``eps / |x|``, the series' truncation like ``x**SERIES_TERMS`` — so
+a useful crossover depends on the dtype's epsilon.  These are the shipped
+constants.  **No optimality is claimed for either**, and the comparison that
+would have supported such a claim was deliberately removed: it rested on a
+sampled grid, and a grid maximum is a lower bound on the worst case.
 """
 
 SERIES_TERMS = 10

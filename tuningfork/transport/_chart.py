@@ -326,7 +326,15 @@ def make_chart(
             # arbitrarily small.
             eps = float(jnp.finfo(lr_basis.dtype).eps)
             tol = 64.0 * eps * max(gram.shape[0], 1)
-            if off > tol:
+            # `not (off <= tol)` rather than `off > tol`, and the polarity is
+            # load-bearing. Every INPUT here is checked finite before use, but
+            # `off` is DERIVED: an off-diagonal Gram entry is a signed sum, so
+            # elementwise-finite entries near sqrt(dtype max) can produce
+            # (+inf) + (-inf) = NaN, which jnp.max propagates. `NaN > tol` is
+            # False and would accept a basis that could not be evaluated.
+            # Finiteness-before-comparison cannot protect a quantity computed
+            # after the inputs are cleared; only polarity can.
+            if not (off <= tol):
                 raise ValueError(
                     "spectrally active lr_basis columns (lam != 1) must be "
                     f"orthonormal; max |U^T U - I| = {off:.3e} on the active set. "
