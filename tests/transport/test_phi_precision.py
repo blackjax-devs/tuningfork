@@ -13,8 +13,8 @@
 # limitations under the License.
 """The ``phi`` crossover is SELECTED by measurement here, per dtype.
 
-The two historical research arms used different crossovers (1e-4 with 5 terms;
-1e-3 with 6 terms).  Neither is adopted by vote.  This module measures value and
+Two earlier exploratory implementations used different crossovers (1e-4 with
+5 terms; 1e-3 with 6 terms).  Neither is adopted by vote.  This module measures value and
 derivative error against an extended-precision oracle in both supported dtypes
 and asserts the constants in :mod:`tuningfork.transport._phi` are the better
 choice — including the finding that **no single threshold serves both dtypes**.
@@ -48,7 +48,7 @@ _ORACLE_OK = np.finfo(Q).eps < 1e-18
 _ORACLE_SERIES_CUTOFF = 0.5
 _ORACLE_TERMS = 60
 
-HISTORICAL = [(1e-4, "arm-A 1e-4"), (1e-3, "arm-B 1e-3")]
+PRIOR_CROSSOVERS = [(1e-4, "prior 1e-4"), (1e-3, "prior 1e-3")]
 
 
 def _factorial(n):
@@ -127,13 +127,13 @@ skip_no_oracle = pytest.mark.skipif(
 
 @skip_no_oracle
 @pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=["float32", "float64"])
-def test_chosen_threshold_beats_both_historical_arms(dtype):
-    """The selection criterion, executed — not an appeal to either arm."""
+def test_chosen_threshold_beats_both_prior_crossovers(dtype):
+    """The selection criterion, executed — not an appeal to precedent."""
     chosen = SERIES_THRESHOLD[np.dtype(dtype).name]
-    got = {label: _worst(t, dtype) for t, label in HISTORICAL}
+    got = {label: _worst(t, dtype) for t, label in PRIOR_CROSSOVERS}
     got["chosen"] = _worst(chosen, dtype)
     report = "  ".join(f"{k}={v:.2e}" for k, v in got.items())
-    for _, label in HISTORICAL:
+    for _, label in PRIOR_CROSSOVERS:
         assert got["chosen"] < got[label], report
 
 

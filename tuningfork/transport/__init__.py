@@ -27,7 +27,7 @@ CONVENTION_VERSION = "frozen-transport-chart/v1"
 
 v1 fixes: clock-last coordinate order, the reflector orientation keyed on
 h[-1], and the phi series threshold/order selected by measurement in
-:mod:`tuningfork.transport._phi`.  Historical research arms used different
+:mod:`tuningfork.transport._phi`.  Earlier exploratory implementations used different
 conventions; **no bitwise equivalence with them is claimed or intended**.
 """
 

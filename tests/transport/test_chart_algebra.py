@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier 0 — exact algebraic invariants of a supplied chart.
+"""Exact algebraic invariants of a supplied chart.
 
 Every assertion here is an identity in real arithmetic, so the tolerances are
 rounding tolerances rather than statistical ones.  No chain is run.

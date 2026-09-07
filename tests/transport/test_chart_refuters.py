@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier 2 — degenerate and special-case charts that must behave as claimed.
+"""Degenerate and special-case charts that must behave as claimed.
 
 A validation suite that only exercises a generic chart can hide errors that
 cancel.  These refuters pin the boundary cases where the answer is known

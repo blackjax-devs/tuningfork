@@ -11,12 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tier 1 — seven wrong-chart mutants, each EXECUTED through the real gates.
+"""Seven wrong-chart mutants, each EXECUTED through the real gates.
 
 A mutation test is only evidence if the mutant is actually run: asserting an
 algebraic offset without executing a wrong provider proves nothing about the
 gates.  So every mutant here is a real callable substituted into the real
-:class:`Chart`, and each gate is the same function Tier 0 uses.
+:class:`Chart`, and each gate is the same one the invariant tests use.
 
 The table this suite pins down is not just "everything fails" — it is **which
 gate fires and which stays silent**:

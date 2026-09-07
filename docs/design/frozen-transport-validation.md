@@ -108,13 +108,13 @@ questions and this artifact tests none of them.
 
 ## Validation tiers
 
-| file | tier | what it establishes |
-|---|---|---|
-| `test_chart_algebra.py` | 0 | structural identities, exact log-Jacobian against `slogdet(jacfwd)`, two-sided inverse, supplied score against a non-hooked reference, score pullback invertibility — diagonal and low-rank |
-| `test_chart_mutants.py` | 1 | seven wrong-chart mutants, each executed, with the exact gate pattern each triggers |
-| `test_chart_refuters.py` | 2 | identity, pure-linear, rotated, non-normal generator, and the exact-funnel structure above |
-| `test_phi_precision.py` | — | selects the `phi` crossover per dtype by measured value and derivative error |
-| `test_chart_conditioning.py` | — | empirical conditioning indicator and the silent-failure band |
+| file | what it establishes |
+|---|---|
+| `test_chart_algebra.py` | structural identities, exact log-Jacobian against `slogdet(jacfwd)`, two-sided inverse, supplied score against a non-hooked reference, score pullback invertibility — diagonal and low-rank |
+| `test_chart_mutants.py` | seven wrong-chart mutants, each executed, with the exact gate pattern each triggers |
+| `test_chart_refuters.py` | identity, pure-linear, rotated, non-normal generator, and the exact-funnel structure above |
+| `test_phi_precision.py` | selects the `phi` crossover per dtype by measured value and derivative error |
+| `test_chart_conditioning.py` | empirical conditioning indicator and the silent-failure band |
 
 Two methodological points that the tests encode rather than assume:
 
@@ -169,5 +169,5 @@ fresh-cache costs visible.
 
 `CONVENTION_VERSION = "frozen-transport-chart/v1"` fixes the clock-last
 coordinate order, the reflector orientation keyed on `h[-1]`, and the per-dtype
-`phi` crossover. Earlier exploratory work used a clock-first order and a
+`phi` crossover. Earlier exploratory implementations used a clock-first order and a
 different reflector; **no bitwise equivalence with it is claimed or intended.**

@@ -47,8 +47,8 @@ Conventions (``CONVENTION_VERSION = "frozen-transport-chart/v1"``)
   ``h[-1]``, so the section coordinates span ``h``-perp;
 * the ``phi`` series threshold and order come from :mod:`._phi`.
 
-Historical research arms used a clock-first order and a different reflector
-orientation.  **No bitwise equivalence with them is claimed.**
+Earlier exploratory implementations used a clock-first order and a different
+reflector orientation.  **No bitwise equivalence with them is claimed.**
 
 What this module does not do
 ----------------------------

@@ -50,7 +50,8 @@ already 20x worse, and at ``1.0`` seven orders worse.  float32 wants ``0.3``,
 where it reaches its intrinsic floor; at ``0.1`` it is 5x worse because the
 direct branch's ``eps/|x|`` cancellation dominates there.  The threshold is
 therefore selected per dtype.  The first two rows are the crossovers used by the
-historical research arms (shown here at 10 terms so only the threshold varies);
+earlier exploratory implementations (shown here at 10 terms so only the
+threshold varies);
 they are recorded for provenance only and no bitwise equivalence is claimed.
 
 Both the value and the derivative are measured, because the crossover is where
