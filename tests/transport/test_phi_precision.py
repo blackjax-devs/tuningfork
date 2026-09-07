@@ -33,7 +33,7 @@ cancels worse than float64 near the origin — which is why a longdouble oracle
 must be hybrid and why this one sidesteps the issue by carrying more digits.
 """
 
-from decimal import Decimal, getcontext
+from decimal import Decimal, localcontext
 
 import jax
 import jax.numpy as jnp
@@ -47,34 +47,41 @@ pytestmark = pytest.mark.slow
 
 use_x64 = pytest.fixture(autouse=True, scope="module")(x64_scope)
 
-getcontext().prec = 60
+_ORACLE_PREC = 60
 
 
 def _oracle(x):
     """(phi1, phi2, phi1', phi2') in 60-digit decimal, by series everywhere.
 
+    Precision is set in a LOCAL context.  ``getcontext().prec = 60`` at module
+    scope mutates global decimal state during collection and leaks it into every
+    later test in the session — the same defect class as the x64 leak this suite
+    already repaired, in a different global.
+
     Powers are accumulated iteratively rather than via ``**``.  ``Decimal(0) ** 0``
     raises ``InvalidOperation``, so an exponent-based series errors at exactly the
     point most worth testing.
     """
-    xd = Decimal(repr(float(x)))
-    p1 = p2 = d1 = d2 = Decimal(0)
-    x_pow = Decimal(1)  # x**k
-    x_prev = Decimal(0)  # x**(k-1), unused at k = 0
-    fact = Decimal(1)  # k!
-    for k in range(80):
-        if k:
-            fact *= k
-        f1 = fact * (k + 1)  # (k+1)!
-        f2 = f1 * (k + 2)  # (k+2)!
-        p1 += x_pow / f1
-        p2 += x_pow / f2
-        if k:
-            d1 += k * x_prev / f1
-            d2 += k * x_prev / f2
-        x_prev = x_pow
-        x_pow = x_pow * xd
-    return p1, p2, d1, d2
+    with localcontext() as ctx:
+        ctx.prec = _ORACLE_PREC
+        xd = Decimal(repr(float(x)))
+        p1 = p2 = d1 = d2 = Decimal(0)
+        x_pow = Decimal(1)  # x**k
+        x_prev = Decimal(0)  # x**(k-1), unused at k = 0
+        fact = Decimal(1)  # k!
+        for k in range(80):
+            if k:
+                fact *= k
+            f1 = fact * (k + 1)  # (k+1)!
+            f2 = f1 * (k + 2)  # (k+2)!
+            p1 += x_pow / f1
+            p2 += x_pow / f2
+            if k:
+                d1 += k * x_prev / f1
+                d2 += k * x_prev / f2
+            x_prev = x_pow
+            x_pow = x_pow * xd
+        return p1, p2, d1, d2
 
 
 def _named_points(dtype):
@@ -124,12 +131,13 @@ def test_gradients_stay_finite_where_the_value_is_finite(dtype):
     prevents it; without the clamp these points return NaN gradients on an
     exactly correct value.
 
-    Only large NEGATIVE arguments are probed, and that is not an omission.  For
-    large positive ``x`` the value itself genuinely overflows — ``phi1(x) =
-    (e^x - 1)/x`` is unbounded, so ``expm1`` returns ``inf`` above 88.7 (float32)
-    or 709.8 (float64).  That is a property of the function, not a defect, and
-    asserting finiteness there would assert something false.  The repaired bug
-    lived on the negative side, where the value is small and exact.
+    Only large NEGATIVE arguments are probed, and that is not an omission: at
+    large positive ``x`` this implementation returns a non-finite value, so
+    asserting finiteness there would assert something false.  That limit is an
+    implementation limit, not a mathematical one — see
+    :func:`test_large_positive_arguments_are_outside_the_implementation_domain`.
+    The repaired gradient bug lived on the negative side, where the value is
+    small and exact.
     """
     d1 = jax.grad(lambda z: phi(z)[0])
     d2 = jax.grad(lambda z: phi(z)[1])
@@ -142,8 +150,22 @@ def test_gradients_stay_finite_where_the_value_is_finite(dtype):
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=SUPPORTED_DTYPES)
-def test_value_overflows_where_the_function_itself_is_unbounded(dtype):
-    """Pins the boundary above as a property, so it is not mistaken for a bug."""
+def test_large_positive_arguments_are_outside_the_implementation_domain(dtype):
+    """Records where this implementation stops returning finite values.
+
+    Carefully: this is **not** the representability boundary of ``phi1``, and it
+    is not evidence that the function overflows.  ``phi1(x) = (e^x - 1)/x`` is
+    finite at every finite real ``x``, and because the division follows the
+    exponential there are arguments where the exact result is still
+    representable while the intermediate ``expm1`` has already overflowed.  The
+    limit observed here therefore belongs to the evaluation order, not to the
+    function.
+
+    The point of the test is only that finiteness must not be asserted beyond
+    it, so a later reader does not mistake the non-finite return for a defect.
+    No boundary is located and none is claimed; ``2 * limit`` is simply an
+    argument comfortably past it.
+    """
     limit = {np.float32: 88.7, np.float64: 709.8}[dtype]
     assert not jnp.isfinite(phi(jnp.asarray(limit * 2, dtype=dtype))[0])
     assert jnp.all(

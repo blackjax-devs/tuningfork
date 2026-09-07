@@ -268,6 +268,15 @@ def make_chart(
 
     alpha = jnp.asarray(alpha, dtype=h.dtype)
     a, c = jnp.asarray(a), jnp.asarray(c)
+    # Shapes are checked rather than left to broadcasting: a scalar `a`, or an
+    # `alpha` with a trailing axis, would broadcast into a well-formed array
+    # that is not a member of the declared family.
+    if a.shape != h.shape:
+        raise ValueError(f"a shape {a.shape} != h shape {h.shape}")
+    if c.shape != h.shape:
+        raise ValueError(f"c shape {c.shape} != h shape {h.shape}")
+    if alpha.ndim != 0:
+        raise ValueError(f"alpha must be a scalar, got shape {alpha.shape}")
     for name, value in (("a", a), ("c", c), ("alpha", alpha), ("center", center)):
         if not bool(jnp.all(jnp.isfinite(value))):
             raise ValueError(f"{name} must be finite; a NaN here builds a NaN chart")
@@ -290,6 +299,16 @@ def make_chart(
                 f"lr_eigenvalues shape {lr_eigenvalues.shape} does not match "
                 f"lr_basis rank {lr_basis.shape[1]}"
             )
+        # Finiteness FIRST, and for every column including neutral ones.
+        # Deferring this leaves a NaN-blind path: a NaN in an active column makes
+        # the Gram residual NaN, and `NaN > tol` is False, so the orthonormality
+        # gate would pass it -- the same comparison defect this suite fixed in
+        # its own gates. `0 * NaN` is NaN, so neutral columns are not inert
+        # either. `+inf` likewise satisfies a bare `> 0` test.
+        if not bool(jnp.all(jnp.isfinite(lr_basis))):
+            raise ValueError("lr_basis must be finite in every column")
+        if not bool(jnp.all(jnp.isfinite(lr_eigenvalues))):
+            raise ValueError("lr_eigenvalues must be finite")
         if lr_basis.shape[1] and not bool(jnp.all(lr_eigenvalues > 0)):
             raise ValueError("lr_eigenvalues must be strictly positive")
         active = np.asarray(lr_eigenvalues != 1.0)
@@ -301,8 +320,10 @@ def make_chart(
             )
             # Scale with dtype and rank. A genuinely orthonormal float32 basis
             # carries Gram error ~sqrt(d)*eps32 (measured 1.19e-07 for d=6,
-            # rank 3), which a fixed absolute bound rejects as invalid. Real
-            # violations are O(0.1), orders above this.
+            # rank 3), which a fixed absolute bound rejects as invalid. This is
+            # a rounding allowance, not a separation guarantee: a violation
+            # smaller than the allowance is not detected, and violations can be
+            # arbitrarily small.
             eps = float(jnp.finfo(lr_basis.dtype).eps)
             tol = 64.0 * eps * max(gram.shape[0], 1)
             if off > tol:

@@ -215,6 +215,43 @@ def test_float32_low_rank_chart_is_accepted():
     assert float(jnp.max(jnp.abs(chart.inverse(chart.forward(y)) - y))) < 1e-3
 
 
+def test_non_finite_low_rank_inputs_are_refused():
+    """The NaN-blind path: a NaN Gram residual would pass the `> tol` gate.
+
+    `NaN > tol` is False, so an orthonormality check written as a bare
+    comparison accepts a basis it cannot evaluate — the same defect the gates in
+    this suite were repaired for. `+inf` likewise satisfies a bare `> 0` test on
+    the eigenvalues. Both are refused before any spectral work, and for every
+    column: `0 * NaN` is NaN, so a neutral column is not inert either.
+    """
+    d = 5
+    rng = np.random.default_rng(31)
+    h = jnp.asarray(rng.normal(size=d))
+    basis = jnp.asarray(np.linalg.qr(rng.normal(size=(d, 2)))[0])
+    ok = dict(a=jnp.zeros(d), c=h, alpha=0.2, center=jnp.zeros(d), scale=jnp.ones(d))
+
+    with pytest.raises(ValueError, match="lr_basis must be finite"):
+        make_chart(
+            h,
+            **ok,
+            lr_basis=basis.at[0, 0].set(jnp.nan),
+            lr_eigenvalues=jnp.asarray([4.0, 0.25]),
+        )
+    with pytest.raises(ValueError, match="lr_eigenvalues must be finite"):
+        make_chart(h, **ok, lr_basis=basis, lr_eigenvalues=jnp.asarray([jnp.inf, 0.25]))
+
+
+def test_declared_shapes_are_enforced():
+    """Broadcasting would otherwise build a chart outside the declared family."""
+    d = 5
+    h = jnp.zeros(d).at[-1].set(1.0)
+    base = dict(center=jnp.zeros(d), scale=jnp.ones(d))
+    with pytest.raises(ValueError, match="a shape"):
+        make_chart(h, a=jnp.asarray(0.0), c=h, alpha=0.2, **base)
+    with pytest.raises(ValueError, match="alpha must be a scalar"):
+        make_chart(h, a=jnp.zeros(d), c=h, alpha=jnp.zeros(2), **base)
+
+
 def test_mismatched_center_and_nan_inputs_are_refused():
     """Two contract gaps: size agreement, and finiteness of a/c/alpha/center."""
     d = 5
