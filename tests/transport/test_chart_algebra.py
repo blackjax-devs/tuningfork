@@ -30,7 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tests.transport import x64_scope
+from tests.transport import rel_error, x64_scope
 from tuningfork.transport._chart import make_chart
 
 pytestmark = pytest.mark.slow  # traces JAX; well above the `fast` budget
@@ -69,13 +69,6 @@ def _native_logdensity(q):
     return -0.5 * jnp.sum(q * q) - 0.1 * jnp.sum(jnp.cos(3.0 * q))
 
 
-def _rel(got, want):
-    """Relative error with a unit floor, so it degrades gracefully near zero."""
-    return float(
-        jnp.max(jnp.abs(got - want)) / jnp.maximum(jnp.max(jnp.abs(want)), 1.0)
-    )
-
-
 LOW_RANK = pytest.mark.parametrize("low_rank", [0, 3], ids=["diagonal", "lowrank3"])
 
 
@@ -100,16 +93,16 @@ def test_log_det_matches_the_true_jacobian(low_rank, spread):
     chart = _chart(low_rank=low_rank)
     for y in _points(spread=spread):
         _, expected = jnp.linalg.slogdet(jax.jacfwd(chart.forward)(y))
-        assert _rel(chart.log_det(y), expected) < RTOL
+        assert rel_error(chart.log_det(y), expected) < RTOL
 
 
 @LOW_RANK
 def test_inverse_is_an_exact_two_sided_inverse(low_rank):
     chart = _chart(low_rank=low_rank)
     for y in _points():
-        assert _rel(chart.inverse(chart.forward(y)), y) < RTOL
+        assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL
         q = chart.forward(y)
-        assert _rel(chart.forward(chart.inverse(q)), q) < RTOL
+        assert rel_error(chart.forward(chart.inverse(q)), q) < RTOL
 
 
 @LOW_RANK
@@ -122,7 +115,7 @@ def test_supplied_score_matches_the_non_hooked_reference(low_rank):
     grad_native = jax.grad(_native_logdensity)
     for y in _points():
         supplied = chart.pullback_score(y, grad_native(chart.forward(y)))
-        assert _rel(supplied, jax.grad(reference)(y)) < RTOL
+        assert rel_error(supplied, jax.grad(reference)(y)) < RTOL
 
 
 @LOW_RANK
@@ -132,7 +125,7 @@ def test_push_score_inverts_pullback_score(low_rank):
     grad_native = jax.grad(_native_logdensity)
     for y in _points():
         g = grad_native(chart.forward(y))
-        assert _rel(chart.push_score(y, chart.pullback_score(y, g)), g) < RTOL
+        assert rel_error(chart.push_score(y, chart.pullback_score(y, g)), g) < RTOL
 
 
 def test_clock_advances_at_unit_rate():
@@ -160,5 +153,5 @@ def test_signed_scale_is_supported_as_a_log_absolute_determinant():
     for y in _points(n=2):
         _, expected = jnp.linalg.slogdet(jax.jacfwd(chart.forward)(y))
         assert jnp.isfinite(chart.log_det(y))
-        assert _rel(chart.log_det(y), expected) < RTOL
-        assert _rel(chart.inverse(chart.forward(y)), y) < RTOL
+        assert rel_error(chart.log_det(y), expected) < RTOL
+        assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL

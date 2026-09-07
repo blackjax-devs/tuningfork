@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tests.transport import x64_scope
+from tests.transport import rel_error, x64_scope
 from tuningfork.transport._chart import make_chart
 
 pytestmark = pytest.mark.slow
@@ -34,12 +34,6 @@ use_x64 = pytest.fixture(autouse=True, scope="module")(x64_scope)
 RTOL = 1e-12
 FUNNEL_DIM = 10
 FUNNEL_CLOCK_SD = 3.0
-
-
-def _rel(got, want):
-    return float(
-        jnp.max(jnp.abs(got - want)) / jnp.maximum(jnp.max(jnp.abs(want)), 1.0)
-    )
 
 
 def test_pure_reflection_chart_preserves_volume_and_norm():
@@ -56,7 +50,7 @@ def test_pure_reflection_chart_preserves_volume_and_norm():
             float(jnp.abs(jnp.linalg.norm(chart.forward(y)) - jnp.linalg.norm(y)))
             < 1e-12
         )
-        assert _rel(chart.inverse(chart.forward(y)), y) < RTOL
+        assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL
         moved = max(moved, float(jnp.max(jnp.abs(chart.forward(y) - y))))
     assert moved > 1e-3, "must not degenerate into the identity map"
 
@@ -82,8 +76,8 @@ def test_active_low_rank_factor_is_exercised_and_exact():
     assert float(jnp.max(jnp.abs(chart._lowrank(x, 0.5) - x))) > 1e-2
     y = jnp.asarray(rng.normal(size=d))
     _, expected = jnp.linalg.slogdet(jax.jacfwd(chart.forward)(y))
-    assert _rel(chart.log_det(y), expected) < RTOL
-    assert _rel(chart.inverse(chart.forward(y)), y) < RTOL
+    assert rel_error(chart.log_det(y), expected) < RTOL
+    assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL
 
 
 def test_non_normal_generator_still_inverts_exactly():
@@ -96,29 +90,81 @@ def test_non_normal_generator_still_inverts_exactly():
     assert float(jnp.max(jnp.abs(m @ m.T - m.T @ m))) > 1e-3, "must be non-normal"
     for y in rng.normal(size=(3, d)):
         y = jnp.asarray(y)
-        assert _rel(chart.inverse(chart.forward(y)), y) < RTOL
+        assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL
 
 
 # ----------------------------------------------------------- input contract
-def test_input_contract_refuses_invalid_charts():
-    """Invalid input is refused, not silently repaired into a wrong chart."""
-    d = 4
+def _contract_case(**overrides):
+    """A valid make_chart call, with named fields replaced by bad ones."""
+    d = 5
     h = jnp.zeros(d).at[-1].set(1.0)
-    ok = dict(a=jnp.zeros(d), c=h, alpha=0.2, center=jnp.zeros(d), scale=jnp.ones(d))
     basis = jnp.asarray(np.linalg.qr(np.random.default_rng(0).normal(size=(d, 2)))[0])
+    call = dict(
+        h=h,
+        a=jnp.zeros(d),
+        c=h,
+        alpha=0.2,
+        center=jnp.zeros(d),
+        scale=jnp.ones(d),
+        lr_basis=basis,
+        lr_eigenvalues=jnp.asarray([4.0, 0.25]),
+    )
+    call.update(overrides)
+    return call
 
-    with pytest.raises(ValueError, match="non-zero"):
-        make_chart(jnp.zeros(d), **ok)
-    with pytest.raises(ValueError, match="non-zero"):
-        make_chart(h, **{**ok, "scale": jnp.ones(d).at[1].set(0.0)})
-    with pytest.raises(ValueError, match="together"):
-        make_chart(h, **ok, lr_basis=basis)
-    with pytest.raises(ValueError, match="positive"):
-        make_chart(h, **ok, lr_basis=basis, lr_eigenvalues=jnp.asarray([1.0, -2.0]))
-    with pytest.raises(ValueError, match="orthonormal"):
-        make_chart(
-            h, **ok, lr_basis=basis * 2.0, lr_eigenvalues=jnp.asarray([4.0, 0.5])
-        )
+
+# (label, overrides, expected message fragment). One table so the contract's
+# coverage is auditable in one place -- it has grown three times, and five
+# separate raises-tests each rebuilding their own fixtures made it non-obvious
+# which check fires for a given bad input.
+CONTRACT_VIOLATIONS = [
+    ("zero h", dict(h=jnp.zeros(5)), "non-zero"),
+    ("zero scale entry", dict(scale=jnp.ones(5).at[1].set(0.0)), "non-zero"),
+    ("center size", dict(center=jnp.zeros(4)), "center shape"),
+    ("a is scalar", dict(a=jnp.asarray(0.0)), "a shape"),
+    ("alpha not scalar", dict(alpha=jnp.zeros(2)), "alpha must be a scalar"),
+    ("nan in c", dict(c=jnp.zeros(5).at[0].set(jnp.nan)), "finite"),
+    ("basis without eigenvalues", dict(lr_eigenvalues=None), "together"),
+    (
+        "nan in basis",
+        dict(lr_basis=jnp.zeros((5, 2)).at[0, 0].set(jnp.nan)),
+        "lr_basis must be finite",
+    ),
+    (
+        "inf eigenvalue",
+        dict(lr_eigenvalues=jnp.asarray([jnp.inf, 0.25])),
+        "lr_eigenvalues must be finite",
+    ),
+    ("negative eigenvalue", dict(lr_eigenvalues=jnp.asarray([4.0, -2.0])), "positive"),
+    (
+        "non-orthonormal active columns",
+        dict(
+            lr_basis=jnp.asarray(
+                np.linalg.qr(np.random.default_rng(0).normal(size=(5, 2)))[0]
+            )
+            * 2.0
+        ),
+        "orthonormal",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [(o, m) for _, o, m in CONTRACT_VIOLATIONS],
+    ids=[label for label, _, _ in CONTRACT_VIOLATIONS],
+)
+def test_input_contract_refuses(overrides, match):
+    """Invalid input is refused, not silently repaired into a wrong chart."""
+    with pytest.raises(ValueError, match=match):
+        make_chart(**_contract_case(**overrides))
+
+
+def test_the_contract_case_baseline_is_actually_valid():
+    """Control: the table's unmodified call must construct, or every row is vacuous."""
+    chart = make_chart(**_contract_case())
+    y = jnp.asarray(np.random.default_rng(1).normal(size=5))
+    assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL
 
 
 def test_neutral_low_rank_columns_need_no_orthogonality():
@@ -144,8 +190,8 @@ def test_neutral_low_rank_columns_need_no_orthogonality():
     )
     y = jnp.asarray(rng.normal(size=d))
     _, expected = jnp.linalg.slogdet(jax.jacfwd(chart.forward)(y))
-    assert _rel(chart.log_det(y), expected) < RTOL
-    assert _rel(chart.inverse(chart.forward(y)), y) < RTOL
+    assert rel_error(chart.log_det(y), expected) < RTOL
+    assert rel_error(chart.inverse(chart.forward(y)), y) < RTOL
 
 
 # --------------------------------------------------------- funnel structure
@@ -215,32 +261,6 @@ def test_float32_low_rank_chart_is_accepted():
     assert float(jnp.max(jnp.abs(chart.inverse(chart.forward(y)) - y))) < 1e-3
 
 
-def test_non_finite_low_rank_inputs_are_refused():
-    """The NaN-blind path: a NaN Gram residual would pass the `> tol` gate.
-
-    `NaN > tol` is False, so an orthonormality check written as a bare
-    comparison accepts a basis it cannot evaluate — the same defect the gates in
-    this suite were repaired for. `+inf` likewise satisfies a bare `> 0` test on
-    the eigenvalues. Both are refused before any spectral work, and for every
-    column: `0 * NaN` is NaN, so a neutral column is not inert either.
-    """
-    d = 5
-    rng = np.random.default_rng(31)
-    h = jnp.asarray(rng.normal(size=d))
-    basis = jnp.asarray(np.linalg.qr(rng.normal(size=(d, 2)))[0])
-    ok = dict(a=jnp.zeros(d), c=h, alpha=0.2, center=jnp.zeros(d), scale=jnp.ones(d))
-
-    with pytest.raises(ValueError, match="lr_basis must be finite"):
-        make_chart(
-            h,
-            **ok,
-            lr_basis=basis.at[0, 0].set(jnp.nan),
-            lr_eigenvalues=jnp.asarray([4.0, 0.25]),
-        )
-    with pytest.raises(ValueError, match="lr_eigenvalues must be finite"):
-        make_chart(h, **ok, lr_basis=basis, lr_eigenvalues=jnp.asarray([jnp.inf, 0.25]))
-
-
 def test_finite_basis_with_overflowing_gram_is_refused():
     """The derived-quantity NaN path, which input finiteness cannot catch.
 
@@ -274,33 +294,4 @@ def test_finite_basis_with_overflowing_gram_is_refused():
             jnp.ones(d),
             jnp.asarray(basis),
             jnp.asarray([4.0, 0.25]),
-        )
-
-
-def test_declared_shapes_are_enforced():
-    """Broadcasting would otherwise build a chart outside the declared family."""
-    d = 5
-    h = jnp.zeros(d).at[-1].set(1.0)
-    base = dict(center=jnp.zeros(d), scale=jnp.ones(d))
-    with pytest.raises(ValueError, match="a shape"):
-        make_chart(h, a=jnp.asarray(0.0), c=h, alpha=0.2, **base)
-    with pytest.raises(ValueError, match="alpha must be a scalar"):
-        make_chart(h, a=jnp.zeros(d), c=h, alpha=jnp.zeros(2), **base)
-
-
-def test_mismatched_center_and_nan_inputs_are_refused():
-    """Two contract gaps: size agreement, and finiteness of a/c/alpha/center."""
-    d = 5
-    h = jnp.zeros(d).at[-1].set(1.0)
-    ok = dict(a=jnp.zeros(d), c=h, alpha=0.2, scale=jnp.ones(d))
-    with pytest.raises(ValueError, match="center shape"):
-        make_chart(h, **ok, center=jnp.zeros(d - 1))
-    with pytest.raises(ValueError, match="finite"):
-        make_chart(
-            h,
-            a=jnp.zeros(d),
-            c=h.at[0].set(jnp.nan),
-            alpha=0.2,
-            center=jnp.zeros(d),
-            scale=jnp.ones(d),
         )

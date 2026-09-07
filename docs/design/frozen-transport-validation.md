@@ -191,8 +191,11 @@ inputs. Active columns need orthonormality, not merely orthogonality.
 supported: it flips orientation without changing the volume element.
 
 `phi` serves **float32 and float64 only**. Half precisions raise rather than fall
-back, because the shipped crossover is measurably the *worst* available choice for
-them — a silent fallback would be actively harmful, not merely unsupported.
+back. The reason is directional rather than ranked: a coarser dtype wants a
+larger crossover, so falling back to the float64 constant moves in the wrong
+direction and a silent fallback is worse than no support. No claim is made that
+it is the worst of the available choices — that would need the ranked comparison
+this suite deliberately removed.
 
 ## Cost
 

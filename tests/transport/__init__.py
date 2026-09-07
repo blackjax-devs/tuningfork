@@ -26,6 +26,35 @@ conftest.
 """
 
 import jax
+import jax.numpy as jnp
+
+
+def rel_error(got, want):
+    """Relative error with a unit floor, so it degrades gracefully near zero.
+
+    For use in ``assert`` statements only.  ``assert rel_error(...) < tol`` is
+    NaN-safe by construction: ``assert`` fires on falsity and every comparison
+    involving NaN is false, so a non-finite value fails the assertion.
+    """
+    got, want = jnp.asarray(got), jnp.asarray(want)
+    scale = jnp.maximum(jnp.max(jnp.abs(want)), 1.0)
+    return float(jnp.max(jnp.abs(got - want)) / scale)
+
+
+def agrees(got, want, rtol):
+    """Finite-aware relative agreement, for PREDICATE use.
+
+    Use this wherever the result decides a branch rather than an assertion --
+    ``if not agrees(...): reject``.  That form is the one where polarity
+    matters: written as ``if err > tol: reject`` a NaN means "do not reject",
+    which silently accepts a value that could not be evaluated.  This artifact
+    has hit that defect four times, so the finiteness test lives here once
+    rather than depending on each caller remembering it.
+    """
+    got, want = jnp.asarray(got), jnp.asarray(want)
+    if not (bool(jnp.all(jnp.isfinite(got))) and bool(jnp.all(jnp.isfinite(want)))):
+        return False
+    return rel_error(got, want) < rtol
 
 
 def x64_scope():

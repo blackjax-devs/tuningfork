@@ -176,8 +176,11 @@ def test_large_positive_arguments_are_outside_the_implementation_domain(dtype):
 def test_unsupported_dtypes_are_refused():
     """Half precisions are rejected, not served with a float64 threshold.
 
-    Measurement showed the float64 crossover is the *worst* available choice for
-    bfloat16, so a silent fallback would be actively harmful.
+    This test establishes only that a ``TypeError`` is raised; it performs no
+    measurement, so it does not attribute one.  The reason for refusing is
+    directional: a coarser dtype wants a larger crossover, so falling back to
+    the float64 constant moves the wrong way and a silent fallback is worse than
+    no support.
     """
     for dtype in (jnp.bfloat16, jnp.float16):
         with pytest.raises(TypeError, match="supports"):

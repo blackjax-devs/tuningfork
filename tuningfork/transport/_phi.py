@@ -68,7 +68,7 @@ SUPPORTED_DTYPES = ("float32", "float64")
 SERIES_THRESHOLD = {"float32": 0.3, "float64": 0.1}
 """Per-dtype ``|x|`` below which the Taylor series replaces the direct form.
 
-    No accuracy is claimed for either branch; see the module docstring.
+No accuracy is claimed for either branch; see the module docstring.
 
 The two branches' errors move in opposite directions in ``|x|`` — the direct
 form's like ``eps / |x|``, the series' truncation like ``x**SERIES_TERMS`` — so

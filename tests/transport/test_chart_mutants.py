@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tests.transport import x64_scope
+from tests.transport import agrees, x64_scope
 from tuningfork.transport._chart import Chart, make_chart
 
 pytestmark = pytest.mark.slow
@@ -63,19 +63,10 @@ def _native_logdensity(q):
     return -0.5 * jnp.sum(q * q) - 0.05 * jnp.sum(jnp.cos(2.0 * q))
 
 
-def _agrees(got, want):
-    """Finite-aware relative agreement.  NaN or inf anywhere is a failure."""
-    got, want = jnp.asarray(got), jnp.asarray(want)
-    if not (bool(jnp.all(jnp.isfinite(got))) and bool(jnp.all(jnp.isfinite(want)))):
-        return False
-    scale = float(jnp.maximum(jnp.max(jnp.abs(want)), 1.0))
-    return float(jnp.max(jnp.abs(got - want))) / scale < RTOL
-
-
 def gate_log_det(chart, log_det):
     for y in _points():
         _, expected = jnp.linalg.slogdet(jax.jacfwd(chart.forward)(y))
-        if not _agrees(log_det(y), expected):
+        if not agrees(log_det(y), expected, RTOL):
             return False
     return True
 
@@ -88,7 +79,9 @@ def gate_score(chart, log_det, score):
         return _native_logdensity(chart.forward(y)) + log_det(y)
 
     for y in _points():
-        if not _agrees(score(y, grad_native(chart.forward(y))), jax.grad(reference)(y)):
+        if not agrees(
+            score(y, grad_native(chart.forward(y))), jax.grad(reference)(y), RTOL
+        ):
             return False
     return True
 
