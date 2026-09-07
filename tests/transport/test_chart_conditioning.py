@@ -91,18 +91,10 @@ def test_clock_residual_is_available_without_extra_cost():
     assert isinstance(residual, float)
 
 
-def test_projection_is_a_no_op_on_a_well_conditioned_point():
-    """The candidate repair does not disturb a correct value.
-
-    ``z + h (t - h . z)`` displaces by exactly the residual, so where the
-    residual is zero it changes nothing.  That is the property that makes it
-    safe to consider; it is not evidence that adopting it is correct, which
-    would need the full map/inverse/Jacobian/score re-verification.
-    """
-    chart = _funnel_chart()
-    y = jnp.asarray(
-        np.concatenate([np.random.default_rng(4).normal(size=DIM - 1), [8.0]])
-    )
-    residual, z = _clock_residual(chart, y)
-    projected = z + chart.h * (y[-1] - jnp.dot(chart.h, z))
-    assert float(jnp.max(jnp.abs(projected - z))) <= max(residual, 1e-15) * 1.5
+# The projection `z + h (t - h . z)` is deliberately NOT tested here.  Its
+# displacement is `h (t - h . z)`, whose max component is the residual times
+# max|h_i| <= residual because ||h|| = 1 — so "the projection moves z by at most
+# the residual" is an identity of the expression, true for any chart including a
+# broken one.  Asserting it would restate the algebra, which is the same defect
+# this round removed elsewhere.  The projection is documented, not shipped; when
+# it is shipped it needs map/inverse/Jacobian/score verification, not this.

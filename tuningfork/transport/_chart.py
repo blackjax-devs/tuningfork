@@ -231,6 +231,11 @@ def make_chart(
     orthonormality and not merely orthogonality: ``M_p M_{-p} = I`` reduces to
     ``U^T U = I`` on the active index set, which unit norm is part of.
 
+    This function validates with Python control flow and is therefore **host-side
+    only**: it is not ``jit``- or ``vmap``-traceable.  The resulting
+    :class:`Chart` is a pytree and crosses those boundaries normally; only its
+    construction does not.
+
     Raises
     ------
     ValueError
@@ -246,6 +251,8 @@ def make_chart(
 
     center = jnp.asarray(center)
     scale = jnp.asarray(scale)
+    if center.shape != h.shape:
+        raise ValueError(f"center shape {center.shape} != h shape {h.shape}")
     if scale.shape != center.shape:
         raise ValueError(f"scale shape {scale.shape} != center shape {center.shape}")
     if not bool(jnp.all(jnp.isfinite(scale))) or bool(jnp.any(scale == 0)):
@@ -260,9 +267,13 @@ def make_chart(
         )
 
     alpha = jnp.asarray(alpha, dtype=h.dtype)
+    a, c = jnp.asarray(a), jnp.asarray(c)
+    for name, value in (("a", a), ("c", c), ("alpha", alpha), ("center", center)):
+        if not bool(jnp.all(jnp.isfinite(value))):
+            raise ValueError(f"{name} must be finite; a NaN here builds a NaN chart")
     project = lambda v: v - h * jnp.dot(h, v)  # noqa: E731
-    c = project(jnp.asarray(c)) + h
-    a = project(jnp.asarray(a)) - alpha * h
+    c = project(c) + h
+    a = project(a) - alpha * h
 
     if lr_basis is None:
         lr_basis = jnp.zeros((h.size, 0), dtype=h.dtype)

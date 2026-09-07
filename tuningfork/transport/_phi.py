@@ -49,9 +49,10 @@ harmful rather than merely unsupported.
 Both branches of the selection are evaluated under ``jnp.where``, so each is
 guarded against the other's regime: the direct branch's denominator is clamped
 away from zero, and the series branch's argument is clamped to zero outside its
-own range.  Without the second clamp the series' Horner recurrence overflows for
-large ``|x|`` and ``inf - inf`` poisons the *tangent* of the selected branch, so
-``jax.grad`` returns NaN at points where the value is exactly right.
+own range.  Without the second clamp the series' Horner recurrence overflows to ``inf`` for
+large ``|x|``; in the VJP the unselected branch then receives a zero cotangent,
+and ``0 * inf`` is NaN, which contaminates the selected branch.  ``jax.grad``
+returns NaN at points where the value is exactly right.
 """
 
 import jax.numpy as jnp
@@ -65,11 +66,13 @@ SUPPORTED_DTYPES = ("float32", "float64")
 SERIES_THRESHOLD = {"float32": 0.3, "float64": 0.1}
 """Per-dtype ``|x|`` below which the Taylor series replaces the direct form.
 
+    No accuracy is claimed for either branch; see the module docstring.
+
 The optimum is dtype-dependent and the two dtypes disagree by an order of
 magnitude, so a single constant is measurably wrong for one of them.  The
 direct branch's error falls like ``eps / |x|`` while the series' truncation
 error grows like ``x**SERIES_TERMS``; the crossover therefore sits where the
-machine epsilon puts it.  See the table in the module docstring.
+machine epsilon puts it.
 """
 
 SERIES_TERMS = 10

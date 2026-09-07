@@ -118,20 +118,37 @@ def test_gradients_stay_finite_where_the_value_is_finite(dtype):
     """A finite value does not imply a finite gradient.
 
     The series branch's Horner recurrence overflows for large ``|x|``, and under
-    ``jnp.where`` an ``inf - inf`` tangent in the *unselected* branch poisons the
-    selected one.  Clamping the series argument is what prevents it; without the
-    clamp these points return NaN gradients on an exactly correct value.
+    ``jnp.where`` the unselected branch receives a zero cotangent in the VJP
+    which multiplies a saved infinite intermediate — ``0 * inf`` is NaN, and it
+    contaminates the selected branch.  Clamping the series argument is what
+    prevents it; without the clamp these points return NaN gradients on an
+    exactly correct value.
+
+    Only large NEGATIVE arguments are probed, and that is not an omission.  For
+    large positive ``x`` the value itself genuinely overflows — ``phi1(x) =
+    (e^x - 1)/x`` is unbounded, so ``expm1`` returns ``inf`` above 88.7 (float32)
+    or 709.8 (float64).  That is a property of the function, not a defect, and
+    asserting finiteness there would assert something false.  The repaired bug
+    lived on the negative side, where the value is small and exact.
     """
     d1 = jax.grad(lambda z: phi(z)[0])
     d2 = jax.grad(lambda z: phi(z)[1])
-    big = {np.float32: [1e3, -1e3, 1e6, -1e6], np.float64: [1e6, -1e6, 1e30, -1e30]}[
-        dtype
-    ]
+    big = {np.float32: [-1e3, -1e6, -1e30], np.float64: [-1e6, -1e30, -1e200]}[dtype]
     for x in big:
         xa = jnp.asarray(x, dtype=dtype)
         assert jnp.all(jnp.isfinite(jnp.asarray(phi(xa)))), f"value not finite at {x}"
         assert jnp.isfinite(d1(xa)), f"phi1' not finite at {x}"
         assert jnp.isfinite(d2(xa)), f"phi2' not finite at {x}"
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=SUPPORTED_DTYPES)
+def test_value_overflows_where_the_function_itself_is_unbounded(dtype):
+    """Pins the boundary above as a property, so it is not mistaken for a bug."""
+    limit = {np.float32: 88.7, np.float64: 709.8}[dtype]
+    assert not jnp.isfinite(phi(jnp.asarray(limit * 2, dtype=dtype))[0])
+    assert jnp.all(
+        jnp.isfinite(jnp.asarray(phi(jnp.asarray(limit * 0.5, dtype=dtype))))
+    )
 
 
 def test_unsupported_dtypes_are_refused():

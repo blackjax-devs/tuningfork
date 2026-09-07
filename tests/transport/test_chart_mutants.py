@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from tests.transport import x64_scope
-from tuningfork.transport._chart import make_chart
+from tuningfork.transport._chart import Chart, make_chart
 
 pytestmark = pytest.mark.slow
 
@@ -135,13 +135,38 @@ def test_non_finite_providers_are_rejected(bad):
     assert gate_score(chart, chart.log_det, const_score) is False
 
 
-def test_omitted_normalisation_is_rejected():
-    """The real defect: a chart built without normalising h.
+def _chart_without_normalising_h(h, a, c, alpha, center, scale):
+    """Build a chart exactly as `make_chart` does, minus the `h` normalisation.
 
-    Constructed by bypassing ``make_chart``'s projection entirely rather than by
-    rescaling ``h`` afterwards — rescaling leaves ``u``, ``a`` and ``c``
-    consistent with the normalised direction, so it does not model this bug.
+    This is what forgetting that one line produces: every downstream quantity —
+    the projection used for `a` and `c`, and the Householder reflector — is
+    derived from the RAW `h`.  Rescaling `h` on a finished chart is a different
+    and milder thing, because it leaves `u`, `a` and `c` consistent with the
+    normalised direction; an earlier version of this test made that mistake and
+    then described itself as modelling this one.
     """
-    chart = _chart()
-    unnormalised = chart._replace(h=chart.h * 1.7, a=chart.a * 1.7, c=chart.c * 1.7)
-    assert _run(unnormalised) != (True, True)
+    project = lambda v: v - h * jnp.dot(h, v)  # noqa: E731
+    c = project(c) + h
+    a = project(a) - alpha * h
+    e = jnp.zeros_like(h).at[-1].set(jnp.where(h[-1] >= 0, 1.0, -1.0))
+    u = h + e
+    u = u / jnp.linalg.norm(u)
+    empty = jnp.zeros((h.size, 0), dtype=h.dtype)
+    return Chart(h, a, c, jnp.asarray(alpha), center, scale, u, empty, empty[0])
+
+
+def test_omitted_normalisation_is_rejected():
+    """The real defect: a chart built without normalising h at all."""
+    rng = np.random.default_rng(11)
+    broken = _chart_without_normalising_h(
+        jnp.asarray(rng.normal(size=DIM)) * 1.7,
+        jnp.asarray(rng.normal(size=DIM)),
+        jnp.asarray(rng.normal(size=DIM)),
+        0.4,
+        jnp.asarray(rng.normal(size=DIM)),
+        jnp.asarray(np.exp(0.2 * rng.normal(size=DIM))),
+    )
+    assert (
+        float(jnp.abs(jnp.linalg.norm(broken.h) - 1.0)) > 1e-3
+    ), "must be un-normalised"
+    assert _run(broken) != (True, True)

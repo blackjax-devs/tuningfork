@@ -188,3 +188,46 @@ def test_exact_funnel_chart_factorises_the_clock():
             float(jnp.max(jnp.abs(row[:-1]))) < 1e-10
         ), "clock score depends on section"
         assert abs(float(row[-1]) + 1.0 / 9.0) < 1e-10, "clock curvature not constant"
+
+
+def test_float32_low_rank_chart_is_accepted():
+    """Regression for the orthonormality tolerance.
+
+    A genuinely orthonormal float32 basis carries Gram error around
+    ``sqrt(d) * eps32``, so a fixed absolute bound rejects a VALID input.  No
+    test constructed a float32 low-rank chart before, which is why that went
+    unnoticed; the tolerance now scales with dtype and rank.
+    """
+    d = 6
+    rng = np.random.default_rng(21)
+    basis = jnp.asarray(np.linalg.qr(rng.normal(size=(d, 3)))[0], dtype=jnp.float32)
+    chart = make_chart(
+        jnp.asarray(rng.normal(size=d), dtype=jnp.float32),
+        jnp.zeros(d, dtype=jnp.float32),
+        jnp.asarray(rng.normal(size=d), dtype=jnp.float32),
+        jnp.float32(0.3),
+        jnp.zeros(d, dtype=jnp.float32),
+        jnp.ones(d, dtype=jnp.float32),
+        basis,
+        jnp.asarray([4.0, 0.25, 9.0], dtype=jnp.float32),
+    )
+    y = jnp.asarray(rng.normal(size=d), dtype=jnp.float32)
+    assert float(jnp.max(jnp.abs(chart.inverse(chart.forward(y)) - y))) < 1e-3
+
+
+def test_mismatched_center_and_nan_inputs_are_refused():
+    """Two contract gaps: size agreement, and finiteness of a/c/alpha/center."""
+    d = 5
+    h = jnp.zeros(d).at[-1].set(1.0)
+    ok = dict(a=jnp.zeros(d), c=h, alpha=0.2, scale=jnp.ones(d))
+    with pytest.raises(ValueError, match="center shape"):
+        make_chart(h, **ok, center=jnp.zeros(d - 1))
+    with pytest.raises(ValueError, match="finite"):
+        make_chart(
+            h,
+            a=jnp.zeros(d),
+            c=h.at[0].set(jnp.nan),
+            alpha=0.2,
+            center=jnp.zeros(d),
+            scale=jnp.ones(d),
+        )
