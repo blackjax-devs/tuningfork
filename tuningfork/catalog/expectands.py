@@ -75,7 +75,7 @@ Example
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -83,6 +83,7 @@ import numpy as np
 __all__ = [
     "BACKENDS",
     "DEFAULT_BACKEND",
+    "DEFAULT_TIE_BLOCK_THRESHOLD",
     "CostAccounting",
     "ExpectandDiagnostics",
     "ExpectandReport",
@@ -111,14 +112,18 @@ _TAIL_PROB = (0.05, 0.95)
 _ORDINAL_RANK_BACKENDS = frozenset({"blackjax"})
 
 
-def _tie_disclosure(tie_fraction: float, backend: str, material: bool) -> str:
+def _tie_disclosure(
+    tie_fraction: float, mean_tie_block: float, backend: str, material: bool
+) -> str:
     """Always disclose ties; raise the wording's severity when they are material.
 
     Disclosure is not gated on the threshold.  A backend that ranks ties
     ordinally is named whenever any tie is present, because the reader -- not a
     fixed cut-off -- decides whether a rank statistic looks anomalous.
     """
-    share = f"tie fraction {tie_fraction:.4g}"
+    share = (
+        f"tie fraction {tie_fraction:.4g}, mean tie block {mean_tie_block:.4g} draws"
+    )
     if backend in _ORDINAL_RANK_BACKENDS:
         backend_note = (
             f"the {backend!r} backend assigns ordinal ranks to tied values while "
@@ -131,7 +136,10 @@ def _tie_disclosure(tie_fraction: float, backend: str, material: bool) -> str:
             "ties ordinally would report different rank-normalised statistics"
         )
     if material:
-        return f"expectand is largely repeated values ({share}); {backend_note}"
+        return (
+            "expectand takes few distinct values, the regime where rank "
+            f"normalisation diverges between backends ({share}); {backend_note}"
+        )
     return f"expectand has repeated values ({share}); {backend_note}"
 
 
@@ -144,12 +152,22 @@ _STATISTICS = ("raw_mean_ess", "bulk_ess", "tail_ess", "rank_rhat")
 # second" nor a ratio of two R-hats carries meaning, so both are withheld.
 _RATE_STATISTICS = ("raw_mean_ess", "bulk_ess", "tail_ess")
 
-#: Default tie fraction at or above which a row carries the backend caveat.
-#: A display threshold, not a correctness boundary -- ``tie_fraction`` is always
-#: reported numerically, whatever this is set to.  MCMC rejections leave a few
-#: repeated states in any chain; the rank-normalisation artefact this warns about
-#: only becomes material when a large share of the trace is tied.
-DEFAULT_TIE_CAVEAT_THRESHOLD = 0.01
+#: Mean tie-block size at or above which the tie disclosure is raised from
+#: "minor" to "material".
+#:
+#: Severity is keyed on how *few distinct values* a trace takes, not on what
+#: share of it is tied, because that is what actually drives the two backends
+#: apart.  Measured on 4x500 draws (see
+#: ``docs/examples/trajectory-length-sensitivity.md``): a continuous trace with
+#: 89% of its values repeated by rejection holds still has ~2000 distinct values
+#: and the backends agree to 0.4%; the same draws quantised to 200, 50, 10, 5
+#: and 2 distinct values give ArviZ/blackjax bulk-ESS ratios of 1.01, 1.02, 2.6,
+#: 32 and 156. Divergence tracks the mean tie-block size (n_total / n_distinct),
+#: which is ~40 at the 1.02 point and ~200 at the 2.6 point.
+#:
+#: A display threshold, not a correctness boundary: any tie at all is disclosed,
+#: and ``tie_fraction``/``mean_tie_block`` are always reported numerically.
+DEFAULT_TIE_BLOCK_THRESHOLD = 50.0
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +337,16 @@ class CostAccounting:
         if getattr(self, component) is not None:
             return ""
         return self.unknown_reasons.get(component, "not recorded")
+
+    def relabel(self, source: str) -> CostAccounting:
+        """Same costs under a different ``source`` name.
+
+        Used when an accounting read from telemetry needs a name that
+        :meth:`combine` can report in provenance and double-charge messages.
+        Copying the fields by hand instead would silently drop any field added
+        later.
+        """
+        return replace(self, source=source)
 
     def provenance(self) -> tuple[str, ...]:
         """Every accounting this object was built from, innermost first."""
@@ -754,6 +782,7 @@ class ExpectandDiagnostics:
     n_draws: int
     n_distinct: int
     tie_fraction: float
+    mean_tie_block: float
     tie_severity: str
     degeneracy: str
     raw_mean_ess: float | None
@@ -779,16 +808,23 @@ class ExpectandDiagnostics:
         return getattr(self, statistic)  # type: ignore[no-any-return]
 
 
-def _tie_severity(tie_fraction: float, threshold: float) -> str:
+def _mean_tie_block(n_total: int, n_distinct: int) -> float:
+    """Average number of draws sharing a value; ``1.0`` when all are distinct."""
+    if n_distinct <= 0:
+        return 0.0
+    return n_total / n_distinct
+
+
+def _tie_severity(mean_tie_block: float, n_distinct: int, threshold: float) -> str:
     """``"none"`` / ``"minor"`` / ``"material"`` -- display severity only.
 
     This grades how loudly ties are reported.  It is never a validity boundary:
-    any tie at all is disclosed, and ``tie_fraction`` is reported numerically
+    any tie at all is disclosed, and both tie measures are reported numerically
     whatever the severity.
     """
-    if tie_fraction <= 0.0:
+    if mean_tie_block <= 1.0:
         return "none"
-    return "material" if tie_fraction >= threshold else "minor"
+    return "material" if mean_tie_block >= threshold else "minor"
 
 
 def _classify(trace_cs: np.ndarray) -> tuple[str, int, tuple[str, ...]]:
@@ -815,13 +851,15 @@ def _component_diagnostics(
     component: int | None,
     trace_cs: np.ndarray,
     backend: str,
-    tie_caveat_threshold: float = DEFAULT_TIE_CAVEAT_THRESHOLD,
+    tie_block_threshold: float = DEFAULT_TIE_BLOCK_THRESHOLD,
 ) -> ExpectandDiagnostics:
     n_chains, n_draws = trace_cs.shape
     finite = bool(np.all(np.isfinite(trace_cs)))
     n_distinct = int(np.unique(trace_cs).size)
     total = trace_cs.size
     tie_fraction = 0.0 if total == 0 else 1.0 - n_distinct / total
+    mean_tie_block = _mean_tie_block(total, n_distinct)
+    severity = _tie_severity(mean_tie_block, n_distinct, tie_block_threshold)
 
     def undefined(reason: str, degeneracy: str) -> ExpectandDiagnostics:
         return ExpectandDiagnostics(
@@ -832,7 +870,8 @@ def _component_diagnostics(
             n_draws=n_draws,
             n_distinct=n_distinct,
             tie_fraction=tie_fraction,
-            tie_severity=_tie_severity(tie_fraction, tie_caveat_threshold),
+            mean_tie_block=mean_tie_block,
+            tie_severity=severity,
             degeneracy=degeneracy,
             raw_mean_ess=None,
             bulk_ess=None,
@@ -868,9 +907,13 @@ def _component_diagnostics(
         for stat, val in stats.items()
         if val is None
     }
-    severity = _tie_severity(tie_fraction, tie_caveat_threshold)
     if severity != "none":
-        warns = (*warns, _tie_disclosure(tie_fraction, backend, severity == "material"))
+        warns = (
+            *warns,
+            _tie_disclosure(
+                tie_fraction, mean_tie_block, backend, severity == "material"
+            ),
+        )
 
     return ExpectandDiagnostics(
         name=name,
@@ -880,6 +923,7 @@ def _component_diagnostics(
         n_draws=n_draws,
         n_distinct=n_distinct,
         tie_fraction=tie_fraction,
+        mean_tie_block=mean_tie_block,
         tie_severity=severity,
         degeneracy=degeneracy,
         raw_mean_ess=stats["raw_mean_ess"],
@@ -981,6 +1025,7 @@ class ExpectandReport:
                     "backend": entry.backend,
                     "degeneracy": entry.degeneracy,
                     "tie_fraction": entry.tie_fraction,
+                    "mean_tie_block": entry.mean_tie_block,
                     "tie_severity": entry.tie_severity,
                     "raw_mean_ess": entry.raw_mean_ess,
                     "bulk_ess": entry.bulk_ess,
@@ -1054,7 +1099,7 @@ def expectand_report(
     cost: CostAccounting | None = None,
     backend: str = DEFAULT_BACKEND,
     label: str = "unnamed",
-    tie_caveat_threshold: float = DEFAULT_TIE_CAVEAT_THRESHOLD,
+    tie_block_threshold: float = DEFAULT_TIE_BLOCK_THRESHOLD,
 ) -> ExpectandReport:
     """Compose a named-expectand report from existing draws and diagnostics.
 
@@ -1078,11 +1123,11 @@ def expectand_report(
         unless x64 is enabled); the ArviZ backend computes in float64.
     label
         Name for this report, used when comparing two of them.
-    tie_caveat_threshold
-        Tie fraction at or above which a row carries the backend caveat.  A
-        display threshold only: ``tie_fraction`` is reported numerically on
-        every row regardless.  The default keeps the caveat off the handful of
-        repeated states any MCMC chain leaves behind after rejections.
+    tie_block_threshold
+        Mean tie-block size at or above which the tie disclosure is raised to
+        "material".  A display threshold only: any tie is disclosed regardless,
+        and both tie measures are reported numerically on every row.  See
+        :data:`DEFAULT_TIE_BLOCK_THRESHOLD` for the measurement it is keyed on.
 
     Returns
     -------
@@ -1108,7 +1153,7 @@ def expectand_report(
                     None if not event_shape else index,
                     flat[:, :, index],
                     backend,
-                    tie_caveat_threshold=tie_caveat_threshold,
+                    tie_block_threshold=tie_block_threshold,
                 )
             )
 

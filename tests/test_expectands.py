@@ -283,7 +283,8 @@ def test_repeated_values_are_flagged_with_a_backend_caveat():
     assert entry.degeneracy == "none"
     assert entry.n_distinct == 2
     assert entry.tie_fraction > 0.99
-    assert any("repeated values" in w for w in entry.warnings)
+    assert entry.tie_severity == "material"
+    assert any("few distinct values" in w for w in entry.warnings)
     assert any("backend='arviz'" in w for w in entry.warnings)
 
 
@@ -546,16 +547,16 @@ def test_sparse_ties_do_not_raise_the_backend_caveat():
 
 
 @pytest.mark.slow
-def test_tie_caveat_threshold_is_explicit():
+def test_tie_block_threshold_is_explicit():
     rng = np.random.default_rng(77)
     trace = rng.standard_normal((N_CHAINS, N_DRAWS))
     trace[0, 5] = trace[0, 4]
 
     loud = expectand_report(
-        {"raw": trace}, {"q": lambda s: s["raw"]}, tie_caveat_threshold=0.0
+        {"raw": trace}, {"q": lambda s: s["raw"]}, tie_block_threshold=1.0
     ).entries[0]
 
-    assert any("repeated values" in w for w in loud.warnings)
+    assert loud.tie_severity == "material"
     assert loud.tie_fraction == pytest.approx(1 / (N_CHAINS * N_DRAWS))
 
 
@@ -878,8 +879,10 @@ def test_material_ties_raise_the_severity_not_the_existence_of_disclosure():
 
     entry = _degenerate_report(trace, "blackjax").entries[0]
 
+    assert entry.n_distinct == 2
+    assert entry.mean_tie_block == pytest.approx(N_CHAINS * N_DRAWS / 2)
     assert entry.tie_severity == "material"
-    assert any("largely repeated values" in w for w in entry.warnings)
+    assert any("few distinct values" in w for w in entry.warnings)
 
 
 @pytest.mark.slow
@@ -916,3 +919,35 @@ def test_comparison_carries_cost_views_and_gradient_exclusions():
     row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
     assert row.per_transition_grad_eval is not None
     assert row.per_transition_grad_eval[0] == pytest.approx(row.baseline / 500.0)
+
+
+@pytest.mark.slow
+def test_tie_severity_tracks_cardinality_not_tie_fraction():
+    """Heavily tied but high-cardinality traces are not the divergent regime.
+
+    Emulated MH rejections leave ~90% of a continuous trace tied to a previous
+    state, yet almost every value stays distinct and the backends agree. A
+    2-valued indicator has a comparable tie fraction and is where the backends
+    diverge, so severity must key on cardinality.
+    """
+    rng = np.random.default_rng(20260907)
+    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+    hold = rng.random(trace.shape) < 0.9
+    for chain in range(trace.shape[0]):
+        for step in range(1, trace.shape[1]):
+            if hold[chain, step]:
+                trace[chain, step] = trace[chain, step - 1]
+
+    sticky = _degenerate_report(trace).entries[0]
+    indicator = _degenerate_report((trace > 0).astype(float)).entries[0]
+
+    assert sticky.tie_fraction > 0.5
+    assert sticky.tie_severity == "minor"
+    assert indicator.tie_fraction > 0.5
+    assert indicator.tie_severity == "material"
+
+    # And the severity call matches what the backends actually do.
+    sticky_az = _degenerate_report(trace, "arviz").entries[0]
+    assert sticky.bulk_ess == pytest.approx(sticky_az.bulk_ess, rel=0.05)
+    indicator_az = _degenerate_report((trace > 0).astype(float), "arviz").entries[0]
+    assert indicator_az.bulk_ess > 5 * indicator.bulk_ess
