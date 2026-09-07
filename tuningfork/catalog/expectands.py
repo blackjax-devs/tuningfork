@@ -91,6 +91,8 @@ __all__ = [
     "expectand_traces",
     "expectand_report",
     "compare_reports",
+    "sampling_grad_evals_from_chain_stats",
+    "GradEvalDerivation",
 ]
 
 #: Diagnostics backends this module can dispatch to.  ``"blackjax"`` matches the
@@ -105,11 +107,33 @@ DEFAULT_BACKEND = "blackjax"
 #: ``blackjax.diagnostics.ess_tail``.
 _TAIL_PROB = (0.05, 0.95)
 
-_TIE_CAVEAT = (
-    "expectand has repeated values; rank-normalised statistics are "
-    "backend-sensitive on ties (the 'blackjax' backend assigns ordinal ranks to "
-    "tied values, ArviZ averages them) -- cross-check with backend='arviz'"
-)
+#: Backends whose rank normalisation is order-dependent on tied values.
+_ORDINAL_RANK_BACKENDS = frozenset({"blackjax"})
+
+
+def _tie_disclosure(tie_fraction: float, backend: str, material: bool) -> str:
+    """Always disclose ties; raise the wording's severity when they are material.
+
+    Disclosure is not gated on the threshold.  A backend that ranks ties
+    ordinally is named whenever any tie is present, because the reader -- not a
+    fixed cut-off -- decides whether a rank statistic looks anomalous.
+    """
+    share = f"tie fraction {tie_fraction:.4g}"
+    if backend in _ORDINAL_RANK_BACKENDS:
+        backend_note = (
+            f"the {backend!r} backend assigns ordinal ranks to tied values while "
+            "ArviZ averages them, so rank-normalised statistics differ between "
+            "them here -- cross-check with backend='arviz'"
+        )
+    else:
+        backend_note = (
+            f"the {backend!r} backend averages tied ranks; a backend that ranks "
+            "ties ordinally would report different rank-normalised statistics"
+        )
+    if material:
+        return f"expectand is largely repeated values ({share}); {backend_note}"
+    return f"expectand has repeated values ({share}); {backend_note}"
+
 
 # Statistic names in report order.  ``raw_mean_ess`` is deliberately first and
 # deliberately separate from the three rank-normalised statistics.
@@ -216,18 +240,42 @@ class CostAccounting:
     Every field is ``None`` when the corresponding cost was not measured.  A
     missing cost is *never* represented as ``0``: ``unknown_reasons`` states why
     each ``None`` is ``None``, and :attr:`is_fully_accounted` is ``False`` while
-    any component is missing.
+    any component is missing.  A measured ``0`` is a known value, not a gap --
+    a ``no_warmup`` arm really did execute zero warmup gradients.
+
+    ``sampling_transition_grad_evals`` is deliberately narrow: it is the
+    gradient work of the sampler's *transitions*, including rejected ones.  It
+    is not the total gradient cost of the run.  Whatever it omits is named in
+    :attr:`excluded_grad_work`, so a transition subtotal is never mistaken for
+    a total.
+
+    :attr:`view` says which accounting question this object answers:
+
+    ``"as_measured"``
+        exactly what one execution's telemetry or recipe recorded.
+    ``"standalone"``
+        what this alternative would cost on its own -- a shared warmup that
+        several arms reuse is charged to each of them.
+    ``"combined"``
+        what the whole experiment actually spent -- a shared warmup is charged
+        once across every arm that reused it.
+
+    The two derived views are never inferred; build them with :meth:`combine`,
+    which records its inputs in :attr:`contributors`.
     """
 
     warmup_seconds: float | None = None
     sampling_seconds: float | None = None
     total_seconds: float | None = None
     warmup_grad_evals: int | None = None
-    sampling_grad_evals: int | None = None
+    sampling_transition_grad_evals: int | None = None
     compile_seconds: float | None = None
     unknown_reasons: Mapping[str, str] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
     source: str = "unspecified"
+    view: str = "as_measured"
+    contributors: tuple[str, ...] = ()
+    excluded_grad_work: tuple[str, ...] = ()
 
     #: Cost components in report order.
     COMPONENTS = (
@@ -235,9 +283,24 @@ class CostAccounting:
         "sampling_seconds",
         "total_seconds",
         "warmup_grad_evals",
-        "sampling_grad_evals",
+        "sampling_transition_grad_evals",
         "compile_seconds",
     )
+
+    #: Components measured in seconds.  Summable only across phases the caller
+    #: asserts are disjoint and sequential.
+    _TIME_COMPONENTS = (
+        "warmup_seconds",
+        "sampling_seconds",
+        "total_seconds",
+        "compile_seconds",
+    )
+
+    #: Components that are counts.  Additive whether or not phases overlap.
+    _COUNT_COMPONENTS = ("warmup_grad_evals", "sampling_transition_grad_evals")
+
+    #: Accounting views :meth:`combine` can produce.
+    VIEWS = ("as_measured", "standalone", "combined")
 
     @property
     def unknown_components(self) -> tuple[str, ...]:
@@ -257,24 +320,140 @@ class CostAccounting:
             return ""
         return self.unknown_reasons.get(component, "not recorded")
 
+    def provenance(self) -> tuple[str, ...]:
+        """Every accounting this object was built from, innermost first."""
+        return self.contributors or (self.source,)
+
     @classmethod
-    def from_telemetry(cls, telemetry: Any) -> CostAccounting:
+    def combine(
+        cls,
+        costs: tuple[CostAccounting, ...] | list[CostAccounting],
+        *,
+        view: str,
+        phases_are_disjoint_sequential: bool,
+        source: str = "combined",
+    ) -> CostAccounting:
+        """Add up several accountings without inventing anything they lack.
+
+        A component is summed only when *every* contributor measured it;
+        otherwise it stays ``None`` and the reason names the contributor that
+        did not measure it.  A measured ``0`` contributes ``0`` and does not
+        make the sum unknown.
+
+        Wall clocks are summed only when the caller asserts, via
+        ``phases_are_disjoint_sequential``, that the contributors ran one after
+        another without overlap.  Gradient counts are additive regardless, so
+        they are summed either way.
+
+        The same contributor may not appear twice.  That is what stops a shared
+        warmup from being charged into a total that already contains it: a
+        combined accounting carries its inputs in :attr:`contributors`, so
+        re-combining it with one of those inputs is rejected rather than
+        silently double-counted.
+
+        Parameters
+        ----------
+        costs
+            Two or more accountings to add.
+        view
+            ``"standalone"`` or ``"combined"`` -- which question the result
+            answers.  Stated explicitly because the arithmetic is identical and
+            only the caller knows which one they are asking.
+        phases_are_disjoint_sequential
+            Whether the contributors' wall clocks may be added.  ``False``
+            leaves every time component unknown with a stated reason.
+        source
+            Label for the resulting accounting.
+        """
+        costs = tuple(costs)
+        if len(costs) < 2:
+            raise ValueError("combine needs at least two accountings")
+        if view not in ("standalone", "combined"):
+            raise ValueError('view must be "standalone" or "combined"')
+
+        seen: dict[str, int] = {}
+        for cost in costs:
+            for name in cost.provenance():
+                seen[name] = seen.get(name, 0) + 1
+        duplicated = sorted(name for name, count in seen.items() if count > 1)
+        if duplicated:
+            raise ValueError(
+                "cannot combine: "
+                + ", ".join(duplicated)
+                + " appears in more than one contributor, so its cost would be "
+                "charged twice; combine the parts that do not already include it"
+            )
+
+        values: dict[str, Any] = {}
+        unknown: dict[str, str] = {}
+        for component in cls.COMPONENTS:
+            if component in cls._TIME_COMPONENTS and not phases_are_disjoint_sequential:
+                unknown[component] = (
+                    "contributors were not asserted to be disjoint and "
+                    "sequential, so their wall clocks cannot be added"
+                )
+                values[component] = None
+                continue
+            missing = [c for c in costs if getattr(c, component) is None]
+            if missing:
+                unknown[component] = "; ".join(
+                    f"{c.source}: {c.reason_for(component)}" for c in missing
+                )
+                values[component] = None
+            else:
+                total = sum(getattr(c, component) for c in costs)
+                values[component] = (
+                    int(total) if component in cls._COUNT_COMPONENTS else float(total)
+                )
+
+        notes = tuple(dict.fromkeys(note for cost in costs for note in cost.notes)) + (
+            f"{view} view over {len(costs)} contributors: "
+            + ", ".join(c.source for c in costs),
+        )
+        if not phases_are_disjoint_sequential:
+            notes += ("wall clocks were not summed: phases may overlap",)
+
+        return cls(
+            **values,
+            unknown_reasons=unknown,
+            notes=notes,
+            source=source,
+            view=view,
+            contributors=tuple(
+                dict.fromkeys(name for cost in costs for name in cost.provenance())
+            ),
+            excluded_grad_work=tuple(
+                dict.fromkeys(
+                    item for cost in costs for item in cost.excluded_grad_work
+                )
+            ),
+        )
+
+    @classmethod
+    def from_telemetry(
+        cls,
+        telemetry: Any,
+        *,
+        sampling_transition_grad_evals: GradEvalDerivation | None = None,
+    ) -> CostAccounting:
         """Read an ``ExecutionTelemetry`` without adding fields to its schema.
 
         Only fields the generated-run telemetry schema already defines are
         consulted: ``timing_seconds`` (``warmup``/``sampling``/``total``),
-        ``warmup_grad_evals`` and ``warmup_grad_evals_reason``.  Sampling
-        gradient evaluations and compile time are not in that schema, so they
-        stay unknown with a stated reason.
+        ``warmup_grad_evals`` and ``warmup_grad_evals_reason``.  Compile time is
+        not in that schema, so it stays unknown with a stated reason.
+
+        Sampling gradient work is not in the schema either.  Pass the result of
+        :func:`sampling_grad_evals_from_chain_stats` as
+        ``sampling_transition_grad_evals`` to supply the transition subtotal
+        recovered from the persisted per-step statistics; its basis and
+        exclusions are carried through.  Without it the component stays unknown.
         """
         timing = dict(getattr(telemetry, "timing_seconds", {}) or {})
         warmup_grad = getattr(telemetry, "warmup_grad_evals", None)
         warmup_reason = getattr(telemetry, "warmup_grad_evals_reason", "") or ""
 
         unknown: dict[str, str] = {
-            "sampling_grad_evals": (
-                "generated-run telemetry records warmup gradient evaluations only"
-            ),
             "compile_seconds": (
                 "JIT compilation is not separately measured; it is included in the "
                 "recorded warmup and sampling walls and is not subtracted here"
@@ -292,23 +471,44 @@ class CostAccounting:
             if timing.get(key) is None:
                 unknown[component] = "telemetry did not record this wall clock"
 
+        derivation = sampling_transition_grad_evals
+        transitions = derivation.count if derivation is not None else None
+        if transitions is None:
+            unknown["sampling_transition_grad_evals"] = (
+                derivation.reason
+                if derivation is not None
+                else (
+                    "generated-run telemetry records warmup gradient evaluations "
+                    "only; pass sampling_grad_evals_from_chain_stats(...) to "
+                    "recover the transition subtotal from the persisted per-step "
+                    "statistics"
+                )
+            )
+
+        notes = ["wall clocks include JIT compilation"]
+        if warmup_grad is not None and warmup_reason:
+            notes.append(f"warmup_grad_evals basis: {warmup_reason}")
+        if derivation is not None and derivation.count is not None:
+            notes.append(
+                "sampling_transition_grad_evals basis: "
+                f"{derivation.basis} (from {', '.join(derivation.source_fields)})"
+            )
+
         return cls(
             warmup_seconds=_opt_float(timing.get("warmup")),
             sampling_seconds=_opt_float(timing.get("sampling")),
             total_seconds=_opt_float(timing.get("total")),
             warmup_grad_evals=warmup_grad,
-            sampling_grad_evals=None,
+            sampling_transition_grad_evals=transitions,
             compile_seconds=None,
             unknown_reasons=unknown,
-            notes=(
-                "wall clocks include JIT compilation",
-                *(
-                    (f"warmup_grad_evals basis: {warmup_reason}",)
-                    if warmup_grad is not None and warmup_reason
-                    else ()
-                ),
-            ),
+            notes=tuple(notes),
             source="execution_telemetry",
+            excluded_grad_work=(
+                derivation.excluded
+                if derivation is not None and derivation.count is not None
+                else ()
+            ),
         )
 
     @classmethod
@@ -321,13 +521,10 @@ class CostAccounting:
             warmup + sampling if warmup is not None and sampling is not None else None
         )
 
+        no_counts = "calibration_budget does not record gradient evaluations"
         unknown: dict[str, str] = {
-            "warmup_grad_evals": (
-                "calibration_budget does not record gradient evaluations"
-            ),
-            "sampling_grad_evals": (
-                "calibration_budget does not record gradient evaluations"
-            ),
+            "warmup_grad_evals": no_counts,
+            "sampling_transition_grad_evals": no_counts,
             "compile_seconds": (
                 "JIT compilation is not separately measured; it is included in the "
                 "recorded warmup and sampling walls and is not subtracted here"
@@ -353,6 +550,178 @@ class CostAccounting:
             notes=("wall clocks include JIT compilation",),
             source="recipe_calibration_budget",
         )
+
+
+@dataclass(frozen=True)
+class GradEvalDerivation:
+    """Outcome of recovering transition gradient work from persisted statistics.
+
+    ``count`` is ``None`` when the derivation was refused; ``reason`` then says
+    why.  When ``count`` is present, ``basis`` is the sampler's own declared
+    counting convention and ``source_fields`` names the per-step statistics it
+    was computed from, so the number can be audited without rerunning anything.
+
+    ``excluded`` names gradient work this subtotal does *not* contain.  It is
+    never empty for a successful derivation: per-step transition statistics
+    cannot see initialization or any controller/adaptation internals, so this
+    is a subtotal of the sampling phase and must not be reported as a total.
+    """
+
+    count: int | None
+    basis: str = ""
+    source_fields: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
+    reason: str = ""
+
+
+#: Gradient work that per-step transition statistics structurally cannot see.
+_EXCLUDED_FROM_TRANSITION_COUNT = (
+    "initialization (kernel.init and any per-chain state re-init)",
+    "controller/adaptation internals not emitted as per-step statistics",
+    "any gradient work outside the recorded sampling transitions",
+)
+
+
+def sampling_grad_evals_from_chain_stats(
+    chain_stats: Mapping[str, Any],
+    base_method_name: str,
+    *,
+    expected_topology: tuple[int, int] | None = None,
+) -> GradEvalDerivation:
+    """Recover the sampling *transition* gradient subtotal already recorded.
+
+    Generated runs persist per-step chain statistics (``num_integration_steps``
+    and friends) alongside the draws, and every ``BaseMethod`` already declares
+    how one step's info becomes a gradient count.  This reuses that descriptor
+    rather than hard-coding a per-sampler table, so a cost that *was* recorded
+    need not be reported as unknown.  Rejected transitions are included: the
+    per-step record covers every proposal the sampler paid for, not only the
+    accepted ones.
+
+    The derivation is refused, with a reason, when the recorded statistics do
+    not justify it: an unknown sampler, a descriptor needing a field that was
+    not persisted, ragged or empty statistics, or -- when
+    ``expected_topology`` is given -- a per-step record that does not cover
+    every chain and every draw, which is what a thinned or truncated record
+    looks like.
+
+    Parameters
+    ----------
+    chain_stats
+        Per-step statistics, ``{field: (n_chains, n_draws)}`` -- e.g. the
+        ``_ss_``-prefixed entries of a generated ``.npz`` artifact with the
+        prefix stripped.
+    base_method_name
+        Key into ``tuningfork.base_method.BASE_METHODS``.
+    expected_topology
+        ``(n_chains, n_draws)`` the draws actually have.  When supplied, the
+        statistics must cover exactly that many transitions.
+
+    Returns
+    -------
+    GradEvalDerivation
+    """
+    from tuningfork.base_method import BASE_METHODS
+
+    method = BASE_METHODS.get(base_method_name)
+    if method is None:
+        return GradEvalDerivation(
+            None, reason=f"unknown base method: {base_method_name!r}"
+        )
+    counter = getattr(method, "grad_count_per_step", None)
+    if counter is None:
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"{base_method_name} declares no grad_count_per_step contract, so "
+                "its transition gradient cost cannot be derived"
+            ),
+        )
+
+    arrays = {name: np.asarray(value) for name, value in chain_stats.items()}
+    if not arrays:
+        return GradEvalDerivation(
+            None, reason="no per-step chain statistics were persisted for this run"
+        )
+    shapes = {arr.shape for arr in arrays.values()}
+    if len(shapes) != 1:
+        return GradEvalDerivation(
+            None,
+            reason=(
+                "per-step statistics are ragged "
+                f"({sorted(str(sh) for sh in shapes)}), so the number of "
+                "transitions is ambiguous"
+            ),
+        )
+    shape = shapes.pop()
+    if expected_topology is not None and shape[:2] != tuple(expected_topology):
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"per-step statistics cover {shape[:2]} but the draws are "
+                f"{tuple(expected_topology)}; the record does not cover every "
+                "lane and transition (thinned, truncated, or partial)"
+            ),
+        )
+    n_transitions = int(np.prod(shape[:2])) if len(shape) >= 2 else int(shape[0])
+    if n_transitions == 0:
+        return GradEvalDerivation(
+            0,
+            basis=f"{method.grad_count_convention} over zero recorded transitions",
+            source_fields=tuple(sorted(arrays)),
+            excluded=_EXCLUDED_FROM_TRANSITION_COUNT,
+        )
+
+    class _StepStats:
+        """Attribute view over the persisted arrays, for grad_count_per_step."""
+
+        def __init__(self, fields: Mapping[str, np.ndarray]) -> None:
+            self.__dict__.update(fields)
+
+    try:
+        counts = np.asarray(counter(_StepStats(arrays)))
+    except AttributeError as exc:
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"{base_method_name} counts gradients from a per-step field that "
+                f"was not persisted ({exc})"
+            ),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        return GradEvalDerivation(
+            None,
+            reason=f"could not evaluate the {base_method_name} grad count: {exc}",
+        )
+
+    if counts.ndim == 0:
+        # Constant-cost samplers declare one value per step; scale by the number
+        # of recorded transitions, mirroring tuningfork.metrics.grad_counter.
+        total = int(counts) * n_transitions
+        used: tuple[str, ...] = ()
+    elif counts.shape[:2] != shape[:2]:
+        return GradEvalDerivation(
+            None,
+            reason=(
+                f"{base_method_name} produced a per-step count of shape "
+                f"{counts.shape}, which does not cover the {shape[:2]} recorded "
+                "transitions"
+            ),
+        )
+    else:
+        total = int(counts.sum())
+        used = tuple(sorted(arrays))
+    if total < 0:
+        return GradEvalDerivation(
+            None, reason=f"{base_method_name} produced a negative gradient count"
+        )
+    return GradEvalDerivation(
+        count=total,
+        basis=f"{method.grad_count_convention} summed over {n_transitions} "
+        "recorded transitions, rejected transitions included",
+        source_fields=used or tuple(sorted(arrays)),
+        excluded=_EXCLUDED_FROM_TRANSITION_COUNT,
+    )
 
 
 def _opt_float(value: Any) -> float | None:
@@ -385,6 +754,7 @@ class ExpectandDiagnostics:
     n_draws: int
     n_distinct: int
     tie_fraction: float
+    tie_severity: str
     degeneracy: str
     raw_mean_ess: float | None
     bulk_ess: float | None
@@ -407,6 +777,18 @@ class ExpectandDiagnostics:
         if statistic not in _STATISTICS:
             raise KeyError(f"unknown statistic: {statistic!r}")
         return getattr(self, statistic)  # type: ignore[no-any-return]
+
+
+def _tie_severity(tie_fraction: float, threshold: float) -> str:
+    """``"none"`` / ``"minor"`` / ``"material"`` -- display severity only.
+
+    This grades how loudly ties are reported.  It is never a validity boundary:
+    any tie at all is disclosed, and ``tie_fraction`` is reported numerically
+    whatever the severity.
+    """
+    if tie_fraction <= 0.0:
+        return "none"
+    return "material" if tie_fraction >= threshold else "minor"
 
 
 def _classify(trace_cs: np.ndarray) -> tuple[str, int, tuple[str, ...]]:
@@ -450,6 +832,7 @@ def _component_diagnostics(
             n_draws=n_draws,
             n_distinct=n_distinct,
             tie_fraction=tie_fraction,
+            tie_severity=_tie_severity(tie_fraction, tie_caveat_threshold),
             degeneracy=degeneracy,
             raw_mean_ess=None,
             bulk_ess=None,
@@ -485,8 +868,9 @@ def _component_diagnostics(
         for stat, val in stats.items()
         if val is None
     }
-    if tie_fraction >= tie_caveat_threshold:
-        warns = (*warns, _TIE_CAVEAT)
+    severity = _tie_severity(tie_fraction, tie_caveat_threshold)
+    if severity != "none":
+        warns = (*warns, _tie_disclosure(tie_fraction, backend, severity == "material"))
 
     return ExpectandDiagnostics(
         name=name,
@@ -496,6 +880,7 @@ def _component_diagnostics(
         n_draws=n_draws,
         n_distinct=n_distinct,
         tie_fraction=tie_fraction,
+        tie_severity=severity,
         degeneracy=degeneracy,
         raw_mean_ess=stats["raw_mean_ess"],
         bulk_ess=stats["bulk_ess"],
@@ -596,6 +981,7 @@ class ExpectandReport:
                     "backend": entry.backend,
                     "degeneracy": entry.degeneracy,
                     "tie_fraction": entry.tie_fraction,
+                    "tie_severity": entry.tie_severity,
                     "raw_mean_ess": entry.raw_mean_ess,
                     "bulk_ess": entry.bulk_ess,
                     "tail_ess": entry.tail_ess,
@@ -760,7 +1146,7 @@ class ComparisonRow:
     ratio: float | None
     ratio_blocked_by: tuple[str, ...] = ()
     per_second: tuple[float | None, float | None] | None = None
-    per_grad_eval: tuple[float | None, float | None] | None = None
+    per_transition_grad_eval: tuple[float | None, float | None] | None = None
     cost_blocked_by: tuple[str, ...] = ()
 
 
@@ -772,6 +1158,8 @@ class ReportComparison:
     candidate_label: str
     rows: tuple[ComparisonRow, ...]
     cost_blockers: tuple[str, ...]
+    cost_views: tuple[str, str] = ("as_measured", "as_measured")
+    excluded_grad_work: tuple[str, ...] = ()
     only_in_baseline: tuple[str, ...] = ()
     only_in_candidate: tuple[str, ...] = ()
     backend_mismatch: tuple[str, str] | None = None
@@ -791,8 +1179,10 @@ class ReportComparison:
                 "ratio": row.ratio,
                 "ratio_blocked_by": list(row.ratio_blocked_by),
                 "per_second": list(row.per_second) if row.per_second else None,
-                "per_grad_eval": (
-                    list(row.per_grad_eval) if row.per_grad_eval else None
+                "per_transition_grad_eval": (
+                    list(row.per_transition_grad_eval)
+                    if row.per_transition_grad_eval
+                    else None
                 ),
                 "cost_blocked_by": list(row.cost_blocked_by),
             }
@@ -820,6 +1210,14 @@ def compare_reports(
     so "R-hat per second" and "candidate R-hat over baseline R-hat" are both
     meaningless.  Only the ESS statistics in :data:`_RATE_STATISTICS` divide by a
     cost.
+
+    The gradient denominator is ``warmup_grad_evals`` plus
+    ``sampling_transition_grad_evals`` -- recorded transition work only.  It
+    omits whatever each side's ``excluded_grad_work`` names, so ESS per
+    transition gradient evaluation *overstates* efficiency; the union of both
+    sides' exclusions is carried on the result.  ``cost_views`` records whether
+    each side was costed as measured, standalone, or combined, since a
+    standalone and a combined figure are not comparable.
     """
     unknown_statistics = [s for s in statistics if s not in _STATISTICS]
     if unknown_statistics:
@@ -835,12 +1233,13 @@ def compare_reports(
         if report.cost.total_seconds is None
     )
     grads = {
-        report.label: _total_grad_evals(report.cost) for report in (baseline, candidate)
+        report.label: _transition_grad_evals(report.cost)
+        for report in (baseline, candidate)
     }
     grad_blockers = tuple(
         f"{report.label}.{component} ({report.cost.reason_for(component)})"
         for report in (baseline, candidate)
-        for component in ("warmup_grad_evals", "sampling_grad_evals")
+        for component in ("warmup_grad_evals", "sampling_transition_grad_evals")
         if getattr(report.cost, component) is None
     )
 
@@ -900,7 +1299,7 @@ def compare_reports(
                     ratio=ratio,
                     ratio_blocked_by=blocked,
                     per_second=per_second,
-                    per_grad_eval=per_grad,
+                    per_transition_grad_eval=per_grad,
                     cost_blocked_by=tuple(dict.fromkeys(cost_blocked)),
                 )
             )
@@ -910,6 +1309,12 @@ def compare_reports(
         candidate_label=candidate.label,
         rows=tuple(rows),
         cost_blockers=tuple(dict.fromkeys(seconds_blockers + grad_blockers)),
+        cost_views=(baseline.cost.view, candidate.cost.view),
+        excluded_grad_work=tuple(
+            dict.fromkeys(
+                baseline.cost.excluded_grad_work + candidate.cost.excluded_grad_work
+            )
+        ),
         only_in_baseline=tuple(key for key in base_map if key not in cand_map),
         only_in_candidate=tuple(key for key in cand_map if key not in base_map),
         backend_mismatch=(
@@ -920,10 +1325,16 @@ def compare_reports(
     )
 
 
-def _total_grad_evals(cost: CostAccounting) -> int | None:
-    if cost.warmup_grad_evals is None or cost.sampling_grad_evals is None:
+def _transition_grad_evals(cost: CostAccounting) -> int | None:
+    """Warmup plus sampling-transition gradient work, or ``None`` if incomplete.
+
+    A subtotal, not a total: it omits whatever ``cost.excluded_grad_work``
+    names.  Dividing an ESS by it therefore *overstates* efficiency, which is
+    why every comparison carries the exclusions alongside the number.
+    """
+    if cost.warmup_grad_evals is None or cost.sampling_transition_grad_evals is None:
         return None
-    return cost.warmup_grad_evals + cost.sampling_grad_evals
+    return cost.warmup_grad_evals + cost.sampling_transition_grad_evals
 
 
 def _safe_div(numerator: float | None, denominator: float | int | None) -> float | None:
