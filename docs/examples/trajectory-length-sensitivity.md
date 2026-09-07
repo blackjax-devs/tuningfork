@@ -118,8 +118,18 @@ it cannot see initialization or controller internals, so every comparison
 carries that exclusion list, and ESS divided by it is an upper bound on
 efficiency rather than a measurement of it.
 
-Both arms here use exact counting conventions, so the per-gradient comparison is
-produced. That is not always the case. Some samplers declare a
+A **convention-derived count is never used as a denominator.** Reproducing what
+a sampler's descriptor *says* a step costs is not an established measurement of
+what its integrator evaluated, so such a count is reported as a declared-count
+diagnostic, with its convention and basis, and withheld from per-gradient
+normalisation. Both arms of this example instead supply an **explicit** subtotal
+— the summed recorded `num_integration_steps`, which for these two leapfrog
+integrators is directly the number of gradient evaluations — together with the
+basis on which it is justified. That is an explicit trust contract: the caller
+states the count and takes responsibility for it, and only then does it serve as
+a denominator. There is no flag that marks a derived count trusted.
+
+On top of that, some samplers declare a
 `grad_count_convention` that is explicitly inexact — `orbital_hmc` counts one
 gradient per step where the kernel evaluates a whole orbit of `period ∈ [2, 20]`
 positions, and the four `laplace_*` methods exclude line-search gradients. Such

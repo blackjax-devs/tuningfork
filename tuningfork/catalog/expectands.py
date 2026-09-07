@@ -658,6 +658,22 @@ _EXCLUDED_FROM_TRANSITION_COUNT = (
 #: :func:`compare_reports`, so the two cannot drift.
 _INCOMPLETE_COUNT_MARKER = "declares this per-step count INEXACT"
 
+#: Exact phrase marking a subtotal obtained by reproducing a sampler's declared
+#: counting convention.  Such a count is a declared-count diagnostic: its
+#: correspondence to the integrator's actual gradient work is unestablished, and
+#: at least one convention is reported to understate it several-fold.  Written by
+#: :func:`_declared_exclusions` and read back by :func:`compare_reports`, which
+#: withholds per-gradient normalisation for it through the same path that
+#: withholds a declared-inexact count.
+#:
+#: A cost the CALLER supplies directly does not carry this marker.  That is an
+#: explicit trust contract: the caller states the subtotal and its basis and
+#: takes responsibility for it, rather than the module inferring eligibility.
+_CONVENTION_DERIVED_MARKER = (
+    "was obtained by reproducing a declared counting convention, whose "
+    "correspondence to actual gradient work is UNESTABLISHED"
+)
+
 #: Words by which a ``BaseMethod``'s ``grad_count_convention`` declares itself
 #: inexact.  Read from the descriptor's own text rather than from a list of
 #: sampler names, so a newly declared inexact convention is caught without
@@ -703,6 +719,9 @@ def _declared_exclusions(base_method_name: str, method: Any) -> tuple[str, ...]:
     exclusions: tuple[str, ...] = (
         *_EXCLUDED_FROM_TRANSITION_COUNT,
         f"{base_method_name} counts gradients as: {convention}",
+        f"this subtotal for {base_method_name} {_CONVENTION_DERIVED_MARKER}; it "
+        "is reported as a declared-count diagnostic and is not used as a "
+        "per-gradient denominator",
     )
     declared = convention.lower()
     if any(marker in declared for marker in _APPROXIMATION_MARKERS):
@@ -1488,13 +1507,22 @@ def compare_reports(
     cost.
 
     Per-gradient efficiency is withheld entirely when either side's gradient
-    subtotal comes from a counting convention its own sampler declares
-    incomplete: an ``orbital_hmc`` count and a ``nuts`` count are not the same
-    unit, so their ratio is not a comparison however it is annotated.  Wall-clock
-    normalisation and the uncosted ESS ratios are unaffected, and the declared
-    convention and basis are retained for reproducibility.  Note the converse
-    does not hold -- the absence of that marker reflects only what a descriptor
-    explicitly declares, and is not a certificate that its count is complete.
+    subtotal was obtained by reproducing a sampler's declared counting
+    convention.  Such a count is a declared-count *diagnostic*: what a
+    descriptor says a step costs is not an established measurement of what the
+    integrator evaluated, and at least one convention is reported to understate
+    it several-fold.  It is reported, with its convention and basis, and it is
+    not used as a denominator.
+
+    A cost the caller supplies directly IS eligible.  That is an explicit trust
+    contract: the caller states the subtotal and the basis on which it is
+    justified -- for fixed- and randomised-length HMC, for instance, the summed
+    recorded integration steps -- and takes responsibility for it, rather than
+    the module inferring eligibility from a descriptor.  There is no flag that
+    marks a derived count trusted.
+
+    Wall-clock normalisation and the uncosted ESS ratios are unaffected either
+    way, since neither depends on a counting convention.
 
     The gradient denominator is ``warmup_grad_evals`` plus
     ``sampling_transition_grad_evals`` -- recorded transition work only.  It
@@ -1540,13 +1568,15 @@ def compare_reports(
     # per-gradient comparison is withheld outright.  Wall-clock normalisation is
     # unaffected -- it is measured independently of any counting convention --
     # and so are the uncosted ESS ratios.
-    incomplete_grad_blockers = tuple(
-        f"{report.label!r} (arm {index}) counts gradients with a convention its "
-        "own sampler declares incomplete, so it is not comparable, per "
-        "gradient, with an exact count; the declared convention and basis are "
-        "retained for reproducibility"
+    ineligible_grad_blockers = tuple(
+        f"{report.label!r} (arm {index}) has a gradient subtotal derived from a "
+        "declared counting convention rather than an established measurement of "
+        "gradient work, so it is not used as a per-gradient denominator; the "
+        "declared count, its convention and its basis are retained as a "
+        "diagnostic. Supply an explicit cost accounting with its own basis to "
+        "normalise per gradient"
         for index, report in enumerate(arms)
-        if _counts_incomplete_gradients(report.cost)
+        if _counts_ineligible_gradients(report.cost)
     )
     zero_grad_blockers = tuple(
         f"{report.label!r} (arm {index}) recorded zero gradient evaluations (a gradient-free "
@@ -1625,8 +1655,8 @@ def compare_reports(
                     )
                 if grad_blockers:
                     cost_blocked += grad_blockers
-                elif incomplete_grad_blockers:
-                    cost_blocked += incomplete_grad_blockers
+                elif ineligible_grad_blockers:
+                    cost_blocked += ineligible_grad_blockers
                 elif zero_grad_blockers:
                     # Gradient-free samplers measure a true zero, so the
                     # denominator is known and known to be unusable -- which is
@@ -1662,7 +1692,7 @@ def compare_reports(
             dict.fromkeys(
                 seconds_blockers
                 + grad_blockers
-                + incomplete_grad_blockers
+                + ineligible_grad_blockers
                 + zero_seconds_blockers
                 + zero_grad_blockers
             )
@@ -1683,9 +1713,18 @@ def compare_reports(
     )
 
 
-def _counts_incomplete_gradients(cost: CostAccounting) -> bool:
-    """Whether this accounting's gradient subtotal is a declared undercount."""
-    return any(_INCOMPLETE_COUNT_MARKER in item for item in cost.excluded_grad_work)
+def _counts_ineligible_gradients(cost: CostAccounting) -> bool:
+    """Whether this subtotal may not serve as a per-gradient denominator.
+
+    True for a count derived by reproducing a declared convention (its
+    correspondence to real gradient work is unestablished) and for one whose
+    convention declares itself inexact.  False for a cost the caller supplied
+    directly, which is an explicit trust contract.
+    """
+    return any(
+        _CONVENTION_DERIVED_MARKER in item or _INCOMPLETE_COUNT_MARKER in item
+        for item in cost.excluded_grad_work
+    )
 
 
 def _transition_grad_evals(cost: CostAccounting) -> int | None:

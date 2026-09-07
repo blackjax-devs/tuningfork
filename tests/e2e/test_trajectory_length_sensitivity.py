@@ -136,12 +136,28 @@ def sensitivity_run(tmp_path_factory):
     # Deriving it keeps the shared cost fully accounted; leaving it out would
     # (correctly) propagate "unknown" into every downstream comparison.
     _, warmup_stats = _split_artifact(warmup_result.artifact_path)
-    warmup_cost = CostAccounting.from_telemetry(
-        warmup_result.telemetry,
-        sampling_transition_grad_evals=sampling_grad_evals_from_chain_stats(
-            warmup_stats, "hmc", expected_topology=(1, 1)
+    warmup_cost = CostAccounting(
+        warmup_seconds=warmup_result.telemetry.timing_seconds["warmup"],
+        sampling_seconds=warmup_result.telemetry.timing_seconds["sampling"],
+        total_seconds=warmup_result.telemetry.timing_seconds["total"],
+        warmup_grad_evals=warmup_result.telemetry.warmup_grad_evals,
+        sampling_transition_grad_evals=int(
+            np.asarray(warmup_stats["num_integration_steps"]).sum()
         ),
-    ).relabel("shared_frozen_warmup")
+        compile_seconds=None,
+        unknown_reasons={
+            "compile_seconds": (
+                "JIT compilation is not separately measured; it is included in "
+                "the recorded walls and is not subtracted"
+            )
+        },
+        notes=(
+            "wall clocks include JIT compilation",
+            "sampling_transition_grad_evals basis: summed recorded "
+            "num_integration_steps, one gradient per leapfrog step",
+        ),
+        source="shared_frozen_warmup",
+    )
 
     budget = {"n_samples": N_DRAWS, "num_chains": N_CHAINS}
     arms = {
@@ -175,14 +191,40 @@ def sensitivity_run(tmp_path_factory):
             env=CPU,
         )
         draws, stats = _split_artifact(result.artifact_path)
+        # Explicit, caller-justified subtotal rather than the generic
+        # convention-derived one. Both arms are leapfrog integrators whose
+        # recorded `num_integration_steps` IS the number of gradient
+        # evaluations per transition, so summing it is directly justified here
+        # -- and stating that basis is the caller's responsibility, which is
+        # what makes this cost eligible as a per-gradient denominator.
+        steps = np.asarray(stats["num_integration_steps"])
+        assert steps.shape[:2] == (N_CHAINS, N_DRAWS)
+        own_cost = CostAccounting(
+            warmup_seconds=result.telemetry.timing_seconds["warmup"],
+            sampling_seconds=result.telemetry.timing_seconds["sampling"],
+            total_seconds=result.telemetry.timing_seconds["total"],
+            warmup_grad_evals=result.telemetry.warmup_grad_evals,
+            sampling_transition_grad_evals=int(steps.sum()),
+            compile_seconds=None,
+            unknown_reasons={
+                "compile_seconds": (
+                    "JIT compilation is not separately measured; it is included "
+                    "in the recorded walls and is not subtracted"
+                )
+            },
+            notes=(
+                "wall clocks include JIT compilation",
+                "sampling_transition_grad_evals basis: summed recorded "
+                "num_integration_steps, one gradient per leapfrog step, "
+                "rejected transitions included",
+            ),
+            source=label,
+        )
         derivation = sampling_grad_evals_from_chain_stats(
             stats,
             recipe.base_method_name,
             expected_topology=(N_CHAINS, N_DRAWS),
         )
-        own_cost = CostAccounting.from_telemetry(
-            result.telemetry, sampling_transition_grad_evals=derivation
-        ).relabel(label)
         # Standalone: this alternative would have to pay the warmup itself.
         standalone = CostAccounting.combine(
             [out["warmup_cost"], own_cost],
@@ -265,11 +307,16 @@ def test_frozen_arms_record_a_known_zero_warmup_not_an_unknown(sensitivity_run):
 
 
 def test_transition_gradients_are_recovered_and_stay_a_subtotal(sensitivity_run):
+    """The generic derivation still reports, and still agrees with the explicit
+    count the arms actually use as their denominator."""
     for label, arm in sensitivity_run["arms"].items():
         derivation = arm["derivation"]
         assert derivation.count is not None, derivation.reason
         expected = int(arm["stats"]["num_integration_steps"].sum())
         assert derivation.count == expected
+        assert arm["own_cost"].sampling_transition_grad_evals == expected
+        # But a derived count is a diagnostic, not a denominator.
+        assert any("UNESTABLISHED" in item for item in derivation.excluded)
         assert "rejected transitions included" in derivation.basis
         assert derivation.excluded, f"{label} claimed a complete gradient total"
         print(f"\n{label}: sampling transition gradients = {derivation.count}")
@@ -312,9 +359,16 @@ def test_the_comparison_is_cost_normalised_and_states_what_it_omits(
         arms["fixed_L4"]["report"], arms["uniform_L2_6"]["report"]
     )
 
+    # Both arms carry an EXPLICIT, caller-justified gradient subtotal (summed
+    # recorded integration steps), which is what makes them eligible as
+    # per-gradient denominators. A convention-derived count would not be.
     assert comparison.cost_normalised_available
     assert comparison.cost_views == ("standalone", "standalone")
-    assert comparison.excluded_grad_work
+    for arm in arms.values():
+        assert any(
+            "basis: summed recorded num_integration_steps" in note
+            for note in arm["report"].cost.notes
+        )
 
     for row in comparison.rows:
         if row.statistic == "rank_rhat":

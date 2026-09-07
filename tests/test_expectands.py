@@ -1306,7 +1306,7 @@ def test_an_incomplete_counter_is_never_normalised_per_gradient():
     row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
 
     assert row.per_transition_grad_eval is None
-    assert any("declares incomplete" in b for b in row.cost_blocked_by)
+    assert any("UNESTABLISHED" in b for b in row.cost_blocked_by)
     assert comparison.cost_normalised_available is False
     # Independently complete measures are not suppressed.
     assert row.per_second is not None
@@ -1315,36 +1315,72 @@ def test_an_incomplete_counter_is_never_normalised_per_gradient():
     assert any("counts gradients as:" in e for e in comparison.excluded_grad_work)
 
 
-@pytest.mark.slow
-def test_two_exact_counters_are_still_normalised_per_gradient():
-    """The withholding must not become a blanket refusal."""
-    rng = np.random.default_rng(3)
-    trace = rng.standard_normal((N_CHAINS, N_DRAWS))
+@pytest.mark.fast
+def test_a_convention_derived_subtotal_is_not_a_per_gradient_denominator():
+    """Unverified-derived refusal.
+
+    Reproducing what a descriptor SAYS a step costs is not an established
+    measurement of what the integrator evaluated — one convention is reported to
+    understate it several-fold — so a derived count is a declared-count
+    diagnostic and never a denominator, even for an exact-looking sampler.
+    """
     derivation = sampling_grad_evals_from_chain_stats(
         {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), 7)}, "nuts"
     )
+    assert derivation.count == N_CHAINS * N_DRAWS * 7  # still reported
 
-    def report(label):
-        cost = CostAccounting(
-            warmup_seconds=1.0,
-            sampling_seconds=1.0,
-            total_seconds=2.0,
-            warmup_grad_evals=0,
-            sampling_transition_grad_evals=derivation.count,
-            compile_seconds=0.0,
-            source=label,
-            excluded_grad_work=derivation.excluded,
-        )
-        return expectand_report(
-            {"x": trace}, {"x": lambda s: s["x"]}, cost=cost, label=label
-        )
-
-    row = next(
-        r
-        for r in compare_reports(report("a"), report("b")).rows
-        if r.statistic == "bulk_ess"
+    cost = CostAccounting(
+        warmup_seconds=1.0,
+        sampling_seconds=1.0,
+        total_seconds=2.0,
+        warmup_grad_evals=0,
+        sampling_transition_grad_evals=derivation.count,
+        compile_seconds=0.0,
+        source="derived",
+        excluded_grad_work=derivation.excluded,
     )
+    comparison = compare_reports(_stub_report("a", cost), _stub_report("b", cost))
+    row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+
+    assert row.per_transition_grad_eval is None
+    assert any("UNESTABLISHED" in b for b in row.cost_blocked_by)
+    assert comparison.cost_normalised_available is False
+    # Reported, not suppressed: the count and its convention survive.
+    assert any("counts gradients as:" in e for e in comparison.excluded_grad_work)
+    # Wall time and the uncosted ratio are untouched.
+    assert row.per_second is not None
+    assert row.ratio is not None
+
+
+@pytest.mark.fast
+def test_an_explicit_caller_supplied_cost_is_eligible():
+    """Justified-explicit-cost control.
+
+    A caller who states the subtotal and the basis on which it is justified
+    takes responsibility for it, and that cost normalises. There is no flag that
+    marks a derived count trusted — the difference is who supplied it.
+    """
+    explicit = CostAccounting(
+        warmup_seconds=1.0,
+        sampling_seconds=1.0,
+        total_seconds=2.0,
+        warmup_grad_evals=0,
+        sampling_transition_grad_evals=8400,
+        compile_seconds=0.0,
+        notes=(
+            "sampling_transition_grad_evals basis: summed recorded "
+            "num_integration_steps, one gradient per leapfrog step",
+        ),
+        source="explicit",
+    )
+    comparison = compare_reports(
+        _stub_report("a", explicit), _stub_report("b", explicit)
+    )
+    row = next(r for r in comparison.rows if r.statistic == "bulk_ess")
+
     assert row.per_transition_grad_eval is not None
+    assert row.per_transition_grad_eval[0] == pytest.approx(400.0 / 8400)
+    assert comparison.cost_normalised_available is True
 
 
 @pytest.mark.fast
