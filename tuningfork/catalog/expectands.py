@@ -637,14 +637,27 @@ _EXCLUDED_FROM_TRANSITION_COUNT = (
 #: Exact phrase marking a subtotal whose per-step counter is declared
 #: incomplete.  Written by :func:`_declared_exclusions` and read back by
 #: :func:`compare_reports`, so the two cannot drift.
-_INCOMPLETE_COUNT_MARKER = "declares this per-step count INCOMPLETE"
+_INCOMPLETE_COUNT_MARKER = "declares this per-step count INEXACT"
 
-#: Words by which a ``BaseMethod`` declares its own per-step count incomplete.
-#: Read from the descriptor's own text rather than from a list of sampler names,
-#: so a newly added approximate convention is disclosed without editing this
-#: module.  A convention that understates its cost without saying so in these
-#: terms would still be missed -- an explicit flag on ``BaseMethod`` would close
-#: that, and is the robust fix.
+#: Words by which a ``BaseMethod``'s ``grad_count_convention`` declares itself
+#: inexact.  Read from the descriptor's own text rather than from a list of
+#: sampler names, so a newly declared inexact convention is caught without
+#: editing this module.
+#:
+#: Only ``grad_count_convention`` is scanned, never ``notes``.  Free-text notes
+#: use these words for unrelated reasons -- ``irmh`` describes a proposal
+#: "fitted from a VI / Pathfinder / Laplace approximation" and
+#: ``mgrad_gaussian`` a "first-order approximation to the log-likelihood",
+#: neither of which says anything about its gradient count, and both of which
+#: are exact counters.  Flagging them would withhold a legitimate comparison.
+#:
+#: The cost of that narrowing, stated plainly: an inexactness documented only in
+#: prose is NOT detected.  ``meanfield_vi`` and ``fullrank_vi`` declare the
+#: convention ``"1"`` and explain in their notes that this over-counts the
+#: sampling phase; that is invisible here.  This mechanism discloses what a
+#: convention explicitly declares -- it is not a completeness certificate for
+#: any descriptor.  A structured contract on ``BaseMethod`` is the robust fix
+#: and belongs in a separate change.
 _APPROXIMATION_MARKERS = ("lower bound", "approxim")
 
 
@@ -654,24 +667,25 @@ def _declared_exclusions(base_method_name: str, method: Any) -> tuple[str, ...]:
     Several samplers declare a ``grad_count_per_step`` that their own
     ``grad_count_convention`` calls a lower bound -- ``orbital_hmc`` counts 1
     where the kernel evaluates a whole orbit, and the ``laplace_*`` family
-    excludes line-search gradients.  Dividing an ESS by such a count overstates
-    that sampler's efficiency, and it does so asymmetrically: it always flatters
-    the sampler that undercounts.  Carrying the convention verbatim, and naming
-    it as declared-incomplete when it says so, keeps that visible everywhere the
-    exclusions travel -- including the comparison that computes the head-to-head
-    number.
+    excludes line-search gradients.  Such a count is not the same unit as an
+    exact one, and for a lower bound the error is asymmetric: it flatters the
+    sampler that undercounts.  Carrying the convention verbatim, and naming it
+    as declared-inexact when it says so, keeps that visible everywhere the
+    exclusions travel -- including the comparison, which withholds per-gradient
+    efficiency rather than publishing a ratio between different units.
+
+    See :data:`_APPROXIMATION_MARKERS` for what this does and does not detect.
     """
     convention = str(getattr(method, "grad_count_convention", "") or "")
-    notes = str(getattr(method, "notes", "") or "")
     exclusions: tuple[str, ...] = (
         *_EXCLUDED_FROM_TRANSITION_COUNT,
         f"{base_method_name} counts gradients as: {convention}",
     )
-    haystack = f"{convention} {notes}".lower()
-    if any(marker in haystack for marker in _APPROXIMATION_MARKERS):
+    declared = convention.lower()
+    if any(marker in declared for marker in _APPROXIMATION_MARKERS):
         exclusions += (
-            f"{base_method_name} {_INCOMPLETE_COUNT_MARKER}, so the subtotal "
-            "understates its true gradient cost; per-gradient efficiency is not "
+            f"{base_method_name} {_INCOMPLETE_COUNT_MARKER}, so this subtotal is "
+            "not the same unit as an exact count; per-gradient efficiency is not "
             "computed against it",
         )
     return exclusions

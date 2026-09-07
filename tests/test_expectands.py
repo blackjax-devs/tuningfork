@@ -1095,7 +1095,7 @@ def test_the_derivation_agrees_with_the_generator_layer_grad_counter(sampler):
 
 
 @pytest.mark.fast
-def test_every_sampler_declaring_an_incomplete_count_is_disclosed_as_such():
+def test_every_sampler_declaring_an_inexact_count_is_disclosed_as_such():
     """Read the registry, not a hardcoded list.
 
     ``orbital_hmc`` counts 1 gradient where the kernel evaluates a whole orbit,
@@ -1109,25 +1109,23 @@ def test_every_sampler_declaring_an_incomplete_count_is_disclosed_as_such():
         "num_integration_steps": np.full((2, 5), 3),
         "lbfgs_iter_num": np.ones((2, 5)),
     }
-    declared_incomplete = {
+    declared_inexact = {
         name
         for name, method in BASE_METHODS.items()
         if any(
-            marker in f"{method.grad_count_convention} {method.notes}".lower()
+            marker in str(method.grad_count_convention).lower()
             for marker in ("lower bound", "approxim")
         )
     }
-    assert (
-        "orbital_hmc" in declared_incomplete
-    ), "registry no longer matches the premise"
+    assert "orbital_hmc" in declared_inexact, "registry no longer matches the premise"
 
-    for name in declared_incomplete:
+    for name in declared_inexact:
         derivation = sampling_grad_evals_from_chain_stats(stats, name)
         if derivation.count is None:
             continue  # refused for an unrelated reason; nothing to disclose
         assert any(
-            "INCOMPLETE" in item for item in derivation.excluded
-        ), f"{name} undercounts without disclosing it"
+            "INEXACT" in item for item in derivation.excluded
+        ), f"{name} counts inexactly without disclosing it"
 
 
 @pytest.mark.fast
@@ -1138,7 +1136,7 @@ def test_the_declared_convention_travels_with_every_derivation():
 
     assert any("nuts counts gradients as:" in item for item in derivation.excluded)
     # nuts declares an exact convention, so no incompleteness claim is made.
-    assert not any("INCOMPLETE" in item for item in derivation.excluded)
+    assert not any("INEXACT" in item for item in derivation.excluded)
 
 
 @pytest.mark.slow
@@ -1160,10 +1158,10 @@ def test_an_undercounting_sampler_carries_its_caveat_onto_the_comparison():
         _fake_report("orbital", 1.0, cost), _fake_report("other", 2.0, cost)
     )
 
-    assert any("INCOMPLETE" in item for item in comparison.excluded_grad_work)
+    assert any("INEXACT" in item for item in comparison.excluded_grad_work)
     # And a caller rendering the table can see it.
     row = comparison.to_rows()[0]
-    assert any("INCOMPLETE" in item for item in row["excluded_grad_work"])
+    assert any("INEXACT" in item for item in row["excluded_grad_work"])
     assert row["cost_views"] == list(comparison.cost_views)
 
 
@@ -1297,3 +1295,48 @@ def test_two_exact_counters_are_still_normalised_per_gradient():
         if r.statistic == "bulk_ess"
     )
     assert row.per_transition_grad_eval is not None
+
+
+@pytest.mark.fast
+def test_unrelated_prose_does_not_make_an_exact_counter_look_inexact():
+    """Free-text notes use these words for reasons unconnected to counting.
+
+    ``irmh`` describes a proposal "fitted from a VI / Pathfinder / Laplace
+    approximation" and ``mgrad_gaussian`` a "first-order approximation to the
+    log-likelihood". Both count exactly. Scanning notes would flag them and
+    withhold a legitimate comparison, so only ``grad_count_convention`` is read.
+    """
+    from tuningfork.base_method import BASE_METHODS
+
+    for name in ("irmh", "mgrad_gaussian"):
+        notes = str(BASE_METHODS[name].notes).lower()
+        assert "approxim" in notes, f"{name} no longer matches the premise"
+
+        derivation = sampling_grad_evals_from_chain_stats(
+            {"num_integration_steps": np.full((2, 5), 3)}, name
+        )
+        assert derivation.count is not None
+        assert not any("INEXACT" in item for item in derivation.excluded)
+
+
+@pytest.mark.fast
+def test_an_inexactness_declared_only_in_prose_is_not_detected():
+    """The blind spot, asserted rather than left implicit.
+
+    ``meanfield_vi`` declares the convention ``"1"`` and explains only in its
+    notes that this over-counts the sampling phase. The marker reads the
+    convention, so this is invisible to it -- which is why the absence of the
+    marker is documented as no certificate of completeness.
+    """
+    from tuningfork.base_method import BASE_METHODS
+
+    method = BASE_METHODS["meanfield_vi"]
+    assert "approxim" in str(method.notes).lower()
+    assert "approxim" not in str(method.grad_count_convention).lower()
+
+    derivation = sampling_grad_evals_from_chain_stats(
+        {"num_integration_steps": np.full((2, 5), 1)}, "meanfield_vi"
+    )
+    assert not any("INEXACT" in item for item in derivation.excluded)
+    # The convention itself is still carried, so a reader can judge it.
+    assert any("meanfield_vi counts gradients as:" in i for i in derivation.excluded)
