@@ -189,8 +189,78 @@ def _repository_state() -> dict[str, Any]:
     return {"sha": revision, "dirty": dirty}
 
 
+# Resolves each package the way the CHILD interpreter would, without importing
+# any of them: importlib.metadata reads distribution metadata and find_spec
+# resolves the module file, so the probe costs milliseconds rather than a JAX
+# import.  Printed as one JSON line on stdout.
+_CHILD_PROVENANCE_PROBE = """
+import importlib.metadata as _m, importlib.util as _u, json, sys
+_out = {"python": {"version": sys.version.split()[0], "executable": sys.executable}}
+_pkgs = {}
+for _n in ("tuningfork", "blackjax", "jax", "jaxlib", "numpy", "numpyro"):
+    try:
+        _v = _m.version(_n)
+    except Exception:
+        _v = None
+    try:
+        _s = _u.find_spec(_n)
+        _o = None if _s is None else _s.origin
+    except Exception:
+        _o = None
+    _pkgs[_n] = {"version": _v, "origin": _o}
+_out["packages"] = _pkgs
+print(json.dumps(_out))
+"""
+
+
+def _child_package_provenance(
+    python_executable: str, child_env: Mapping[str, str], cwd: Path
+) -> dict[str, Any]:
+    """Record what the CHILD interpreter resolves, not what the launcher has.
+
+    The launcher's own ``importlib.metadata`` view is not evidence about the
+    generated program: the child is a separate interpreter invocation, and the
+    existing ``package_versions_scope`` field says as much.  Without this the
+    receipt can only name the child's executable path, so nothing distinguishes
+    "the child imported the intended build" from "the child imported something
+    else that happened to satisfy the run".
+
+    Probed with the child's own interpreter, environment and working directory
+    so the resolution matches.  Best effort: a probe failure is recorded and
+    does not abort the run, since losing provenance is worse than losing a
+    sampling run is bad.
+    """
+    try:
+        completed = subprocess.run(
+            (python_executable, "-c", _CHILD_PROVENANCE_PROBE),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=dict(child_env),
+            cwd=str(cwd),
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    if completed.returncode != 0:
+        return {
+            "error": f"probe exited {completed.returncode}",
+            "stderr": completed.stderr[-2000:],
+        }
+    try:
+        probed = json.loads(completed.stdout)
+    except (ValueError, TypeError) as exc:
+        return {"error": f"probe output was not JSON: {exc}"}
+    if not isinstance(probed, dict):
+        return {"error": "probe output was not a JSON object"}
+    return probed
+
+
 def _environment(
-    python_executable: str, environment_override_keys: tuple[str, ...]
+    python_executable: str,
+    environment_override_keys: tuple[str, ...],
+    child_env: Mapping[str, str] | None = None,
+    child_cwd: Path | None = None,
 ) -> dict[str, Any]:
     packages: dict[str, str | None] = {}
     for name in ("tuningfork", "blackjax", "jax", "jaxlib", "numpy", "numpyro"):
@@ -198,6 +268,11 @@ def _environment(
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
+    child_probe: dict[str, Any]
+    if child_env is None or child_cwd is None:
+        child_probe = {"error": "child provenance not probed"}
+    else:
+        child_probe = _child_package_provenance(python_executable, child_env, child_cwd)
     return {
         "launcher_python": {
             "version": platform.python_version(),
@@ -205,6 +280,10 @@ def _environment(
         },
         "child_python_executable": python_executable,
         "package_versions_scope": "launcher_process",
+        # Scoped to the child interpreter: versions AND resolved module
+        # origins as the generated program itself resolves them.
+        "child_packages_scope": "child_interpreter",
+        "child_packages": child_probe,
         "machine": {
             "platform": platform.platform(),
             "machine": platform.machine() or None,
@@ -582,16 +661,22 @@ def launch_generated_program(
     work_telemetry_path = work_dir / expected_telemetry_name
     expected_telemetry_path = run_dir / expected_telemetry_name
     command = (python_executable, _PROGRAM_FILENAME)
-    environment = _environment(
-        python_executable, tuple(sorted(() if env is None else env))
-    )
-    environment["child_working_directory"] = _WORK_DIRECTORY
-    started_at = datetime.now(timezone.utc).isoformat()
 
+    # Built before _environment so the provenance probe runs under exactly the
+    # environment and working directory the generated program will get.
     child_env = os.environ.copy()
     if env is not None:
         child_env.update(env)
     child_env["PYTHONUNBUFFERED"] = "1"
+
+    environment = _environment(
+        python_executable,
+        tuple(sorted(() if env is None else env)),
+        child_env=child_env,
+        child_cwd=work_dir,
+    )
+    environment["child_working_directory"] = _WORK_DIRECTORY
+    started_at = datetime.now(timezone.utc).isoformat()
 
     returncode: int | None = None
     timed_out = False

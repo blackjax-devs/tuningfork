@@ -31,6 +31,7 @@ import inspect
 import json
 import os
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -301,30 +302,50 @@ def test_non_integer_max_grad_budget_fails_at_generation_time() -> None:
 
 
 @requires_joint_controller
-@pytest.mark.slow
-def test_generated_joint_warmup_matches_the_direct_public_call() -> None:
-    """The generated program must publish exactly what the public call does.
+@pytest.mark.e2e
+def test_generated_program_payload_matches_the_direct_public_call(tmp_path) -> None:
+    """Real parity: EXECUTE the generated program, compare to the public call.
 
-    This is the semantic-fidelity gate for the joint topology: same seed
-    choreography, same shared step size, same shared low-rank metric, same
-    summed warmup gradient count.  It is not a convergence claim.
+    This is the semantic-fidelity gate, so it has to compare two things.  An
+    earlier version of this test emitted the source, ran the public API
+    separately, and then asserted properties of the PUBLIC result plus a couple
+    of substrings of the emitted text -- which compares nothing and would have
+    stayed green through any codegen regression that still produced parseable
+    source.
+
+    Here the generated program is run through the real launcher and its
+    persisted telemetry is compared against a direct
+    ``blackjax.staged_adaptation`` call under identical seeds and settings:
+    published step size, published shared low-rank metric, and summed warmup
+    gradient count.  Semantic fidelity only -- not a convergence claim.
     """
     import blackjax
     import jax
     import jax.numpy as jnp
     import numpy as np
 
+    from tuningfork.catalog import execute_recipe
     from tuningfork.model._numpyro import build_logdensity_fn
 
     num_chains, n_warmup, budget = 6, 200, 20_000
     recipe = _recipe(num_chains=num_chains, n_warmup=n_warmup, max_grad_budget=budget)
-    source = emit_script(recipe, num_samples=2)
 
-    # Reproduce the emitted seed choreography with the unchanged public API.
+    # --- generated side: emit, launch, read what the program actually wrote ---
+    result = execute_recipe(
+        recipe, tmp_path / "runs", num_samples=5, progress_bar=False, timeout=900
+    )
+    assert result.returncode == 0
+    _assert_child_blackjax_is_the_parents(result)
+    assert result.telemetry_path is not None
+    telemetry = json.loads(result.telemetry_path.read_text())
+    generated = telemetry["geometry"]
+
+    # --- public side: the same call, by hand, with the emitted choreography ---
+    source = result.source_path.read_text()
+    assert "jax.random.fold_in(jax.random.key(0), 0)" in source
     init_position, logdensity_fn, _ = build_logdensity_fn(
         jax.random.key(0), MODELS["mvn_10"]
     )
-    assert "jax.random.fold_in(jax.random.key(0), 0)" in source
     warmup = blackjax.staged_adaptation(
         blackjax.nuts,
         logdensity_fn,
@@ -340,24 +361,31 @@ def test_generated_joint_warmup_matches_the_direct_public_call() -> None:
         jax.random.fold_in(jax.random.key(0), 0), positions, n_warmup
     )
 
-    # Topology: one shared step size, one shared low-rank metric, one warmup
-    # state per chain.
-    assert np.shape(params["step_size"]) == ()
+    # --- the actual comparison ---
+    assert generated["step_size"] == float(params["step_size"]), (
+        f"generated published step_size {generated['step_size']}, direct public "
+        f"call published {float(params['step_size'])}"
+    )
+
     imm = params["inverse_mass_matrix"]
-    assert getattr(imm, "_fields", None) == ("sigma", "U", "lam")
-    # position may be a pytree; every leaf carries the joint chain axis, and
-    # the shared metric is sized by the flattened dimension, not by chains.
+    generated_imm = generated["inverse_mass_matrix"]
+    assert generated_imm["type"] == "low_rank_inverse_mass_matrix"
+    for field in ("sigma", "U", "lam"):
+        np.testing.assert_array_equal(
+            np.asarray(generated_imm[field]),
+            np.asarray(getattr(imm, field)),
+            err_msg=f"generated and public disagree on inverse_mass_matrix.{field}",
+        )
+
+    expected_grads = int(np.sum(np.asarray(info.info.num_integration_steps)))
+    assert telemetry["warmup_grad_evals"] == expected_grads
+
+    # Topology, read off the payload that was actually persisted: one shared
+    # step size and one shared metric, not per-chain values.
+    assert telemetry["geometry_scope"] == "shared"
+    assert not isinstance(generated_imm["sigma"][0], list)
     leaves = jax.tree.leaves(states.position)
     assert leaves and all(np.shape(leaf)[0] == num_chains for leaf in leaves)
-    flat_dim = sum(int(np.size(leaf)) // num_chains for leaf in leaves)
-    assert np.shape(imm.sigma) == (flat_dim,)
-    assert np.shape(imm.U)[0] == flat_dim
-    assert np.shape(imm.U)[1] == np.shape(imm.lam)[0]
-
-    # Gradient accounting matches what the emitted program computes.
-    nis = np.asarray(info.info.num_integration_steps)
-    assert nis.shape == (n_warmup, num_chains)
-    assert f"if _warmup_nis.shape != ({n_warmup}, {num_chains}):" in source
 
 
 @requires_joint_controller
@@ -408,17 +436,49 @@ def test_short_warmup_degenerates_the_controller_schedule() -> None:
 # ---------------------------------------------------------------------------
 # Executed generated-program coverage
 #
-# These run the emitted standalone program in a subprocess, which is also the
-# only end-to-end evidence that the child interpreter imported the same
-# blackjax the test process did: the joint program carries its own capability
-# guard, so a successful joint run proves the capability was present in the
-# subprocess, not merely in the collector.
+# These run the emitted standalone program in a subprocess via the real
+# launcher.  A successful joint run proves the child had the n_chains
+# CAPABILITY -- it does not by itself prove the child imported any particular
+# build, so identity is asserted separately from the execution receipt's
+# child-interpreter provenance.  See _assert_child_blackjax_is_the_parents.
 # ---------------------------------------------------------------------------
 
 
 def _telemetry_geometry(result) -> tuple[str, dict]:
+    assert result.telemetry_path is not None
     payload = json.loads(result.telemetry_path.read_text())
     return payload["geometry_scope"], payload["geometry"]
+
+
+def _assert_child_blackjax_is_the_parents(result) -> None:
+    """Pin the child interpreter's blackjax to the one this process verified.
+
+    The emitted capability guard proves the child could call the joint
+    controller; it says nothing about WHICH build answered.  The launcher
+    records the child's own resolution (``child_packages``, scoped
+    ``child_interpreter``), so identity is measured rather than assumed.
+
+    Asserting child == parent is deliberately environment-agnostic: whatever
+    pins the parent also pins the child.  In the dedicated CI job the parent is
+    pinned to an immutable SHA by .github/scripts/verify_joint_controller_env.py
+    (module path under the pinned checkout AND checkout HEAD == that SHA), so
+    parent-pinned plus child-equals-parent closes the chain to the SHA without
+    the test needing to know anything about CI.
+    """
+    environment = result.receipt.environment
+    assert environment["child_packages_scope"] == "child_interpreter"
+    child = environment["child_packages"]
+    assert "error" not in child, f"child provenance probe failed: {child}"
+
+    child_blackjax = child["packages"]["blackjax"]
+    parent_origin = Path(_blackjax.__file__).resolve()
+    assert child_blackjax["origin"] is not None, child_blackjax
+    assert Path(child_blackjax["origin"]).resolve() == parent_origin, (
+        f"child resolved blackjax at {child_blackjax['origin']}, parent at "
+        f"{parent_origin}: the generated program did not import the build this "
+        "test verified"
+    )
+    assert child_blackjax["version"] == _blackjax.__version__
 
 
 @requires_joint_controller
@@ -441,6 +501,7 @@ def test_small_joint_run_executes_and_samples_cleanly(tmp_path) -> None:
     )
     assert result.returncode == 0
     assert result.artifact_path is not None
+    _assert_child_blackjax_is_the_parents(result)
 
     scope, geometry = _telemetry_geometry(result)
     # The joint controller publishes ONE payload for all six chains.
@@ -465,10 +526,14 @@ def test_joint_run_with_per_chain_init_strategy_executes(tmp_path) -> None:
     """Dispersed per-chain starts, executed -- not merely admitted by the plan.
 
     The cross-chain gates in the controller are designed for dispersed starts,
-    so this pairing is the intended one.  Plan resolution admitting it is not
-    evidence that it runs: an earlier revision of this branch admitted it at
-    the plan layer while ``_ENSEMBLE_FRIENDLY_WARMUPS`` still rejected it, and
-    only executing the path exposed that.
+    so this pairing is the intended one, and plan resolution admitting it is
+    not evidence that it runs.
+
+    Note on ``_ENSEMBLE_FRIENDLY_WARMUPS``: this warmup was added to that
+    frozenset in the same change, but that is a CONSISTENCY fix, not a defect
+    fix.  ``validate_init_strategy_warmup_compatibility`` has no production
+    caller -- emission and launching never consult it -- so per-chain init
+    emitted correctly with or without the entry.  Verified, not assumed.
     """
     from tuningfork.catalog import execute_recipe
 
@@ -480,6 +545,7 @@ def test_joint_run_with_per_chain_init_strategy_executes(tmp_path) -> None:
         recipe, tmp_path / "runs", num_samples=20, progress_bar=False, timeout=600
     )
     assert result.returncode == 0
+    _assert_child_blackjax_is_the_parents(result)
     assert result.manifest.executable_config["init_strategy"] == {
         "type": "uniform_perchain",
         "low": -2.0,
@@ -515,6 +581,7 @@ def test_w1_generated_program_runs_on_any_supported_blackjax(tmp_path) -> None:
         timeout=600,
     )
     assert result.returncode == 0
+    _assert_child_blackjax_is_the_parents(result)
     source = result.source_path.read_text()
     assert "    n_chains=1," not in source
     assert "_sa_inspect" not in source
@@ -551,3 +618,60 @@ def test_joint_program_fails_explicitly_without_the_capability(tmp_path) -> None
     )
     assert "accepts n_chains" in stderr
     assert "TypeError" not in stderr
+
+
+@pytest.mark.fast
+def test_child_identity_assertion_detects_a_divergent_child() -> None:
+    """The identity check must be able to fail, not just pass everywhere.
+
+    Guards against the mechanism silently degrading into a tautology if the
+    receipt shape changes -- a missing key, a failed probe, or a child that
+    resolved a different build must all be caught rather than skipped over.
+    """
+    from types import SimpleNamespace
+
+    def _result(child: dict, scope: str = "child_interpreter"):
+        return SimpleNamespace(
+            receipt=SimpleNamespace(
+                environment={"child_packages_scope": scope, "child_packages": child}
+            )
+        )
+
+    matching = {
+        "packages": {
+            "blackjax": {
+                "origin": _blackjax.__file__,
+                "version": _blackjax.__version__,
+            }
+        }
+    }
+    # Sanity: the honest case passes, so the failures below are meaningful.
+    _assert_child_blackjax_is_the_parents(_result(matching))
+
+    # A child that resolved some other build.
+    with pytest.raises(AssertionError, match="did not import the build"):
+        _assert_child_blackjax_is_the_parents(
+            _result(
+                {
+                    "packages": {
+                        "blackjax": {
+                            "origin": "/somewhere/else/blackjax/__init__.py",
+                            "version": _blackjax.__version__,
+                        }
+                    }
+                }
+            )
+        )
+    # A probe that failed must not pass as "no mismatch observed".
+    with pytest.raises(AssertionError, match="child provenance probe failed"):
+        _assert_child_blackjax_is_the_parents(_result({"error": "probe exited 1"}))
+    # An unresolvable module must not pass either.
+    with pytest.raises(AssertionError):
+        _assert_child_blackjax_is_the_parents(
+            _result({"packages": {"blackjax": {"origin": None, "version": None}}})
+        )
+    # Wrong scope label means the provenance is not the child's.
+    with pytest.raises(AssertionError):
+        _assert_child_blackjax_is_the_parents(
+            _result(matching, scope="launcher_process")
+        )

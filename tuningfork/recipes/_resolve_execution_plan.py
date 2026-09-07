@@ -205,18 +205,18 @@ def resolve_execution_plan(
     # Reject the rest before any source rendering, rather than silently choosing
     # the single-chain path.
     is_laplace = recipe.base_method_name.startswith("laplace_")
-    window_names = {
+    # Warmups whose code generation implements BOTH emittable chain topologies:
+    # W=1 (adapt once, broadcast) and W=S (one warmup input per sampling chain).
+    # Membership is about topology support, not about what W=S means
+    # semantically -- for the window family W=S is S INDEPENDENT adaptations,
+    # while staged_adaptation_auto runs one joint controller over the S chains
+    # and publishes a single shared metric and step size.
+    dual_topology_warmups = {
         "window_adaptation_diag_imm",
         "window_adaptation_dense_imm",
         "window_adaptation_low_rank_imm",
+        "staged_adaptation_auto",
     }
-    # staged_adaptation_auto is not a window adaptation, but it shares the two
-    # emittable warmup chain topologies: W=1 runs the single-chain controller
-    # and broadcasts, W=S runs the joint controller over all S chains.  Unlike
-    # the window family, W=S does NOT mean S independent adaptations -- one
-    # controller pools the S chains and publishes one shared metric/step size.
-    joint_controller_names = {"staged_adaptation_auto"}
-    per_chain_init_names = window_names | joint_controller_names
     if nphases > 1:
         phase_names = tuple(stage["name"] for stage in stages)
         expected_laplace_phases = (
@@ -239,7 +239,7 @@ def resolve_execution_plan(
         w = ws[0]
         supported = (
             w in {1, chains}
-            if stages[0]["name"] in per_chain_init_names
+            if stages[0]["name"] in dual_topology_warmups
             else w == chains
         )
         if not supported:
@@ -258,7 +258,7 @@ def resolve_execution_plan(
         # normalized pinned replay has no adaptation stage, but still needs
         # the same pre-batched (one row per sampling chain) contract.
         valid_topology = single_phase and (
-            stages[0]["name"] in per_chain_init_names
+            stages[0]["name"] in dual_topology_warmups
             or (init_kind == "reference_summary" and stages[0]["name"] == "no_warmup")
         )
         if not valid_topology:

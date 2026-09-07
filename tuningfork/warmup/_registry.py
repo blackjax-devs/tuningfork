@@ -252,7 +252,15 @@ WARMUPS: dict[str, Warmup] = {
         name="staged_adaptation_auto",
         compatible_methods=("nuts", "hmc", "mhmc"),
         default_hp_space=(
-            HyperparamSpace("max_grad_budget", "int", low=20_000, high=200_000),
+            # Pinned low==high so the deterministic default is the value that is
+            # actually exercised.  default_value_for_space returns (low+high)//2
+            # for an "int" space, so a 20k-200k range would make every recipe
+            # built through build_certification_intent pick 110_000 -- a third
+            # value, never measured, and not the one this descriptor's buffer
+            # and runaway notes are calibrated against.  Same reason max_rank is
+            # declared low=high=10.  Widen only alongside evidence at the wider
+            # values.
+            HyperparamSpace("max_grad_budget", "int", low=20_000, high=20_000),
         ),
         notes=(
             "Joint staged adaptation via the unchanged public "

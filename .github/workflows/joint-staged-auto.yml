@@ -24,7 +24,25 @@
 # A SKIPPED CASE IS A FAILING GATE HERE. `TUNINGFORK_REQUIRE_JOINT_CONTROLLER=1`
 # turns a missing capability into a collection error rather than a quiet skip,
 # unresolvable node ids make pytest exit non-zero, and the junit assertion
-# catches "collected but not run". A green run means the joint cases executed.
+# catches "collected but not run".
+#
+# WHAT THE FIVE CASES ACTUALLY COVER — they are not five equivalent things, and
+# an earlier version of this file overstated them as five joint runtime
+# executions:
+#   * payload_matches_the_direct_public_call — launches the generated program
+#     AND compares its persisted payload against a direct public call. This is
+#     the semantic-fidelity gate.
+#   * small_joint_run_executes_and_samples_cleanly — launches the generated
+#     joint program; asserts a usable shared step size and a clean sample.
+#   * joint_run_with_per_chain_init_strategy_executes — launches the generated
+#     joint program with dispersed per-chain starts.
+#   * w1_generated_program_runs_on_any_supported_blackjax — launches a
+#     generated program, but deliberately NOT joint (W=1 passes no n_chains).
+#     It guards portability, not the joint topology.
+#   * short_warmup_degenerates_the_controller_schedule — pure upstream
+#     behaviour, in-process, no tuningfork codegen involved. It pins a recorded
+#     observation so it stays visible; it gates nothing about emission.
+# So three of the five gate the generated joint path.
 
 name: joint-staged-auto
 
@@ -97,17 +115,22 @@ jobs:
 
       # UV_NO_SYNC + --no-sync from here on: a re-sync would silently reinstall
       # released BlackJAX over the overlay. Generated programs are launched with
-      # the venv interpreter directly (never through uv), and each joint program
-      # carries its own capability guard, so a successful joint run is itself
-      # proof the child process imported the pinned build.
-      - name: Required joint runtime cases
+      # the venv interpreter directly, never through uv.
+      #
+      # Child identity is MEASURED, not inferred. The emitted capability guard
+      # only proves the child could call the joint controller — it does not say
+      # which build answered. So the launcher probes the child interpreter's own
+      # resolution into the execution receipt, and the joint tests assert the
+      # child resolved the SAME blackjax this job just pinned. Parent pinned to
+      # the SHA by the step above, plus child == parent, closes the chain.
+      - name: Required cases (3 joint generated-program, 1 portability, 1 upstream pin)
         env:
           JAX_PLATFORM_NAME: cpu
           UV_NO_SYNC: "1"
           TUNINGFORK_REQUIRE_JOINT_CONTROLLER: "1"
         run: |
           uv run --no-sync pytest \
-            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_generated_joint_warmup_matches_the_direct_public_call" \
+            "tests/recipes/test_staged_adaptation_auto_codegen.py::test_generated_program_payload_matches_the_direct_public_call" \
             "tests/recipes/test_staged_adaptation_auto_codegen.py::test_short_warmup_degenerates_the_controller_schedule" \
             "tests/recipes/test_staged_adaptation_auto_codegen.py::test_small_joint_run_executes_and_samples_cleanly" \
             "tests/recipes/test_staged_adaptation_auto_codegen.py::test_joint_run_with_per_chain_init_strategy_executes" \

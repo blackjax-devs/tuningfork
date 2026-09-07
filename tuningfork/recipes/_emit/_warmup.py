@@ -448,8 +448,7 @@ def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
         - ``warmup_extra_kwargs``: ``", k=v"``-form kernel kwargs (or "")
         - ``num_chains``: sampling chain count S
         - ``_staged_auto_n_chains``: warmup chain count W, in ``{1, S}``
-        - ``staged_auto_max_grad_budget``: required upstream under
-          ``metric="auto"``
+        - ``wp_max_grad_budget``: required upstream under ``metric="auto"``
         - ``warmup_progress_bar``: bool
         - ``init_position_is_prebatched``: bool
     """
@@ -461,7 +460,9 @@ def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
     n_warmup = ctx["n_warmup"]
     tuning_seed = ctx["tuning_seed"]
     extra_kwargs = ctx.get("warmup_extra_kwargs", "")
-    max_grad_budget = ctx["staged_auto_max_grad_budget"]
+    # wp_<key> is the programmatic spread of warmup_params done by
+    # _emit_script; no separate key is needed for this one.
+    max_grad_budget = ctx["wp_max_grad_budget"]
     warmup_progress_bar = ctx["warmup_progress_bar"]
     prebatched = ctx.get("init_position_is_prebatched", False)
     n_chains = ctx["_staged_auto_n_chains"]

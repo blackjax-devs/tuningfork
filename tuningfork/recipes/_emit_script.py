@@ -1004,7 +1004,6 @@ def emit_script(
                 "staged_adaptation_auto warmup_params['max_grad_budget'] must be "
                 f"an int; got {_sa_budget!r}."
             )
-        ctx["staged_auto_max_grad_budget"] = _sa_budget
 
     # Resolve the sampler descriptor once for warmup and sampler emission.
     _bm_entry = BASE_METHODS[recipe.base_method_name]

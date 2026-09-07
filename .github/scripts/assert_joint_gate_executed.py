@@ -1,10 +1,14 @@
 #!/usr/bin/env python
-"""Assert the required joint cases EXECUTED -- skipped or uncollected fails.
+"""Assert every required case EXECUTED -- skipped or uncollected fails.
 
 In the pinned-upstream job a skip is not an acceptable outcome: it would mean
 the capability was silently absent and the gate passed without testing
 anything.  pytest already exits non-zero when a node id does not resolve, which
 covers "uncollected"; this covers "collected but not run".
+
+This counts cases; it does not know what they cover.  The workflow header
+records which of them actually exercise the generated joint program (three of
+the five) so the count is not mistaken for five joint executions.
 """
 
 from __future__ import annotations

@@ -53,7 +53,7 @@ def _ctx(**extra: object) -> dict[str, object]:
         "wp1_name": "phase2",
         "wp1_target": 0.8,
         "wp1_n_warmup": 5,
-        "staged_auto_max_grad_budget": 20_000,
+        "wp_max_grad_budget": 20_000,
         "_staged_auto_n_chains": 2,
     }
     ctx.update(extra)
