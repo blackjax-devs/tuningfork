@@ -951,3 +951,14 @@ def test_tie_severity_tracks_cardinality_not_tie_fraction():
     assert sticky.bulk_ess == pytest.approx(sticky_az.bulk_ess, rel=0.05)
     indicator_az = _degenerate_report((trace > 0).astype(float), "arviz").entries[0]
     assert indicator_az.bulk_ess > 5 * indicator.bulk_ess
+
+
+@pytest.mark.slow
+def test_the_report_records_the_backend_and_its_version(draws):
+    """Tie handling and rank normalisation move between releases."""
+    report = expectand_report(draws, _moment_expectands(), backend="blackjax")
+
+    assert report.backend == "blackjax"
+    assert report.backend_version and report.backend_version != "unknown"
+    assert report.backend_version in report.to_text()
+    assert report.to_rows()[0]["backend_version"] == report.backend_version

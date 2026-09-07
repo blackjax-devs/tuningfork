@@ -124,9 +124,10 @@ Rank-normalised statistics depend on how a backend ranks tied values:
 `blackjax.diagnostics` assigns ordinal ranks, ArviZ averages them. Every report
 row discloses ties whenever any are present, and names the backend's behaviour.
 
-The *severity* of that disclosure is keyed on how few distinct values a trace
-takes, not on what share of it is tied, because that is what actually drives the
-backends apart. Measured on 4 × 500 draws:
+The *severity* of that disclosure — wording only — is keyed on how few distinct
+values a trace takes rather than on what share of it is tied. A small
+exploratory probe on a single 4 × 500 fixture, one seed, one arrangement and the
+pinned backend versions:
 
 | distinct values | tie fraction | blackjax bulk ESS | ArviZ bulk ESS | ratio |
 |---|---|---|---|---|
@@ -140,10 +141,17 @@ backends apart. Measured on 4 × 500 draws:
 A continuous chain with 89% of its values repeated by rejection holds still has
 essentially every value distinct, and the backends agree to 0.4%. A 2-valued
 indicator has a comparable tie fraction and the backends differ by two orders of
-magnitude. So tie fraction is nearly useless as a severity signal, and
-`DEFAULT_TIE_BLOCK_THRESHOLD` keys on the mean tie block (`n_total /
+magnitude. That is enough to show tie fraction alone is a poor severity signal,
+so `DEFAULT_TIE_BLOCK_THRESHOLD` keys on the mean tie block (`n_total /
 n_distinct`) instead.
 
-This is display severity only. It is never a validity boundary: a trace with a
-single repeated value is still disclosed, with its tie fraction and mean tie
-block reported numerically.
+**This is not a calibration.** These are a handful of fixtures at one chain
+length, one temporal arrangement and one pair of backend versions. They do not
+establish where the effect becomes material in general, and a backend release
+that changes its tie handling changes the picture entirely — which is why every
+report records the backend *and its version* alongside the numbers.
+
+The threshold changes wording and nothing else. It is never a validity boundary
+and never a reliability certificate: a trace with a single repeated value is
+still disclosed, the affected backend is still named, and the tie fraction and
+mean tie block are reported numerically on every row regardless of severity.

@@ -152,21 +152,27 @@ _STATISTICS = ("raw_mean_ess", "bulk_ess", "tail_ess", "rank_rhat")
 # second" nor a ratio of two R-hats carries meaning, so both are withheld.
 _RATE_STATISTICS = ("raw_mean_ess", "bulk_ess", "tail_ess")
 
-#: Mean tie-block size at or above which the tie disclosure is raised from
-#: "minor" to "material".
+#: Mean tie-block size at or above which the tie disclosure is worded more
+#: strongly.
 #:
-#: Severity is keyed on how *few distinct values* a trace takes, not on what
-#: share of it is tied, because that is what actually drives the two backends
-#: apart.  Measured on 4x500 draws (see
-#: ``docs/examples/trajectory-length-sensitivity.md``): a continuous trace with
-#: 89% of its values repeated by rejection holds still has ~2000 distinct values
-#: and the backends agree to 0.4%; the same draws quantised to 200, 50, 10, 5
-#: and 2 distinct values give ArviZ/blackjax bulk-ESS ratios of 1.01, 1.02, 2.6,
-#: 32 and 156. Divergence tracks the mean tie-block size (n_total / n_distinct),
-#: which is ~40 at the 1.02 point and ~200 at the 2.6 point.
+#: **An explicitly uncalibrated presentation heuristic.** It changes wording
+#: only. It is not a reliability certificate, not a gate, and not a validated
+#: boundary between safe and unsafe: any tie at all is disclosed together with
+#: the backend's tie handling, whatever the severity says.
 #:
-#: A display threshold, not a correctness boundary: any tie at all is disclosed,
-#: and ``tie_fraction``/``mean_tie_block`` are always reported numerically.
+#: It is keyed on how few distinct values a trace takes rather than on what
+#: share of it is tied, on the strength of a small exploratory probe (a single
+#: 4x500 fixture, one seed, one arrangement, the pinned backend versions) whose
+#: numbers are recorded in ``docs/examples/trajectory-length-sensitivity.md``.
+#: In that probe a continuous trace with 89% of its values repeated by rejection
+#: holds still had ~2000 distinct values and the backends agreed to 0.4%, while
+#: the same draws quantised to 10, 5 and 2 distinct values gave ArviZ/blackjax
+#: bulk-ESS ratios of 2.6, 32 and 156. That is enough to show tie fraction alone
+#: is a poor severity signal; it is not a calibration, and it does not
+#: characterise how the effect varies with chain length, temporal arrangement,
+#: or backend version -- a backend that changes its tie handling changes this
+#: picture entirely, which is why every report records the backend and its
+#: version.
 DEFAULT_TIE_BLOCK_THRESHOLD = 50.0
 
 
@@ -935,6 +941,26 @@ def _component_diagnostics(
     )
 
 
+def _backend_version(backend: str) -> str:
+    """Version of the module that produced a report's numbers.
+
+    Recorded because tie handling, rank normalisation and ESS truncation are all
+    implementation details that move between releases.
+    """
+    try:
+        if backend == "blackjax":
+            import blackjax
+
+            return str(blackjax.__version__)
+        if backend == "arviz":
+            import arviz
+
+            return str(arviz.__version__)
+    except Exception:  # pragma: no cover - defensive
+        return "unknown"
+    return "unknown"
+
+
 def _backend_statistics(trace_cs: np.ndarray, backend: str) -> dict[str, float | None]:
     """Dispatch to an existing diagnostics implementation; add no estimator."""
     if backend == "blackjax":
@@ -1000,6 +1026,7 @@ class ExpectandReport:
 
     label: str
     backend: str
+    backend_version: str
     entries: tuple[ExpectandDiagnostics, ...]
     cost: CostAccounting
     n_chains: int
@@ -1023,6 +1050,7 @@ class ExpectandReport:
                 {
                     "expectand": entry.label,
                     "backend": entry.backend,
+                    "backend_version": self.backend_version,
                     "degeneracy": entry.degeneracy,
                     "tie_fraction": entry.tie_fraction,
                     "mean_tie_block": entry.mean_tie_block,
@@ -1041,8 +1069,8 @@ class ExpectandReport:
         """Human-readable table; unknown and undefined values render as text."""
         header = (
             f"expectand report: {self.label}  "
-            f"[backend={self.backend}, {self.n_chains} chains x "
-            f"{self.n_draws} draws]"
+            f"[backend={self.backend} {self.backend_version}, "
+            f"{self.n_chains} chains x {self.n_draws} draws]"
         )
         columns = ("expectand", "raw-mean ESS", "bulk ESS", "tail ESS", "rank R-hat")
         rows = [columns]
@@ -1160,6 +1188,7 @@ def expectand_report(
     return ExpectandReport(
         label=label,
         backend=backend,
+        backend_version=_backend_version(backend),
         entries=tuple(entries),
         cost=cost if cost is not None else _unmeasured_cost(),
         n_chains=n_chains,
