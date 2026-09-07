@@ -1437,7 +1437,10 @@ def test_the_vi_family_gradient_subtotal_is_refused_not_reported(sampler):
     assert derivation.count is None
     assert "not supported" in derivation.reason
     # The declared convention is preserved in the refusal, not discarded.
-    assert str(method.grad_count_convention) in derivation.reason
+    # Parenthesised: the bare convention for VI is "1", which any digit in the
+    # message would satisfy, so the loose form would not catch the convention
+    # being dropped from a reworded reason.
+    assert f"({method.grad_count_convention})" in derivation.reason
 
 
 @pytest.mark.slow
@@ -1619,3 +1622,87 @@ def test_an_unusable_wall_clock_is_refused_not_raised(recorded):
 
     assert cost.warmup_seconds is None
     assert "unusable" in cost.reason_for("warmup_seconds")
+
+
+# --------------------------------------------------------------------------
+# Single-report disclosure and the constructor's one validated field
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+def test_a_single_report_discloses_that_its_subtotal_is_not_total_work():
+    """The eligibility contract is otherwise enforced only in `compare_reports`.
+
+    A reader who prints one report and never compares would see
+    `sampling_transition_grad_evals` as a bare number, with no ineligibility, no
+    UNESTABLISHED and no subtotal caveat. That is the mechanism's blind side.
+    """
+    derivation = sampling_grad_evals_from_chain_stats(
+        {"num_integration_steps": np.full((N_CHAINS, N_DRAWS), 3)}, "nuts"
+    )
+    cost = CostAccounting(
+        warmup_seconds=1.0,
+        sampling_seconds=1.0,
+        total_seconds=2.0,
+        warmup_grad_evals=0,
+        sampling_transition_grad_evals=derivation.count,
+        compile_seconds=0.0,
+        source="derived",
+        excluded_grad_work=derivation.excluded,
+    )
+    text = _stub_report("solo", cost).to_text()
+
+    assert "NOT total gradient work" in text
+    assert "UNESTABLISHED" in text
+    assert "counts gradients as:" in text
+
+
+@pytest.mark.fast
+def test_a_report_with_no_exclusions_adds_no_disclosure_block():
+    """An explicit caller-supplied cost has nothing to disclaim."""
+    text = _stub_report("solo", _FULL_COST).to_text()
+
+    assert "NOT total gradient work" not in text
+    assert "costs (" in text
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("view", ["as_measured", "standalone", "combined"])
+def test_every_declared_view_constructs(view):
+    CostAccounting(source="x", view=view)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("view", ["totally-bogus-view", "", "Standalone", None])
+def test_an_undeclared_view_is_rejected_at_construction(view):
+    """`view` gates whether two costs may be compared at all.
+
+    The direct constructor is the only route to an eligible cost, so the same
+    entry point that carries the trust contract must not accept a typo that
+    silently defeats the cross-view guard.
+    """
+    with pytest.raises(ValueError, match="view must be one of"):
+        CostAccounting(source="x", view=view)
+
+
+@pytest.mark.fast
+def test_costs_built_by_the_helpers_still_construct():
+    """Validation must not break the paths that build costs internally."""
+
+    class FakeTelemetry:
+        timing_seconds = {"warmup": 1.0, "sampling": 1.0, "total": 2.0}
+        warmup_grad_evals = 10
+        warmup_grad_evals_reason = "bound"
+
+    class FakeRecipe:
+        calibration_budget = {"warmup_wall_seconds": 1.0, "sampling_wall_seconds": 2.0}
+
+    assert CostAccounting.from_telemetry(FakeTelemetry()).view == "as_measured"
+    assert CostAccounting.from_recipe(FakeRecipe()).view == "as_measured"
+    assert CostAccounting(source="a").relabel("b").view == "as_measured"
+    combined = CostAccounting.combine(
+        [CostAccounting(source="a"), CostAccounting(source="b")],
+        view="combined",
+        phases_are_disjoint_sequential=True,
+    )
+    assert combined.view == "combined"

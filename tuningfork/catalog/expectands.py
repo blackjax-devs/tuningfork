@@ -321,6 +321,30 @@ class CostAccounting:
     #: Components that are counts.  Additive whether or not phases overlap.
     _COUNT_COMPONENTS = ("warmup_grad_evals", "sampling_transition_grad_evals")
 
+    def __post_init__(self) -> None:
+        """Validate ``view`` only.
+
+        ``view`` decides whether two costs may be compared at all, and the
+        direct constructor is the only way to build the explicit accounting that
+        is eligible as a per-gradient denominator -- ``combine`` cannot produce
+        ``as_measured``, and ``from_telemetry``/``from_recipe`` either mark their
+        output ineligible or leave it unmeasured.  So the one unvalidated entry
+        point carried both the trust contract and a typo-shaped hole: two arms
+        sharing a misspelled view compare as though they matched.
+
+        Deliberately nothing else is validated here.  Rejecting negative or
+        non-finite costs at construction would refuse a caller who legitimately
+        measured something this module did not anticipate -- a total need not
+        equal warmup plus sampling, for instance -- and over-refusal is its own
+        failure mode.
+        """
+        if self.view not in self.VIEWS:
+            raise ValueError(
+                "view must be one of "
+                + ", ".join(repr(v) for v in self.VIEWS)
+                + f"; got {self.view!r}"
+            )
+
     #: Every accounting view.  ``"as_measured"`` is not producible by
     #: :meth:`combine` -- it describes a single execution, not a sum.
     VIEWS = ("as_measured", "standalone", "combined")
@@ -1312,6 +1336,17 @@ class ExpectandReport:
                 lines.append(f"  {component}: {value}")
         for note in self.cost.notes:
             lines.append(f"  note: {note}")
+        if self.cost.excluded_grad_work:
+            # Without this, a reader who prints one report and never compares
+            # sees `sampling_transition_grad_evals` as a bare number and
+            # receives no part of the eligibility contract -- the whole of which
+            # is otherwise enforced only in `compare_reports`.
+            lines.append(
+                "  the gradient subtotal above is NOT total gradient work, and "
+                "is not used as a per-gradient denominator:"
+            )
+            for item in self.cost.excluded_grad_work:
+                lines.append(f"    - {item}")
         return "\n".join(lines)
 
 
