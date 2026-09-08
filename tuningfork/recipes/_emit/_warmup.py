@@ -474,19 +474,13 @@ def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
     )
     if joint:
         a(
-            f"# Joint controller: ONE staged_adaptation call adapts all {n_chains} warmup"
+            f"# One joint controller adapts {n_chains} chains and publishes shared parameters."
         )
-        a("# chains together.  Upstream pools their positions and gradients inside a")
-        a("# single scan and runs one dual-averaging update per step on the MEAN")
-        a("# acceptance rate, so the published step_size and inverse_mass_matrix are")
-        a("# SHARED across chains.  This is deliberately not jax.vmap over independent")
-        a("# warmups -- that topology is window_adaptation_diag_imm.")
     else:
-        a("# Single-chain controller (warmup_num_chains=[1]): adapt once, then")
-        a("# broadcast the state so scan(vmap(kernel)) maps over sampling chains")
-        a("# sharing the same adapted (step_size, inverse_mass_matrix).")
-    a("# n_warmup is passed to run() explicitly: without it upstream derives the")
-    a("# step count from max_grad_budget and the recipe's n_warmup is ignored.")
+        a(
+            "# W=1 controller adapts once, then broadcasts shared parameters to sampling chains."
+        )
+    a("# Pass n_warmup explicitly; max_grad_budget must not override recipe length.")
     if joint:
         a("import inspect as _sa_inspect")
         a("")
@@ -516,45 +510,34 @@ def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
     a(f"_warmup_key = jax.random.fold_in(jax.random.key({tuning_seed}), 0)")
 
     if joint:
+        _state_name = "_batched_states"
         if prebatched:
             a("# Initial positions are already batched at generation time.")
             a("_init_positions = init_position")
         else:
             a(
-                f"# Replicate init_position to ({n_chains}, ...) for the joint controller."
+                f"# Broadcast init_position to ({n_chains}, ...); prior_sample gives all chains the same start."
             )
-            a("# NOTE: prior_sample gives every warmup chain the SAME start; they")
-            a("# separate only through per-chain keys.  Use a per-chain")
-            a("# init_strategy for genuinely dispersed starts.")
+            a("# Use a per-chain init_strategy for dispersed starts.")
             a("_init_positions = jax.tree.map(")
             a(
                 f"    lambda x: jnp.broadcast_to(x[None], ({n_chains},) + x.shape),"
                 " init_position"
             )
             a(")")
-        _run = (
-            "(_batched_states, _adapted_params), _warmup_info = _warmup.run("
-            f"_warmup_key, _init_positions, {n_warmup})"
-        )
+        _run_position = "_init_positions"
     else:
+        _state_name = "_single_state"
         if prebatched:
-            # Reachable only at S=W=1: plan resolution requires W==S for a
-            # per-chain init strategy, so W=1 plus pre-batched positions means
-            # a single sampling chain.  The window family never reaches its
-            # analogue at all, because its shared-warmup route requires
-            # num_chains > 1.  Kept rather than routed through the joint branch
-            # so the degenerate single-chain case does not have to pass
-            # n_chains explicitly and drag the capability guard into what is
-            # otherwise a portable path.
-            a("# W=1 controller consumes one un-batched position (S=W=1 only).")
+            a("# W=1 with pre-batched input is the S=W=1 per-chain-init case.")
             a("_init_position_single = jax.tree.map(lambda x: x[0], init_position)")
-            _pos = "_init_position_single"
+            _run_position = "_init_position_single"
         else:
-            _pos = "init_position"
-        _run = (
-            "(_single_state, _adapted_params), _warmup_info = _warmup.run("
-            f"_warmup_key, {_pos}, {n_warmup})"
-        )
+            _run_position = "init_position"
+    _run = (
+        f"({_state_name}, _adapted_params), _warmup_info = _warmup.run("
+        f"_warmup_key, {_run_position}, {n_warmup})"
+    )
 
     if warmup_progress_bar:
         a('with blackjax.progress_bar(label="warmup"):')
@@ -578,11 +561,10 @@ def _emit_staged_adaptation_auto(ctx: dict[str, Any]) -> str:
         "num_integration_steps for one chain"
     )
     a(f"_warmup_grad_evals_reason = {_reason!r}")
-    a("# _warmup_is_perchain=False: the controller publishes ONE shared" " (step_size,")
-    a("# inverse_mass_matrix) regardless of how many chains were adapted" " jointly.")
+    a("# The controller publishes one shared (step_size, inverse_mass_matrix).")
     a("_warmup_is_perchain = False")
     if joint:
-        a("# The joint controller already returns one warmup state per chain.")
+        a("# Joint controller already returns one state per adapted chain.")
         a("_state_post_warmup = _batched_states")
     else:
         a(

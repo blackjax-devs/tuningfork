@@ -84,8 +84,10 @@ class Chart(NamedTuple):
         Unit Householder vector mapping ``h`` onto ``±e_{d-1}``.
     lr_basis, lr_eigenvalues
         Optional symmetric low-rank factor: ``lowrank(x, p) = x + U ((lam^p - 1)
-        (U^T x))`` with orthonormal columns ``U``.  Rank 0 (``lam`` all ones) is
-        the plain diagonal case and is bit-equivalent to omitting the factor.
+        (U^T x))``.  Columns with ``lam != 1`` must be orthonormal; finite
+        ``lam == 1`` columns are neutral and unconstrained.  When all ``lam`` are
+        one, the factor is diagonal in exact arithmetic; no broader bitwise
+        equivalence is claimed.
     """
 
     h: Array
@@ -130,6 +132,11 @@ class Chart(NamedTuple):
             + delta * delta * p2 * self.a
         )
 
+    def _flow_from_chart(self, y: Array) -> Array:
+        """Flow the section represented by chart coordinates ``y``."""
+        section = self._reflect(jnp.concatenate([y[:-1], jnp.zeros((1,), y.dtype)]))
+        return self._flow(section, y[-1])
+
     def field(self, z: Array) -> Array:
         """The affine field ``V(z)`` in preconditioned coordinates."""
         return self.alpha * z + self.a * jnp.dot(self.h, z) + self.c
@@ -137,9 +144,7 @@ class Chart(NamedTuple):
     # -- the four public maps ----------------------------------------------
     def forward(self, y: Array) -> Array:
         """Chart coordinates ``y = [section, clock]`` to a native position."""
-        t = y[-1]
-        section = self._reflect(jnp.concatenate([y[:-1], jnp.zeros((1,), y.dtype)]))
-        return self._to_native(self._flow(section, t))
+        return self._to_native(self._flow_from_chart(y))
 
     def inverse(self, q: Array) -> Array:
         """Native position to chart coordinates.  Exact, by the unit clock rate."""
@@ -172,9 +177,7 @@ class Chart(NamedTuple):
         """
         d = self.center.size
         gz = self._cotangent(g_native)
-        z = self._flow(
-            self._reflect(jnp.concatenate([y[:-1], jnp.zeros((1,), y.dtype)])), y[-1]
-        )
+        z = self._flow_from_chart(y)
         clock = jnp.dot(gz, self.field(z)) + self.alpha * (d - 1)
         section = jnp.exp(self.alpha * y[-1]) * self._reflect(gz)[:-1]
         return jnp.concatenate([section, clock[None]])
@@ -182,9 +185,7 @@ class Chart(NamedTuple):
     def push_score(self, y: Array, g_chart: Array) -> Array:
         """Inverse of :meth:`pullback_score`: chart score back to a native score."""
         d = self.center.size
-        z = self._flow(
-            self._reflect(jnp.concatenate([y[:-1], jnp.zeros((1,), y.dtype)])), y[-1]
-        )
+        z = self._flow_from_chart(y)
         transverse = self._reflect(
             jnp.concatenate(
                 [jnp.exp(-self.alpha * y[-1]) * g_chart[:-1], jnp.zeros((1,), y.dtype)]
@@ -299,12 +300,8 @@ def make_chart(
                 f"lr_eigenvalues shape {lr_eigenvalues.shape} does not match "
                 f"lr_basis rank {lr_basis.shape[1]}"
             )
-        # Finiteness FIRST, and for every column including neutral ones.
-        # Deferring this leaves a NaN-blind path: a NaN in an active column makes
-        # the Gram residual NaN, and `NaN > tol` is False, so the orthonormality
-        # gate would pass it -- the same comparison defect this suite fixed in
-        # its own gates. `0 * NaN` is NaN, so neutral columns are not inert
-        # either. `+inf` likewise satisfies a bare `> 0` test.
+        # Check finiteness before the Gram calculation, including neutral columns:
+        # NaN/inf inputs can otherwise make a comparison-based gate pass.
         if not bool(jnp.all(jnp.isfinite(lr_basis))):
             raise ValueError("lr_basis must be finite in every column")
         if not bool(jnp.all(jnp.isfinite(lr_eigenvalues))):
@@ -318,22 +315,12 @@ def make_chart(
             off = float(
                 jnp.max(jnp.abs(gram - jnp.eye(gram.shape[0], dtype=gram.dtype)))
             )
-            # Scale with dtype and rank. A genuinely orthonormal float32 basis
-            # carries Gram error ~sqrt(d)*eps32 (measured 1.19e-07 for d=6,
-            # rank 3), which a fixed absolute bound rejects as invalid. This is
-            # a rounding allowance, not a separation guarantee: a violation
-            # smaller than the allowance is not detected, and violations can be
-            # arbitrarily small.
+            # Scale the rounding allowance with dtype epsilon and rank; this is
+            # not a separation guarantee for arbitrarily small violations.
             eps = float(jnp.finfo(lr_basis.dtype).eps)
             tol = 64.0 * eps * max(gram.shape[0], 1)
-            # `not (off <= tol)` rather than `off > tol`, and the polarity is
-            # load-bearing. Every INPUT here is checked finite before use, but
-            # `off` is DERIVED: an off-diagonal Gram entry is a signed sum, so
-            # elementwise-finite entries near sqrt(dtype max) can produce
-            # (+inf) + (-inf) = NaN, which jnp.max propagates. `NaN > tol` is
-            # False and would accept a basis that could not be evaluated.
-            # Finiteness-before-comparison cannot protect a quantity computed
-            # after the inputs are cleared; only polarity can.
+            # Reject non-finite derived residuals too: ``not (off <= tol)`` has
+            # the required NaN-rejecting polarity, unlike ``off > tol``.
             if not (off <= tol):
                 raise ValueError(
                     "spectrally active lr_basis columns (lam != 1) must be "
