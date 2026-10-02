@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -56,7 +57,17 @@ class AutoGateVerdict:
         Per-metric proximity information.  Keys are metric names; values are
         dicts with at least ``{"value": float, "band": str}`` and band-limit
         keys depending on the threshold structure.  Skipped metrics (e.g.
-        ``max_abs_mean_z`` when no ground truth) are absent from ``margins``.
+        ``max_abs_mean_z`` when no ground truth, or any metric listed in
+        ``nonfinite_metrics``) are absent from ``margins``.
+    nonfinite_metrics
+        Names of metrics (among ``rhat_max``, ``min_bulk_ess``,
+        ``max_abs_mean_z``) whose *computed* value was non-finite (e.g. a
+        NaN rank-normalised split-R̂ from tied ranks on degenerate chains).
+        Such a metric is undefined, not merely "not computed": it is
+        reported here instead of in ``margins``/the top-level field (both
+        become ``None`` for it), and its presence forces ``verdict`` to
+        ``"FAIL"`` regardless of what any other metric says.  ``None`` when
+        every computed metric was finite.
     """
 
     rhat_max: float | None
@@ -75,6 +86,7 @@ class AutoGateVerdict:
     n_nonfinite_proposals: int | None = None
     n_proposals_evaluated: int | None = None
     nonfinite_proposal_rate: float | None = None
+    nonfinite_metrics: list[str] | None = None
 
     def to_dict(self) -> dict:
         """Render in the exact shape ``Recipe.gate_evidence['auto']`` expects.
@@ -86,8 +98,9 @@ class AutoGateVerdict:
             ``max_abs_mean_z``, ``verdict``, ``margins``.
             ``resonance_warning`` included when not ``None``.
             ``margins["w1_realm"]`` included when ``w1_realm_result`` is not ``None``.
+            ``nonfinite_metrics`` included when not empty.
         """
-        d = {
+        d: dict = {
             "rhat_max": self.rhat_max,
             "min_bulk_ess": self.min_bulk_ess,
             "n_divergences": self.n_divergences,
@@ -101,6 +114,8 @@ class AutoGateVerdict:
             d["n_nonfinite_proposals"] = self.n_nonfinite_proposals
             d["n_proposals_evaluated"] = self.n_proposals_evaluated
             d["nonfinite_proposal_rate"] = self.nonfinite_proposal_rate
+        if self.nonfinite_metrics:
+            d["nonfinite_metrics"] = self.nonfinite_metrics
         return d
 
 
@@ -159,6 +174,26 @@ def _assemble_verdict(
         _bias_sigma_at_argmax_z = gt_result.bias_sigma_at_argmax_z
         _bias_sigma_max_at_z4 = gt_result.bias_sigma_max_at_z4
         _achieved_bias_bound_sigma = gt_result.achieved_bias_bound_sigma
+
+    # A non-finite computed metric is undefined, not "not computed" and not
+    # a normal PASS/REVIEW/FAIL value -- e.g. blackjax's rank-normalisation
+    # can return NaN (tied ranks averaged) or 0 ESS on degenerate (e.g.
+    # constant) chains. Normalise it to None here, at the single point
+    # these three metrics are first classified, so every downstream
+    # `if <metric> is not None` branch (margins, to_dict) skips it exactly
+    # like "not computed" -- and record its name so the verdict can be
+    # forced to FAIL below instead of silently passing/reviewing on
+    # undefined evidence.
+    nonfinite_metrics: list[str] = []
+    if rhat_max is not None and not math.isfinite(rhat_max):
+        nonfinite_metrics.append("rhat_max")
+        rhat_max = None
+    if min_bulk_ess is not None and not math.isfinite(min_bulk_ess):
+        nonfinite_metrics.append("min_bulk_ess")
+        min_bulk_ess = None
+    if max_abs_mean_z is not None and not math.isfinite(max_abs_mean_z):
+        nonfinite_metrics.append("max_abs_mean_z")
+        max_abs_mean_z = None
 
     # --- Classify each metric and accumulate verdict ---
     overall_verdict = "PASS"
@@ -305,6 +340,12 @@ def _assemble_verdict(
         if cost:
             margins["cost"] = cost
 
+    # A non-finite mixing/GT-compare metric is fail-closed: R̂/ESS/z being
+    # undefined means the run is not certified, regardless of what the
+    # other (finite) metrics say.
+    if nonfinite_metrics:
+        overall_verdict = "FAIL"
+
     # Propagate calibrated verdict info from gt_result (PR #245 gate).
     _gt_calibrated: dict | None = None
     if gt_result is not None and gt_result.calibrated_pass is not None:
@@ -330,4 +371,5 @@ def _assemble_verdict(
         resonance_warning=resonance_warning,
         w1_realm_result=w1_realm_result,
         gt_calibrated=_gt_calibrated,
+        nonfinite_metrics=nonfinite_metrics or None,
     )
