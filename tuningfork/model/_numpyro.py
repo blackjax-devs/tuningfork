@@ -36,7 +36,9 @@ import jax
 from numpyro.handlers import block as _numpyro_block
 from numpyro.handlers import seed as _numpyro_seed
 from numpyro.handlers import trace as _numpyro_trace
-from numpyro.infer.util import initialize_model, log_density
+from numpyro.infer.util import get_transforms as _numpyro_get_transforms
+from numpyro.infer.util import initialize_model
+from numpyro.infer.util import transform_fn as _numpyro_transform_fn
 
 from tuningfork.model._base import Posterior
 
@@ -134,18 +136,31 @@ def build_smc_logfns(
     the joint ``logdensity_fn`` into its prior and likelihood components by
     blocking the observed sites via NumPyro's ``block`` handler:
 
-    - ``logprior_fn(position)`` = log p(params) — runs the model with
-      observed sites blocked so only prior contributions are accumulated.
-    - ``loglikelihood_fn(position)`` = log p(data | params) — computed as
-      ``logposterior − logprior`` (numerically exact, no separate model call).
+    - ``logprior_fn(position)`` = log p(constrain(position)) + log|det
+      J(position)| — the *negated potential energy of the blocked (prior-only)
+      model*, built the same way ``initialize_model`` builds the joint
+      ``potential_fn``, so both share the identical unconstrained-space
+      convention and Jacobian term.
+    - ``loglikelihood_fn(position)`` = log p(data | constrain(position)) —
+      computed as ``logposterior − logprior``; because both terms carry the
+      *same* ``log|det J|`` contribution, it cancels out exactly, leaving a
+      pure data-likelihood term with no Jacobian of its own (numerically
+      exact, no separate model call needed).
 
-    Both functions are JAX-traceable and JIT-compatible.
+    ``position`` is always the **unconstrained** parameterization used by
+    ``initialize_model``/``find_valid_initial_params`` (the same space as
+    ``build_logdensity_fn``'s ``init_position`` and this function's own
+    ``init_position``) — the same space ``postprocess_fn`` maps *from*.
+    Both ``logprior_fn`` and ``loglikelihood_fn`` are JAX-traceable and
+    JIT-compatible.
 
     Parameters
     ----------
     rng_key
-        JAX random key for ``initialize_model`` (used to draw the initial
-        unconstrained position).
+        JAX random key for ``initialize_model``, used verbatim for the joint
+        model (so ``init_position`` is unchanged from any prior version of
+        this function); the prior-only (blocked) model's own init search
+        uses a key folded in from ``rng_key``.
     entry
         Posterior registry entry describing the NumPyro model.
 
@@ -156,16 +171,19 @@ def build_smc_logfns(
     logprior_fn
         ``(position: dict) -> float`` — log prior in unconstrained space.
     loglikelihood_fn
-        ``(position: dict) -> float`` — log likelihood (joint minus prior).
+        ``(position: dict) -> float`` — log likelihood (joint minus prior),
+        in the same unconstrained space.
     postprocess_fn
         Transforms unconstrained draws to constrained space.
 
     Notes
     -----
     The ``block`` handler is applied once at function-build time to identify
-    observed sites; the resulting blocked model is then used to build a
-    ``log_density`` callable that is evaluated lazily at JAX-trace time.
-    This means no Python overhead per SMC step.
+    observed sites; the resulting blocked (prior-only) model is then run
+    through its own ``initialize_model`` call to obtain a genuine
+    unconstrained-space potential function — matching the joint model's own
+    ``inv_transforms`` for every latent site, since blocking only hides
+    observed sites and never touches which sites are latent.
     """
     model_info = initialize_model(
         rng_key,
@@ -181,21 +199,29 @@ def build_smc_logfns(
     obs_sites = _get_observed_site_names(entry)
 
     # Blocked model: same as the original model but with observed sites
-    # silenced → log_density gives prior only.
+    # silenced -- its own initialize_model gives a prior-only potential_fn
+    # in the identical unconstrained space/Jacobian convention as the joint
+    # model's potential_fn above, so the two compose correctly below. Uses a
+    # key folded in from rng_key (not a split of it) so init_position above
+    # is bit-identical to what build_smc_logfns returned before this fix --
+    # the blocked model's own key only affects its own init search, not the
+    # resulting potential_fn.
     _blocked_model = _numpyro_block(entry.numpyro_model, hide=obs_sites)
+    blocked_model_info = initialize_model(
+        jax.random.fold_in(rng_key, 1),
+        _blocked_model,
+        model_args=entry.model_args,
+        model_kwargs=entry.model_kwargs,
+        dynamic_args=False,
+    )
+    blocked_potential_fn = blocked_model_info.potential_fn
 
     def logprior_fn(position: dict) -> float:
-        """Log prior p(params) in unconstrained space."""
-        logp, _ = log_density(
-            _blocked_model,
-            entry.model_args,
-            entry.model_kwargs,
-            position,
-        )
-        return logp
+        """Log prior p(constrain(position)) + log|det J(position)|."""
+        return -blocked_potential_fn(position)
 
     def loglikelihood_fn(position: dict) -> float:
-        """Log likelihood log p(data | params) = log p(data, params) − log p(params)."""
+        """Log likelihood log p(data | constrain(position)); Jacobian cancels."""
         return -potential_fn(position) - logprior_fn(position)
 
     return init_position, logprior_fn, loglikelihood_fn, model_info.postprocess_fn
@@ -210,10 +236,13 @@ def build_prior_sample_fn(
 
     - **Fast path** (``entry.analytic_sampler is not None``): calls
       ``entry.analytic_sampler(key, n)`` directly.  Available for mvn_10,
-      ill_cond_50, banana, neals_funnel, gmm_25.
+      ill_cond_50, banana, neals_funnel, gmm_25.  Per ``Posterior``'s own
+      contract, ``analytic_sampler`` already draws in unconstrained space.
     - **Fallback** (all other models): uses ``numpyro.infer.Predictive`` to
-      draw samples from the prior predictive and then returns only the
-      *latent* (non-observed) sites in unconstrained space.
+      draw samples from the prior predictive (in the model's *constrained*
+      space), keeps only the *latent* (non-observed) sites, then applies
+      each site's inverse constrain-to-unconstrain bijector so the returned
+      particles match the analytic path's unconstrained convention.
 
     Parameters
     ----------
@@ -224,19 +253,21 @@ def build_prior_sample_fn(
     -------
     prior_sample_fn
         Callable ``(rng_key: jax.Array, n_particles: int) -> dict[str, Array]``
-        where each array has shape ``(n_particles, *site_shape)``.
+        returning **unconstrained**-space particles, where each array has
+        shape ``(n_particles, *site_shape)`` — the same convention
+        ``build_smc_logfns``'s ``logprior_fn``/``loglikelihood_fn`` and
+        ``postprocess_fn`` (unconstrained → constrained) expect.
 
     Notes
     -----
-    For the ``Predictive`` fallback, ``Predictive`` returns samples in the
-    model's *constrained* space.  NumPyro automatically transforms these to
-    unconstrained space when constrained-to-unconstrained bijectors are
-    registered for the site's distribution.  For most distributions used in
-    the benchmark suite (Normal, Bernoulli, etc.), the constrained and
-    unconstrained spaces coincide or the transformation is handled by
-    NumPyro's internal constrain/unconstrain utilities.  Models that require
-    a non-trivial bijector (e.g. positive-constrained parameters) are handled
-    transparently by ``Predictive``.
+    ``Predictive`` itself returns samples in the model's constrained space
+    (e.g. a HalfNormal-prior site comes back strictly positive); the inverse
+    bijector (``biject_to(support).inv``, the same transform
+    ``initialize_model`` registers for that site) is applied explicitly
+    below — it is *not* automatic. The bijector set is derived once from a
+    single seeded trace (any one valid draw fixes every site's declared
+    support) and then applied batched over all ``n_particles`` at once, so
+    no second per-particle model trace is needed.
 
     Generated SMC programs call this function's output as
     ``prior_sample_fn(key, n_particles)`` when initializing particles.
@@ -257,12 +288,24 @@ def build_prior_sample_fn(
     _obs_sites = _get_observed_site_names(entry)
     from numpyro.infer import Predictive as _Predictive  # noqa: PLC0415
 
+    # Inverse (constrained -> unconstrained) bijectors, derived once from a
+    # single seeded trace. biject_to(support) depends only on each site's
+    # declared support, not on the realized value, so this is safe to reuse
+    # unbatched against the later batch of n_particles draws.
+    _seeded_model = _numpyro_seed(entry.numpyro_model, rng_seed=0)
+    _transforms = _numpyro_get_transforms(
+        _seeded_model, entry.model_args, entry.model_kwargs, {}
+    )
+
     def _predictive_prior_sample_fn(
         rng_key: jax.Array, n_particles: int
     ) -> dict[str, jax.Array]:
         pred = _Predictive(entry.numpyro_model, num_samples=n_particles)
         samples = pred(rng_key, *entry.model_args, **entry.model_kwargs)
-        # Return only latent sites (exclude observed data arrays).
-        return {k: v for k, v in samples.items() if k not in _obs_sites}
+        # Keep only latent sites (exclude observed data arrays), then map
+        # from the model's constrained space to the unconstrained space
+        # build_smc_logfns/postprocess_fn expect.
+        latent = {k: v for k, v in samples.items() if k not in _obs_sites}
+        return _numpyro_transform_fn(_transforms, latent, invert=True)
 
     return _predictive_prior_sample_fn
