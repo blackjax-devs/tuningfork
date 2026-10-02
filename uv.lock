@@ -368,7 +368,7 @@ wheels = [
 
 [[package]]
 name = "blackjax"
-version = "1.7.0"
+version = "1.7.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
@@ -378,9 +378,9 @@ dependencies = [
     { name = "scipy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/2c/4fa30a6335ed7bb7407a7c8e9350adea2c3a489630b55e718d514e8238f7/blackjax-1.7.0.tar.gz", hash = "sha256:8f08c83561641b8859239df7058987b13805903582ed1b132411961e8cf42b3d", size = 5496336, upload-time = "2026-10-02T19:13:52.405Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/fc/dca22cc8b84c7c50bb2733181112c1a12988b3fa1f96b7062813f9cab9a3/blackjax-1.7.1.tar.gz", hash = "sha256:5e15e5d574afc40d59cfcf2b7fb4561f24bfa7169d846209ecf2a3b3725cc519", size = 5496902, upload-time = "2026-10-02T20:43:51.788Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/6d/bae0db46f9cba79481fff8a84056eaae5824f9fa786d4a6c67fea066ad35/blackjax-1.7.0-py3-none-any.whl", hash = "sha256:c5dc326618eb5218782acddf30d962c469c392f9a3286b2d8371891c3976f923", size = 4994472, upload-time = "2026-10-02T19:13:50.409Z" },
+    { url = "https://files.pythonhosted.org/packages/99/a0/24f50e0cfd432b47103677c6fc6b220acc716c4b20dc9d6021a01d7924fa/blackjax-1.7.1-py3-none-any.whl", hash = "sha256:be2c7f982f4ab3afef2dd5f075dae271023fdec3d9c5d8b599ba7f2f281524fa", size = 4994604, upload-time = "2026-10-02T20:43:50.363Z" },
 ]
 
 [package.optional-dependencies]
