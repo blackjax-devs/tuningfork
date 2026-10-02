@@ -950,8 +950,9 @@ def test_tie_severity_tracks_cardinality_not_tie_fraction():
 
     Emulated MH rejections leave ~90% of a continuous trace tied to a previous
     state, yet almost every value stays distinct and the backends agree. A
-    2-valued indicator has a comparable tie fraction and is where the backends
-    diverge, so severity must key on cardinality.
+    2-valued indicator has a comparable tie fraction; before blackjax 1.7.0's
+    tied-rank averaging (blackjax#1031) this was where the backends diverged,
+    so severity must key on cardinality rather than tie fraction alone.
     """
     rng = np.random.default_rng(20260907)
     trace = rng.standard_normal((N_CHAINS, N_DRAWS))
@@ -973,7 +974,7 @@ def test_tie_severity_tracks_cardinality_not_tie_fraction():
     sticky_az = _degenerate_report(trace, "arviz").entries[0]
     assert sticky.bulk_ess == pytest.approx(sticky_az.bulk_ess, rel=0.05)
     indicator_az = _degenerate_report((trace > 0).astype(float), "arviz").entries[0]
-    assert indicator_az.bulk_ess > 5 * indicator.bulk_ess
+    assert indicator.bulk_ess == pytest.approx(indicator_az.bulk_ess, rel=0.05)
 
 
 @pytest.mark.slow

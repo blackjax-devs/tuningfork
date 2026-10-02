@@ -279,6 +279,12 @@ def lotka_volterra_inverse(
     ``ivpsolve.solve_fixed_grid`` with a 2nd-order isotropic filter (TS0
     correction, MLE calibration). Solver std is incorporated into the
     likelihood as form B.
+
+    A non-finite ODE solve (extreme prior-region draws) is guarded below the
+    likelihood: see the ``finite``/``lotka_ode_finite_guard`` block for how a
+    blown-up trajectory is routed to a -inf log-density instead of an invalid
+    distribution parameter, with no change to the log-density wherever the
+    solve is finite.
     """
     alpha = numpyro.sample("alpha", dist.LogNormal(jnp.log(jnp.array(0.5)), 0.5))
     beta = numpyro.sample("beta", dist.LogNormal(jnp.log(jnp.array(0.05)), 0.5))
@@ -294,11 +300,29 @@ def lotka_volterra_inverse(
     # Likelihood form B: incorporate solver uncertainty
     # obs[t] ~ Normal(u_mean[t], sqrt(u_std[t]^2 + sigma_obs^2))
     scale = jnp.sqrt(u_std**2 + sigma_obs**2)
+
+    # At extreme parameter draws the stiff ODE solve can return a non-finite
+    # trajectory (prior-region alpha/beta/u0/v0 combinations can blow up the
+    # probabilistic solver). Swap in finite placeholders so the Normal site
+    # stays well-defined, and add an explicit -inf factor so those draws are
+    # still a zero-probability region of the posterior -- this is the same
+    # outcome numpyro's init/warmup retry already relied on when a NaN
+    # potential/gradient silently marked a candidate invalid, just expressed
+    # without a non-finite distribution parameter (numpyro.distributions
+    # validates `loc`/`scale` by default since 0.22, which would otherwise
+    # raise before any retry gets a chance to run). Finite solves are
+    # untouched: `finite` is True and both `jnp.where` branches below select
+    # the original (u_mean, scale) with no change to the resulting
+    # log-density.
+    finite = jnp.all(jnp.isfinite(u_mean)) & jnp.all(jnp.isfinite(scale))
+    safe_loc = jnp.where(finite, u_mean, 0.0)
+    safe_scale = jnp.where(finite, scale, 1.0)
     numpyro.sample(
         "obs",
-        dist.Normal(u_mean, scale),
+        dist.Normal(safe_loc, safe_scale),
         obs=observations,
     )
+    numpyro.factor("lotka_ode_finite_guard", jnp.where(finite, 0.0, -jnp.inf))
 
 
 # Statistician verdict (TL-orchestrated, 2026-05-08):
