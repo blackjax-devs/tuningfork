@@ -126,7 +126,7 @@ All `test-*` targets automatically run `make clean-orphans` first (except `test-
        assert logp == 0.0
    ```
 
-5. **Run `make lint` before committing** to pass pre-commit hooks (black, isort, flake8, mypy).
+5. **Run `make lint` before committing** to pass pre-commit hooks (ruff, mypy).
 
 ## Pre-Commit and Commit Messages
 
