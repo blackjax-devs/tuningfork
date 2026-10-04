@@ -152,11 +152,17 @@ def test_x64_line_precedes_model_computation() -> None:
 
     # Find line numbers for anchor tokens.
     import_jax_line = next(
-        (i for i, l in enumerate(lines) if l.strip() == "import jax"), None
+        (i for i, line in enumerate(lines) if line.strip() == "import jax"), None
     )
-    x64_line = next((i for i, l in enumerate(lines) if "jax_enable_x64" in l), None)
+    x64_line = next(
+        (i for i, line in enumerate(lines) if "jax_enable_x64" in line), None
+    )
     model_import_line = next(
-        (i for i, l in enumerate(lines) if "from tuningfork.model import MODELS" in l),
+        (
+            i
+            for i, line in enumerate(lines)
+            if "from tuningfork.model import MODELS" in line
+        ),
         None,
     )
 

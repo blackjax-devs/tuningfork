@@ -136,6 +136,10 @@ ignore = [
   "E501",                      # line length: ruff-format owns it (was ignored before)
   "E731",                      # lambda assignment (was ignored before)
   "UP040", "UP046", "UP047",   # PEP 695 `type`/generic rewrites: change runtime semantics, out of scope
+  "UP042",                     # str+Enum -> StrEnum changes str()/f-string output ("Effort.LOW" ->
+                                # "low"); test_schema.py:61 asserts the current str() form and
+                                # _resolve_execution_plan.py builds a file path from an f-strung
+                                # effort value, so this rewrite is a behavior change, not a style fix
 ]
 
 [tool.ruff.lint.isort]
