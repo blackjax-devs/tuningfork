@@ -89,9 +89,9 @@ class TestIIDBaseline:
         """Return type must be a Python float, not a JAX Array."""
         samples = {"x": jax.random.normal(_key(1), (2, 100, 3))}
         headline = min_bulk_ess_per_grad(samples, n_grad_evals=200)
-        assert isinstance(
-            headline, float
-        ), f"Expected Python float, got {type(headline).__name__}"
+        assert isinstance(headline, float), (
+            f"Expected Python float, got {type(headline).__name__}"
+        )
 
     def test_iid_positive(self) -> None:
         """Headline must be strictly positive for valid i.i.d. samples."""
@@ -141,9 +141,9 @@ class TestMultiSiteDict:
         headline_good_only = min_bulk_ess_per_grad({"good": good_site}, n_grad_evals)
         headline_both = min_bulk_ess_per_grad(sites, n_grad_evals)
 
-        assert (
-            headline_both < headline_good_only
-        ), "Adding a bad site should lower the headline metric"
+        assert headline_both < headline_good_only, (
+            "Adding a bad site should lower the headline metric"
+        )
 
 
 # ---------------------------------------------------------------------------

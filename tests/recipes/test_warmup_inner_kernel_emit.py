@@ -99,18 +99,18 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     # (2026-05-27) — a textbook noisy-MC-assertion flake.
     #
     # Hard structural gates (these should NEVER fail on a working pipeline):
-    assert (
-        result.gate_n_div == 0
-    ), f"n_div must be 0 for well-behaved MVN-10 (structural); got {result.gate_n_div}"
+    assert result.gate_n_div == 0, (
+        f"n_div must be 0 for well-behaved MVN-10 (structural); got {result.gate_n_div}"
+    )
     import math
 
     assert result.gate_rhat_max is not None and math.isfinite(result.gate_rhat_max), (
         f"rhat_max must be finite (pipeline produced draws); "
         f"got {result.gate_rhat_max!r}"
     )
-    assert (
-        result.gate_min_ess is not None and result.gate_min_ess > 0
-    ), f"min_ess must be positive (chain mixed at all); got {result.gate_min_ess!r}"
+    assert result.gate_min_ess is not None and result.gate_min_ess > 0, (
+        f"min_ess must be positive (chain mixed at all); got {result.gate_min_ess!r}"
+    )
 
     assert result.verdict in {"PASS", "REVIEW", "FAIL"}
     assert result.recipe_path is not None
@@ -123,8 +123,7 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         / "low__hmc__window_adaptation_diag_imm__inner_nuts.json"
     )
     assert expected_path.exists(), (
-        f"Expected recipe at {expected_path}; "
-        f"result.recipe_path={result.recipe_path}"
+        f"Expected recipe at {expected_path}; result.recipe_path={result.recipe_path}"
     )
 
     # --- Load and verify recipe fields ---
@@ -135,14 +134,14 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
     assert recipe.warmup_name == "window_adaptation_diag_imm"
 
     # Schema extension: warmup_inner_kernel persisted correctly.
-    assert (
-        recipe.warmup_inner_kernel == "nuts"
-    ), f"Expected warmup_inner_kernel='nuts', got {recipe.warmup_inner_kernel!r}"
+    assert recipe.warmup_inner_kernel == "nuts", (
+        f"Expected warmup_inner_kernel='nuts', got {recipe.warmup_inner_kernel!r}"
+    )
 
     # Schema extension: warmups list populated (not just flat fields).
-    assert (
-        recipe.warmups
-    ), "recipe.warmups must be non-empty after schema-extension save/load"
+    assert recipe.warmups, (
+        "recipe.warmups must be non-empty after schema-extension save/load"
+    )
     assert recipe.warmups[0]["name"] == "window_adaptation_diag_imm", (
         f"Expected warmups[0].name='window_adaptation_diag_imm', "
         f"got {recipe.warmups[0]['name']!r}"
@@ -156,9 +155,9 @@ def test_inner_nuts_hmc_emit_mvn10(tmp_path):
         f"Actual base_method_params keys: {list(recipe.base_method_params.keys())}"
     )
     nis_value = recipe.base_method_params["num_integration_steps"]
-    assert (
-        isinstance(nis_value, int) and nis_value >= 1
-    ), f"num_integration_steps must be a positive int, got {nis_value!r}"
+    assert isinstance(nis_value, int) and nis_value >= 1, (
+        f"num_integration_steps must be a positive int, got {nis_value!r}"
+    )
 
     # Schema extension: the recipe must NOT write legacy flat warmup fields to JSON.
     import json

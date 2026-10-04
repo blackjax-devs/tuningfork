@@ -181,9 +181,9 @@ def test_benchmark_tau_sci_review_at_seed18_mat() -> None:
         f"n_review={result.calibrated_n_review}"
     )
     assert result.calibrated_n_fail == 0
-    assert (
-        result.calibrated_n_review is not None and result.calibrated_n_review >= 1
-    ), "hot dim (mat approx 0.085) should be REVIEW under TAU_SCI_BENCHMARK=0.15"
+    assert result.calibrated_n_review is not None and result.calibrated_n_review >= 1, (
+        "hot dim (mat approx 0.085) should be REVIEW under TAU_SCI_BENCHMARK=0.15"
+    )
 
 
 def test_benchmark_tau_sci_hard_fail_at_genuine_bias() -> None:

@@ -1,6 +1,6 @@
 # Pre-commit / lint check.
 #
-# Runs `pre-commit run --all-files` (black, isort, flake8, pyupgrade, mypy,
+# Runs `pre-commit run --all-files` (ruff-check, ruff-format, mypy,
 # end-of-file-fixer, trailing-whitespace, check-merge-conflict, debug-statements).
 # ~30 s wall. Runs on every PR + push to main.
 

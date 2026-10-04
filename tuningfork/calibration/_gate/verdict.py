@@ -293,15 +293,15 @@ def _assemble_verdict(
 
         # Add the new REPORTED margins (never verdict; bias effect sizes in GT-σ units)
         if _bias_sigma_at_argmax_z is not None:
-            margins["max_abs_mean_z"][
-                "bias_sigma_at_argmax_z"
-            ] = _bias_sigma_at_argmax_z
+            margins["max_abs_mean_z"]["bias_sigma_at_argmax_z"] = (
+                _bias_sigma_at_argmax_z
+            )
         if _bias_sigma_max_at_z4 is not None:
             margins["max_abs_mean_z"]["bias_sigma_max_at_z4"] = _bias_sigma_max_at_z4
         if _achieved_bias_bound_sigma is not None:
-            margins["max_abs_mean_z"][
-                "achieved_bias_bound_sigma"
-            ] = _achieved_bias_bound_sigma
+            margins["max_abs_mean_z"]["achieved_bias_bound_sigma"] = (
+                _achieved_bias_bound_sigma
+            )
 
         overall_verdict = _worst(overall_verdict, band)
 

@@ -109,8 +109,7 @@ def emit_init_strategy(
             "_init_leaves, _init_treedef = jax.tree_util.tree_flatten(init_position)",
             "_init_keys = jax.random.split(_init_strategy_key, len(_init_leaves))",
             "init_position = _init_treedef.unflatten([",
-            "    jax.random.uniform(k, x.shape, dtype=x.dtype, minval=%r, maxval=%r)"
-            % (low, high),
+            f"    jax.random.uniform(k, x.shape, dtype=x.dtype, minval={low!r}, maxval={high!r})",
             "    for k, x in zip(_init_keys, _init_leaves)",
             "])",
             "_init_position_is_prebatched = False",
@@ -146,7 +145,7 @@ def emit_init_strategy(
             )
             draw = (
                 "jax.random.uniform(k, (1,) + _init_leaf.shape, "
-                "dtype=_init_leaf.dtype, minval=%r, maxval=%r)" % (low, high)
+                f"dtype=_init_leaf.dtype, minval={low!r}, maxval={high!r})"
             )
         else:
             jitter = (
@@ -155,8 +154,8 @@ def emit_init_strategy(
                 else 0.5
             )
             draw = (
-                "(%r * jax.random.normal(k, (1,) + _init_leaf.shape, "
-                "dtype=_init_leaf.dtype))" % jitter
+                f"({jitter!r} * jax.random.normal(k, (1,) + _init_leaf.shape, "
+                "dtype=_init_leaf.dtype))"
             )
         lines += [
             "_init_leaves, _init_treedef = jax.tree_util.tree_flatten(init_position)",
@@ -166,7 +165,7 @@ def emit_init_strategy(
             "for _init_leaf_idx, _init_leaf in enumerate(_init_leaves):",
             "    _init_leaf_keys = _init_keys[:, _init_leaf_idx]",
             "    _init_new_leaves.append(",
-            "        jnp.concatenate([%s for k in _init_leaf_keys], axis=0)" % draw,
+            f"        jnp.concatenate([{draw} for k in _init_leaf_keys], axis=0)",
             "    )",
             "init_position = _init_treedef.unflatten(_init_new_leaves)",
             "_init_position_is_prebatched = True",

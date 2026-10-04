@@ -185,9 +185,9 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     # calibration_budget: original keys must survive round-trip; the backward-compat
     # backfill in Recipe.load adds timing keys (None) that the original dict may lack.
     for k, v in recipe.calibration_budget.items():
-        assert (
-            loaded.calibration_budget[k] == v
-        ), f"calibration_budget[{k!r}]: {loaded.calibration_budget[k]!r} != {v!r}"
+        assert loaded.calibration_budget[k] == v, (
+            f"calibration_budget[{k!r}]: {loaded.calibration_budget[k]!r} != {v!r}"
+        )
     assert loaded.difficulty == recipe.difficulty
     assert loaded.instructions == recipe.instructions
     assert loaded.notes == recipe.notes
@@ -1734,10 +1734,9 @@ def test_every_catalog_recipe_round_trips_through_load() -> None:
         except Exception as exc:
             failures.append((Path(p).name, type(exc).__name__, str(exc)[:120]))
 
-    assert (
-        not failures
-    ), f"{len(failures)} catalog recipes fail load_recipe() round-trip:\n" + "\n".join(
-        f"  {name}: {etype}: {emsg}" for name, etype, emsg in failures
+    assert not failures, (
+        f"{len(failures)} catalog recipes fail load_recipe() round-trip:\n"
+        + "\n".join(f"  {name}: {etype}: {emsg}" for name, etype, emsg in failures)
     )
 
 
@@ -1771,10 +1770,9 @@ def test_every_catalog_recipe_has_required_fields_on_disk() -> None:
         if absent:
             missing.append((Path(p).name, absent))
 
-    assert (
-        not missing
-    ), f"{len(missing)} recipes missing required keys on disk:\n" + "\n".join(
-        f"  {name}: missing {keys}" for name, keys in missing
+    assert not missing, (
+        f"{len(missing)} recipes missing required keys on disk:\n"
+        + "\n".join(f"  {name}: missing {keys}" for name, keys in missing)
     )
 
 

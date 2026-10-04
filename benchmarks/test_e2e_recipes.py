@@ -24,6 +24,7 @@ Runs via:
 DO NOT add these to ``make benchmark-fast`` or per-PR triggers — the wall
 time makes them unsuitable for quick local checks.
 """
+
 from __future__ import annotations
 
 from typing import Any

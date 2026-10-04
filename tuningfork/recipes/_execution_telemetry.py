@@ -126,8 +126,10 @@ def _validate_low_rank(
             raise ValueError(
                 "batched low-rank marker chain count does not match manifest"
             )
-        for s, u, l in zip(sigma, U, lam):
-            _validate_low_rank({"type": marker["type"], "sigma": s, "U": u, "lam": l})
+        for s, u, lam_i in zip(sigma, U, lam):
+            _validate_low_rank(
+                {"type": marker["type"], "sigma": s, "U": u, "lam": lam_i}
+            )
         return
     if not all(
         isinstance(x, (int, float))

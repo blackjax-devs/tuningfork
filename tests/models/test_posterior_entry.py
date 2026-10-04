@@ -163,6 +163,6 @@ class TestRegistryTargetAcceptance:
             for name, entry in MODELS.items()
             if name != "lgcp" and entry.reference_target_acceptance != 0.80
         }
-        assert (
-            deviations == {}
-        ), f"Unexpected non-default reference_target_acceptance: {deviations}"
+        assert deviations == {}, (
+            f"Unexpected non-default reference_target_acceptance: {deviations}"
+        )

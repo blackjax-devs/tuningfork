@@ -27,6 +27,7 @@ Wall-time routing (from round-4 CI run 26707364194, one timed run per cell):
 The split keeps the fast suite quick enough for local smoke + targeted CI
 triggers, while the slow e2e cells run nightly only.
 """
+
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------

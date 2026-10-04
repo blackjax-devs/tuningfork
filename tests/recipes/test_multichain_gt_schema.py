@@ -20,6 +20,7 @@ Covers:
 - list_recipes still enumerates groundtruth.json for migrated models
 - load_idata returns correctly-shaped multichain posterior on new schema (mock-based)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -127,9 +128,9 @@ class TestListRecipesEnumeration:
 
         paths = list_recipes("radon")
         filenames = [p.name for p in paths]
-        assert (
-            "groundtruth.json" in filenames
-        ), f"groundtruth.json missing from list_recipes('radon'). Got: {filenames}"
+        assert "groundtruth.json" in filenames, (
+            f"groundtruth.json missing from list_recipes('radon'). Got: {filenames}"
+        )
 
     def test_gp_regression_gt_in_list_recipes(self) -> None:
         """list_recipes('gp_regression') includes groundtruth.json (legacy model)."""
@@ -137,9 +138,9 @@ class TestListRecipesEnumeration:
 
         paths = list_recipes("gp_regression")
         filenames = [p.name for p in paths]
-        assert (
-            "groundtruth.json" in filenames
-        ), f"groundtruth.json missing from list_recipes('gp_regression'). Got: {filenames}"
+        assert "groundtruth.json" in filenames, (
+            f"groundtruth.json missing from list_recipes('gp_regression'). Got: {filenames}"
+        )
 
 
 class TestLoadIdataMultichainNewSchema:

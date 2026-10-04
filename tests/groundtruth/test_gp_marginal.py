@@ -71,9 +71,9 @@ def test_gp_marginal_committed_has_init_positions() -> None:
     sites = list(pos.keys())
     # Should contain the three hyperparameter sites
     expected_sites = {"log_lengthscale", "log_kernel_scale", "log_noise_scale"}
-    assert expected_sites.issubset(
-        set(sites)
-    ), f"Missing sites: {expected_sites - set(sites)}"
+    assert expected_sites.issubset(set(sites)), (
+        f"Missing sites: {expected_sites - set(sites)}"
+    )
     n_chains = len(pos[sites[0]])
     assert n_chains > 0
 
@@ -150,7 +150,9 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
             _SMOKE_N_CHAINS,
             _SMOKE_N_DRAWS,
             200,
-        ), f"f_raw: expected ({_SMOKE_N_CHAINS}, {_SMOKE_N_DRAWS}, 200), got {f_raw_shape}"
+        ), (
+            f"f_raw: expected ({_SMOKE_N_CHAINS}, {_SMOKE_N_DRAWS}, 200), got {f_raw_shape}"
+        )
 
         # f_raw must be finite
         assert np.all(np.isfinite(draws["f_raw"])), "f_raw contains non-finite values"
@@ -187,9 +189,9 @@ def test_gp_marginal_smoke(tmp_path: Path) -> None:
             # The committed GT has 10 chains × 10k draws; at 2×50 smoke scale the
             # per-dim std of f_raw is roughly the posterior std, so 10× that is a wide
             # but meaningful sanity bound.
-            assert (
-                "f_raw" in committed_draws.files
-            ), "committed draws.npz missing f_raw site"
+            assert "f_raw" in committed_draws.files, (
+                "committed draws.npz missing f_raw site"
+            )
             gen_f_raw = draws["f_raw"]  # shape (nc, nd, 200)
             com_f_raw = committed_draws["f_raw"]  # shape (nc_com, nd_com, 200)
 

@@ -144,9 +144,9 @@ class TestNealsFunnelMoments:
         v = np.asarray(draws["v"])  # (N,)
         # std(v) = 3, so MC SE = 3 / sqrt(N)
         tol = 4.0 * 3.0 / np.sqrt(N)
-        assert (
-            abs(v.mean()) < tol
-        ), f"Funnel v mean={v.mean():.6f} not within 4-sigma tol={tol:.6f}"
+        assert abs(v.mean()) < tol, (
+            f"Funnel v mean={v.mean():.6f} not within 4-sigma tol={tol:.6f}"
+        )
 
     def test_v_std_near_three(self) -> None:
         key = jax.random.key(101)
@@ -154,9 +154,9 @@ class TestNealsFunnelMoments:
         v = np.asarray(draws["v"])  # (N,)
         # MC SE of std estimator ≈ 3 / sqrt(2N)
         tol = 4.0 * 3.0 / np.sqrt(2 * N)
-        assert (
-            abs(v.std() - 3.0) < tol
-        ), f"Funnel v std={v.std():.6f} not within 4-sigma of 3 (tol={tol:.6f})"
+        assert abs(v.std() - 3.0) < tol, (
+            f"Funnel v std={v.std():.6f} not within 4-sigma of 3 (tol={tol:.6f})"
+        )
 
     def test_theta_mean_near_zero(self) -> None:
         # Generous tolerance: theta marginal std is large (heavy tails).
@@ -180,9 +180,9 @@ class TestNealsFunnelMoments:
         _, summaries = certify_reference_analytic(FUNNEL_ENTRY, N, key)
         v_mean = float(jnp.asarray(summaries.mean["v"]))
         tol = 4.0 * 3.0 / np.sqrt(N)
-        assert (
-            abs(v_mean) < tol
-        ), f"Summaries v mean={v_mean:.6f} not within tolerance {tol:.6f}"
+        assert abs(v_mean) < tol, (
+            f"Summaries v mean={v_mean:.6f} not within tolerance {tol:.6f}"
+        )
 
     def test_draws_shape_funnel(self) -> None:
         key = jax.random.key(104)

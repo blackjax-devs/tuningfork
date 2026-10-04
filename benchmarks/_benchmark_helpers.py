@@ -15,6 +15,7 @@
 
 Used by both test_fast_recipes.py and test_e2e_recipes.py.
 """
+
 from __future__ import annotations
 
 import json

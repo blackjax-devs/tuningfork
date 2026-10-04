@@ -109,9 +109,9 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
         / "recipes"
         / f"medium__dynamic_hmc__window_adaptation_diag_imm__{policy_tag}.json"
     )
-    assert (
-        expected_path.exists()
-    ), f"Expected recipe at {expected_path}; got result.recipe_path={result.recipe_path}"
+    assert expected_path.exists(), (
+        f"Expected recipe at {expected_path}; got result.recipe_path={result.recipe_path}"
+    )
 
     # Load and verify the recipe
     from tuningfork.recipes._base import Recipe
@@ -135,12 +135,12 @@ def test_medium_with_policy_tag_mvn10(tmp_path):
         "MEDIUM recipe headline_basis is null — grad_count_convention + is_lower_bound "
         "must be populated from BaseMethod.grad_count_convention."
     )
-    assert recipe.headline_basis.get(
-        "grad_count_convention"
-    ), f"headline_basis.grad_count_convention is empty: {recipe.headline_basis}"
-    assert isinstance(
-        recipe.headline_basis.get("is_lower_bound"), bool
-    ), f"headline_basis.is_lower_bound must be bool, got: {recipe.headline_basis}"
+    assert recipe.headline_basis.get("grad_count_convention"), (
+        f"headline_basis.grad_count_convention is empty: {recipe.headline_basis}"
+    )
+    assert isinstance(recipe.headline_basis.get("is_lower_bound"), bool), (
+        f"headline_basis.is_lower_bound must be bool, got: {recipe.headline_basis}"
+    )
 
 
 def test_medium_with_policy_tag_none_preserves_low(tmp_path):

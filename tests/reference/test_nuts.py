@@ -154,9 +154,9 @@ class TestCertifyNutsInterface:
     def test_draws_sample_axis(self, smoke_cert_result) -> None:
         draws, _, _, _, _ = smoke_cert_result
         for site, arr in draws.items():
-            assert (
-                arr.shape[0] == SMOKE_N_SAMPLES
-            ), f"Site {site!r}: expected shape[0]={SMOKE_N_SAMPLES}, got {arr.shape[0]}"
+            assert arr.shape[0] == SMOKE_N_SAMPLES, (
+                f"Site {site!r}: expected shape[0]={SMOKE_N_SAMPLES}, got {arr.shape[0]}"
+            )
 
     def test_summaries_instance(self, smoke_cert_result) -> None:
         _, summaries, _, _, _ = smoke_cert_result
@@ -206,9 +206,9 @@ class TestChainStats:
     def test_chain_stats_field_shapes(self, smoke_cert_result) -> None:
         _, _, _, _, chain_stats = smoke_cert_result
         for field_name, arr in chain_stats.items():
-            assert (
-                arr.shape[0] == SMOKE_N_SAMPLES
-            ), f"Field {field_name!r}: expected shape[0]={SMOKE_N_SAMPLES}, got {arr.shape[0]}"
+            assert arr.shape[0] == SMOKE_N_SAMPLES, (
+                f"Field {field_name!r}: expected shape[0]={SMOKE_N_SAMPLES}, got {arr.shape[0]}"
+            )
 
 
 # Default-clean baseline used by gate-logic tests. Mutated per-test by

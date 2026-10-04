@@ -1169,9 +1169,9 @@ def test_every_sampler_declaring_an_inexact_count_is_disclosed_as_such():
         derivation = sampling_grad_evals_from_chain_stats(stats, name)
         if derivation.count is None:
             continue  # refused for an unrelated reason; nothing to disclose
-        assert any(
-            "INEXACT" in item for item in derivation.excluded
-        ), f"{name} counts inexactly without disclosing it"
+        assert any("INEXACT" in item for item in derivation.excluded), (
+            f"{name} counts inexactly without disclosing it"
+        )
 
 
 @pytest.mark.fast

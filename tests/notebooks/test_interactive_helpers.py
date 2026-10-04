@@ -66,9 +66,9 @@ def test_all_14_models_have_headline_fields() -> None:
             assert isinstance(hc, dict), f"{name} headline_coords not dict: {hc!r}"
             for k, v in hc.items():
                 assert isinstance(k, str), f"{name} headline_coords key not str: {k!r}"
-                assert isinstance(v, list) and all(
-                    isinstance(i, int) for i in v
-                ), f"{name} headline_coords value not list[int]: {v!r}"
+                assert isinstance(v, list) and all(isinstance(i, int) for i in v), (
+                    f"{name} headline_coords value not list[int]: {v!r}"
+                )
 
 
 def test_headline_params_per_decision_doc() -> None:
@@ -102,9 +102,9 @@ def test_headline_coords_per_decision_doc() -> None:
     for name in MODELS:
         if name == "german_credit":
             continue
-        assert (
-            MODELS[name].headline_coords is None
-        ), f"{name} expected None headline_coords, got {MODELS[name].headline_coords!r}"
+        assert MODELS[name].headline_coords is None, (
+            f"{name} expected None headline_coords, got {MODELS[name].headline_coords!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

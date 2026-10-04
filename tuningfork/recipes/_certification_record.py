@@ -140,7 +140,9 @@ def import_legacy_current_view(
     lifecycle = (
         "CURATED"
         if verdict in {"PASS", "FAIL"}
-        else "EVALUATED" if verdict == "REVIEW" else "DRAFT"
+        else "EVALUATED"
+        if verdict == "REVIEW"
+        else "DRAFT"
     )
     diagnosis = recipe.failure_diagnosis
     failure = {

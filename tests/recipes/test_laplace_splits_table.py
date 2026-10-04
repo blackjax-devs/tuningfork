@@ -25,9 +25,9 @@ from tuningfork.recipes._laplace_config import LAPLACE_PHI_THETA_SPLITS
 @pytest.mark.fast
 def test_gp_regression_in_splits_table() -> None:
     """gp_regression is registered in _LAPLACE_PHI_THETA_SPLITS."""
-    assert (
-        "gp_regression" in LAPLACE_PHI_THETA_SPLITS
-    ), "_LAPLACE_PHI_THETA_SPLITS missing 'gp_regression' entry"
+    assert "gp_regression" in LAPLACE_PHI_THETA_SPLITS, (
+        "_LAPLACE_PHI_THETA_SPLITS missing 'gp_regression' entry"
+    )
 
 
 @pytest.mark.fast
@@ -35,15 +35,15 @@ def test_gp_regression_phi_sites() -> None:
     """gp_regression phi sites are the 3 log-scale hyperparameters."""
     phi_sites, _ = LAPLACE_PHI_THETA_SPLITS["gp_regression"]
     expected = {"log_lengthscale", "log_kernel_scale", "log_noise_scale"}
-    assert (
-        set(phi_sites) == expected
-    ), f"phi sites mismatch: expected {expected}, got {set(phi_sites)}"
+    assert set(phi_sites) == expected, (
+        f"phi sites mismatch: expected {expected}, got {set(phi_sites)}"
+    )
 
 
 @pytest.mark.fast
 def test_gp_regression_theta_sites() -> None:
     """gp_regression theta sites is ('f_raw',) — the NCP base variable."""
     _, theta_sites = LAPLACE_PHI_THETA_SPLITS["gp_regression"]
-    assert theta_sites == (
-        "f_raw",
-    ), f"theta sites mismatch: expected ('f_raw',), got {theta_sites}"
+    assert theta_sites == ("f_raw",), (
+        f"theta sites mismatch: expected ('f_raw',), got {theta_sites}"
+    )

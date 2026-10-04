@@ -223,7 +223,7 @@ def build_certification_intent(
         init_strategy=init_strategy,
         variant_label=variant_label,
         tuning_seed=seed,
-        timestamp_utc=_datetime.datetime.now(_datetime.timezone.utc).isoformat(),
+        timestamp_utc=_datetime.datetime.now(_datetime.UTC).isoformat(),
         tuningfork_version=tuningfork.__version__,
         blackjax_version=blackjax.__version__,
         jax_version=jax.__version__,

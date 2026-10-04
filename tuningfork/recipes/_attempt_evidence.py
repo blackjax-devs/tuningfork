@@ -25,7 +25,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from tuningfork.recipes._base import Recipe
@@ -85,7 +85,7 @@ def _canonical_json(value: Any) -> bytes:
 
 def _timestamp(value: str | None) -> str:
     if value is None:
-        value = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        value = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     if not isinstance(value, str):
         raise TypeError("recorded_at must be an ISO-8601 string")
     try:
@@ -94,7 +94,7 @@ def _timestamp(value: str | None) -> str:
         raise ValueError("recorded_at must be an ISO-8601 timestamp") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("recorded_at must include timezone information")
-    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def build_attempt_record(

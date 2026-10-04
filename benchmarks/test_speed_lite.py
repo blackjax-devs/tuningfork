@@ -41,6 +41,7 @@
   Trend persisted in ``actions/cache`` (not gh-pages).
   Alert at 200% with ``fail-on-alert: true`` (nightly red = regression signal).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

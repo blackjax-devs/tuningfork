@@ -30,9 +30,9 @@ def _assert_parameters(
         f"current parameters: {list(parameters)}"
     )
     if var_keyword is not None:
-        assert (
-            parameters[var_keyword].kind is inspect.Parameter.VAR_KEYWORD
-        ), f"{callable_obj!r} must retain **{var_keyword} for generated SMC options"
+        assert parameters[var_keyword].kind is inspect.Parameter.VAR_KEYWORD, (
+            f"{callable_obj!r} must retain **{var_keyword} for generated SMC options"
+        )
 
 
 def test_adaptive_tempered_constructor_parameters() -> None:

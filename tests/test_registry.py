@@ -149,8 +149,8 @@ def test_inference_namespace_imports():
     assert isinstance(BASE_METHODS, dict)
     # Core 6 must still be present; more entries may be added later.
     core_six = {"hmc", "nuts", "mala", "barker", "rwm", "mclmc"}
-    assert core_six <= set(
-        BASE_METHODS.keys()
-    ), f"missing core base methods: {core_six - set(BASE_METHODS.keys())}"
+    assert core_six <= set(BASE_METHODS.keys()), (
+        f"missing core base methods: {core_six - set(BASE_METHODS.keys())}"
+    )
     assert isinstance(WARMUPS, dict)  # may be empty
     assert Warmup is not None

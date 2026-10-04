@@ -159,7 +159,7 @@ def test_omitted_normalisation_is_rejected():
         jnp.asarray(rng.normal(size=DIM)),
         jnp.asarray(np.exp(0.2 * rng.normal(size=DIM))),
     )
-    assert (
-        float(jnp.abs(jnp.linalg.norm(broken.h) - 1.0)) > 1e-3
-    ), "must be un-normalised"
+    assert float(jnp.abs(jnp.linalg.norm(broken.h) - 1.0)) > 1e-3, (
+        "must be un-normalised"
+    )
     assert _run(broken) != (True, True)

@@ -74,9 +74,9 @@ def _load_returns(path: Path) -> np.ndarray:
 RETURNS: jnp.ndarray = jnp.array(_load_returns(_CSV_PATH), dtype=jnp.float32)
 
 # Validate shape
-assert RETURNS.shape == (
-    T_LENGTH,
-), f"Expected RETURNS shape ({T_LENGTH},), got {RETURNS.shape}"
+assert RETURNS.shape == (T_LENGTH,), (
+    f"Expected RETURNS shape ({T_LENGTH},), got {RETURNS.shape}"
+)
 
 # ---------------------------------------------------------------------------
 # NumPyro model (NCP recursive AR(1) stochastic volatility)

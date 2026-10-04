@@ -326,9 +326,9 @@ def test_w1_unequal_n_agrees_with_equal_n():
     # The two measures should be in the same ballpark; not exact because
     # different samples are drawn, but both estimate E[W1] ≈ 1/(2√n).
     assert w1_unequal > 0.0, "W1 should be positive for unequal-n samples"
-    assert (
-        w1_unequal < 0.15
-    ), f"W1 suspiciously large for same distribution: {w1_unequal}"
+    assert w1_unequal < 0.15, (
+        f"W1 suspiciously large for same distribution: {w1_unequal}"
+    )
 
 
 @pytest.mark.fast
@@ -569,14 +569,14 @@ def test_eight_schools_injected_max_prong_fail():
     )
 
     max_w1 = float(np.max(computed_w1))
-    assert (
-        abs(max_w1 - _ENS_INJECTED_MAX_W1_SIGMA) < 1e-8
-    ), f"INJECTED max W1/σ={max_w1:.8f} ≠ pinned {_ENS_INJECTED_MAX_W1_SIGMA:.8f}"
+    assert abs(max_w1 - _ENS_INJECTED_MAX_W1_SIGMA) < 1e-8, (
+        f"INJECTED max W1/σ={max_w1:.8f} ≠ pinned {_ENS_INJECTED_MAX_W1_SIGMA:.8f}"
+    )
 
     # MAX-prong FAIL
-    assert (
-        max_w1 > _ENS_FLOOR_OF_MAX
-    ), f"INJECTED case should FAIL: max W1/σ={max_w1:.6f} ≤ floor={_ENS_FLOOR_OF_MAX:.8f}"
+    assert max_w1 > _ENS_FLOOR_OF_MAX, (
+        f"INJECTED case should FAIL: max W1/σ={max_w1:.6f} ≤ floor={_ENS_FLOOR_OF_MAX:.8f}"
+    )
 
 
 @pytest.mark.slow
@@ -640,9 +640,9 @@ def test_eight_schools_loo_conservatism_guard():
     )
 
     # k_crit=1 for n_chains=10 (P(Bin(10,0.05) >= 2) = 0.086 ≤ 0.10)
-    assert (
-        result["k_crit"] == 1
-    ), f"Expected k_crit=1 for n_chains=10, got {result['k_crit']}"
+    assert result["k_crit"] == 1, (
+        f"Expected k_crit=1 for n_chains=10, got {result['k_crit']}"
+    )
     # Count rule: exactly 1/10 violation (leave-one-out gives the honest null).
     assert result["violation_count"] <= result["k_crit"], (
         f"violation_count={result['violation_count']} > k_crit={result['k_crit']}: "
@@ -652,9 +652,9 @@ def test_eight_schools_loo_conservatism_guard():
     )
     # Severity rule: max LOO null ≤ floor * 1.05 (1.9% overshoot < 5% limit).
     max_loo = max(result["loo_max_w1_sigma"])
-    assert (
-        max_loo <= _ENS_FLOOR_OF_MAX * 1.05
-    ), f"Severity rule FAILED: max_loo={max_loo:.5f} > floor*1.05={_ENS_FLOOR_OF_MAX * 1.05:.5f}"
+    assert max_loo <= _ENS_FLOOR_OF_MAX * 1.05, (
+        f"Severity rule FAILED: max_loo={max_loo:.5f} > floor*1.05={_ENS_FLOOR_OF_MAX * 1.05:.5f}"
+    )
     # is_conservative must be True (both count and severity rules pass).
     assert result["is_conservative"] is True, (
         f"is_conservative=False despite valid count ({result['violation_count']}) and "
@@ -728,9 +728,9 @@ def test_eight_schools_floor_of_max_e2e_pinned():
     )
 
     # tau_frac sanity (D=10, may be coarse-grained at B=5000)
-    assert (
-        0.5 <= result.tau_frac <= 0.9
-    ), f"tau_frac={result.tau_frac:.4f} out of expected [0.5, 0.9] range for D=10"
+    assert 0.5 <= result.tau_frac <= 0.9, (
+        f"tau_frac={result.tau_frac:.4f} out of expected [0.5, 0.9] range for D=10"
+    )
 
     # NULL should PASS (gen = chain0[:1000] from same distribution)
     assert result.verdict == "PASS", (
@@ -739,9 +739,9 @@ def test_eight_schools_floor_of_max_e2e_pinned():
     )
 
     # No heavy-tail dims (all khat < 0 for eight_schools_ncp NCP)
-    assert (
-        result.n_heavy_tail_dims == 0
-    ), f"Expected 0 heavy-tail dims (GPD k-hat fix), got {result.n_heavy_tail_dims}"
+    assert result.n_heavy_tail_dims == 0, (
+        f"Expected 0 heavy-tail dims (GPD k-hat fix), got {result.n_heavy_tail_dims}"
+    )
 
 
 # ===========================================================================
@@ -814,9 +814,9 @@ def test_radon_frac_prong_tau_frac_pinned():
 
     # Floor must be in the real-ESS regime (>0.20); if ESS regresses to raw 1000
     # the floor would drop to ~0.128.
-    assert (
-        result.floor_of_max > 0.20
-    ), f"Radon floor_of_max={result.floor_of_max:.6f} < 0.20 — likely ESS regression"
+    assert result.floor_of_max > 0.20, (
+        f"Radon floor_of_max={result.floor_of_max:.6f} < 0.20 — likely ESS regression"
+    )
 
     # Pin tau_frac to 5% relative tolerance (B=2000, well-resolved)
     assert abs(result.tau_frac - _RADON_TAU_FRAC) / _RADON_TAU_FRAC < 0.05, (
@@ -844,9 +844,9 @@ def test_radon_frac_prong_tau_frac_pinned():
     )
 
     # No heavy-tail dims (GPD k-hat fix: radon posteriors are not heavy-tailed)
-    assert (
-        result.n_heavy_tail_dims == 0
-    ), f"Expected 0 heavy-tail dims after GPD k-hat fix, got {result.n_heavy_tail_dims}"
+    assert result.n_heavy_tail_dims == 0, (
+        f"Expected 0 heavy-tail dims after GPD k-hat fix, got {result.n_heavy_tail_dims}"
+    )
 
 
 @pytest.mark.slow
@@ -878,9 +878,9 @@ def test_radon_null_max_w1_sigma_deterministic():
                 w1 = _w1_1d_local(gt_d, gen_d) / float(sig[dim_i])
                 w1_max = max(w1_max, w1)
 
-    assert (
-        abs(w1_max - _RADON_NULL_MAX_W1_SIGMA) < 1e-4
-    ), f"Radon NULL max W1/σ={w1_max:.6f} ≠ pinned {_RADON_NULL_MAX_W1_SIGMA:.6f}"
+    assert abs(w1_max - _RADON_NULL_MAX_W1_SIGMA) < 1e-4, (
+        f"Radon NULL max W1/σ={w1_max:.6f} ≠ pinned {_RADON_NULL_MAX_W1_SIGMA:.6f}"
+    )
 
 
 @pytest.mark.slow
@@ -939,9 +939,9 @@ def test_radon_loo_conservatism_guard():
     )
 
     # k_crit=1 for n_chains=10
-    assert (
-        result["k_crit"] == 1
-    ), f"Expected k_crit=1 for n_chains=10, got {result['k_crit']}"
+    assert result["k_crit"] == 1, (
+        f"Expected k_crit=1 for n_chains=10, got {result['k_crit']}"
+    )
     # Count rule: 1/10 violation is expected (and within k_crit=1).
     assert result["violation_count"] <= result["k_crit"], (
         f"violation_count={result['violation_count']} > k_crit={result['k_crit']}: "
@@ -1061,9 +1061,9 @@ def test_w1_realm_result_skip_counts_as_pass_in_overall():
     # Overall verdict should be PASS (SKIP is not a failure)
     if result.frac_prong_verdict == "SKIP":
         if result.max_prong_verdict == "PASS":
-            assert (
-                result.verdict == "PASS"
-            ), f"SKIP frac + PASS max should give overall PASS, got {result.verdict}"
+            assert result.verdict == "PASS", (
+                f"SKIP frac + PASS max should give overall PASS, got {result.verdict}"
+            )
 
 
 # ===========================================================================
@@ -1165,18 +1165,18 @@ def test_w1_realm_skip_fold_no_crash():
     from tuningfork.calibration._gate.bands import _worst
 
     # _worst("PASS", "SKIP") must not raise KeyError
-    assert (
-        _worst("PASS", "SKIP") == "PASS"
-    ), "_worst('PASS', 'SKIP') should return 'PASS' (SKIP ≡ PASS rank)"
-    assert (
-        _worst("SKIP", "PASS") == "PASS"
-    ), "_worst('SKIP', 'PASS') should return 'PASS'"
-    assert (
-        _worst("SKIP", "SKIP") == "PASS"
-    ), "_worst('SKIP', 'SKIP') should return 'PASS'"
-    assert (
-        _worst("SKIP", "FAIL") == "FAIL"
-    ), "_worst('SKIP', 'FAIL') should return 'FAIL'"
+    assert _worst("PASS", "SKIP") == "PASS", (
+        "_worst('PASS', 'SKIP') should return 'PASS' (SKIP ≡ PASS rank)"
+    )
+    assert _worst("SKIP", "PASS") == "PASS", (
+        "_worst('SKIP', 'PASS') should return 'PASS'"
+    )
+    assert _worst("SKIP", "SKIP") == "PASS", (
+        "_worst('SKIP', 'SKIP') should return 'PASS'"
+    )
+    assert _worst("SKIP", "FAIL") == "FAIL", (
+        "_worst('SKIP', 'FAIL') should return 'FAIL'"
+    )
 
     # compute_w1_realm with non-overlapping sites must return SKIP, not crash
     rng = np.random.default_rng(9)

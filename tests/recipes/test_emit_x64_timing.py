@@ -20,6 +20,7 @@ Fast tests only (no JAX tracing, no subprocess execution):
 - Emitted script contains warmup_wall_seconds and sampling_wall_seconds prints.
 - Warmup timing fence (_warmup_t0, _warmup_t1, _warmup_wall) present in emitted script.
 """
+
 from __future__ import annotations
 
 import ast
@@ -151,25 +152,31 @@ def test_x64_line_precedes_model_computation() -> None:
 
     # Find line numbers for anchor tokens.
     import_jax_line = next(
-        (i for i, l in enumerate(lines) if l.strip() == "import jax"), None
+        (i for i, line in enumerate(lines) if line.strip() == "import jax"), None
     )
-    x64_line = next((i for i, l in enumerate(lines) if "jax_enable_x64" in l), None)
+    x64_line = next(
+        (i for i, line in enumerate(lines) if "jax_enable_x64" in line), None
+    )
     model_import_line = next(
-        (i for i, l in enumerate(lines) if "from tuningfork.model import MODELS" in l),
+        (
+            i
+            for i, line in enumerate(lines)
+            if "from tuningfork.model import MODELS" in line
+        ),
         None,
     )
 
     assert import_jax_line is not None, "Could not find 'import jax' in emitted script"
-    assert (
-        x64_line is not None
-    ), "gp_regression emitted script is missing 'jax_enable_x64' config line"
-    assert (
-        model_import_line is not None
-    ), "Could not find 'from tuningfork.model import MODELS' in emitted script"
+    assert x64_line is not None, (
+        "gp_regression emitted script is missing 'jax_enable_x64' config line"
+    )
+    assert model_import_line is not None, (
+        "Could not find 'from tuningfork.model import MODELS' in emitted script"
+    )
 
-    assert (
-        x64_line > import_jax_line
-    ), f"x64 config line (line {x64_line}) must come AFTER 'import jax' (line {import_jax_line})"
+    assert x64_line > import_jax_line, (
+        f"x64 config line (line {x64_line}) must come AFTER 'import jax' (line {import_jax_line})"
+    )
     assert x64_line < model_import_line, (
         f"x64 config line (line {x64_line}) must come BEFORE model import "
         f"(line {model_import_line}) — JAX locks precision on first use.\n"
@@ -344,6 +351,6 @@ def test_emitted_dense_window_adaptation_default_is_multichain() -> None:
         "window_adaptation_dense_imm in emitted script must NOT forward a "
         "progress_bar= kwarg to blackjax (removed upstream in blackjax #964)."
     )
-    assert (
-        "_warmup_is_perchain = True" in script
-    ), "window_adaptation_dense_imm in emitted script should default to multichain."
+    assert "_warmup_is_perchain = True" in script, (
+        "window_adaptation_dense_imm in emitted script should default to multichain."
+    )

@@ -1607,7 +1607,7 @@ def compare_reports(
             cost_blocked: tuple[str, ...] = ()
             if not is_rate:
                 cost_blocked += (
-                    f"{statistic} is not a rate; cost normalisation does not " "apply",
+                    f"{statistic} is not a rate; cost normalisation does not apply",
                 )
             elif base_val is None or cand_val is None:
                 # The statistic itself is undefined on one side, so no cost

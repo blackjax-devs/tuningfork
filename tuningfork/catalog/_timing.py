@@ -104,7 +104,6 @@ def format_timing_context(recipe: Recipe) -> dict[str, str]:
     """
     budget = recipe.calibration_budget or {}
 
-    n_warmup = budget.get("n_warmup")
     n_samples = budget.get("n_samples")
     num_chains = budget.get("num_chains")
     warmup_wall = budget.get("warmup_wall_seconds")

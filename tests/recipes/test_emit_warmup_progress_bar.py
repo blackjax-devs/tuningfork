@@ -33,6 +33,7 @@ e2e tests (lightweight, num_samples=10, minimal warmup):
     _samples leading axis = num_chains (topology is unaffected by the flag).
   - No vmap/io_callback errors in either mode.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -218,9 +219,9 @@ def test_progress_bar_none_default_same_as_false(warmup_name: str) -> None:
         recipe, num_samples=10, num_warmup=10, progress_bar=False
     )
 
-    assert (
-        script_none == script_false
-    ), f"[{warmup_name}] progress_bar=None must produce the same script as False.\n"
+    assert script_none == script_false, (
+        f"[{warmup_name}] progress_bar=None must produce the same script as False.\n"
+    )
 
 
 # ---------------------------------------------------------------------------

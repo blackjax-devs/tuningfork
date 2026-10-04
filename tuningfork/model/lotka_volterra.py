@@ -91,9 +91,9 @@ assert OBSERVATIONS.shape == (
     T_OBS,
     2,
 ), f"Expected OBSERVATIONS shape ({T_OBS}, 2), got {OBSERVATIONS.shape}"
-assert OBSERVATION_TIMES.shape == (
-    T_OBS,
-), f"Expected OBSERVATION_TIMES shape ({T_OBS},), got {OBSERVATION_TIMES.shape}"
+assert OBSERVATION_TIMES.shape == (T_OBS,), (
+    f"Expected OBSERVATION_TIMES shape ({T_OBS},), got {OBSERVATION_TIMES.shape}"
+)
 
 #: Ground-truth parameters used to generate synthetic data
 MU_TRUE: dict[str, float] = {

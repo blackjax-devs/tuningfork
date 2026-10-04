@@ -194,9 +194,9 @@ def test_max_grad_budget_is_a_material_plan_field() -> None:
     bumped = resolve_execution_plan(_recipe(max_grad_budget=40_000))
     assert base.plan_hash != bumped.plan_hash
     assert base.executable_config_hash != bumped.executable_config_hash
-    assert (
-        base.config.warmup_stages[0].params["max_grad_budget"] == 20_000
-    ), "max_grad_budget must survive into the normalized plan, not just the recipe"
+    assert base.config.warmup_stages[0].params["max_grad_budget"] == 20_000, (
+        "max_grad_budget must survive into the normalized plan, not just the recipe"
+    )
 
 
 # ---------------------------------------------------------------------------

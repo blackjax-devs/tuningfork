@@ -251,7 +251,9 @@ def _record_error(
         lifecycle_stage=(
             "SAMPLED"
             if result is not None and result.receipt.status == "success"
-            else "GENERATED" if result is not None else "DRAFT"
+            else "GENERATED"
+            if result is not None
+            else "DRAFT"
         ),
         automatic_verdict="ERROR",
         rationale=rationale,
@@ -360,7 +362,7 @@ def emit_low_recipe_for_cell(
         )
     except Exception as error:  # noqa: BLE001
         wall_seconds = time.perf_counter() - started_at
-        note = f"ERROR during intent validation: " f"{type(error).__name__}: {error}"
+        note = f"ERROR during intent validation: {type(error).__name__}: {error}"
         _append_outcome(outcomes, model_name, warmup_name, sampler_name, note)
         return _result(
             model_name=model_name,
@@ -510,7 +512,7 @@ def emit_low_recipe_for_cell(
         if sampler_name in LAPLACE_METHOD_NAMES:
             if model_name not in LAPLACE_PHI_THETA_SPLITS:
                 raise ValueError(
-                    f"Laplace model {model_name!r} has no declared " "phi/theta split"
+                    f"Laplace model {model_name!r} has no declared phi/theta split"
                 )
             allowed_sites = LAPLACE_PHI_THETA_SPLITS[model_name][0]
         evaluation = evaluate_generated_run(

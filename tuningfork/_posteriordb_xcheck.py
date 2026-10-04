@@ -266,7 +266,9 @@ def cross_check_against_posteriordb(
         pdb_path = (
             str(posteriordb_root)
             if posteriordb_root is not None
-            else env_path if env_path else None
+            else env_path
+            if env_path
+            else None
         )
 
         # Priority: local PosteriorDatabase → PosteriorDatabaseGithub fallback.

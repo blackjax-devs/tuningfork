@@ -119,8 +119,7 @@ class TestInputDuality:
 
         for key in result_dict:
             assert abs(result_dict[key] - result_arr[key]) < 1e-10, (
-                f"Mismatch on {key!r}: dict={result_dict[key]}, "
-                f"array={result_arr[key]}"
+                f"Mismatch on {key!r}: dict={result_dict[key]}, array={result_arr[key]}"
             )
 
 
@@ -302,9 +301,9 @@ class TestMeanShiftRecoverability:
         }
         result = compute_sample_quality(draws, ref)
         # The mean is shifted by k, so mae_vs_reference ≈ k.
-        assert (
-            abs(result["mae_vs_reference"] - k) < 0.5
-        ), f"Expected mae_vs_reference ≈ {k}, got {result['mae_vs_reference']:.4f}"
+        assert abs(result["mae_vs_reference"] - k) < 0.5, (
+            f"Expected mae_vs_reference ≈ {k}, got {result['mae_vs_reference']:.4f}"
+        )
 
     def test_reference_std_normalization_not_empirical(self) -> None:
         """Draws with doubled std → std_ratio_max_dev ≈ 1.0, not 0.0.
@@ -398,9 +397,9 @@ class TestDimensionCollapseRegression:
         draws = {"x": rng.standard_normal((4, 4000, 1))}
         ref = {"x": {"mean": 0.0, "std": 1.0, "q05": -1.645, "q95": 1.645}}
         sq = compute_sample_quality(draws, ref)
-        assert (
-            sq["std_ratio_max_dev"] < 0.05
-        ), f"scalar std_ratio_max_dev={sq['std_ratio_max_dev']:.4f}"
+        assert sq["std_ratio_max_dev"] < 0.05, (
+            f"scalar std_ratio_max_dev={sq['std_ratio_max_dev']:.4f}"
+        )
         assert sq["q05_error"] < 0.1, f"scalar q05_error={sq['q05_error']:.4f}"
         assert sq["q95_error"] < 0.1, f"scalar q95_error={sq['q95_error']:.4f}"
 
@@ -459,6 +458,6 @@ class TestDimensionCollapseRegression:
         }
         draws_dict = {"x": draws_2d}
         sq = compute_sample_quality(draws_dict, ref_dict)
-        assert (
-            sq["std_ratio_max_dev"] < 0.1
-        ), f"Per-element-std test failed: std_ratio_max_dev={sq['std_ratio_max_dev']:.4f}"
+        assert sq["std_ratio_max_dev"] < 0.1, (
+            f"Per-element-std test failed: std_ratio_max_dev={sq['std_ratio_max_dev']:.4f}"
+        )

@@ -51,9 +51,9 @@ _SMC_METHODS = [
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_registered(smc_name: str) -> None:
     """SMC method is registered in SMC_METHODS."""
-    assert (
-        smc_name in SMC_METHODS
-    ), f"SMC_METHODS must contain '{smc_name}'; registered: {sorted(SMC_METHODS)}"
+    assert smc_name in SMC_METHODS, (
+        f"SMC_METHODS must contain '{smc_name}'; registered: {sorted(SMC_METHODS)}"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
@@ -74,33 +74,33 @@ def test_smc_method_family_is_smc(smc_name: str) -> None:
 def test_smc_method_has_default_inner_method(smc_name: str) -> None:
     """ENTRY.default_inner_method is defined."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        entry.default_inner_method is not None
-    ), f"{smc_name}.default_inner_method must be defined"
-    assert isinstance(
-        entry.default_inner_method, str
-    ), f"{smc_name}.default_inner_method must be str"
+    assert entry.default_inner_method is not None, (
+        f"{smc_name}.default_inner_method must be defined"
+    )
+    assert isinstance(entry.default_inner_method, str), (
+        f"{smc_name}.default_inner_method must be str"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_num_particles_default_positive(smc_name: str) -> None:
     """ENTRY.num_particles_default is a positive integer."""
     entry = SMC_METHODS[smc_name]
-    assert isinstance(
-        entry.num_particles_default, int
-    ), f"{smc_name}.num_particles_default must be int"
-    assert (
-        entry.num_particles_default > 0
-    ), f"{smc_name}.num_particles_default must be positive"
+    assert isinstance(entry.num_particles_default, int), (
+        f"{smc_name}.num_particles_default must be int"
+    )
+    assert entry.num_particles_default > 0, (
+        f"{smc_name}.num_particles_default must be positive"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_hp_space_non_empty(smc_name: str) -> None:
     """ENTRY.default_hp_space is non-empty."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        len(entry.default_hp_space) > 0
-    ), f"{smc_name}.default_hp_space must be non-empty"
+    assert len(entry.default_hp_space) > 0, (
+        f"{smc_name}.default_hp_space must be non-empty"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
@@ -114,18 +114,18 @@ def test_smc_method_notes_non_empty(smc_name: str) -> None:
 def test_smc_method_compatible_inner_non_empty(smc_name: str) -> None:
     """ENTRY.compatible_inner_methods is non-empty."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        len(entry.compatible_inner_methods) > 0
-    ), f"{smc_name}.compatible_inner_methods must be non-empty"
+    assert len(entry.compatible_inner_methods) > 0, (
+        f"{smc_name}.compatible_inner_methods must be non-empty"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_default_inner_in_compatible(smc_name: str) -> None:
     """ENTRY.default_inner_method is in compatible_inner_methods."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        entry.default_inner_method in entry.compatible_inner_methods
-    ), f"{smc_name}: default_inner_method={entry.default_inner_method} not in compatible_inner_methods"
+    assert entry.default_inner_method in entry.compatible_inner_methods, (
+        f"{smc_name}: default_inner_method={entry.default_inner_method} not in compatible_inner_methods"
+    )
 
 
 # ===========================================================================
@@ -137,24 +137,24 @@ def test_smc_method_default_inner_in_compatible(smc_name: str) -> None:
 def test_smc_method_mclmc_excluded(smc_name: str) -> None:
     """mclmc is excluded from compatible_inner_methods (microcanonical invariance violated by tempering)."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        "mclmc" not in entry.compatible_inner_methods
-    ), f"{smc_name}: mclmc must be excluded from compatible_inner_methods"
+    assert "mclmc" not in entry.compatible_inner_methods, (
+        f"{smc_name}: mclmc must be excluded from compatible_inner_methods"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_adjusted_mclmc_excluded(smc_name: str) -> None:
     """adjusted_mclmc is excluded from compatible_inner_methods."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        "adjusted_mclmc" not in entry.compatible_inner_methods
-    ), f"{smc_name}: adjusted_mclmc must be excluded from compatible_inner_methods"
+    assert "adjusted_mclmc" not in entry.compatible_inner_methods, (
+        f"{smc_name}: adjusted_mclmc must be excluded from compatible_inner_methods"
+    )
 
 
 @pytest.mark.parametrize("smc_name", _SMC_METHODS)
 def test_smc_method_adjusted_mclmc_dynamic_excluded(smc_name: str) -> None:
     """adjusted_mclmc_dynamic is excluded from compatible_inner_methods."""
     entry = SMC_METHODS[smc_name]
-    assert (
-        "adjusted_mclmc_dynamic" not in entry.compatible_inner_methods
-    ), f"{smc_name}: adjusted_mclmc_dynamic must be excluded from compatible_inner_methods"
+    assert "adjusted_mclmc_dynamic" not in entry.compatible_inner_methods, (
+        f"{smc_name}: adjusted_mclmc_dynamic must be excluded from compatible_inner_methods"
+    )

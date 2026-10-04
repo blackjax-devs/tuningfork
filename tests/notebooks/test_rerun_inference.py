@@ -29,10 +29,13 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pytest
+
+if TYPE_CHECKING:
+    from tuningfork.recipes._base import Recipe
 
 pytestmark = pytest.mark.fast
 
@@ -135,7 +138,7 @@ def test_load_from_cache_rejects_stat_name_collisions(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _failed_recipe():
+def _failed_recipe() -> Recipe:
     from tuningfork.recipes._base import Effort, Recipe
 
     return Recipe(

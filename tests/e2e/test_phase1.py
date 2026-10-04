@@ -75,9 +75,9 @@ class TestTierACLI:
             second_meta = json.load(fh)
         second_ts = second_meta["timestamp_utc"]
 
-        assert (
-            first_ts == second_ts
-        ), f"Cache hit expected but timestamp changed: {first_ts!r} → {second_ts!r}"
+        assert first_ts == second_ts, (
+            f"Cache hit expected but timestamp changed: {first_ts!r} → {second_ts!r}"
+        )
 
     def test_mvn_force_regenerates(self, tmp_path: Path) -> None:
         """--force must update the timestamp (regeneration happened)."""
@@ -94,9 +94,9 @@ class TestTierACLI:
             second_meta = json.load(fh)
         second_ts = second_meta["timestamp_utc"]
 
-        assert (
-            first_ts != second_ts
-        ), f"--force expected regeneration but timestamp did not change: {first_ts!r}"
+        assert first_ts != second_ts, (
+            f"--force expected regeneration but timestamp did not change: {first_ts!r}"
+        )
 
     def test_mvn_output_contains_summary(self, tmp_path: Path) -> None:
         """CLI must print a summary table with expected fields."""

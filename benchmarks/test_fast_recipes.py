@@ -25,6 +25,7 @@ Each benchmark:
 Cell selection: see ``benchmarks/config.py`` (FAST_CELLS, ≤60s/cell in CI).
 Slow e2e cells (>60s): see ``benchmarks/test_e2e_recipes.py``.
 """
+
 from __future__ import annotations
 
 from typing import Any

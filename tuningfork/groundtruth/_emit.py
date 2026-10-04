@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import platform
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -207,7 +207,7 @@ def write_gt_artifacts(
         "x64_enabled": bool(jax.config.read("jax_enable_x64")),
         "device": jax.devices()[0].platform,
         "platform": platform.platform(),
-        "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "code_sha": _git_sha(),
     }
     if reproduced_from is not None:

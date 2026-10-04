@@ -33,7 +33,6 @@ def _():
 
     import arviz as az
     import marimo as mo
-    import matplotlib.pyplot as plt
 
     from tuningfork.catalog import (
         cached_idata_for_recipe,
