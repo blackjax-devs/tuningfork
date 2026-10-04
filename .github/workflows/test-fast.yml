@@ -1,6 +1,6 @@
 # Fast tests (PR gate).
 #
-# `pytest -m fast -n 2` on Python 3.11 + 3.13 matrix. ~1.5 min wall per Python.
+# `pytest -m fast -n 2` on Python 3.13 + 3.14 matrix. ~1.5 min wall per Python.
 # 676 tests in the current `fast` set (no JAX trace, < 100 ms each).
 # Runs on every PR + push to main.
 
@@ -23,8 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pyproject declares ``requires-python = ">=3.13"``. Matrix matches.
-        python: ['3.13']
+        # pyproject declares ``requires-python = ">=3.13"``. Matrix covers
+        # both supported Pythons (3.13 and 3.14).
+        python: ['3.13', '3.14']
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
