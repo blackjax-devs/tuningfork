@@ -29,7 +29,7 @@ import tempfile
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -439,7 +439,7 @@ def _finish_attempt(
             status="success" if receipt_error is None else "failed",
             run_id=run_dir.name,
             started_at=started_at,
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
             manifest=manifest,
             source_sha256=source_sha256,
             program_path=_PROGRAM_FILENAME,
@@ -586,7 +586,7 @@ def launch_generated_program(
         python_executable, tuple(sorted(() if env is None else env))
     )
     environment["child_working_directory"] = _WORK_DIRECTORY
-    started_at = datetime.now(timezone.utc).isoformat()
+    started_at = datetime.now(UTC).isoformat()
 
     child_env = os.environ.copy()
     if env is not None:
