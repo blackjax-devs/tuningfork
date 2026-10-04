@@ -116,15 +116,15 @@ def test_emit_script_rmhmc_generated_valid_python() -> None:
     )
 
     # 3. No stray blackjax.hmc calls.
-    assert (
-        "blackjax.hmc(" not in script
-    ), "generated RMHMC program must not contain blackjax.hmc() calls"
+    assert "blackjax.hmc(" not in script, (
+        "generated RMHMC program must not contain blackjax.hmc() calls"
+    )
 
     # 4. IMM→mass_matrix helper present (required because upstream rmhmc takes
     #    mass_matrix not inverse_mass_matrix)
-    assert (
-        "_imm_to_mass_matrix" in script
-    ), "generated RMHMC program must define _imm_to_mass_matrix"
+    assert "_imm_to_mass_matrix" in script, (
+        "generated RMHMC program must define _imm_to_mass_matrix"
+    )
 
 
 @pytest.mark.fast
@@ -170,9 +170,9 @@ def test_emit_script_num_samples_defaults_to_calibration_budget() -> None:
     # (re-stamped to the 1000×4 production config 2026-05-27 — assert dynamically
     # against whatever the recipe currently declares, not a hardcoded value).
     n_samples = recipe.calibration_budget.get("n_samples")
-    assert isinstance(
-        n_samples, int
-    ), f"Unexpected n_samples in calibration_budget: {recipe.calibration_budget}"
+    assert isinstance(n_samples, int), (
+        f"Unexpected n_samples in calibration_budget: {recipe.calibration_budget}"
+    )
 
     # emit_script with no num_samples arg → must use calibration_budget value
     script = emit_script(recipe)
@@ -759,12 +759,12 @@ print("GENERATED PROGRAM OK")
         emitted = json.load(f)
 
     # Verify structure: single-chain warmup produces scalar step_size (ndim=0).
-    assert emitted[
-        "step_size_finite"
-    ], f"Emitted _adapted_params['step_size'] is not finite: {emitted['step_size']}"
-    assert emitted[
-        "imm_finite"
-    ], "Emitted _adapted_params['inverse_mass_matrix'] has non-finite values"
+    assert emitted["step_size_finite"], (
+        f"Emitted _adapted_params['step_size'] is not finite: {emitted['step_size']}"
+    )
+    assert emitted["imm_finite"], (
+        "Emitted _adapted_params['inverse_mass_matrix'] has non-finite values"
+    )
     # Dense IMM for eight_schools_ncp (9 free params): shape should be (9, 9).
     assert emitted["imm_ndim"] == 2, (
         f"Expected dense IMM (ndim=2) for window_adaptation_dense_imm, "
@@ -801,12 +801,12 @@ def test_emit_script_laplace_high_recipe_multiphase_warmup_structure() -> None:
     script = emit_script(recipe, num_samples=10, num_chains=2)
 
     # Both phases must appear in the warmup section.
-    assert (
-        "_warmup_p1" in script
-    ), "Phase 1 warmup (`_warmup_p1`) not found in emitted script"
-    assert (
-        "_warmup_p2" in script
-    ), "Phase 2 warmup (`_warmup_p2`) not found in emitted script"
+    assert "_warmup_p1" in script, (
+        "Phase 1 warmup (`_warmup_p1`) not found in emitted script"
+    )
+    assert "_warmup_p2" in script, (
+        "Phase 2 warmup (`_warmup_p2`) not found in emitted script"
+    )
 
     # Phase 1 uses maxiter=100, Phase 2 uses maxiter=400 (from the recipe JSON).
     assert "maxiter=100" in script, "Expected maxiter=100 (Phase 1) in emitted script"
@@ -880,9 +880,9 @@ def test_emit_script_laplace_optimizer_kwargs_persisted() -> None:
     assert "400" in script, "maxiter=400 value not in emitted script"
     assert "20" in script, "maxcor=20 value not in emitted script"
     # LaplaceMarginal factory call must include the kwargs
-    assert (
-        "_lmf(log_joint_fn, theta_init" in script
-    ), "LaplaceMarginal factory call missing from emitted script"
+    assert "_lmf(log_joint_fn, theta_init" in script, (
+        "LaplaceMarginal factory call missing from emitted script"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -951,19 +951,19 @@ def test_emit_script_num_warmup_multiphase_list() -> None:
     # Phase 1 should use 100 steps; Phase 2 should use 10.
     # The run() call is multi-line so check the comment header which has n_warmup=<int>.
     # e.g. "# Phase 1: window_adaptation_diag_imm (n_warmup=100, ...)"
-    assert (
-        "n_warmup=100" in script
-    ), "Expected 'n_warmup=100' (Phase 1 comment) in emitted script with num_warmup=[100, 10]."
-    assert (
-        "n_warmup=10," in script
-    ), "Expected 'n_warmup=10,' (Phase 2 comment) in emitted script with num_warmup=[100, 10]."
+    assert "n_warmup=100" in script, (
+        "Expected 'n_warmup=100' (Phase 1 comment) in emitted script with num_warmup=[100, 10]."
+    )
+    assert "n_warmup=10," in script, (
+        "Expected 'n_warmup=10,' (Phase 2 comment) in emitted script with num_warmup=[100, 10]."
+    )
     # The recipe's original values (500/200) should NOT appear in the warmup comments.
-    assert (
-        "n_warmup=500" not in script
-    ), "Recipe's Phase 1 n_warmup=500 should be overridden by num_warmup=[100, 10]."
-    assert (
-        "n_warmup=200" not in script
-    ), "Recipe's Phase 2 n_warmup=200 should be overridden by num_warmup=[100, 10]."
+    assert "n_warmup=500" not in script, (
+        "Recipe's Phase 1 n_warmup=500 should be overridden by num_warmup=[100, 10]."
+    )
+    assert "n_warmup=200" not in script, (
+        "Recipe's Phase 2 n_warmup=200 should be overridden by num_warmup=[100, 10]."
+    )
 
 
 @pytest.mark.fast

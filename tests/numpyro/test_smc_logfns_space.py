@@ -88,9 +88,9 @@ class TestBuildSmcLogfnsUnconstrainedSpace:
         for z in _Z_GRID:
             got = float(logprior_fn({"sigma": jnp.asarray(z)}))
             want = _analytic_logprior(z)
-            assert got == pytest.approx(
-                want, abs=1e-5
-            ), f"logprior_fn({z}) = {got}, expected {want}"
+            assert got == pytest.approx(want, abs=1e-5), (
+                f"logprior_fn({z}) = {got}, expected {want}"
+            )
 
     @pytest.mark.fast
     def test_loglikelihood_fn_matches_analytic_likelihood(self) -> None:
@@ -99,9 +99,9 @@ class TestBuildSmcLogfnsUnconstrainedSpace:
         for z in _Z_GRID:
             got = float(loglik_fn({"sigma": jnp.asarray(z)}))
             want = _analytic_loglik(z)
-            assert got == pytest.approx(
-                want, abs=1e-5
-            ), f"loglikelihood_fn({z}) = {got}, expected {want}"
+            assert got == pytest.approx(want, abs=1e-5), (
+                f"loglikelihood_fn({z}) = {got}, expected {want}"
+            )
 
     @pytest.mark.fast
     def test_logprior_plus_loglikelihood_equals_negative_potential(self) -> None:
@@ -126,9 +126,9 @@ class TestBuildSmcLogfnsUnconstrainedSpace:
             position = {"sigma": jnp.asarray(z)}
             total = float(logprior_fn(position)) + float(loglik_fn(position))
             expected = float(-potential_fn(position))
-            assert total == pytest.approx(
-                expected, abs=1e-5
-            ), f"logprior+loglik={total}, -potential_fn={expected} at z={z}"
+            assert total == pytest.approx(expected, abs=1e-5), (
+                f"logprior+loglik={total}, -potential_fn={expected} at z={z}"
+            )
 
     @pytest.mark.fast
     def test_blocked_model_latent_sites_match_joint_model(self) -> None:

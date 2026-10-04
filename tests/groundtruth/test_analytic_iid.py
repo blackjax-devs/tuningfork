@@ -84,12 +84,12 @@ def test_analytic_iid_smoke(model_name: str, tmp_path: Path) -> None:
     with np.load(str(draws_path), allow_pickle=True) as draws:
         for site in draws.files:
             shape = draws[site].shape
-            assert (
-                shape[0] == _SMOKE_N_CHAINS
-            ), f"{model_name}.{site}: expected n_chains={_SMOKE_N_CHAINS}, got {shape[0]}"
-            assert (
-                shape[1] == _SMOKE_N_DRAWS
-            ), f"{model_name}.{site}: expected n_draws={_SMOKE_N_DRAWS}, got {shape[1]}"
+            assert shape[0] == _SMOKE_N_CHAINS, (
+                f"{model_name}.{site}: expected n_chains={_SMOKE_N_CHAINS}, got {shape[0]}"
+            )
+            assert shape[1] == _SMOKE_N_DRAWS, (
+                f"{model_name}.{site}: expected n_draws={_SMOKE_N_DRAWS}, got {shape[1]}"
+            )
 
     # --- crude mean coherence vs committed GT ---
     # At smoke scale (2 chains × 50 draws = 100 samples), the new mean can
@@ -123,9 +123,9 @@ def test_analytic_iid_smoke(model_name: str, tmp_path: Path) -> None:
                 "wrong distribution"
             )
             # Also check means are finite (catches NaN/Inf in sampler output)
-            assert np.all(
-                np.isfinite(new_mean)
-            ), f"{model_name}.{site}: new mean contains non-finite values"
+            assert np.all(np.isfinite(new_mean)), (
+                f"{model_name}.{site}: new mean contains non-finite values"
+            )
 
 
 def test_analytic_iid_verify_integration(tmp_path: Path) -> None:
@@ -197,6 +197,6 @@ def test_analytic_iid_custom_seed_differs(tmp_path: Path) -> None:
         np.load(str(out2 / "draws.npz"), allow_pickle=True) as d2,
     ):
         site = d1.files[0]
-        assert not np.allclose(
-            d1[site], d2[site]
-        ), "Different seeds produced identical draws — RNG not working correctly"
+        assert not np.allclose(d1[site], d2[site]), (
+            "Different seeds produced identical draws — RNG not working correctly"
+        )

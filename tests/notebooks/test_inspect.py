@@ -253,17 +253,17 @@ def test_summarize_recipe_sample_budget_rows_low_recipe() -> None:
     props = dict(zip(df["Property"].tolist(), df["Value"].tolist()))
 
     assert "num_chains" in props, "summarize_recipe must include 'num_chains' row"
-    assert (
-        props["num_chains"] == "4"
-    ), f"Expected num_chains='4' for LOW recipe, got {props['num_chains']!r}"
+    assert props["num_chains"] == "4", (
+        f"Expected num_chains='4' for LOW recipe, got {props['num_chains']!r}"
+    )
     assert "n_warmup" in props, "summarize_recipe must include 'n_warmup' row"
-    assert (
-        props["n_warmup"] == "1000"
-    ), f"Expected n_warmup='1000' for LOW recipe, got {props['n_warmup']!r}"
+    assert props["n_warmup"] == "1000", (
+        f"Expected n_warmup='1000' for LOW recipe, got {props['n_warmup']!r}"
+    )
     assert "n_samples" in props, "summarize_recipe must include 'n_samples' row"
-    assert (
-        props["n_samples"] == "1000"
-    ), f"Expected n_samples='1000' for LOW recipe, got {props['n_samples']!r}"
+    assert props["n_samples"] == "1000", (
+        f"Expected n_samples='1000' for LOW recipe, got {props['n_samples']!r}"
+    )
 
 
 def test_summarize_recipe_sample_budget_rows_legacy_groundtruth(
@@ -282,17 +282,17 @@ def test_summarize_recipe_sample_budget_rows_legacy_groundtruth(
     props = dict(zip(df["Property"].tolist(), df["Value"].tolist()))
 
     # num_chains absent from both warmup_params and calibration_budget
-    assert (
-        props.get("num_chains") == "N/A"
-    ), f"Expected num_chains='N/A' for legacy recipe, got {props.get('num_chains')!r}"
+    assert props.get("num_chains") == "N/A", (
+        f"Expected num_chains='N/A' for legacy recipe, got {props.get('num_chains')!r}"
+    )
     # n_warmup present in warmup_params (n_warmup=1000 in the fixture)
-    assert (
-        props.get("n_warmup") == "1000"
-    ), f"Expected n_warmup='1000', got {props.get('n_warmup')!r}"
+    assert props.get("n_warmup") == "1000", (
+        f"Expected n_warmup='1000', got {props.get('n_warmup')!r}"
+    )
     # n_samples absent
-    assert (
-        props.get("n_samples") == "N/A"
-    ), f"Expected n_samples='N/A' for legacy recipe, got {props.get('n_samples')!r}"
+    assert props.get("n_samples") == "N/A", (
+        f"Expected n_samples='N/A' for legacy recipe, got {props.get('n_samples')!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -335,9 +335,9 @@ def test_summarize_recipe_warmup_inner_kernel_shown_when_set() -> None:
         "Schema extension: summarize_recipe must include 'warmup_inner_kernel' row "
         "when recipe.warmup_inner_kernel is explicitly set."
     )
-    assert (
-        props["warmup_inner_kernel"] == "nuts"
-    ), f"Expected warmup_inner_kernel='nuts', got {props['warmup_inner_kernel']!r}"
+    assert props["warmup_inner_kernel"] == "nuts", (
+        f"Expected warmup_inner_kernel='nuts', got {props['warmup_inner_kernel']!r}"
+    )
 
 
 def test_summarize_recipe_warmup_inner_kernel_absent_when_none() -> None:

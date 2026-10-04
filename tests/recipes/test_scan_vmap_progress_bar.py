@@ -40,6 +40,7 @@ NOTE: e2e emit-execute tests run a minimal 10-sample / minimal-warmup config;
 they assert the emitted script executes (structure correct, no vmap/io_callback
 errors), NOT inference quality. This keeps the e2e gate fast and memory-safe.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -118,6 +119,6 @@ def test_multichain_progress_bar_no_vmap_of_cond_error(tmp_path: Path) -> None:
         f"Emitted multi-chain progress_bar script exited with code {result.returncode}.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
-    assert (
-        "DONE" in result.stdout
-    ), f"Expected 'DONE' in stdout.\nstdout:\n{result.stdout}"
+    assert "DONE" in result.stdout, (
+        f"Expected 'DONE' in stdout.\nstdout:\n{result.stdout}"
+    )

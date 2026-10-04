@@ -22,6 +22,7 @@ Run via:
     make test-slow
     JAX_PLATFORM_NAME=cpu uv run pytest tests/e2e/test_nightly_regression.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -81,9 +82,9 @@ def test_lotka_dense_imm_inner_nuts_seed_20260713_passes() -> None:
         catalog_root=catalog,
     )
     z = compute_max_abs_mean_z(idata, "lotka_volterra")
-    assert (
-        z is not None
-    ), "compute_max_abs_mean_z returned None — reference/summary.json missing?"
+    assert z is not None, (
+        "compute_max_abs_mean_z returned None — reference/summary.json missing?"
+    )
     assert z < 4.0, (
         f"Seed 20260713 should pass z < 4.0 (it is a clean seed), got z={z:.3f}. "
         "If this seed now fails, the step-collapse has worsened — see issue #232."

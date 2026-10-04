@@ -121,9 +121,9 @@ def test_catalog_headline_basis_reproduces_headline_metric() -> None:
                 f"total_grad_evals={tge}). headline_basis must store the HEADLINE "
                 f"ESS (blackjax effective_sample_size), not the gate ESS (ess_bulk)."
             )
-    assert (
-        not failures
-    ), "headline_basis does not reproduce headline_metric:\n" + "\n".join(failures)
+    assert not failures, (
+        "headline_basis does not reproduce headline_metric:\n" + "\n".join(failures)
+    )
 
 
 @pytest.mark.fast

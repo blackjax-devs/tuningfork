@@ -36,9 +36,9 @@ _MODELS = sorted(MODELS.keys())
 @pytest.mark.parametrize("model_name", _MODELS)
 def test_model_registered(model_name: str) -> None:
     """Model is registered in MODELS."""
-    assert (
-        model_name in MODELS
-    ), f"Model '{model_name}' not found in MODELS; registered: {sorted(MODELS)}"
+    assert model_name in MODELS, (
+        f"Model '{model_name}' not found in MODELS; registered: {sorted(MODELS)}"
+    )
 
 
 @pytest.mark.parametrize("model_name", _MODELS)
@@ -46,6 +46,6 @@ def test_model_has_dim_and_class(model_name: str) -> None:
     """ENTRY has dim (positive int) and class_ (non-empty string label)."""
     entry = MODELS[model_name]
     assert isinstance(entry.dim, int) and entry.dim > 0
-    assert (
-        isinstance(entry.class_, str) and entry.class_
-    ), f"Model '{model_name}' must have a non-empty string class_; got {entry.class_!r}"
+    assert isinstance(entry.class_, str) and entry.class_, (
+        f"Model '{model_name}' must have a non-empty string class_; got {entry.class_!r}"
+    )

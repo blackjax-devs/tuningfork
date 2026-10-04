@@ -77,7 +77,7 @@ def test_load_explicit_positions_lotka_volterra() -> None:
     assert n_chains > 0, "must have at least one chain"
     for site in sites:
         assert len(pos_dict[site]) == n_chains, (
-            f"site {site!r}: expected {n_chains} chains, " f"got {len(pos_dict[site])}"
+            f"site {site!r}: expected {n_chains} chains, got {len(pos_dict[site])}"
         )
 
 
@@ -116,9 +116,9 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
     assert "max_rhat" in gate
     assert "min_bulk_ess" in gate
     # R̂ < 2.0 at 2×100 is a very loose sanity check (catches sampler failures)
-    assert (
-        gate["max_rhat"] < 2.0
-    ), f"{model_name}: max_rhat={gate['max_rhat']:.4f} >= 2.0"
+    assert gate["max_rhat"] < 2.0, (
+        f"{model_name}: max_rhat={gate['max_rhat']:.4f} >= 2.0"
+    )
 
     # --- diagnostics present ---
     dpc = result["diagnostics_per_chain"]
@@ -135,12 +135,12 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
     with np.load(str(draws_path), allow_pickle=True) as draws:
         for site in draws.files:
             shape = draws[site].shape
-            assert (
-                shape[0] == _SMOKE_N_CHAINS
-            ), f"{model_name}.{site}: expected n_chains={_SMOKE_N_CHAINS}, got {shape[0]}"
-            assert (
-                shape[1] == _SMOKE_N_DRAWS
-            ), f"{model_name}.{site}: expected n_draws={_SMOKE_N_DRAWS}, got {shape[1]}"
+            assert shape[0] == _SMOKE_N_CHAINS, (
+                f"{model_name}.{site}: expected n_chains={_SMOKE_N_CHAINS}, got {shape[0]}"
+            )
+            assert shape[1] == _SMOKE_N_DRAWS, (
+                f"{model_name}.{site}: expected n_draws={_SMOKE_N_DRAWS}, got {shape[1]}"
+            )
 
     # --- crude mean coherence vs committed GT ---
     # At 2×100 draws, use 10× posterior std as the tolerance.
@@ -165,9 +165,9 @@ def test_nuts_multichain_smoke_radon(tmp_path: Path) -> None:
                 f"{model_name}.{site}: new mean deviates "
                 f"{max_dev:.2f}× committed posterior std"
             )
-            assert np.all(
-                np.isfinite(new_mean)
-            ), f"{model_name}.{site}: new mean contains non-finite values"
+            assert np.all(np.isfinite(new_mean)), (
+                f"{model_name}.{site}: new mean contains non-finite values"
+            )
 
 
 @pytest.mark.slow
@@ -232,9 +232,9 @@ def test_nuts_multichain_custom_seed_differs(tmp_path: Path) -> None:
         np.load(str(out2 / "draws.npz"), allow_pickle=True) as d2,
     ):
         site = d1.files[0]
-        assert not np.allclose(
-            d1[site], d2[site]
-        ), "Different seeds produced identical draws — RNG not working correctly"
+        assert not np.allclose(d1[site], d2[site]), (
+            "Different seeds produced identical draws — RNG not working correctly"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -314,9 +314,9 @@ def test_nuts_multichain_precision_emitted_in_sampler_config(tmp_path: Path) -> 
     """
     committed = load_committed_summary("radon")
     result = generate_nuts_multichain("radon", committed, tmp_path, smoke=True)
-    assert (
-        "precision" in result["sampler_config"]
-    ), "sampler_config must include 'precision' key for artifact self-description"
+    assert "precision" in result["sampler_config"], (
+        "sampler_config must include 'precision' key for artifact self-description"
+    )
     assert result["sampler_config"]["precision"] == "float32"
 
 
@@ -349,9 +349,9 @@ def test_nuts_multichain_horseshoe_x64_path(tmp_path: Path) -> None:
     with np.load(str(draws_path), allow_pickle=True) as draws:
         for site in draws.files:
             arr = draws[site]
-            assert (
-                arr.dtype == np.float64
-            ), f"horseshoe.{site}: expected float64 draws, got {arr.dtype}"
+            assert arr.dtype == np.float64, (
+                f"horseshoe.{site}: expected float64 draws, got {arr.dtype}"
+            )
 
     # (c) x64 flag must be restored to the value it had before generation
     restored_x64 = jax.config.read("jax_enable_x64")

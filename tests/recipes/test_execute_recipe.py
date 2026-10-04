@@ -161,7 +161,7 @@ def test_execute_recipe_recipe_evidence_preserves_negative_and_unknown_fields(
     monkeypatch.setattr(
         emit_module,
         "launch_generated_program",
-        lambda *args, **kwargs: (seen.append(kwargs) or object()),
+        lambda *args, **kwargs: seen.append(kwargs) or object(),
     )
 
     emit_module.execute_recipe(recipe, Path("runs"))
@@ -203,7 +203,7 @@ def test_execute_recipe_real_recipe_encodes_nonfinite_gate_evidence(monkeypatch)
     monkeypatch.setattr(
         emit_module,
         "launch_generated_program",
-        lambda *args, **kwargs: (calls.append(kwargs) or object()),
+        lambda *args, **kwargs: calls.append(kwargs) or object(),
     )
 
     emit_module.execute_recipe(recipe, Path("runs"))
@@ -225,7 +225,7 @@ def test_canonical_recipe_snapshot_matches_receipt_for_structured_values(monkeyp
     monkeypatch.setattr(
         emit_module,
         "launch_generated_program",
-        lambda *args, **kwargs: (seen.append(kwargs) or object()),
+        lambda *args, **kwargs: seen.append(kwargs) or object(),
     )
 
     emit_module.execute_recipe(recipe, Path("runs"))
@@ -247,7 +247,7 @@ def test_execute_recipe_recipe_evidence_is_immutable_and_preserves_caller_identi
     monkeypatch.setattr(
         emit_module,
         "launch_generated_program",
-        lambda *args, **kwargs: (seen.append(kwargs) or object()),
+        lambda *args, **kwargs: seen.append(kwargs) or object(),
     )
 
     emit_module.execute_recipe(recipe, Path("runs"), reference_identity=caller)
@@ -282,8 +282,9 @@ def test_execute_recipe_supports_smc_generated_program(monkeypatch, tmp_path):
     monkeypatch.setattr(
         emit_module,
         "launch_generated_program",
-        lambda source, run_root, **kwargs: calls.append((source, run_root, kwargs))
-        or object(),
+        lambda source, run_root, **kwargs: (
+            calls.append((source, run_root, kwargs)) or object()
+        ),
     )
     recipe = SMCRecipe(
         model_name="gmm_25",
@@ -357,7 +358,7 @@ def test_execute_recipe_diagnostics_sets_child_environment(monkeypatch):
     monkeypatch.setattr(
         emit_module,
         "launch_generated_program",
-        lambda *args, **kwargs: (calls.append(kwargs) or object()),
+        lambda *args, **kwargs: calls.append(kwargs) or object(),
     )
 
     emit_module.execute_recipe(_Recipe(), Path("runs"), diagnostics=True)

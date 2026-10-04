@@ -80,7 +80,9 @@ assert RESPONSE.shape == (
 assert set(np.unique(_responses_flat).tolist()) <= {
     0.0,
     1.0,
-}, f"Response values must be binary {{0, 1}}, got {set(np.unique(_responses_flat).tolist())}"
+}, (
+    f"Response values must be binary {{0, 1}}, got {set(np.unique(_responses_flat).tolist())}"
+)
 
 # ---------------------------------------------------------------------------
 # NumPyro model (NCP IRT 2PL)

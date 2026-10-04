@@ -63,9 +63,9 @@ LOG_URANIUM: jnp.ndarray = jnp.array(_raw[:, 3], dtype=jnp.float32)  # shape (N,
 _county_min = int(COUNTY_IDX.min())
 _county_max = int(COUNTY_IDX.max())
 assert _county_min == 0, f"Expected county_idx min=0, got {_county_min}"
-assert (
-    _county_max == N_COUNTIES - 1
-), f"Expected county_idx max={N_COUNTIES - 1}, got {_county_max}"
+assert _county_max == N_COUNTIES - 1, (
+    f"Expected county_idx max={N_COUNTIES - 1}, got {_county_max}"
+)
 
 # ---------------------------------------------------------------------------
 # NumPyro model (NCP varying-intercept hierarchical radon)

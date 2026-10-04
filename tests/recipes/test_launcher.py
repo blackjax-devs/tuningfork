@@ -490,9 +490,7 @@ def test_child_fixed_receipt_temp_symlink_cannot_overwrite_target(tmp_path):
 
 
 def test_successful_parent_with_live_process_group_descendant_is_rejected(tmp_path):
-    descendant = (
-        "import time; time.sleep(0.5); " "open('late.bin', 'wb').write(b'late')"
-    )
+    descendant = "import time; time.sleep(0.5); open('late.bin', 'wb').write(b'late')"
     source = _source(
         _manifest(),
         "import subprocess, sys\n"
@@ -512,7 +510,7 @@ def test_successful_parent_with_live_process_group_descendant_is_rejected(tmp_pa
 def test_timeout_terminates_descendants_before_receipt_is_written(tmp_path):
     manifest = _manifest()
     descendant = (
-        "import time; time.sleep(0.5); " "open('late.draws.npz', 'wb').write(b'late')"
+        "import time; time.sleep(0.5); open('late.draws.npz', 'wb').write(b'late')"
     )
     source = (
         f"EXECUTION_MANIFEST_JSON = {manifest.to_json()!r}\n"

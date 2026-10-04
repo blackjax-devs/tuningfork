@@ -219,9 +219,7 @@ def test_exact_funnel_chart_factorises_the_clock():
     """
     h = jnp.zeros(FUNNEL_DIM).at[-1].set(1.0)
     chart = make_chart(h, -0.5 * h, h, 0.5, jnp.zeros(FUNNEL_DIM), jnp.ones(FUNNEL_DIM))
-    reference = lambda y: _funnel_logdensity(chart.forward(y)) + chart.log_det(
-        y
-    )  # noqa: E731
+    reference = lambda y: _funnel_logdensity(chart.forward(y)) + chart.log_det(y)  # noqa: E731
     clock_row = jax.jacfwd(lambda y: jax.grad(reference)(y)[-1])
 
     rng = np.random.default_rng(13)
@@ -230,9 +228,9 @@ def test_exact_funnel_chart_factorises_the_clock():
             np.concatenate([rng.normal(size=FUNNEL_DIM - 1), [rng.normal() * 3]])
         )
         row = clock_row(y)
-        assert (
-            float(jnp.max(jnp.abs(row[:-1]))) < 1e-10
-        ), "clock score depends on section"
+        assert float(jnp.max(jnp.abs(row[:-1]))) < 1e-10, (
+            "clock score depends on section"
+        )
         assert abs(float(row[-1]) + 1.0 / 9.0) < 1e-10, "clock curvature not constant"
 
 
@@ -285,9 +283,9 @@ def test_finite_but_overflowing_basis_is_refused():
 
     assert bool(jnp.all(jnp.isfinite(basis))), "every entry must be finite"
     gram = basis.T @ basis
-    assert not bool(
-        jnp.all(jnp.isfinite(gram))
-    ), "premise: derived Gram must be non-finite"
+    assert not bool(jnp.all(jnp.isfinite(gram))), (
+        "premise: derived Gram must be non-finite"
+    )
 
     h = jnp.zeros(d).at[-1].set(1.0)
     with pytest.raises(ValueError, match="orthonormal"):

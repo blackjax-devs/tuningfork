@@ -160,9 +160,9 @@ class TestComputeStage1Verdict:
         # One below the FAIL boundary (= review hi - 1) must be REVIEW or PASS
         result_not_fail = compute_stage1_verdict(draws, n_divergences=ndiv_fail - 1)
 
-        assert (
-            result_fail["stage1_verdict"] == "FAIL"
-        ), f"n_div={ndiv_fail} (= DEFAULT_THRESHOLDS FAIL boundary) must → FAIL"
+        assert result_fail["stage1_verdict"] == "FAIL", (
+            f"n_div={ndiv_fail} (= DEFAULT_THRESHOLDS FAIL boundary) must → FAIL"
+        )
         assert result_not_fail["stage1_verdict"] in (
             "PASS",
             "REVIEW",

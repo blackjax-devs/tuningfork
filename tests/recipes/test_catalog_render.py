@@ -17,6 +17,7 @@ Covers the bug where multichain GT draws (n_chains, n_draws, *event) were
 treated as single-chain draws, garbling the posterior group via the
 cert-protocol reshape path.
 """
+
 from __future__ import annotations
 
 import json

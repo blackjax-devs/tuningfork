@@ -447,8 +447,7 @@ def validate_warmup_num_chains(v: list[int] | None, n_phases: int) -> None:
         return
     if not isinstance(v, list):
         raise ValueError(
-            f"warmup_num_chains must be a list[int] or None; "
-            f"got {type(v).__name__!r}"
+            f"warmup_num_chains must be a list[int] or None; got {type(v).__name__!r}"
         )
     if len(v) != n_phases:
         raise ValueError(

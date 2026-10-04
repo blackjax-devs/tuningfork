@@ -275,9 +275,9 @@ class TestMockPass:
                 n_samples_ours=n,
             )
 
-        assert (
-            result.passed is True
-        ), f"failed_dims={result.failed_dims}, max_z={result.max_abs_mean_z:.3f}"
+        assert result.passed is True, (
+            f"failed_dims={result.failed_dims}, max_z={result.max_abs_mean_z:.3f}"
+        )
         assert result.n_dims_compared == 3
 
 
@@ -327,9 +327,9 @@ class TestMockFail:
                 n_samples_ours=n_ours,
             )
 
-        assert (
-            result.passed is False
-        ), f"Expected passed=False; max_z={result.max_abs_mean_z:.3f}"
+        assert result.passed is False, (
+            f"Expected passed=False; max_z={result.max_abs_mean_z:.3f}"
+        )
         assert len(result.failed_dims) > 0
         assert result.max_abs_mean_z >= 2.0
 
@@ -369,9 +369,9 @@ class TestMockFail:
             )
 
         assert result.passed is False
-        assert (
-            result.max_std_ratio_dev >= 0.05
-        ), f"Expected max_std_ratio_dev≥0.05; got {result.max_std_ratio_dev:.4f}"
+        assert result.max_std_ratio_dev >= 0.05, (
+            f"Expected max_std_ratio_dev≥0.05; got {result.max_std_ratio_dev:.4f}"
+        )
 
     def test_failed_dims_contains_param_name(self) -> None:
         """When 'mu' fails, 'mu' (or 'mu[0]') appears in failed_dims."""
@@ -406,9 +406,9 @@ class TestMockFail:
 
         assert result.passed is False
         # "mu" should appear in some form in failed_dims (could be "mu" or "mu[0]")
-        assert any(
-            "mu" in d for d in result.failed_dims
-        ), f"Expected 'mu' in failed_dims; got {result.failed_dims}"
+        assert any("mu" in d for d in result.failed_dims), (
+            f"Expected 'mu' in failed_dims; got {result.failed_dims}"
+        )
 
 
 # ---------------------------------------------------------------------------

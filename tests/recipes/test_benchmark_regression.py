@@ -734,9 +734,9 @@ def test_per_seed_metrics_all_3_seeds_captured(tmp_path) -> None:
         )
 
     # All 3 seeds must be present in the returned dict
-    assert (
-        set(per_seed.keys()) == expected_seeds
-    ), f"Expected seeds {expected_seeds}, got {set(per_seed.keys())}"
+    assert set(per_seed.keys()) == expected_seeds, (
+        f"Expected seeds {expected_seeds}, got {set(per_seed.keys())}"
+    )
 
     # per_seed_metrics must be stored in extra_info
     assert "per_seed_metrics" in mock_benchmark.extra_info
@@ -1055,14 +1055,14 @@ def test_run_benchmark_cell_per_seed_mean_of_2(tmp_path) -> None:
 
     # Each seed's ESS should be mean(1600, 2000) = 1800
     for s, m in per_seed.items():
-        assert m["min_bulk_ess"] == pytest.approx(
-            1800.0
-        ), f"seed {s}: expected mean ESS 1800.0, got {m['min_bulk_ess']}"
+        assert m["min_bulk_ess"] == pytest.approx(1800.0), (
+            f"seed {s}: expected mean ESS 1800.0, got {m['min_bulk_ess']}"
+        )
     # runtime is summed: 1.0 + 1.2 = 2.2
     for s, m in per_seed.items():
-        assert m["runtime_warmup_s"] == pytest.approx(
-            2.2
-        ), f"seed {s}: expected summed runtime 2.2, got {m['runtime_warmup_s']}"
+        assert m["runtime_warmup_s"] == pytest.approx(2.2), (
+            f"seed {s}: expected summed runtime 2.2, got {m['runtime_warmup_s']}"
+        )
 
 
 # ---------------------------------------------------------------------------

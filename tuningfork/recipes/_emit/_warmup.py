@@ -1360,10 +1360,7 @@ def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
     )
     a("_traj_warmup_keys = jax.random.split(_traj_warmup_key, num_chains)")
     a("_traj_init_positions = jax.tree.map(")
-    a(
-        "    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), "
-        "init_position"
-    )
+    a("    lambda x: jnp.broadcast_to(x[None], (num_chains,) + x.shape), init_position")
     a(")")
     a("")
     a("")
@@ -1392,10 +1389,7 @@ def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
     a("_traj_warm_states, _traj_adaptation, _traj_warm_total = _traj_tune_one(")
     a("    _traj_warmup_keys, _traj_init_states")
     a(")")
-    a(
-        "jax.block_until_ready("
-        "(_traj_warm_states, _traj_adaptation, _traj_warm_total))"
-    )
+    a("jax.block_until_ready((_traj_warm_states, _traj_adaptation, _traj_warm_total))")
     a("_traj_step_sizes = _traj_adaptation.step_size")
     a("_traj_inverse_mass_matrices = _traj_adaptation.inverse_mass_matrix")
     a("")
@@ -1435,10 +1429,7 @@ def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
     a("                inverse_mass_matrix=inverse_mass_matrix,")
     a("                integration_steps_params=(avg,),")
     a("            )")
-    a(
-        "            return new_state, "
-        "(new_state.position, info.num_integration_steps)"
-    )
+    a("            return new_state, (new_state.position, info.num_integration_steps)")
     a("")
     a("        _, (positions, integration_steps) = jax.lax.scan(")
     a("            step, state, scan_keys")
@@ -1485,7 +1476,7 @@ def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
     a("_traj_avg_star = float(max(_traj_scores, key=lambda avg: _traj_scores[avg]))")
     a("# Preserve the historical upper-bound estimate based on candidate averages.")
     a("_traj_pilot_grad_estimate = sum(")
-    a("    int(2 * avg * _traj_n_pilot * num_chains) " "for avg in _traj_avg_grid")
+    a("    int(2 * avg * _traj_n_pilot * num_chains) for avg in _traj_avg_grid")
     a(")")
     a("_adapted_params = {")
     a('    "L": _traj_avg_star * _traj_step_sizes,')
@@ -1494,7 +1485,7 @@ def _emit_adjusted_mclmc_trajectory_tuning(ctx: dict[str, Any]) -> str:
     a('    "_avg_star": _traj_avg_star,')
     a('    "_avg_search_ess_per_grad": _traj_scores,')
     a('    "_total_tuning_steps": (')
-    a("        int(jnp.asarray(_traj_warm_total)[0]) " "+ _traj_pilot_grad_estimate")
+    a("        int(jnp.asarray(_traj_warm_total)[0]) + _traj_pilot_grad_estimate")
     a("    ),")
     a("}")
     a("_state_post_warmup = _traj_dynamic_states")

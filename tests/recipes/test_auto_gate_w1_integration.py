@@ -168,12 +168,12 @@ def test_w1_realm_skipped_when_rhat_fails():
     assert verdict.rhat_max is not None and verdict.rhat_max >= 1.05
 
     # W1 realm must have been skipped
-    assert (
-        verdict.w1_realm_result is None
-    ), "Expected W1 realm to be skipped when R̂ FAILs"
-    assert (
-        "w1_realm" not in verdict.margins
-    ), "Expected no 'w1_realm' key in margins when W1 was skipped"
+    assert verdict.w1_realm_result is None, (
+        "Expected W1 realm to be skipped when R̂ FAILs"
+    )
+    assert "w1_realm" not in verdict.margins, (
+        "Expected no 'w1_realm' key in margins when W1 was skipped"
+    )
 
     assert verdict.verdict == "FAIL"
 
@@ -254,9 +254,9 @@ def test_w1_null_case_does_not_add_top_level_to_dict_key():
         "verdict",
         "margins",
     }
-    assert (
-        set(d.keys()) == expected_top_level
-    ), f"Unexpected top-level keys in to_dict(): {set(d.keys()) - expected_top_level}"
+    assert set(d.keys()) == expected_top_level, (
+        f"Unexpected top-level keys in to_dict(): {set(d.keys()) - expected_top_level}"
+    )
     # W1 lives under margins
     assert "w1_realm" in d["margins"]
 
@@ -284,10 +284,10 @@ def test_w1_verdict_propagates_to_overall():
 
     assert verdict.w1_realm_result is not None
     w1_m = verdict.margins["w1_realm"]
-    assert (
-        w1_m["max_prong_verdict"] == "FAIL"
-    ), f"Expected max prong FAIL with +5σ shift, got {w1_m['max_prong_verdict']}"
+    assert w1_m["max_prong_verdict"] == "FAIL", (
+        f"Expected max prong FAIL with +5σ shift, got {w1_m['max_prong_verdict']}"
+    )
     # Overall verdict must propagate the W1 FAIL
-    assert (
-        verdict.verdict == "FAIL"
-    ), f"Expected overall FAIL from W1 prong, got {verdict.verdict}"
+    assert verdict.verdict == "FAIL", (
+        f"Expected overall FAIL from W1 prong, got {verdict.verdict}"
+    )

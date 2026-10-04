@@ -128,8 +128,7 @@ _EXPECTED_FAILURE_LABELS = frozenset(
         "failed__laplace_dhmc__window_adaptation_low_rank_imm.json",
         "neals_funnel/recipes/"
         "failed__laplace_dmhmc__window_adaptation_low_rank_imm.json",
-        "neals_funnel/recipes/"
-        "failed__laplace_hmc__window_adaptation_low_rank_imm.json",
+        "neals_funnel/recipes/failed__laplace_hmc__window_adaptation_low_rank_imm.json",
         "neals_funnel/recipes/"
         "failed__laplace_mhmc__window_adaptation_low_rank_imm.json",
         "radon/recipes/failed__nuts__fullrank_vi.json",

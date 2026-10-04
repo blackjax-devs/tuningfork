@@ -370,9 +370,9 @@ def test_coherence_materiality_review_pass() -> None:
     com = _coh_summary({"x": _per_site_summary([0.0], [se], std=[std_c])})
 
     passed, results, meta = _check_coherence(gen, com)
-    assert (
-        passed
-    ), "Large z but immaterial (mat << TAU_SCI) should be REVIEW (counts as pass)"
+    assert passed, (
+        "Large z but immaterial (mat << TAU_SCI) should be REVIEW (counts as pass)"
+    )
     assert results[0]["verdict"] == "REVIEW"
     assert len(results[0]["review_dims"]) > 0
     assert len(results[0]["hard_fail_dims"]) == 0
@@ -444,9 +444,9 @@ def test_coherence_threshold_pin_formula() -> None:
     assert meta2["D_total"] == D2
     expected_z2 = float(scipy_stats.t.ppf(1.0 - alpha / (2.0 * D2), 18))
     assert meta2["z_crit"] == pytest.approx(expected_z2, rel=1e-5)
-    assert meta2["z_crit"] == pytest.approx(
-        3.6281, rel=1e-3
-    ), f"z_crit for D={D2}: got {meta2['z_crit']:.4f}, expected ≈3.6281."
+    assert meta2["z_crit"] == pytest.approx(3.6281, rel=1e-3), (
+        f"z_crit for D={D2}: got {meta2['z_crit']:.4f}, expected ≈3.6281."
+    )
 
 
 def test_coherence_shape_shrink_fails() -> None:
@@ -496,9 +496,9 @@ def test_coherence_materiality_boundary_strict_gt() -> None:
     gen_at = _coh_summary({"x": _per_site_summary([delta_at], [se])})
     com_at = _coh_summary({"x": _per_site_summary([0.0], [se], std=[std_c])})
     passed_at, results_at, _ = _check_coherence(gen_at, com_at)
-    assert (
-        passed_at
-    ), f"mat exactly at boundary ({_TAU_SCI}) should be REVIEW (strict >), not FAIL."
+    assert passed_at, (
+        f"mat exactly at boundary ({_TAU_SCI}) should be REVIEW (strict >), not FAIL."
+    )
     assert results_at[0]["verdict"] == "REVIEW"
 
     # Just above the boundary: mat = TAU_SCI + epsilon → FAIL (strict > is True)
@@ -506,9 +506,9 @@ def test_coherence_materiality_boundary_strict_gt() -> None:
     gen_above = _coh_summary({"x": _per_site_summary([delta_above], [se])})
     com_above = _coh_summary({"x": _per_site_summary([0.0], [se], std=[std_c])})
     passed_above, results_above, _ = _check_coherence(gen_above, com_above)
-    assert (
-        not passed_above
-    ), f"mat just above boundary ({_TAU_SCI}+eps) should hard-FAIL."
+    assert not passed_above, (
+        f"mat just above boundary ({_TAU_SCI}+eps) should hard-FAIL."
+    )
     assert results_above[0]["verdict"] == "FAIL"
 
 

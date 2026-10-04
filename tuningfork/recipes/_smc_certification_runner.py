@@ -251,9 +251,7 @@ def _try_persist_attempt(
         updated = replace(updated, calibration_budget=budget)
         return updated, updated.save(root), attempt_id, None
     except Exception as error:  # noqa: BLE001
-        note = (
-            "attempt recording/persistence failed: " f"{type(error).__name__}: {error}"
-        )
+        note = f"attempt recording/persistence failed: {type(error).__name__}: {error}"
         return base, None, attempt_id, note
 
 

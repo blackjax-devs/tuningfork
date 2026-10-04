@@ -112,13 +112,12 @@ def test_sampling_constructor_alias_is_reported(tmp_path: Path) -> None:
         ),
         (
             "import_module.py",
-            "import blackjax.mcmc.hmc as internal_hmc\n"
-            "internal_hmc.build_kernel()\n",
+            "import blackjax.mcmc.hmc as internal_hmc\ninternal_hmc.build_kernel()\n",
             "blackjax.mcmc.hmc.build_kernel",
         ),
         (
             "import_module_unaliased.py",
-            "import blackjax.mcmc.hmc\n" "blackjax.mcmc.hmc.build_kernel()\n",
+            "import blackjax.mcmc.hmc\nblackjax.mcmc.hmc.build_kernel()\n",
             "blackjax.mcmc.hmc.build_kernel",
         ),
         (
@@ -129,7 +128,7 @@ def test_sampling_constructor_alias_is_reported(tmp_path: Path) -> None:
         ),
         (
             "from_function.py",
-            "from blackjax.mcmc.random_walk import build_rmh\n" "build_rmh()\n",
+            "from blackjax.mcmc.random_walk import build_rmh\nbuild_rmh()\n",
             "blackjax.mcmc.random_walk.build_rmh",
         ),
         (
@@ -139,7 +138,7 @@ def test_sampling_constructor_alias_is_reported(tmp_path: Path) -> None:
         ),
         (
             "top_level_api.py",
-            "from blackjax.mcmc.hmc import as_top_level_api\n" "as_top_level_api()\n",
+            "from blackjax.mcmc.hmc import as_top_level_api\nas_top_level_api()\n",
             "blackjax.mcmc.hmc.as_top_level_api",
         ),
         (
@@ -168,8 +167,7 @@ def test_low_level_sampling_builder_import_forms_are_reported(
         ),
         (
             "getattr_builder.py",
-            "import blackjax.mcmc.hmc\n"
-            "getattr(blackjax.mcmc.hmc, 'build_kernel')()\n",
+            "import blackjax.mcmc.hmc\ngetattr(blackjax.mcmc.hmc, 'build_kernel')()\n",
             "blackjax.mcmc.hmc.build_kernel",
         ),
         (
@@ -196,7 +194,7 @@ def test_constant_dynamic_sampling_forms_are_reported(
 
 def test_unrelated_build_function_is_ignored(tmp_path: Path) -> None:
     (tmp_path / "helper.py").write_text(
-        "from project.helpers import build_sampler\n" "build_sampler(logdensity_fn)\n"
+        "from project.helpers import build_sampler\nbuild_sampler(logdensity_fn)\n"
     )
     assert not boundary.scan_source(tmp_path)
 
@@ -261,7 +259,7 @@ def test_chained_assignment_alias_is_reported(tmp_path: Path) -> None:
 
 def test_unknown_assignment_alias_is_ignored(tmp_path: Path) -> None:
     (tmp_path / "unknown.py").write_text(
-        "def sample():\n" "    helper = object()\n" "    return helper(logdensity_fn)\n"
+        "def sample():\n    helper = object()\n    return helper(logdensity_fn)\n"
     )
     assert not boundary.scan_source(tmp_path)
 

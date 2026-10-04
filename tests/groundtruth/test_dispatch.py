@@ -70,9 +70,9 @@ def test_committed_gt_dir_returns_valid_path() -> None:
     for model_name in _EXPECTED:
         gt_dir = committed_gt_dir(model_name)
         assert gt_dir.is_dir(), f"GT dir missing for {model_name!r}: {gt_dir}"
-        assert (
-            gt_dir / "summary_v2.json"
-        ).exists(), f"summary_v2.json missing for {model_name!r}"
+        assert (gt_dir / "summary_v2.json").exists(), (
+            f"summary_v2.json missing for {model_name!r}"
+        )
         assert (gt_dir / "draws.npz").exists(), f"draws.npz missing for {model_name!r}"
 
 
@@ -80,9 +80,9 @@ def test_load_committed_summary_schema_version() -> None:
     """All committed summaries have schema_version='gt_v2_multichain'."""
     for model_name in _EXPECTED:
         summary = load_committed_summary(model_name)
-        assert (
-            summary["schema_version"] == "gt_v2_multichain"
-        ), f"Model {model_name!r}: unexpected schema_version {summary['schema_version']!r}"
+        assert summary["schema_version"] == "gt_v2_multichain", (
+            f"Model {model_name!r}: unexpected schema_version {summary['schema_version']!r}"
+        )
 
 
 def test_resolve_gt_method_unknown_generator_raises() -> None:

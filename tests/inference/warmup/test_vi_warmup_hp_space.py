@@ -83,9 +83,9 @@ def test_other_warmups_have_empty_hp_space() -> None:
         if name in _known_non_empty_hp_space:
             continue
         hp_space = getattr(entry, "default_hp_space", ())
-        assert (
-            hp_space == () or len(hp_space) == 0
-        ), f"Non-VI warmup {name!r} unexpectedly has default_hp_space: {hp_space}"
+        assert hp_space == () or len(hp_space) == 0, (
+            f"Non-VI warmup {name!r} unexpectedly has default_hp_space: {hp_space}"
+        )
 
 
 def test_low_rank_warmup_has_max_rank_hp_space() -> None:
@@ -153,6 +153,6 @@ def test_warmup_hp_space_override_roundtrip() -> None:
             if any(k == s.name for s in getattr(mfwu, "default_hp_space", ()))
         }
     )
-    assert (
-        merged["num_optimization_steps"] == 10_000
-    ), "warmup_kwargs_override must override the HP default"
+    assert merged["num_optimization_steps"] == 10_000, (
+        "warmup_kwargs_override must override the HP default"
+    )

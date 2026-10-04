@@ -80,9 +80,9 @@ class TestBuildLogdensityFn:
         # logdensity at mode (0,0,0) should exceed logdensity at (2,2,2)
         at_mode = logdensity_fn({"x": jnp.zeros(3)})
         away_from_mode = logdensity_fn({"x": jnp.array([2.0, 2.0, 2.0])})
-        assert (
-            at_mode > away_from_mode
-        ), f"Expected logdensity at mode > away: {at_mode:.3f} vs {away_from_mode:.3f}"
+        assert at_mode > away_from_mode, (
+            f"Expected logdensity at mode > away: {at_mode:.3f} vs {away_from_mode:.3f}"
+        )
 
     def test_logdensity_fn_is_differentiable(self):
         key = jax.random.key(3)
@@ -142,6 +142,6 @@ class TestBuildLogdensityFn:
         # Use the same init_pos as above
         ld = logdensity_fn(init_pos)
         pot = potential_fn(init_pos)
-        assert jnp.isclose(
-            ld, -pot, atol=1e-5
-        ), f"logdensity_fn != -potential_fn: {ld} vs {-pot}"
+        assert jnp.isclose(ld, -pot, atol=1e-5), (
+            f"logdensity_fn != -potential_fn: {ld} vs {-pot}"
+        )

@@ -280,10 +280,7 @@ def _build_inference_loop(
             "# Re-init per-chain state (dynamic_hmc / dmhmc / ghmc: different state"
             " type than warmup)."
         )
-        a(
-            f"_reinit_keys = jax.random.split(jax.random.key({reinit_seed}),"
-            f" num_chains)"
-        )
+        a(f"_reinit_keys = jax.random.split(jax.random.key({reinit_seed}), num_chains)")
         if warmup_is_perchain and not warmup_init_is_prebatched:
             a('_batched_step_size = _adapted_params["step_size"]')
             a('_batched_imm = _adapted_params["inverse_mass_matrix"]')

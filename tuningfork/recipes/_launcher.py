@@ -80,7 +80,7 @@ def _parse_timings(stdout: bytes) -> ExecutionTimings | None:
     required_fields = {"warmup_seconds", "sampling_seconds", "total_seconds"}
     if set(payload) != required_fields:
         raise ValueError(
-            "timing sentinel fields must be exactly " f"{sorted(required_fields)!r}"
+            f"timing sentinel fields must be exactly {sorted(required_fields)!r}"
         )
     values: list[float] = []
     for name in ("warmup_seconds", "sampling_seconds", "total_seconds"):

@@ -112,9 +112,9 @@ class TestTotalGradEvalsMalaLike:
         """total_grad_evals must return a plain Python int, not a JAX Array."""
         infos = FakeConstantInfo(accepted=jnp.ones((10,), dtype=jnp.bool_))
         result = total_grad_evals(infos, lambda i: 1)
-        assert isinstance(
-            result, int
-        ), f"Expected Python int, got {type(result).__name__}"
+        assert isinstance(result, int), (
+            f"Expected Python int, got {type(result).__name__}"
+        )
 
 
 # ---------------------------------------------------------------------------

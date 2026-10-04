@@ -743,15 +743,15 @@ def test_dimension_aware_gate_still_fails_genuine_bias():
         assert verdict.min_bulk_ess is not None
         if verdict.min_bulk_ess > Z_VERDICT_ESS_CEILING:
             # Large realm: z-driven FAIL demotes to REVIEW
-            assert (
-                verdict.verdict == "REVIEW"
-            ), f"d={d}, ESS={verdict.min_bulk_ess:.0f}: expected REVIEW with z_advisory"
+            assert verdict.verdict == "REVIEW", (
+                f"d={d}, ESS={verdict.min_bulk_ess:.0f}: expected REVIEW with z_advisory"
+            )
             assert verdict.margins["max_abs_mean_z"].get("z_advisory") is True
         else:
             # Small realm: verdict is FAIL as before
-            assert (
-                verdict.verdict == "FAIL"
-            ), f"d={d} did not FAIL at z={verdict.max_abs_mean_z}"
+            assert verdict.verdict == "FAIL", (
+                f"d={d} did not FAIL at z={verdict.max_abs_mean_z}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1077,9 +1077,9 @@ def test_z_advisory_bias_sigma_numerically_correct():
         bias_sigma_max_z4 = margins_z["bias_sigma_max_at_z4"]
         # Should be close to 0.005 (from dim 0), NOT 0.048 (from dim 1).
         # This pins the semantic: max among z>=4 failing dims.
-        assert (
-            0.003 < bias_sigma_max_z4 < 0.010
-        ), f"bias_sigma_max_at_z4={bias_sigma_max_z4}, expected ≈0.005 (from failing dim z≥4)"
+        assert 0.003 < bias_sigma_max_z4 < 0.010, (
+            f"bias_sigma_max_at_z4={bias_sigma_max_z4}, expected ≈0.005 (from failing dim z≥4)"
+        )
 
 
 def test_z_advisory_cost_block_optional():

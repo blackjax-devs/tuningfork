@@ -114,11 +114,10 @@ def test_leaderboard_smc_note_printed_in_markdown(capsys) -> None:
     _cmd_leaderboard(args)
     out = capsys.readouterr().out
     assert "SMC" in out, (
-        f"Expected SMC note in leaderboard output for {model_name!r}.\n" f"Got:\n{out}"
+        f"Expected SMC note in leaderboard output for {model_name!r}.\nGot:\n{out}"
     )
     assert "not ranked" in out, (
-        f"Expected 'not ranked' note for SMC in output for {model_name!r}.\n"
-        f"Got:\n{out}"
+        f"Expected 'not ranked' note for SMC in output for {model_name!r}.\nGot:\n{out}"
     )
 
 
@@ -223,6 +222,6 @@ def test_leaderboard_json_format_mcmc_only_on_smc_model() -> None:
         assert "effort" in entry, f"Entry missing 'effort': {entry}"
         assert "base_method_name" in entry, f"Entry missing 'base_method_name': {entry}"
         # SMC entries would have 'smc_method_name' instead — assert absent
-        assert (
-            "smc_method_name" not in entry
-        ), f"SMC entry leaked into JSON output: {entry}"
+        assert "smc_method_name" not in entry, (
+            f"SMC entry leaked into JSON output: {entry}"
+        )
