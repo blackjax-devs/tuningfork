@@ -26,6 +26,11 @@ jobs:
         # pyproject declares ``requires-python = ">=3.13"``. Matrix covers
         # both supported Pythons (3.13 and 3.14).
         python: ['3.13', '3.14']
+    env:
+      # Pin every uv command to the matrix Python. Without this, `uv run`
+      # falls back to .python-version (3.13) and rebuilds the env without
+      # the bench group, so the 3.14 leg fails with "Failed to spawn: pytest".
+      UV_PYTHON: ${{ matrix.python }}
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
